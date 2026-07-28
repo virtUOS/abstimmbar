@@ -1,0 +1,898 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Universität Osnabrück (virtUOS)
+
+"""Authoring API: rooms, question sets, questions, image upload.
+
+Everything here requires a logged-in user (OIDC); visibility is limited to
+rooms the user owns (staff sees all). The anonymous participant side lives in
+the `live` app (M2) — never here.
+"""
+import operator
+from functools import reduce
+from typing import ClassVar
+
+import nh3
+from basicbar_integrations import ai
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.db.models import Count, Exists, Max, OuterRef, Q
+from django.http import JsonResponse
+from django.shortcuts import get_object_or_404
+from django.utils.html import strip_tags
+from rest_framework import parsers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from common import documents
+
+from . import ai_generate, ai_prompts
+from .images import InvalidImageError, normalize_image
+from .models import Question, QuestionSet, Room, Section
+from .serializers import (
+    QuestionSerializer,
+    QuestionSetSerializer,
+    RoomSerializer,
+    SectionSerializer,
+    UploadedImageSerializer,
+    next_outline_position,
+)
+from .transfer import duplicate_question, duplicate_set, export_set, import_set
+
+MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+
+def _display_name(user):
+    return user.get_full_name() or user.username
+
+
+def _owner_list(room, viewer):
+    return [
+        {
+            "id": owner.pk,
+            "username": owner.username,
+            "name": _display_name(owner),
+            "is_self": owner.pk == viewer.pk,
+            "is_owner": owner.pk == room.owner_id,
+        }
+        for owner in room.owners.order_by("first_name", "username")
+    ]
+
+
+def _plain(html):
+    """Strip all markup (plain-text preview of question texts)."""
+    return " ".join(nh3.clean(html or "", tags=set()).split())
+
+
+def _i18n_icontains(field, query):
+    """OR-combine an ``icontains`` lookup across every content-language
+    column of a translatable field.
+
+    A bare lookup like ``Q(title__icontains=q)`` gets rewritten by
+    django-modeltranslation to the *active UI language* column
+    (``title_en``/``title_de``) — so search would silently only cover
+    content authored in whatever language the searching user's interface
+    happens to be in. Search must cover all authored content regardless of
+    the active language, so build the Q explicitly across
+    ``MODELTRANSLATION_LANGUAGES`` instead. ``field`` may include ``__``
+    relation traversal (e.g. ``"questions__text"``).
+    """
+    return reduce(
+        operator.or_,
+        (
+            Q(**{f"{field}_{lang}__icontains": query})
+            for lang in settings.MODELTRANSLATION_LANGUAGES
+        ),
+    )
+
+
+def _touch(question_set):
+    """Bump the set's updated_at when its questions change (table column)."""
+    question_set.save(update_fields=["updated_at"])
+
+
+def _clamp_int(value, *, default, lo, hi):
+    try:
+        return max(lo, min(hi, int(value)))
+    except (TypeError, ValueError):
+        return default
+
+
+class RoomViewSet(viewsets.ModelViewSet):
+    serializer_class = RoomSerializer
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        favorite = Room.favorited_by.through.objects.filter(
+            room=OuterRef("pk"), user=user.pk
+        )
+        archived = Room.archived_by.through.objects.filter(
+            room=OuterRef("pk"), user=user.pk
+        )
+        member = Room.owners.through.objects.filter(
+            room=OuterRef("pk"), user=user.pk
+        )
+        # Local import avoids an app-import cycle (lti imports rooms.models).
+        from lti.models import LtiContextLink
+
+        lti = LtiContextLink.objects.filter(room=OuterRef("pk"))
+        queryset = Room.objects.annotate(
+            question_set_count=Count("question_sets", distinct=True),
+            owner_count=Count("owners", distinct=True),
+            # Last actual use = most recent run across the room's sets.
+            last_used_at=Max("question_sets__runs__created_at"),
+            is_favorite=Exists(favorite),
+            is_archived=Exists(archived),
+            is_member=Exists(member),
+            is_lti=Exists(lti),
+        )
+        # Non-staff are always restricted to their own/shared rooms (this is
+        # the object-permission boundary for detail/edit/delete too). Staff
+        # keep full object access to every room; only their LIST is personal
+        # by default, with ?all=1 opting into the system-wide list.
+        show_all = self.request.query_params.get("all") in ("1", "true", "True")
+        if not user.is_staff or self.action == "list" and not show_all:
+            queryset = queryset.filter(Q(owners=user) | Q(owner=user)).distinct()
+        # The overview hides archived rooms; the archive page requests them
+        # explicitly (?archived=1). Detail/actions keep every room reachable.
+        if self.action == "list":
+            wants_archived = self.request.query_params.get("archived") in (
+                "1", "true", "True",
+            )
+            queryset = queryset.filter(is_archived=wants_archived)
+        return queryset
+
+    def perform_create(self, serializer):
+        room = serializer.save(
+            created_by=self.request.user,
+            updated_by=self.request.user,
+            owner=self.request.user,
+        )
+        room.owners.add(self.request.user)
+
+    def perform_destroy(self, instance):
+        # Deleting wipes the room for everyone, so only the Besitzer (or staff)
+        # may do it — co-owners "leave" instead (#26).
+        user = self.request.user
+        if not (
+            user.is_staff
+            or instance.owner_id is None
+            or instance.owner_id == user.pk
+        ):
+            raise PermissionDenied(
+                "Nur die besitzende Person kann den Raum löschen. Du kannst "
+                "aus dem Teilen austreten."
+            )
+        instance.delete()
+
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user)
+
+    @action(detail=True, methods=["post", "delete"])
+    def favorite(self, request, pk=None):
+        """Mark/unmark this room as a favourite for the current user."""
+        room = self.get_object()
+        if request.method == "DELETE":
+            room.favorited_by.remove(request.user)
+        else:
+            room.favorited_by.add(request.user)
+        # Re-read with annotations so is_favorite is fresh.
+        room = self.get_queryset().get(pk=room.pk)
+        return Response(RoomSerializer(room, context={"request": request}).data)
+
+    @action(detail=True, methods=["post", "delete"])
+    def archive(self, request, pk=None):
+        """Archive/unarchive this room for the current user (#16)."""
+        room = self.get_object()
+        if request.method == "DELETE":
+            room.archived_by.remove(request.user)
+        else:
+            room.archived_by.add(request.user)
+        room = self.get_queryset().get(pk=room.pk)
+        return Response(RoomSerializer(room, context={"request": request}).data)
+
+    @action(detail=True, methods=["get", "post"], url_path="owners")
+    def owners(self, request, pk=None):
+        """Shared editing (v2): every owner has full rights on the room.
+
+        POST body: ``{"user": "<username or e-mail>"}`` — exact match only,
+        so the endpoint cannot be used to enumerate accounts.
+        """
+        room = self.get_object()
+        if request.method == "POST":
+            query = str(request.data.get("user") or "").strip()
+            if not query:
+                return Response(
+                    {"detail": "Nutzerkennung oder E-Mail-Adresse angeben."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            user_model = get_user_model()
+            user = user_model.objects.filter(username__iexact=query).first()
+            if user is None:
+                matches = list(user_model.objects.filter(email__iexact=query)[:2])
+                if len(matches) > 1:
+                    return Response(
+                        {"detail": "E-Mail-Adresse ist nicht eindeutig — bitte "
+                                   "die Nutzerkennung verwenden."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                user = matches[0] if matches else None
+            if user is None:
+                return Response(
+                    {"detail": "Keine Person mit dieser Kennung/E-Mail gefunden "
+                               "(sie muss sich mindestens einmal angemeldet haben)."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            room.owners.add(user)  # idempotent
+        return Response({"owners": _owner_list(room, request.user)})
+
+    @action(detail=False, methods=["get"], url_path="collaborators")
+    def collaborators(self, request):
+        """People the requester already shares a room with (#55), most-frequent
+        first — so they can be re-added as co-owners without retyping an e-mail.
+
+        Only users already visible to the requester via a shared room's owners
+        are returned (no account enumeration), and never their e-mail.
+        """
+        my_rooms = request.user.rooms.all()
+        users = (
+            get_user_model()
+            .objects.filter(rooms__in=my_rooms)
+            .exclude(pk=request.user.pk)
+            .annotate(shared=Count("rooms", filter=Q(rooms__in=my_rooms), distinct=True))
+            .order_by("-shared", "first_name", "username")
+        )
+        return Response(
+            {
+                "collaborators": [
+                    {"id": user.pk, "username": user.username, "name": _display_name(user)}
+                    for user in users
+                ]
+            }
+        )
+
+    @action(detail=True, methods=["delete"], url_path=r"owners/(?P<user_id>\d+)")
+    def remove_owner(self, request, pk=None, user_id=None):
+        """Remove a co-owner (also: leave a shared room yourself). The last
+        owner cannot be removed — the room would become unreachable. The
+        Besitzer must hand the room over before stepping down (#26)."""
+        room = self.get_object()
+        if room.owners.count() <= 1:
+            return Response(
+                {"detail": "Die letzte besitzende Person kann nicht entfernt werden."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if str(room.owner_id) == str(user_id):
+            return Response(
+                {"detail": "Bitte zuerst den Besitz an eine andere Person "
+                           "übertragen."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        room.owners.remove(user_id)
+        return Response({"owners": _owner_list(room, request.user)})
+
+    @action(detail=True, methods=["post"], url_path="leave")
+    def leave(self, request, pk=None):
+        """Leave a room shared with me (drop myself as co-owner, #26). The
+        Besitzer cannot leave without transferring ownership first."""
+        room = self.get_object()
+        user = request.user
+        if room.owner_id == user.pk:
+            return Response(
+                {"detail": "Als besitzende Person kannst du nicht austreten — "
+                           "übertrage den Raum zuerst oder lösche ihn."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        room.owners.remove(user)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=True, methods=["post"], url_path="transfer-owner")
+    def transfer_owner(self, request, pk=None):
+        """Hand the room over to another owner (#26). Only the current
+        Besitzer (or staff) may do this; the target must already be a co-owner
+        so ownership never lands on someone without access."""
+        room = self.get_object()
+        user = request.user
+        if not (user.is_staff or room.owner_id in (None, user.pk)):
+            raise PermissionDenied(
+                "Nur die besitzende Person kann den Raum übertragen."
+            )
+        try:
+            target_id = int(request.data.get("user"))
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "Zielperson angeben."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not room.owners.filter(pk=target_id).exists():
+            return Response(
+                {"detail": "Die Zielperson muss den Raum bereits mitbearbeiten."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        room.owner_id = target_id
+        room.save(update_fields=["owner"])
+        return Response({"owners": _owner_list(room, request.user)})
+
+    @action(detail=True, methods=["post"], url_path="import-set")
+    def import_set(self, request, pk=None):
+        """Create a question set from an export file's JSON (roadmap M3)."""
+        room = self.get_object()
+        question_set = import_set(room, request.data)
+        serializer = QuestionSetSerializer(
+            question_set, context={"request": request}
+        )
+        data = dict(serializer.data)
+        data["question_count"] = question_set.questions.count()
+        return Response(data, status=status.HTTP_201_CREATED)
+
+
+class QuestionSetViewSet(viewsets.ModelViewSet):
+    serializer_class = QuestionSetSerializer
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = QuestionSet.objects.annotate(
+            question_count=Count("questions", distinct=True),
+            vote_count=Count("runs__votes", distinct=True),
+        )
+        user = self.request.user
+        if not user.is_staff:
+            queryset = queryset.filter(room__owners=user)
+        room_id = self.request.query_params.get("room")
+        if room_id:
+            queryset = queryset.filter(room_id=room_id)
+        # Full-text-ish search across set, question and answer texts (§5.1).
+        search = self.request.query_params.get("search", "").strip()
+        if search:
+            queryset = queryset.filter(
+                _i18n_icontains("title", search)
+                | _i18n_icontains("description", search)
+                | _i18n_icontains("questions__text", search)
+                | _i18n_icontains("questions__options__text", search)
+            ).distinct()
+        return queryset
+
+    @action(detail=True, methods=["post"])
+    def duplicate(self, request, pk=None):
+        """Copy this set (questions, no results) — optionally into another
+        of the user's rooms (semester reuse, concept §5.1)."""
+        question_set = self.get_object()
+        target = question_set.room
+        if request.data.get("room"):
+            target = Room.objects.filter(pk=request.data["room"]).first()
+            user = request.user
+            if target is None or not (
+                user.is_staff or target.owners.filter(pk=user.pk).exists()
+            ):
+                return Response(
+                    {"detail": "Zielraum nicht gefunden."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        title = (request.data.get("title") or "").strip() or None
+        if title is None and target == question_set.room:
+            # Build the auto-title from the CANONICAL-language column, never
+            # the bare accessor (which follows the active UI language and
+            # would otherwise leak into the canonical title_<default> column
+            # duplicate_set() writes to — see Task 6 follow-up review).
+            canonical_key = f"title_{settings.MODELTRANSLATION_DEFAULT_LANGUAGE}"
+            canonical = getattr(question_set, canonical_key, "") or question_set.title
+            title = f"{canonical} (Kopie)"[:200]
+        clone = duplicate_set(question_set, target, title=title)
+        serializer = self.get_serializer(clone)
+        data = dict(serializer.data)
+        data["question_count"] = clone.questions.count()
+        return Response(data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"])
+    def share(self, request, pk=None):
+        """Enable/disable the copy link (v2 "Teilen"): ``{"enabled": bool}``.
+
+        Sharing hands out a non-guessable token; any logged-in person with
+        the link may *copy* the set (never edit it). Disabling invalidates
+        the link immediately.
+        """
+        question_set = self.get_object()
+        if request.data.get("enabled"):
+            question_set.enable_sharing()
+        else:
+            question_set.disable_sharing()
+        return Response({"share_token": question_set.share_token})
+
+    @action(detail=True, methods=["get"])
+    def export(self, request, pk=None):
+        """Download this set as a JSON file (roadmap M3)."""
+        question_set = self.get_object()
+        response = JsonResponse(
+            export_set(question_set), json_dumps_params={"ensure_ascii": False, "indent": 2}
+        )
+        response["Content-Disposition"] = (
+            f'attachment; filename="abstimmbar-set-{question_set.pk}.json"'
+        )
+        return response
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="ai-generate",
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser],
+    )
+    def ai_generate(self, request, pk=None):
+        """Generate draft questions from an uploaded document (PDF/PPTX/ODP)
+        or pasted text. Returns unsaved drafts for the teacher to review and
+        pick — nothing is persisted here (human in the loop)."""
+        self.get_object()  # ownership check
+        if not ai.is_enabled():
+            return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+        upload = request.FILES.get("file")
+        if upload is not None:
+            try:
+                text = documents.extract_text(upload, upload.name)
+            except documents.DocumentTextError as exc:
+                return Response({"detail": str(exc)}, status=400)
+        else:
+            text = str(request.data.get("text") or "").strip()[: documents.MAX_CHARS]
+        if not text:
+            return Response(
+                {"detail": "Kein Text – bitte eine Datei hochladen oder Text einfügen."},
+                status=400,
+            )
+        count = _clamp_int(request.data.get("count"), default=5, lo=1, hi=15)
+        raw_kinds = request.data.get("kinds") or ""
+        kinds = [k.strip() for k in str(raw_kinds).split(",") if k.strip()]
+        kinds = [k for k in kinds if k in ai_generate.ALLOWED_KINDS] or list(
+            ai_generate.ALLOWED_KINDS
+        )
+        level = request.data.get("level")
+        if level not in ai_generate.LEVELS:
+            level = ai_generate.DEFAULT_LEVEL
+        try:
+            data = ai.chat_json(
+                ai_generate.generate_system(),
+                ai_generate.build_generate_prompt(text, count, kinds, level),
+            )
+        except ai.AIError as exc:
+            return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
+        drafts = ai_generate.build_drafts(data, kinds, count)
+        notice = ai_generate.unsuitable_reason(data) if not drafts else ""
+        return Response({"questions": drafts, "notice": notice})
+
+    @action(detail=True, methods=["post"])
+    def reorder(self, request, pk=None):
+        """Persist a new question order: ``{"question_ids": [3, 1, 2]}``."""
+        question_set = self.get_object()
+        ids = request.data.get("question_ids")
+        questions = {q.pk: q for q in question_set.questions.all()}
+        if not isinstance(ids, list) or set(ids) != set(questions):
+            return Response(
+                {"detail": "question_ids must list every question of this set exactly once."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for position, question_id in enumerate(ids):
+            question = questions[question_id]
+            if question.position != position:
+                question.position = position
+                question.save(update_fields=["position"])
+        _touch(question_set)
+        return Response({"status": "ok"})
+
+    @action(detail=True, methods=["post"], url_path="reorder-outline")
+    def reorder_outline(self, request, pk=None):
+        """Persist the inline outline — sections and questions in one shared
+        sequence. Body: ``{"items": [{"type": "section"|"question", "id": n}]}``.
+
+        Each question's section becomes the nearest section header above it
+        (or none if no header precedes it), so membership follows position.
+        """
+        question_set = self.get_object()
+        items = request.data.get("items")
+        sections = {s.pk: s for s in question_set.sections.all()}
+        questions = {q.pk: q for q in question_set.questions.all()}
+        if not isinstance(items, list):
+            return Response({"detail": "items must be a list."}, status=400)
+        seen_sections, seen_questions = set(), set()
+        for item in items:
+            if not isinstance(item, dict) or item.get("type") not in {"section", "question"}:
+                return Response({"detail": "Invalid outline item."}, status=400)
+            (seen_sections if item["type"] == "section" else seen_questions).add(item.get("id"))
+        if seen_sections != set(sections) or seen_questions != set(questions):
+            return Response(
+                {"detail": "items must list every section and question exactly once."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        current_section = None
+        for position, item in enumerate(items):
+            if item["type"] == "section":
+                section = sections[item["id"]]
+                if section.position != position:
+                    section.position = position
+                    section.save(update_fields=["position"])
+                current_section = section
+            else:
+                question = questions[item["id"]]
+                new_section_id = current_section.pk if current_section else None
+                if question.position != position or question.section_id != new_section_id:
+                    question.position = position
+                    question.section = current_section
+                    question.save(update_fields=["position", "section"])
+        _touch(question_set)
+        return Response({"status": "ok"})
+
+    @action(detail=True, methods=["post"], url_path="reorder-sections")
+    def reorder_sections(self, request, pk=None):
+        """Persist a new section order: ``{"section_ids": [3, 1, 2]}``."""
+        question_set = self.get_object()
+        ids = request.data.get("section_ids")
+        sections = {s.pk: s for s in question_set.sections.all()}
+        if not isinstance(ids, list) or set(ids) != set(sections):
+            return Response(
+                {"detail": "section_ids must list every section of this set exactly once."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        for position, section_id in enumerate(ids):
+            section = sections[section_id]
+            if section.position != position:
+                section.position = position
+                section.save(update_fields=["position"])
+        _touch(question_set)
+        return Response({"status": "ok"})
+
+
+class QuestionViewSet(viewsets.ModelViewSet):
+    serializer_class = QuestionSerializer
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Question.objects.prefetch_related("options")
+        user = self.request.user
+        if not user.is_staff:
+            queryset = queryset.filter(question_set__room__owners=user)
+        set_id = self.request.query_params.get("question_set")
+        if set_id:
+            queryset = queryset.filter(question_set_id=set_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        question = serializer.save()
+        _touch(question.question_set)
+
+    def perform_update(self, serializer):
+        question = serializer.save()
+        _touch(question.question_set)
+
+    def perform_destroy(self, instance):
+        question_set = instance.question_set
+        instance.delete()
+        _touch(question_set)
+
+    @action(detail=True, methods=["post"])
+    def move(self, request, pk=None):
+        """Move a question into another of the user's sets (v2):
+        ``{"question_set": id}``. It is appended at the end of the target."""
+        question = self.get_object()
+        source = question.question_set
+        target = QuestionSet.objects.filter(pk=request.data.get("question_set")).first()
+        user = request.user
+        if target is None or not (
+            user.is_staff or target.room.owners.filter(pk=user.pk).exists()
+        ):
+            return Response(
+                {"detail": "Ziel-Fragenset nicht gefunden."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if target == source:
+            return Response({"status": "ok", "question_set": source.pk})
+        # Results live on the source set's runs — moving the question would
+        # orphan its votes there. Copy instead, or delete the results first.
+        if question.votes.exists():
+            return Response(
+                {"detail": "Zu dieser Frage liegen Ergebnisse vor. Bitte erst "
+                           "die Ergebnisse löschen oder das Set kopieren."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        last = target.questions.order_by("-position").first()
+        question.question_set = target
+        question.position = (last.position + 1) if last else 0
+        # The old section belongs to the source set — drop it on the move.
+        question.section = None
+        question.save(
+            update_fields=["question_set", "section", "position", "updated_at"]
+        )
+        _touch(source)
+        _touch(target)
+        return Response({"status": "ok", "question_set": target.pk})
+
+    @action(detail=True, methods=["post"], url_path="add-after")
+    def add_after(self, request, pk=None):
+        """Create a locked "after-question" mirroring this question (#54).
+
+        A deep copy of a choice/likert question, appended at the end of the
+        outline and linked back via ``before_question``. Its content is kept
+        in sync when the before-question is saved; its results are separate.
+        """
+        question = self.get_object()
+        if question.kind not in Question.CHOICE_KINDS:
+            return Response(
+                {"detail": "Nachher-Fragen gibt es nur für Auswahl- und "
+                           "Likert-Fragen."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if question.before_question_id is not None:
+            return Response(
+                {"detail": "Eine Nachher-Frage kann selbst keine Nachher-Frage "
+                           "erhalten."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if Question.objects.filter(before_question=question).exists():
+            return Response(
+                {"detail": "Zu dieser Frage gibt es bereits eine Nachher-Frage."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        question_set = question.question_set
+        after = duplicate_question(
+            question,
+            question_set=question_set,
+            section=None,
+            position=next_outline_position(question_set),
+        )
+        after.before_question = question
+        after.save(update_fields=["before_question"])
+        _touch(question_set)
+        return Response(
+            self.get_serializer(after).data, status=status.HTTP_201_CREATED
+        )
+
+    @action(detail=True, methods=["post"], url_path="ai-distractors")
+    def ai_distractors(self, request, pk=None):
+        """Suggest plausible-but-wrong answer options (not saved). AI only."""
+        if not ai.is_enabled():
+            return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+        question = self.get_object()
+        # Prefer the live editor state from the request (the question may be
+        # unsaved); fall back to the stored question.
+        text = _plain(request.data.get("text") or "") or _plain(question.text)
+        body_options = request.data.get("options")
+        if isinstance(body_options, list):
+            existing = [str(o.get("text", "")).strip() for o in body_options]
+            existing = [t for t in existing if t]
+            correct = [
+                str(o.get("text", "")).strip()
+                for o in body_options
+                if o.get("is_correct") and str(o.get("text", "")).strip()
+            ]
+        else:
+            options = list(question.options.all())
+            existing = [o.text for o in options if o.text]
+            correct = [o.text for o in options if o.is_correct and o.text]
+        count = _clamp_int(request.data.get("count"), default=3, lo=1, hi=8)
+        try:
+            data = ai.chat_json(
+                ai_prompts.distractors_system(),
+                ai_prompts.build_distractors_prompt(text, correct, existing, count),
+            )
+        except ai.AIError as exc:
+            return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
+        # Re-validate: strings only, trimmed, deduped against existing + each
+        # other (case-insensitive), capped in length and count.
+        seen = {e.casefold() for e in existing}
+        result = []
+        for item in data.get("distractors", []) if isinstance(data, dict) else []:
+            text = str(item).strip()[:500]
+            if text and text.casefold() not in seen:
+                seen.add(text.casefold())
+                result.append(text)
+        return Response({"distractors": result[:count]})
+
+    @action(detail=True, methods=["post"], url_path="ai-rephrase")
+    def ai_rephrase(self, request, pk=None):
+        """Suggest clearer rephrasings of the question text (not saved)."""
+        if not ai.is_enabled():
+            return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+        question = self.get_object()
+        # Use the live editor text if sent (question may be unsaved).
+        plain = _plain(request.data.get("text") or "") or _plain(question.text)
+        if not plain:
+            return Response({"detail": "Die Frage hat noch keinen Text."}, status=400)
+        try:
+            data = ai.chat_json(
+                ai_prompts.rephrase_system(), ai_prompts.build_rephrase_prompt(plain)
+            )
+        except ai.AIError as exc:
+            return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
+        variants = []
+        for item in data.get("variants", []) if isinstance(data, dict) else []:
+            text = str(item).strip()[:1000]
+            if text:
+                variants.append(text)
+        return Response({"variants": variants[:5]})
+
+
+class SectionViewSet(viewsets.ModelViewSet):
+    """Named question groups within a set (v2). Owner-scoped like questions."""
+
+    serializer_class = SectionSerializer
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = Section.objects.all()
+        user = self.request.user
+        if not user.is_staff:
+            queryset = queryset.filter(question_set__room__owners=user)
+        set_id = self.request.query_params.get("question_set")
+        if set_id:
+            queryset = queryset.filter(question_set_id=set_id)
+        return queryset
+
+    def perform_create(self, serializer):
+        section = serializer.save()
+        _touch(section.question_set)
+
+    def perform_update(self, serializer):
+        section = serializer.save()
+        _touch(section.question_set)
+
+    def perform_destroy(self, instance):
+        question_set = instance.question_set
+        instance.delete()  # SET_NULL keeps the questions, just unsectioned
+        _touch(question_set)
+
+
+class SharedSetView(APIView):
+    """Preview of a shared set for the copy page (v2 "Teilen").
+
+    Reachable by any logged-in person who has the link — deliberately NOT
+    scoped to room owners. Exposes only what the copy decision needs; the
+    owner names provide the attribution required by CC licenses.
+    """
+
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def get(self, request, token):
+        question_set = get_object_or_404(
+            QuestionSet.objects.select_related("room"), share_token=token
+        )
+        questions = list(question_set.questions.all())
+        return Response(
+            {
+                "title": question_set.title,
+                "description": question_set.description,
+                "license": question_set.license,
+                "license_holder": question_set.license_holder,
+                "owners": [
+                    _display_name(owner)
+                    for owner in question_set.room.owners.order_by("first_name")
+                ],
+                "question_count": len(questions),
+                "questions": [
+                    {"kind": q.kind, "text": _plain(q.text)} for q in questions[:20]
+                ],
+            }
+        )
+
+
+class SharedSetCopyView(APIView):
+    """Copy a shared set into one of the viewer's own rooms."""
+
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def post(self, request, token):
+        question_set = get_object_or_404(QuestionSet, share_token=token)
+        room = Room.objects.filter(pk=request.data.get("room")).first()
+        user = request.user
+        if room is None or not (
+            user.is_staff or room.owners.filter(pk=user.pk).exists()
+        ):
+            return Response(
+                {"detail": "Zielraum nicht gefunden."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        clone = duplicate_set(question_set, room)
+        return Response(
+            {"id": clone.pk, "room": room.pk, "title": clone.title},
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class SearchView(APIView):
+    """Keyword search across the user's rooms, sets and questions (start page).
+
+    Matches room titles/codes, set titles/descriptions and question/answer
+    texts. Scoped to rooms the user owns (staff sees all). Each group is
+    capped so the start page stays responsive; question text is stripped to
+    plain text for a readable snippet.
+    """
+
+    permission_classes: ClassVar = [IsAuthenticated]
+    LIMIT = 20
+
+    def get(self, request):
+        query = (request.query_params.get("q") or "").strip()
+        result = {"rooms": [], "sets": [], "questions": []}
+        if len(query) < 2:
+            return Response(result)
+
+        user = request.user
+        rooms = Room.objects.all() if user.is_staff else Room.objects.filter(owners=user)
+
+        matched_rooms = rooms.filter(
+            _i18n_icontains("title", query) | _i18n_icontains("description", query)
+            | Q(code__icontains=query)
+        ).order_by(f"title_{settings.MODELTRANSLATION_DEFAULT_LANGUAGE}")[: self.LIMIT]
+        result["rooms"] = [
+            {"id": r.pk, "code": r.code, "title": r.title} for r in matched_rooms
+        ]
+
+        matched_sets = (
+            QuestionSet.objects.filter(room__in=rooms)
+            .filter(
+                _i18n_icontains("title", query) | _i18n_icontains("description", query)
+            )
+            .select_related("room")
+            .order_by(f"title_{settings.MODELTRANSLATION_DEFAULT_LANGUAGE}")[: self.LIMIT]
+        )
+        result["sets"] = [
+            {
+                "id": s.pk, "title": s.title,
+                "room": s.room_id, "room_title": s.room.title,
+            }
+            for s in matched_sets
+        ]
+
+        matched_questions = (
+            Question.objects.filter(question_set__room__in=rooms)
+            .filter(
+                _i18n_icontains("text", query) | _i18n_icontains("options__text", query)
+            )
+            .select_related("question_set", "question_set__room")
+            .distinct()
+            .order_by(
+                f"question_set__title_{settings.MODELTRANSLATION_DEFAULT_LANGUAGE}",
+                "position",
+            )[: self.LIMIT]
+        )
+        result["questions"] = [
+            {
+                "id": q.pk,
+                "text": strip_tags(q.text).strip()[:160] or "(ohne Fragentext)",
+                "kind": q.kind,
+                "question_set": q.question_set_id,
+                "set_title": q.question_set.title,
+                "room": q.question_set.room_id,
+                "room_title": q.question_set.room.title,
+            }
+            for q in matched_questions
+        ]
+        return Response(result)
+
+
+class ImageUploadView(APIView):
+    """Upload target for the editor's image drag-and-drop (ADR-0007)."""
+
+    permission_classes: ClassVar = [IsAuthenticated]
+    parser_classes: ClassVar = [parsers.MultiPartParser]
+
+    def post(self, request):
+        file = request.FILES.get("file")
+        if file is None:
+            return Response(
+                {"detail": "No file provided."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if file.size > MAX_IMAGE_BYTES:
+            return Response(
+                {"detail": "Image exceeds the 5 MB limit."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        try:
+            normalized = normalize_image(file)
+        except InvalidImageError:
+            return Response(
+                {"detail": "Not a valid image."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        serializer = UploadedImageSerializer(data={"file": normalized})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(uploader=request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)

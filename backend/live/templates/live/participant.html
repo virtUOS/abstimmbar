@@ -1,0 +1,1560 @@
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{% extends "live/base.html" %}
+{% load i18n %}
+{% block title %}{{ room.title }} — Abstimmbar{% endblock %}
+{% block content %}
+{% comment %}
+⋮ menu: review my own answers (and results, if released) — #20. Also carries
+the language switcher (i18n, #33) — kept visible so it can be reached before
+any answer has been given. (Django's {# #} comment is single-line only, so a
+multi-line note must use {% comment %} or it renders as text.)
+{% endcomment %}
+<div id="menu-wrap" style="position:fixed;top:9px;right:12px;z-index:20;display:flex;gap:6px;align-items:flex-start">
+  {# Language: a globe picker, consistent with the management UI (#33). #}
+  <div style="position:relative">
+    <button id="lang-btn" type="button" aria-label="{% trans 'Language' %}" aria-haspopup="true" aria-expanded="false"
+            style="width:auto;min-height:0;padding:6px 10px;margin:0;line-height:1;border-radius:10px"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></button>
+    <div id="lang-pop" hidden
+         style="position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden;min-width:160px">
+      <button id="lang-de" type="button"{% if LANGUAGE_CODE|slice:":2" == "de" %} aria-current="true"{% endif %}
+              style="width:100%;margin:0;border:0;border-radius:0;min-height:0;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span>{% trans "Deutsch" %}</span>{% if LANGUAGE_CODE|slice:":2" == "de" %}<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-strong)" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endif %}</button>
+      <button id="lang-en" type="button"{% if LANGUAGE_CODE|slice:":2" == "en" %} aria-current="true"{% endif %}
+              style="width:100%;margin:0;border:0;border-radius:0;min-height:0;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span>{% trans "English" %}</span>{% if LANGUAGE_CODE|slice:":2" == "en" %}<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-strong)" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endif %}</button>
+    </div>
+  </div>
+  {# ⋮: review my own answers (#20); shown only once something is answered. #}
+  <div id="review-wrap" hidden style="position:relative">
+    <button id="menu-btn" aria-label="{% trans 'Menu' %}" aria-haspopup="true" aria-expanded="false"
+            style="width:auto;min-height:0;padding:6px 11px;margin:0;line-height:1;border-radius:10px"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+    <div id="menu-pop" hidden
+         style="position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden;min-width:200px">
+      <button id="review-open"
+              style="width:100%;margin:0;border:0;border-radius:0;min-height:0;padding:13px 15px">{% trans "My answers" %}</button>
+    </div>
+  </div>
+</div>
+<h1 id="title">{{ room.title }}</h1>
+<p class="soft" id="subtitle">{% trans "Connecting …" %}</p>
+
+<section id="waiting" class="center" hidden>
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/></svg></div>
+  <p id="waiting-text">{% trans "The vote has not started yet." %}</p>
+  <p class="soft">{% trans "Keep this page open — it will start automatically." %}</p>
+</section>
+
+<section id="question" hidden>
+  <p class="soft" id="countdown" aria-live="polite" hidden></p>
+  <div class="question-text" id="question-text"></div>
+  <div id="options"></div>
+  <form id="wordcloud" hidden>
+    <input type="text" id="word" maxlength="60" autocomplete="off"
+           placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}">
+    <button class="primary" type="submit" id="wc-submit">{% trans "Submit" %}</button>
+    {# Multiple-answer word cloud (#14): info, submitted terms, "Done". #}
+    <p class="soft" id="wc-info" style="margin-top:10px" hidden>
+      {% blocktrans trimmed %}
+      You can submit several terms — but each only once.
+      Use × to withdraw an entry again.
+      {% endblocktrans %}
+    </p>
+    <p class="soft" id="wc-hint" style="margin-top:10px;color:#a33630" hidden></p>
+    <p class="soft" id="wc-count" style="margin-top:6px" hidden></p>
+    <div id="wc-mine" style="margin-top:12px"></div>
+    <button type="button" id="wc-done" hidden>{% trans "Done" %}</button>
+  </form>
+  <form id="opentext" hidden>
+    <textarea id="opentext-input" maxlength="500" rows="4"
+              placeholder="{% trans 'Your answer …' %}" aria-label="{% trans 'Answer' %}"
+              style="font:inherit;width:100%;padding:14px 16px;margin-top:10px;border:1px solid var(--line);border-radius:14px"></textarea>
+    <button class="primary" type="submit">{% trans "Submit" %}</button>
+  </form>
+  <button class="primary" id="submit-multi" hidden>{% trans "Submit answer" %}</button>
+</section>
+
+<section id="resultsview" hidden>
+  <div class="question-text" id="results-question"></div>
+  <div id="results-list" style="margin-top:12px"></div>
+</section>
+
+<section id="done" class="center" hidden>
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <p>{% trans "Your answer was received." %}</p>
+  <p class="soft">{% trans "Waiting for the next question." %}</p>
+</section>
+
+<section id="closed" class="center" hidden>
+  <div class="emoji">🔒</div>
+  <p>{% trans "Voting is closed." %}</p>
+  <p class="soft">{% trans "You can see the results on the screen." %}</p>
+</section>
+
+{# Closing screen after the vote ends (#24): review button + info Markdown. #}
+<style>
+  #closing{margin-top:28px;text-align:left;border-top:1px solid var(--line);padding-top:20px}
+  #closing img{max-width:100%;height:auto;border-radius:10px}
+  #closing a{color:var(--brand-strong)}
+  #closing h1,#closing h2,#closing h3{margin:.7em 0 .3em;line-height:1.25}
+  #closing ul,#closing ol{padding-left:1.4em}
+  /* Ordering (#72) sorter rows + drag feedback. */
+  .ordering-row{display:flex;align-items:center;gap:10px;padding:14px 12px;border:1px solid var(--line);border-radius:12px;background:var(--surface);touch-action:none;user-select:none;transition:box-shadow .15s ease,border-color .15s ease,transform .12s ease}
+  .ordering-row.dragging{border-color:var(--brand-strong);box-shadow:0 10px 26px rgba(0,0,0,.20);transform:scale(1.02);position:relative;z-index:5}
+  .ord-handle{flex:none;cursor:grab;color:var(--ink-soft);font-size:18px;line-height:1}
+  .ordering-row.dragging .ord-handle{cursor:grabbing}
+  .ord-label{flex:1;min-width:0}
+  /* Reserve the two-arrow height even when one arrow is hidden, so every row
+     stays the same height while the single end arrow still centres. */
+  .ord-arrows{display:flex;flex-direction:column;justify-content:center;gap:6px;flex:none;min-height:70px}
+  .ord-arrows button{display:flex;align-items:center;justify-content:center;width:36px;height:32px;min-height:0;margin:0;padding:0;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;font-size:12px;line-height:1}
+  .ord-arrows button:hover{background:var(--brand-soft);border-color:var(--brand-strong)}
+  .ord-arrows button[hidden]{display:none}
+</style>
+<section id="finished" class="center" hidden>
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <p>{% trans "The vote has ended." %}</p>
+  <button class="primary" id="finished-review" style="margin-top:6px" hidden>{% trans "View my answers" %}</button>
+  {% if closing_html %}
+  <div id="closing">{{ closing_html|safe }}</div>
+  {% endif %}
+</section>
+
+{# Review of my own answers in this run (#20). #}
+<section id="review" hidden>
+  <h1 style="margin-bottom:12px">{% trans "My answers" %}</h1>
+  <p class="soft" id="review-empty" hidden>{% trans "You have not answered anything in this round yet." %}</p>
+  <div id="review-list"></div>
+  <button class="primary" id="review-close">{% trans "Back" %}</button>
+</section>
+
+{# Self-paced quiz (concept §6.3): own pace, instant feedback. #}
+<section id="quiz" hidden>
+  <p class="soft" id="quiz-progress"></p>
+  <div class="question-text" id="quiz-text"></div>
+  <div id="quiz-options"></div>
+  <form id="quiz-textform" hidden>
+    <input type="text" id="quiz-word" maxlength="60" autocomplete="off"
+           placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
+    <textarea id="quiz-textarea" maxlength="500" rows="4"
+              placeholder="{% trans 'Your answer …' %}" aria-label="{% trans 'Answer' %}" hidden
+              style="font:inherit;width:100%;padding:14px 16px;margin-top:10px;border:1px solid var(--line);border-radius:14px"></textarea>
+    <button class="primary" type="submit">{% trans "Submit" %}</button>
+  </form>
+  <button class="primary" id="quiz-submit" hidden>{% trans "Submit answer" %}</button>
+  <p id="quiz-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
+  <button class="primary" id="quiz-next" hidden>{% trans "Next" %}</button>
+</section>
+
+<section id="quiz-done" class="center" hidden>
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/></svg></div>
+  <p id="quiz-summary"></p>
+  <p class="soft">{% trans "You can close this page now." %}</p>
+</section>
+
+{# Recording mode (#53): async viewer, own navigation + per-question results. #}
+<section id="recording" hidden>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
+    <button id="rec-prev" type="button" aria-label="{% trans 'Previous question' %}"
+            style="width:auto;min-height:0;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;font-size:18px">←</button>
+    <p class="soft" id="rec-progress" style="margin:0"></p>
+    <button id="rec-next" type="button" aria-label="{% trans 'Next question' %}"
+            style="width:auto;min-height:0;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;font-size:18px">→</button>
+  </div>
+  <p class="soft" id="rec-countdown" aria-live="polite" hidden></p>
+  <div class="question-text" id="rec-text"></div>
+  <div id="rec-options"></div>
+  <form id="rec-textform" hidden>
+    <input type="text" id="rec-word" maxlength="60" autocomplete="off"
+           placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
+    <textarea id="rec-textarea" maxlength="500" rows="4"
+              placeholder="{% trans 'Your answer …' %}" aria-label="{% trans 'Answer' %}" hidden
+              style="font:inherit;width:100%;padding:14px 16px;margin-top:10px;border:1px solid var(--line);border-radius:14px"></textarea>
+    <button class="primary" type="submit">{% trans "Submit" %}</button>
+  </form>
+  <button class="primary" id="rec-submit" hidden>{% trans "Submit answer" %}</button>
+  <p id="rec-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
+  <div id="rec-results" style="margin-top:14px"></div>
+</section>
+{% endblock %}
+
+{% block script %}
+{% if preview %}{{ preview_state|json_script:"preview-state" }}{% endif %}
+<script>
+(() => {
+  const CODE = "{{ room.code|escapejs }}";
+  // Editor preview (#74): a standalone, interactive render of one question —
+  // no run, no SSE, submissions inert. State is seeded from the embedded JSON.
+  const PREVIEW = document.getElementById("preview-state") !== null;
+  const PREVIEW_STATE = PREVIEW
+    ? JSON.parse(document.getElementById("preview-state").textContent)
+    : null;
+  const TOKEN_KEY = "abstimmbar_token_" + CODE;
+  const VOTED_KEY = "abstimmbar_voted_" + CODE;
+  // Chrome strings the JS sets at runtime — the static template above only
+  // covers the initial HTML; every place that reassigns .textContent (or
+  // similar) after that pulls its copy from here, keeping DE/EN in sync (#33).
+  const I18N = {
+    notStarted: "{% trans 'The vote has not started yet.' %}",
+    almostThere: "{% trans 'Almost there — look at the screen.' %}",
+    countdownLeft: "{% trans '{n}s left' %}",
+    correct: "{% trans 'Correct!' %}",
+    incorrect: "{% trans 'Not quite right.' %}",
+    answerSaved: "{% trans 'Answer saved.' %}",
+    next: "{% trans 'Next' %}",
+    toSummary: "{% trans 'See results' %}",
+    quizScored: "{% trans 'Done! {right} of {total} answered correctly.' %}",
+    quizUnscored: "{% trans 'Done! You answered all {total} questions.' %}",
+    add: "{% trans 'Add' %}",
+    submit: "{% trans 'Submit' %}",
+    alreadySubmitted: "{% trans 'You already submitted this term.' %}",
+    wcLimitReached: "{% trans 'You have reached the maximum number of terms.' %}",
+    removeTerm: "{% trans 'Remove term “{word}”' %}",
+    yourAnswer: "{% trans 'Your answer: ' %}",
+    notAnswered: "{% trans 'Not answered.' %}",
+    yourChoice: "{% trans 'your choice' %}",
+    pointsSpent: "{% trans '{used} of {total} points allocated' %}",
+    pointsRedistribute: "{% trans 'lower a value to reallocate points' %}",
+    orderingHint: "{% trans 'Drag the items or use the arrows to sort them.' %}",
+    orderingFullCorrect: "{% trans 'correct order' %}",
+    orderingItemCorrect: "{% trans 'correctly placed' %}",
+    moveUp: "{% trans 'Move up' %}",
+    moveDown: "{% trans 'Move down' %}",
+    you: "{% trans 'you' %}",
+    questionProgress: "{% trans 'Question {i} of {n}' %}",
+    timeUp: "{% trans 'Time is up.' %}",
+  };
+  // Authored content (question/option text, set title, results labels) now
+  // arrives as a {de, en} map — the SSE hub broadcasts one payload to every
+  // participant, so it can't resolve to a single language server-side (#33
+  // MR2). A plain string (or null/undefined) passes through unchanged.
+  function locText(v) {
+    if (v == null) return "";
+    if (typeof v === "string") return v;
+    var lang = (document.documentElement.lang || "de").split("-")[0];
+    return v[lang] || v["{{ CONTENT_DEFAULT_LANGUAGE|default:'de' }}"] ||
+      Object.values(v).find(Boolean) || "";
+  }
+  const sections = ["waiting", "question", "done", "closed", "finished",
+                    "resultsview", "review", "quiz", "quiz-done", "recording"].reduce(
+    (acc, id) => (acc[id] = document.getElementById(id), acc), {});
+  const subtitle = document.getElementById("subtitle");
+  let token = localStorage.getItem(TOKEN_KEY) || "";
+  let state = null;
+  let selected = new Set();
+
+  // My own answers for this run, kept locally only (anonymity by design):
+  // choice ids/text I picked, plus the results snapshot once released (#13/#20).
+  const HISTORY_KEY = "abstimmbar_history_" + CODE;
+  let history = (() => {
+    try { return JSON.parse(sessionStorage.getItem(HISTORY_KEY)); } catch { return null; }
+  })() || { set: "", order: [], items: {} };
+  let reviewing = false, reviewQid = null;
+  // Word-cloud multi: which run+question the chips belong to, and the terms
+  // this device submitted (one per person, removable, #14). All reset when the
+  // question or run changes (a re-run drops the old, uncounted terms).
+  let wcKey = null;
+  // Same idea for the priorities slider: its in-progress point allocation
+  // must survive background vote broadcasts (a peer submitting re-renders
+  // everyone), so we don't rebuild it while the same run+question is shown (#67).
+  let priKey = null;
+  let wcWords = new Set();
+  let wcList = []; // [{ word, key }] in submission order
+  const wcNorm = (s) => s.trim().split(/\s+/).join(" ").slice(0, 60).toLowerCase();
+
+  function saveHistory() {
+    sessionStorage.setItem(HISTORY_KEY, JSON.stringify(history));
+  }
+  function historyItem(question) {
+    const key = String(question.id);
+    if (!history.items[key]) {
+      history.items[key] = { id: question.id };
+      history.order.push(key);
+    }
+    const item = history.items[key];
+    // Resolved once, at record time, into a plain string — matching the
+    // pre-map behavior where history snapshots whatever text was shown when
+    // the participant answered (also survives a later language switch's
+    // page reload, since sessionStorage keeps the already-resolved text).
+    item.text = locText(question.text);
+    item.kind = question.kind;
+    return item;
+  }
+  function recordAnswer(question, payload) {
+    const item = historyItem(question);
+    if (payload.text != null) {
+      item.answerText = payload.text;
+    } else if (payload.options) {
+      const byId = new Map((question.options || []).map((o) => [o.id, locText(o.text)]));
+      item.answerOptions = payload.options.map((id) => ({ id, text: byId.get(id) || "" }));
+    } else if (question.kind === "priorities" && payload.points) {
+      item.priorities = (question.options || []).map((o) => ({
+        id: o.id, text: locText(o.text), points: payload.points[o.id] || 0,
+      }));
+    } else if (question.kind === "ordering" && payload.order) {
+      const byId = new Map((question.options || []).map((o) => [String(o.id), locText(o.text)]));
+      item.ordering = payload.order.map((id) => ({ id, text: byId.get(String(id)) || "" }));
+    }
+    saveHistory();
+  }
+  function captureResults() {
+    if (!state.question) return;
+    const item = historyItem(state.question);
+    if (state.results) item.results = state.results;
+    if (state.words) item.words = state.words;
+    saveHistory();
+  }
+
+  const csrf = () => document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/)?.[1] ?? "";
+  // The "already voted" marker is scoped to the run: a fresh Durchführung
+  // (re-run / archive restart) reopens the same questions and must let the
+  // participant vote again (server allows it — one vote per run/question).
+  const voteMark = () =>
+    state && state.question ? (state.run_id ?? "") + ":" + state.question.id : "";
+  const votedFor = () => sessionStorage.getItem(VOTED_KEY);
+
+  function show(id) {
+    for (const key of Object.keys(sections)) sections[key].hidden = key !== id;
+  }
+
+  // Option label with an optional image (v2, relative /media/ URL).
+  function fillOptionButton(button, option) {
+    if (option.image) {
+      const img = document.createElement("img");
+      img.src = option.image;
+      img.alt = "";
+      img.style.cssText =
+        "display:block;max-height:120px;border-radius:10px;margin-bottom:6px";
+      button.appendChild(img);
+      const label = document.createElement("span");
+      label.textContent = locText(option.text);
+      button.appendChild(label);
+    } else {
+      button.textContent = locText(option.text);
+    }
+  }
+
+  async function post(path, body) {
+    // Preview (#74): never hit the network; submissions are inert.
+    if (PREVIEW) return { ok: false, status: 0, json: async () => ({}) };
+    const response = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-CSRFToken": csrf() },
+      body: JSON.stringify(body),
+    });
+    return response;
+  }
+
+  async function join() {
+    const response = await post(`/api/live/rooms/${CODE}/join/`, { token });
+    token = (await response.json()).token;
+    localStorage.setItem(TOKEN_KEY, token);
+  }
+
+  async function submitVote(payload) {
+    const response = await post(`/api/live/rooms/${CODE}/vote/`, {
+      token, ...payload,
+    });
+    if (response.status === 201 || response.status === 409) {
+      // 409 = already voted (e.g. second tab) — treat as done either way.
+      sessionStorage.setItem(VOTED_KEY, voteMark());
+      if (response.status === 201 && state.question) recordAnswer(state.question, payload);
+      render();
+    }
+  }
+
+  let countdownTimer = null;
+  function renderCountdown() {
+    const box = document.getElementById("countdown");
+    window.clearInterval(countdownTimer);
+    if (!state.ends_at || state.phase !== "open") {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((Date.parse(state.ends_at) - Date.now()) / 1000));
+      box.textContent = "⏱ " + I18N.countdownLeft.replace("{n}", String(left));
+      if (left <= 0) {
+        window.clearInterval(countdownTimer);
+        show("closed");
+      }
+    };
+    tick();
+    countdownTimer = window.setInterval(tick, 250);
+  }
+
+  // Render result bars / word chips of `data` (which has .results and/or
+  // .words) into `list`, highlighting the answer the viewer gave (#13).
+  function renderResultBlock(list, data, mine) {
+    mine = mine || {};
+    const myOptionIds = new Set((mine.answerOptions || []).map((o) => o.id));
+    const myWord = (mine.answerText || "").trim().toLowerCase();
+    const total = (data.results || []).reduce((sum, r) => sum + r.count, 0);
+    for (const row of data.results || []) {
+      const isMine = myOptionIds.has(row.id);
+      const percent = total ? Math.round((row.count / total) * 100) : 0;
+      const item = document.createElement("div");
+      item.style.cssText = "margin-bottom:10px";
+      const label = document.createElement("div");
+      label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
+      const name = document.createElement("span");
+      name.textContent = locText(row.text) + (row.is_correct ? " ✓" : "") +
+        (isMine ? " · " + I18N.yourChoice : "");
+      if (isMine) name.style.cssText = "font-weight:700";
+      else if (row.is_correct) name.style.cssText = "color:var(--brand-strong);font-weight:600";
+      const nums = document.createElement("span");
+      nums.textContent = row.count + " · " + percent + " %";
+      nums.style.color = "var(--ink-soft)";
+      label.append(name, nums);
+      const track = document.createElement("div");
+      track.style.cssText = "height:12px;border-radius:6px;background:var(--line)";
+      if (isMine) track.style.outline = "2px solid var(--brand-strong)";
+      const bar = document.createElement("div");
+      bar.style.cssText = "height:12px;border-radius:6px;background:" +
+        (row.is_correct ? "var(--brand)" : "#b6bcc1") + ";width:" + percent + "%";
+      track.appendChild(bar);
+      item.append(label, track);
+      list.appendChild(item);
+    }
+    for (const word of data.words || []) {
+      const isMine = myWord && word.text.trim().toLowerCase() === myWord;
+      const chip = document.createElement("span");
+      chip.textContent = word.text + (word.count > 1 ? " ×" + word.count : "") +
+        (isMine ? " · " + I18N.you : "");
+      chip.style.cssText = "display:inline-block;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
+        (isMine
+          ? "background:var(--brand);color:var(--ink);font-weight:700;outline:2px solid var(--brand-strong)"
+          : "background:var(--brand-soft);color:var(--brand-strong)");
+      list.appendChild(chip);
+    }
+    for (const opt of data.priorities || []) {
+      const item = document.createElement("div");
+      item.style.cssText = "margin-bottom:10px";
+      const label = document.createElement("div");
+      label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
+      const name = document.createElement("span");
+      name.textContent = locText(opt.text);
+      const nums = document.createElement("span");
+      nums.style.color = "var(--ink-soft)";
+      nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
+      label.append(name, nums);
+      const track = document.createElement("div");
+      track.style.cssText = "position:relative;height:12px;border-radius:6px;background:var(--line)";
+      const band = document.createElement("div");
+      band.style.cssText = "position:absolute;height:12px;border-radius:6px;background:#b6bcc1;left:" +
+        opt.min + "%;width:" + Math.max(opt.max - opt.min, 0) + "%";
+      const bar = document.createElement("div");
+      bar.style.cssText = "position:absolute;height:12px;border-radius:6px;background:var(--brand);width:" +
+        opt.avg + "%";
+      track.append(band, bar);
+      item.append(label, track);
+      list.appendChild(item);
+    }
+    if (data.ordering) {
+      for (const oi of data.ordering.items || []) {
+        const item = document.createElement("div");
+        item.style.cssText = "margin-bottom:10px";
+        const label = document.createElement("div");
+        label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
+        const name = document.createElement("span");
+        name.textContent = oi.correct_position + ". " + locText(oi.text);
+        const nums = document.createElement("span");
+        nums.style.color = "var(--ink-soft)";
+        nums.textContent = oi.correct_rate + " % " + I18N.orderingItemCorrect;
+        label.append(name, nums);
+        const track = document.createElement("div");
+        track.style.cssText = "height:12px;border-radius:6px;background:var(--line)";
+        const bar = document.createElement("div");
+        bar.style.cssText = "height:12px;border-radius:6px;background:var(--brand);width:" +
+          oi.correct_rate + "%";
+        track.appendChild(bar);
+        item.append(label, track);
+        list.appendChild(item);
+      }
+      const full = document.createElement("p");
+      full.style.cssText = "font-size:14px;margin:8px 0 0;color:var(--ink-soft)";
+      full.textContent = data.ordering.full_correct_rate + " % " + I18N.orderingFullCorrect;
+      list.appendChild(full);
+    }
+  }
+
+  function renderResults() {
+    captureResults();
+    document.getElementById("results-question").innerHTML =
+      locText(state.question && state.question.text);
+    const list = document.getElementById("results-list");
+    list.replaceChildren();
+    const mine = state.question && history.items[String(state.question.id)];
+    renderResultBlock(list, state, mine);
+  }
+
+  // "My answers" overlay: every question I answered (or saw results
+  // for) this run, my own answer marked, plus the released results (#20).
+  function renderReview() {
+    const list = document.getElementById("review-list");
+    list.replaceChildren();
+    document.getElementById("review-empty").hidden = history.order.length > 0;
+    for (const key of history.order) {
+      const item = history.items[key];
+      if (!item) continue;
+      const card = document.createElement("div");
+      card.style.cssText = "border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px";
+      const q = document.createElement("div");
+      q.className = "question-text";
+      q.style.cssText = "font-size:16px;margin:0 0 8px";
+      q.innerHTML = item.text || "";
+      card.appendChild(q);
+      const ans = document.createElement("p");
+      ans.className = "soft";
+      ans.style.margin = "0 0 8px";
+      if (item.ordering && item.ordering.length) {
+        ans.append(I18N.yourAnswer);
+        card.appendChild(ans);
+        const ol = document.createElement("ol");
+        ol.style.cssText = "margin:0 0 8px;padding-left:22px;color:var(--ink)";
+        for (const o of item.ordering) {
+          const li = document.createElement("li");
+          li.textContent = o.text;
+          ol.appendChild(li);
+        }
+        card.appendChild(ol);
+      } else {
+        if ((item.answerOptions && item.answerOptions.length) || item.answerText != null ||
+          (item.priorities && item.priorities.length)) {
+          ans.append(I18N.yourAnswer);
+          const strong = document.createElement("strong");
+          strong.style.color = "var(--ink)";
+          strong.textContent = item.priorities
+            ? item.priorities.map((o) => o.text + ": " + o.points).join(", ")
+            : item.answerOptions
+            ? item.answerOptions.map((o) => o.text).join(", ")
+            : item.answerText;
+          ans.appendChild(strong);
+        } else {
+          ans.textContent = I18N.notAnswered;
+        }
+        card.appendChild(ans);
+      }
+      if (item.results || item.words) {
+        const sub = document.createElement("div");
+        renderResultBlock(sub, item, item);
+        card.appendChild(sub);
+      }
+      list.appendChild(card);
+    }
+  }
+
+  // --- priorities (points allocation, #58) ---------------------------------
+  // Shared slider UI for all three vote contexts (live/quiz/recording). One
+  // 0–100 range per option, INDEPENDENT of each other (#69): moving a slider
+  // never changes the others. Only the TOTAL is capped at 100 — a slider can
+  // be raised as far as the remaining budget allows, then it clamps; lowering
+  // just frees budget. A budget box is placed ABOVE the question so it reads
+  // as part of the task; it shows the points still to allocate (bold) and is
+  // green while budget remains, red once it is spent. onSubmit is called with
+  // { points: { optionId: value } }.
+  const PRIORITIES_TOTAL = 100;
+  // Theme-safe tints: translucent so they work on light and dark backgrounds.
+  const PRI_GREEN = { bg: "color-mix(in oklab, var(--brand) 12%, transparent)",
+                      line: "var(--brand)", ink: "var(--brand-strong)" };
+  const PRI_RED = { bg: "color-mix(in oklab, #c0392b 13%, transparent)",
+                    line: "#c0392b", ink: "#a33630" };
+
+  // Remove any budget box left in a section from an earlier render (the box
+  // lives outside the options container, so it is not cleared by rebuilding
+  // the options — callers also drop it when a non-priorities question renders).
+  function clearPriBudget(section) {
+    section.querySelectorAll(".pri-budget").forEach((e) => e.remove());
+  }
+
+  function renderPrioritiesSlider(container, question, onSubmit) {
+    container.replaceChildren();
+    const section = container.parentNode;
+    clearPriBudget(section);
+    const box = document.createElement("div");
+    box.className = "pri-budget";
+    // Fixed two-line height, contents vertically centred: the redistribute
+    // line's space is reserved even while green, so switching to red never
+    // shifts the sliders below.
+    box.style.cssText =
+      "display:flex;flex-direction:column;justify-content:center;" +
+      "box-sizing:border-box;min-height:72px;border:1px solid;" +
+      "border-radius:12px;padding:12px 16px;margin:6px 0 24px";
+    // Above the question text, so the budget clearly belongs to this task.
+    section.insertBefore(box, section.querySelector(".question-text"));
+
+    // Line 1 (always): "{used} von 100 Punkten vergeben", the count bold and
+    // counting UP. Line 2 (red only): prompt to free points up. Built once;
+    // refresh() only updates the number, colours and line-2 visibility.
+    const line1 = document.createElement("p");
+    line1.style.cssText = "margin:0";
+    const spentParts = I18N.pointsSpent
+      .replace("{total}", PRIORITIES_TOTAL).split("{used}");
+    const usedEl = document.createElement("strong");
+    usedEl.className = "tabular-nums";
+    line1.append(document.createTextNode(spentParts[0]), usedEl,
+                 document.createTextNode(spentParts[1] || ""));
+    const line2 = document.createElement("p");
+    line2.style.cssText = "margin:3px 0 0";
+    line2.textContent = "– " + I18N.pointsRedistribute;
+    box.append(line1, line2);
+
+    const rows = question.options.map((o) => ({
+      id: o.id, text: locText(o.text), value: 0,
+    }));
+    const uiById = new Map();
+
+    function total() { return rows.reduce((s, r) => s + r.value, 0); }
+
+    function refresh() {
+      for (const r of rows) {
+        const ui = uiById.get(r.id);
+        ui.range.value = String(r.value);
+        ui.num.textContent = String(r.value);
+      }
+      const used = total();
+      const spent = used >= PRIORITIES_TOTAL;
+      const c = spent ? PRI_RED : PRI_GREEN;
+      box.style.background = c.bg;
+      box.style.borderColor = c.line;
+      box.style.color = c.ink;
+      usedEl.textContent = String(used);
+      line2.style.display = spent ? "block" : "none";
+    }
+
+    function setValue(i, target) {
+      // Independent slider: clamp to the budget still free for THIS row
+      // (100 − everything already on the other rows). No redistribution — the
+      // range snaps back to its allowed maximum when dragged past it.
+      const row = rows[i];
+      const others = total() - row.value;
+      const max = PRIORITIES_TOTAL - others;
+      row.value = Math.max(0, Math.min(max, Math.round(target)));
+      refresh();
+    }
+
+    rows.forEach((row, i) => {
+      const wrap = document.createElement("div");
+      // Extra top gap on the first slider so the question isn't crowding it.
+      wrap.style.cssText = "margin-bottom:16px" + (i === 0 ? ";margin-top:16px" : "");
+      const head = document.createElement("div");
+      head.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px";
+      const name = document.createElement("span");
+      name.textContent = row.text;
+      const num = document.createElement("strong");
+      num.className = "tabular-nums";
+      head.append(name, num);
+      const range = document.createElement("input");
+      range.type = "range";
+      range.min = "0";
+      range.max = String(PRIORITIES_TOTAL);
+      range.step = "1";
+      range.style.cssText = "width:100%";
+      range.addEventListener("input", () => setValue(i, Number(range.value)));
+      wrap.append(head, range);
+      container.appendChild(wrap);
+      uiById.set(row.id, { range, num });
+    });
+
+    const submit = document.createElement("button");
+    submit.className = "primary";
+    submit.type = "button";
+    submit.textContent = I18N.submit;
+    submit.addEventListener("click", () => {
+      const points = {};
+      for (const r of rows) points[r.id] = r.value;
+      onSubmit({ points });
+    });
+    container.appendChild(submit);
+    refresh();
+  }
+
+  // --- ordering (drag-to-sort, #72) ----------------------------------------
+  // Shared sorter for all three vote contexts (live/quiz/recording). The
+  // server sends options PRE-SHUFFLED; the participant reorders them by
+  // dragging a row (Pointer Events — mouse + touch) or with the ▲/▼ buttons,
+  // then submits { order: [optionId, …] } in the shown top-to-bottom order.
+  // A one-line hint is placed above the question text (like the priorities
+  // budget box), so clearOrderingUi drops it when a non-ordering question
+  // renders — the options container itself is cleared by rebuilding.
+  function clearOrderingUi(section) {
+    section.querySelectorAll(".ordering-hint").forEach((e) => e.remove());
+  }
+
+  function renderOrderingSorter(container, question, onSubmit) {
+    container.replaceChildren();
+    const section = container.parentNode;
+    clearOrderingUi(section);
+    const hint = document.createElement("p");
+    hint.className = "ordering-hint soft";
+    hint.style.cssText = "margin:6px 0 16px";
+    hint.textContent = I18N.orderingHint;
+    section.insertBefore(hint, section.querySelector(".question-text"));
+
+    const list = document.createElement("div");
+    list.style.cssText = "display:flex;flex-direction:column;gap:8px;margin:16px 0";
+    container.appendChild(list);
+
+    const rows = () => [...list.querySelectorAll(".ordering-row")];
+
+    function refreshArrows() {
+      // Hide the pointless arrow at the ends (▲ on the first row, ▼ on the
+      // last) rather than greying it out — a disabled arrow only confused
+      // (#72 feedback). The column centres the remaining single arrow.
+      const rs = rows();
+      rs.forEach((row, i) => {
+        row.querySelector(".ord-up").hidden = i === 0;
+        row.querySelector(".ord-down").hidden = i === rs.length - 1;
+      });
+    }
+
+    // ▲/▼ fallback: swap a row with its neighbour (dir -1 up, +1 down).
+    function move(row, dir) {
+      if (dir < 0 && row.previousElementSibling) {
+        list.insertBefore(row, row.previousElementSibling);
+      } else if (dir > 0 && row.nextElementSibling) {
+        list.insertBefore(row.nextElementSibling, row);
+      }
+      refreshArrows();
+    }
+
+    // Pointer-drag reorder that feels natural: the dragged row follows the
+    // finger 1:1 (transform, no transition) while the DOM order stays put; the
+    // other rows slide out of the way (their base transform transition) to open
+    // a gap at the target slot. On release we commit the new order once. Only
+    // ONE pointer drags at a time — a second finger is ignored, so two rows can
+    // never get stuck highlighted (#72 feedback). Rows are equal height, so a
+    // single step = rowHeight + list gap.
+    const LIST_GAP = 8;
+    let drag = null; // { row, pointerId, startY, startIndex, curIndex, step }
+    function layoutGap() {
+      const rs = rows();
+      rs.forEach((r, i) => {
+        if (r === drag.row) return;
+        let shift = 0;
+        if (drag.startIndex < drag.curIndex && i > drag.startIndex && i <= drag.curIndex) {
+          shift = -drag.step; // dragged moved down past this row → it slides up
+        } else if (drag.startIndex > drag.curIndex && i >= drag.curIndex && i < drag.startIndex) {
+          shift = drag.step; // dragged moved up past this row → it slides down
+        }
+        r.style.transform = shift ? "translateY(" + shift + "px)" : "";
+      });
+    }
+    function endDrag(e) {
+      if (!drag || (e && e.pointerId !== drag.pointerId)) return;
+      const d = drag;
+      drag = null;
+      try { d.row.releasePointerCapture(d.pointerId); } catch {}
+      // Clear all transient styles (belt-and-suspenders on every row so no
+      // stray transform/highlight can linger).
+      rows().forEach((r) => {
+        r.style.transition = "";
+        r.style.transform = "";
+        r.classList.remove("dragging");
+      });
+      if (d.curIndex !== d.startIndex) {
+        const others = rows().filter((r) => r !== d.row);
+        others.splice(d.curIndex, 0, d.row);
+        others.forEach((r) => list.appendChild(r)); // reappend in the new order
+      }
+      refreshArrows();
+    }
+    function attachDrag(row, handle) {
+      row.addEventListener("pointerdown", (e) => {
+        if (e.target.closest("button")) return; // let ▲/▼ clicks through
+        if (e.button != null && e.button > 0) return; // primary / touch only
+        if (drag) return; // a drag is already in progress — ignore extra pointers
+        e.preventDefault();
+        const rs = rows();
+        const startIndex = rs.indexOf(row);
+        const step = rs[0].getBoundingClientRect().height + LIST_GAP;
+        drag = { row, pointerId: e.pointerId, startY: e.clientY, startIndex, curIndex: startIndex, step };
+        try { row.setPointerCapture(e.pointerId); } catch {}
+        row.style.transition = "none"; // track the finger without lag
+        row.classList.add("dragging");
+      });
+      row.addEventListener("pointermove", (e) => {
+        if (!drag || drag.row !== row || e.pointerId !== drag.pointerId) return;
+        e.preventDefault();
+        const dy = e.clientY - drag.startY;
+        row.style.transform = "translateY(" + dy + "px) scale(1.03)";
+        const n = rows().length;
+        let idx = Math.round(drag.startIndex + dy / drag.step);
+        idx = Math.max(0, Math.min(n - 1, idx));
+        if (idx !== drag.curIndex) {
+          drag.curIndex = idx;
+          layoutGap();
+        }
+      });
+      row.addEventListener("pointerup", endDrag);
+      row.addEventListener("pointercancel", endDrag);
+    }
+
+    question.options.forEach((o) => {
+      const row = document.createElement("div");
+      row.className = "ordering-row";
+      row.dataset.optionId = String(o.id);
+      const handle = document.createElement("span");
+      handle.className = "ord-handle";
+      handle.textContent = "⠿";
+      handle.setAttribute("aria-hidden", "true");
+      const label = document.createElement("div");
+      label.className = "ord-label";
+      if (o.image) {
+        const img = document.createElement("img");
+        img.src = o.image;
+        img.alt = "";
+        img.style.cssText = "display:block;max-height:80px;border-radius:8px;margin-bottom:4px";
+        label.appendChild(img);
+      }
+      const text = document.createElement("span");
+      text.textContent = locText(o.text);
+      label.appendChild(text);
+      const up = document.createElement("button");
+      up.type = "button";
+      up.className = "ord-up";
+      up.textContent = "▲";
+      up.setAttribute("aria-label", I18N.moveUp || "▲");
+      const down = document.createElement("button");
+      down.type = "button";
+      down.className = "ord-down";
+      down.textContent = "▼";
+      down.setAttribute("aria-label", I18N.moveDown || "▼");
+      up.addEventListener("click", () => move(row, -1));
+      down.addEventListener("click", () => move(row, 1));
+      const btns = document.createElement("div");
+      btns.className = "ord-arrows";
+      btns.append(up, down);
+      row.append(handle, label, btns);
+      attachDrag(row, handle);
+      list.appendChild(row);
+    });
+
+    const submit = document.createElement("button");
+    submit.className = "primary";
+    submit.type = "button";
+    submit.textContent = I18N.submit;
+    submit.addEventListener("click", () => {
+      const order = rows().map((row) => row.dataset.optionId);
+      onSubmit({ order });
+    });
+    container.appendChild(submit);
+    refreshArrows();
+  }
+
+  function renderQuestion() {
+    const q = state.question;
+    const optionsBox = document.getElementById("options");
+    // The priorities slider and the ordering sorter hold in-progress state
+    // (point allocations / a half-sorted list) — don't tear them down and
+    // rebuild (losing it) on background vote broadcasts for the same
+    // run+question (#67/#72). Same guard as the word-cloud chips above.
+    const priKeyNow = q.kind === "priorities" || q.kind === "ordering"
+      ? (state.run_id ?? "") + ":" + q.id : null;
+    if (priKeyNow && priKey === priKeyNow && optionsBox.children.length) return;
+    // We fall through to (re)build the DOM below, so keep the guard key in sync
+    // on EVERY path — including clearing it (priKeyNow === null) for a
+    // non-priorities question — otherwise returning to a priorities question
+    // after such a detour would wrongly early-return and show stale DOM.
+    priKey = priKeyNow;
+    // Drop any priorities budget box from a previous question in this section;
+    // renderPrioritiesSlider re-adds it when this question is a priorities one.
+    clearPriBudget(optionsBox.parentNode);
+    clearOrderingUi(optionsBox.parentNode);
+    document.getElementById("question-text").innerHTML = locText(q.text);
+    const wordcloud = document.getElementById("wordcloud");
+    const opentext = document.getElementById("opentext");
+    const submitMulti = document.getElementById("submit-multi");
+    optionsBox.replaceChildren();
+    selected = new Set();
+    wordcloud.hidden = q.kind !== "word_cloud";
+    opentext.hidden = q.kind !== "open_text";
+    submitMulti.hidden = !q.multiple;
+    renderCountdown();
+    // Word cloud with multiple answers (#14): a "Done" button appears and
+    // the submit button adds another term. Reset the local term list when the
+    // run OR the question changes (a re-run's old terms no longer count), but
+    // not on every vote broadcast within the same run.
+    if (q.kind === "word_cloud") {
+      const multi = !!q.allow_multiple;
+      document.getElementById("wc-submit").textContent = multi ? I18N.add : I18N.submit;
+      document.getElementById("wc-done").hidden = !multi;
+      document.getElementById("wc-info").hidden = !multi;
+      const key = (state.run_id ?? "") + ":" + q.id;
+      if (wcKey !== key) {
+        wcKey = key;
+        wcWords = new Set();
+        wcList = [];
+        renderWcChips();
+        document.getElementById("word").value = "";
+        document.getElementById("wc-hint").hidden = true;
+      }
+      updateWcLimit(); // reflect the per-person cap (#76) on every render
+    }
+    if (q.kind === "word_cloud" || q.kind === "open_text") return;
+    if (q.kind === "priorities") {
+      renderPrioritiesSlider(optionsBox, q, (payload) => submitVote(payload));
+      return;
+    }
+    if (q.kind === "ordering") {
+      renderOrderingSorter(optionsBox, q, (payload) => submitVote(payload));
+      return;
+    }
+    for (const option of q.options) {
+      const button = document.createElement("button");
+      button.type = "button";
+      fillOptionButton(button, option);
+      button.addEventListener("click", () => {
+        if (q.multiple) {
+          selected.has(option.id) ? selected.delete(option.id) : selected.add(option.id);
+          button.classList.toggle("selected", selected.has(option.id));
+          submitMulti.disabled = selected.size === 0;
+        } else {
+          submitVote({ options: [option.id] });
+        }
+      });
+      optionsBox.appendChild(button);
+    }
+    submitMulti.disabled = true;
+    submitMulti.onclick = () => submitVote({ options: [...selected] });
+  }
+
+  // --- self-paced quiz (concept §6.3) ---------------------------------------
+  // The quiz UI is driven locally: snapshots only tell us that a quiz is
+  // open (or over) — vote broadcasts must not reset the participant's
+  // position, so render() hands off and returns early.
+  let quiz = null, quizIndex = -1, quizLoading = false, quizDone = false;
+  let quizSelected = new Set();
+
+  async function loadQuiz() {
+    quizLoading = true;
+    const response = await fetch(
+      `/api/live/rooms/${CODE}/quiz/?token=${encodeURIComponent(token)}`);
+    quizLoading = false;
+    if (!response.ok) return;
+    quiz = await response.json();
+    quizDone = false;
+    quizIndex = -1;
+    advanceQuiz();
+  }
+
+  function nextUnanswered(from) {
+    const n = quiz.questions.length;
+    for (let step = 0; step < n; step++) {
+      const i = (from + step) % n;
+      if (!(String(quiz.questions[i].id) in quiz.answered)) return i;
+    }
+    return -1;
+  }
+
+  function advanceQuiz() {
+    const next = nextUnanswered(quizIndex + 1);
+    if (next === -1) {
+      renderQuizSummary();
+      return;
+    }
+    quizIndex = next;
+    renderQuizQuestion();
+  }
+
+  function renderQuizQuestion() {
+    const q = quiz.questions[quizIndex];
+    document.getElementById("quiz-progress").textContent = I18N.questionProgress
+      .replace("{i}", String(quizIndex + 1)).replace("{n}", String(quiz.questions.length));
+    document.getElementById("quiz-text").innerHTML = locText(q.text);
+    const optionsBox = document.getElementById("quiz-options");
+    const form = document.getElementById("quiz-textform");
+    const word = document.getElementById("quiz-word");
+    const area = document.getElementById("quiz-textarea");
+    const submit = document.getElementById("quiz-submit");
+    document.getElementById("quiz-feedback").hidden = true;
+    document.getElementById("quiz-next").hidden = true;
+    optionsBox.replaceChildren();
+    clearPriBudget(optionsBox.parentNode);
+    clearOrderingUi(optionsBox.parentNode);
+    quizSelected = new Set();
+    if (q.kind === "priorities") {
+      form.hidden = true;
+      submit.hidden = true;
+      renderPrioritiesSlider(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
+      show("quiz");
+      return;
+    }
+    if (q.kind === "ordering") {
+      form.hidden = true;
+      submit.hidden = true;
+      renderOrderingSorter(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
+      show("quiz");
+      return;
+    }
+    const isText = q.kind === "word_cloud" || q.kind === "open_text";
+    form.hidden = !isText;
+    word.hidden = q.kind !== "word_cloud";
+    area.hidden = q.kind !== "open_text";
+    word.value = "";
+    area.value = "";
+    submit.hidden = !q.multiple;
+    if (!isText) {
+      for (const option of q.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        fillOptionButton(button, option);
+        button.dataset.id = String(option.id);
+        button.addEventListener("click", () => {
+          if (q.multiple) {
+            quizSelected.has(option.id)
+              ? quizSelected.delete(option.id) : quizSelected.add(option.id);
+            button.classList.toggle("selected", quizSelected.has(option.id));
+            submit.disabled = quizSelected.size === 0;
+          } else {
+            submitQuizAnswer(q, { options: [option.id] });
+          }
+        });
+        optionsBox.appendChild(button);
+      }
+      submit.disabled = true;
+      submit.onclick = () => submitQuizAnswer(q, { options: [...quizSelected] });
+    }
+    show("quiz");
+  }
+
+  async function submitQuizAnswer(q, payload) {
+    const response = await post(`/api/live/rooms/${CODE}/vote/`, {
+      token, question: q.id, ...payload,
+    });
+    if (response.status === 409) {
+      // Already answered (second tab) or the run just finished — resync.
+      quiz.answered[String(q.id)] = { is_correct: null };
+      advanceQuiz();
+      return;
+    }
+    if (response.status !== 201) return;
+    const data = await response.json();
+    quiz.answered[String(q.id)] = {
+      is_correct: data.correct ? data.is_correct : null,
+    };
+    showQuizFeedback(q, payload.options || [], data);
+  }
+
+  function showQuizFeedback(q, chosen, data) {
+    const feedback = document.getElementById("quiz-feedback");
+    const nextBtn = document.getElementById("quiz-next");
+    document.getElementById("quiz-submit").hidden = true;
+    document.getElementById("quiz-textform").hidden = true;
+    for (const button of document.getElementById("quiz-options").children) {
+      button.disabled = true;
+      const id = Number(button.dataset.id);
+      if (data.correct && data.correct.includes(id)) button.classList.add("correct");
+      else if (data.correct && chosen.includes(id)) button.classList.add("wrong");
+      button.classList.remove("selected");
+    }
+    if (data.correct) {
+      feedback.textContent = data.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
+      feedback.style.color = data.is_correct ? "var(--brand-strong)" : "#a33630";
+    } else {
+      feedback.textContent = I18N.answerSaved;
+      feedback.style.color = "var(--ink-soft)";
+    }
+    feedback.hidden = false;
+    nextBtn.textContent =
+      nextUnanswered(quizIndex + 1) === -1 ? I18N.toSummary : I18N.next;
+    nextBtn.hidden = false;
+    nextBtn.focus();
+  }
+
+  function renderQuizSummary() {
+    quizDone = true;
+    const scored = Object.values(quiz.answered).filter((e) => e.is_correct !== null);
+    const right = scored.filter((e) => e.is_correct).length;
+    document.getElementById("quiz-summary").textContent = scored.length
+      ? I18N.quizScored.replace("{right}", String(right)).replace("{total}", String(scored.length))
+      : I18N.quizUnscored.replace("{total}", String(quiz.questions.length));
+    show("quiz-done");
+  }
+
+  document.getElementById("quiz-next").addEventListener("click", advanceQuiz);
+  document.getElementById("quiz-textform").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = quiz.questions[quizIndex];
+    const value = (q.kind === "word_cloud"
+      ? document.getElementById("quiz-word").value
+      : document.getElementById("quiz-textarea").value).trim();
+    if (value) void submitQuizAnswer(q, { text: value });
+  });
+
+  const menuWrap = document.getElementById("menu-wrap");
+  const reviewOpenBtn = document.getElementById("review-open");
+  const reviewWrap = document.getElementById("review-wrap");
+
+  function render() {
+    if (!state) return;
+    const setTitle = locText(state.set_title);
+    subtitle.textContent = setTitle;
+    // Scope the local history to the current set (fresh run resets it).
+    if (setTitle && history.set !== setTitle) {
+      history = { set: setTitle, order: [], items: {} };
+      saveHistory();
+    }
+    // While reviewing: ignore background snapshots, but a newly started
+    // question I still have to answer pulls me straight to it (#20).
+    const openUnanswered =
+      state.phase === "open" && state.question &&
+      votedFor() !== voteMark();
+    const currentQid = state.question ? String(state.question.id) : null;
+    if (reviewing) {
+      if (openUnanswered && currentQid !== reviewQid) {
+        reviewing = false;
+      } else {
+        menuWrap.hidden = true;
+        return;
+      }
+    }
+    // The menu (with the language switcher) stays reachable at all times
+    // in the normal view — only hidden while the review overlay is open
+    // (see openReview()); only the "My answers" entry depends on having
+    // answered something.
+    menuWrap.hidden = false;
+    // The ⋮ menu only exists to review answers, so show it once there is
+    // something answered; the globe (language) stays visible regardless.
+    reviewOpenBtn.hidden = history.order.length === 0;
+    reviewWrap.hidden = reviewOpenBtn.hidden;
+    if (state.mode === "self_paced" && state.phase === "open") {
+      if (!quiz && !quizLoading) void loadQuiz();
+      return;
+    }
+    if (quizDone && (state.phase === "finished" || state.phase === "idle")) {
+      return; // keep the summary on screen after the teacher ends the quiz
+    }
+    quiz = null;
+    quizDone = false;
+    const phase = state.phase;
+    if (phase === "open" && state.question) {
+      if (votedFor() === voteMark()) {
+        show("done");
+      } else {
+        renderQuestion();
+        show("question");
+      }
+    } else if (phase === "results" && (state.results || state.words || state.priorities || state.ordering)) {
+      renderResults();
+      show("resultsview");
+    } else if (phase === "closed" || phase === "results") {
+      show("closed");
+    } else if (phase === "finished") {
+      // Prominent review button only if I actually answered something (#24).
+      document.getElementById("finished-review").hidden = history.order.length === 0;
+      show("finished");
+    } else if (phase === "idle") {
+      document.getElementById("waiting-text").textContent = I18N.notStarted;
+      show("waiting");
+    } else {
+      document.getElementById("waiting-text").textContent = I18N.almostThere;
+      show("waiting");
+    }
+  }
+
+  // Multiple-answer word cloud: submit a term without ending — it stays as a
+  // chip, the input clears for the next. Not marked "voted" so more can follow;
+  // "Done" (or leaving the page) ends it, submitted terms already count (#14).
+  // Rebuild the chip list (each removable) and mirror it into the local
+  // history so "My answers" and results highlighting stay in sync.
+  function renderWcChips() {
+    const box = document.getElementById("wc-mine");
+    box.replaceChildren();
+    for (const entry of wcList) {
+      const chip = document.createElement("span");
+      chip.style.cssText = "display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);color:var(--brand-strong);border-radius:10px;padding:4px 6px 4px 10px;margin:0 8px 8px 0";
+      const label = document.createElement("span");
+      label.textContent = entry.word;
+      const del = document.createElement("button");
+      del.type = "button";
+      del.innerHTML = '<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+      del.setAttribute("aria-label", I18N.removeTerm.replace("{word}", entry.word));
+      del.style.cssText = "width:auto;min-height:0;margin:0;padding:0 6px;border:0;background:transparent;color:inherit;font-size:18px;line-height:1;cursor:pointer";
+      del.addEventListener("click", () => void retractWord(entry.key));
+      chip.append(label, del);
+      box.appendChild(chip);
+    }
+    if (state.question) {
+      const item = historyItem(state.question);
+      item.answerText = wcList.map((e) => e.word).join(", ");
+      saveHistory();
+    }
+    updateWcLimit();
+  }
+
+  // Per-participant cap (#76): show „x / N", and once reached disable input +
+  // „Add" and show a hint. Backend enforces it too; this is just the UX.
+  function updateWcLimit() {
+    const max = wordcloudIsMulti() ? (state.question.wordcloud_max_answers || 0) : 0;
+    const count = document.getElementById("wc-count");
+    const input = document.getElementById("word");
+    const submit = document.getElementById("wc-submit");
+    const hint = document.getElementById("wc-hint");
+    if (!max) {
+      count.hidden = true;
+      input.disabled = false;
+      submit.disabled = false;
+      return;
+    }
+    count.hidden = false;
+    count.textContent = wcList.length + " / " + max;
+    const atLimit = wcList.length >= max;
+    input.disabled = atLimit;
+    submit.disabled = atLimit;
+    if (atLimit) {
+      hint.textContent = I18N.wcLimitReached;
+      hint.hidden = false;
+    } else if (hint.textContent === I18N.wcLimitReached) {
+      hint.hidden = true;
+    }
+  }
+
+  async function addWord(word) {
+    const hint = document.getElementById("wc-hint");
+    const input = document.getElementById("word");
+    const norm = wcNorm(word);
+    if (!norm) return;
+    // Client-side cap guard (#76); the server is the source of truth.
+    const max = wordcloudIsMulti() ? (state.question.wordcloud_max_answers || 0) : 0;
+    if (max && wcList.length >= max) {
+      updateWcLimit();
+      return;
+    }
+    if (wcWords.has(norm)) {
+      hint.textContent = I18N.alreadySubmitted;
+      hint.hidden = false;
+      input.select();
+      return;
+    }
+    const response = await post(`/api/live/rooms/${CODE}/vote/`, { token, text: word });
+    if (response.status !== 201) {
+      // Backstop: server also rejects a repeated term (case-insensitive).
+      if (response.status === 409) {
+        hint.textContent = I18N.alreadySubmitted;
+        hint.hidden = false;
+      }
+      return;
+    }
+    wcWords.add(norm);
+    wcList.push({ word, key: norm });
+    hint.hidden = true;
+    renderWcChips();
+    input.value = "";
+    input.focus();
+  }
+
+  // Withdraw one of my own terms while the question is open (#14).
+  async function retractWord(key) {
+    const entry = wcList.find((e) => e.key === key);
+    if (!entry) return;
+    const response = await post(`/api/live/rooms/${CODE}/retract/`, {
+      token, text: entry.word,
+    });
+    if (response.status !== 200) return;
+    wcWords.delete(key);
+    wcList = wcList.filter((e) => e.key !== key);
+    document.getElementById("wc-hint").hidden = true;
+    renderWcChips();
+  }
+
+  function wordcloudIsMulti() {
+    return state && state.question && state.question.kind === "word_cloud"
+      && state.question.allow_multiple;
+  }
+
+  document.getElementById("wordcloud").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const word = document.getElementById("word").value.trim();
+    if (!word) return;
+    if (wordcloudIsMulti()) void addWord(word);
+    else submitVote({ text: word });
+  });
+
+  document.getElementById("wc-done").addEventListener("click", async () => {
+    const input = document.getElementById("word");
+    const pending = input.value.trim();
+    if (pending) await addWord(pending);
+    // Mark done so the device shows the confirmation; terms are already stored.
+    sessionStorage.setItem(VOTED_KEY, voteMark());
+    render();
+  });
+
+  document.getElementById("opentext").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const answer = document.getElementById("opentext-input").value.trim();
+    if (answer) submitVote({ text: answer });
+  });
+
+  // --- ⋮ menu + review overlay (#20) + language switcher (#33) --------------
+  const menuBtn = document.getElementById("menu-btn");
+  const menuPop = document.getElementById("menu-pop");
+  const langBtn = document.getElementById("lang-btn");
+  const langPop = document.getElementById("lang-pop");
+  function closeMenu() {
+    menuPop.hidden = true;
+    menuBtn.setAttribute("aria-expanded", "false");
+  }
+  function closeLang() {
+    langPop.hidden = true;
+    langBtn.setAttribute("aria-expanded", "false");
+  }
+  menuBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeLang();
+    const open = menuPop.hidden;
+    menuPop.hidden = !open;
+    menuBtn.setAttribute("aria-expanded", String(open));
+  });
+  langBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    closeMenu();
+    const open = langPop.hidden;
+    langPop.hidden = !open;
+    langBtn.setAttribute("aria-expanded", String(open));
+  });
+  document.addEventListener("click", () => {
+    if (!menuPop.hidden) closeMenu();
+    if (!langPop.hidden) closeLang();
+  });
+  function openReview() {
+    closeMenu();
+    reviewing = true;
+    reviewQid = state && state.question ? String(state.question.id) : null;
+    menuWrap.hidden = true;
+    renderReview();
+    show("review");
+  }
+  document.getElementById("review-open").addEventListener("click", openReview);
+  document.getElementById("finished-review").addEventListener("click", openReview);
+  document.getElementById("review-close").addEventListener("click", () => {
+    reviewing = false;
+    render();
+  });
+
+  // LocaleMiddleware reads this cookie on the next request (#33). Drop any
+  // ?lang= from the URL first: it takes precedence over the cookie (for
+  // QR/short links), so a manual switch must remove it or it would win again.
+  function setLanguage(code) {
+    document.cookie = "django_language=" + code + ";path=/;max-age=31536000";
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("lang")) {
+      url.searchParams.delete("lang");
+      window.location.href = url.toString();
+    } else {
+      window.location.reload();
+    }
+  }
+  document.getElementById("lang-de").addEventListener("click", () => setLanguage("de"));
+  document.getElementById("lang-en").addEventListener("click", () => setLanguage("en"));
+
+  function connect() {
+    const source = new EventSource(`/api/live/rooms/${CODE}/stream/`);
+    source.onmessage = (event) => {
+      state = JSON.parse(event.data);
+      render();
+    };
+    // EventSource reconnects on its own; the first snapshot resyncs us.
+  }
+
+  // --- recording mode (#53): async viewer of a recorded run ------------------
+  // Self-contained (no SSE): loads the recorded run's questions, lets the
+  // viewer navigate with ←/→, vote once per question, and see the combined
+  // results. Reuses the shared render primitives (locText, fillOptionButton,
+  // renderResultBlock, post).
+  const REC_TOKEN = "{{ recording_token|default:''|escapejs }}";
+  const REC_ENTRY = "{{ entry_question|default:''|escapejs }}";
+  let rec = null, recIndex = 0, recSelected = new Set(), recTimer = null;
+
+  async function startRecording() {
+    await join();
+    const response = await fetch(
+      `/api/live/recording/${REC_TOKEN}/?token=${encodeURIComponent(token)}`);
+    if (!response.ok) { subtitle.textContent = I18N.almostThere; return; }
+    rec = await response.json();
+    subtitle.textContent = locText(rec.set_title);
+    recIndex = 0;
+    if (REC_ENTRY) {
+      const i = rec.questions.findIndex((q) => String(q.id) === REC_ENTRY);
+      if (i >= 0) recIndex = i;
+    }
+    renderRec();
+  }
+
+  function recStopCountdown() {
+    window.clearInterval(recTimer);
+    document.getElementById("rec-countdown").hidden = true;
+  }
+
+  function recStartCountdown(seconds, onExpire) {
+    const box = document.getElementById("rec-countdown");
+    window.clearInterval(recTimer);
+    const end = Date.now() + seconds * 1000;
+    box.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((end - Date.now()) / 1000));
+      box.textContent = "⏱ " + I18N.countdownLeft.replace("{n}", String(left));
+      if (left <= 0) { window.clearInterval(recTimer); onExpire(); }
+    };
+    tick();
+    recTimer = window.setInterval(tick, 250);
+  }
+
+  function recMine(entry) {
+    if (entry.mine && entry.mine.options)
+      return { answerOptions: entry.mine.options.map((id) => ({ id })) };
+    if (entry.mine && entry.mine.text != null)
+      return { answerText: entry.mine.text };
+    return {};
+  }
+
+  function renderRec() {
+    const q = rec.questions[recIndex];
+    recSelected = new Set();
+    recStopCountdown();
+    document.getElementById("rec-progress").textContent = I18N.questionProgress
+      .replace("{i}", String(recIndex + 1)).replace("{n}", String(rec.questions.length));
+    document.getElementById("rec-prev").disabled = recIndex === 0;
+    document.getElementById("rec-next").disabled = recIndex === rec.questions.length - 1;
+    document.getElementById("rec-text").innerHTML = locText(q.text);
+    const optionsBox = document.getElementById("rec-options");
+    const results = document.getElementById("rec-results");
+    document.getElementById("rec-feedback").hidden = true;
+    document.getElementById("rec-textform").hidden = true;
+    document.getElementById("rec-submit").hidden = true;
+    optionsBox.replaceChildren();
+    results.replaceChildren();
+    // Drop any priorities budget box from the previously shown question;
+    // renderRecVoting re-adds it via renderPrioritiesSlider when needed.
+    clearPriBudget(optionsBox.parentNode);
+    clearOrderingUi(optionsBox.parentNode);
+    const answered = rec.answered[String(q.id)];
+    if (answered) {
+      renderRecResult(q, answered);
+    } else {
+      renderRecVoting(q);
+    }
+    show("recording");
+  }
+
+  function renderRecResult(q, entry) {
+    const feedback = document.getElementById("rec-feedback");
+    if (entry.correct) {
+      feedback.textContent = entry.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
+      feedback.style.color = entry.is_correct ? "var(--brand-strong)" : "#a33630";
+    } else {
+      feedback.textContent = I18N.answerSaved;
+      feedback.style.color = "var(--ink-soft)";
+    }
+    feedback.hidden = false;
+    renderResultBlock(document.getElementById("rec-results"), entry, recMine(entry));
+  }
+
+  function renderRecVoting(q) {
+    const optionsBox = document.getElementById("rec-options");
+    const form = document.getElementById("rec-textform");
+    const word = document.getElementById("rec-word");
+    const area = document.getElementById("rec-textarea");
+    const submit = document.getElementById("rec-submit");
+    const isText = q.kind === "word_cloud" || q.kind === "open_text";
+    form.hidden = !isText;
+    word.hidden = q.kind !== "word_cloud";
+    area.hidden = q.kind !== "open_text";
+    word.value = "";
+    area.value = "";
+    submit.hidden = !q.multiple;
+    if (q.kind === "priorities") {
+      form.hidden = true;
+      submit.hidden = true;
+      renderPrioritiesSlider(optionsBox, q, (payload) => submitRec(q, payload));
+      if (q.time_limit) recStartCountdown(q.time_limit, recLock);
+      return;
+    }
+    if (q.kind === "ordering") {
+      form.hidden = true;
+      submit.hidden = true;
+      renderOrderingSorter(optionsBox, q, (payload) => submitRec(q, payload));
+      if (q.time_limit) recStartCountdown(q.time_limit, recLock);
+      return;
+    }
+    if (!isText) {
+      for (const option of q.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        fillOptionButton(button, option);
+        button.dataset.id = String(option.id);
+        button.addEventListener("click", () => {
+          if (q.multiple) {
+            recSelected.has(option.id)
+              ? recSelected.delete(option.id) : recSelected.add(option.id);
+            button.classList.toggle("selected", recSelected.has(option.id));
+            submit.disabled = recSelected.size === 0;
+          } else {
+            void submitRec(q, { options: [option.id] });
+          }
+        });
+        optionsBox.appendChild(button);
+      }
+      submit.disabled = true;
+      submit.onclick = () => submitRec(q, { options: [...recSelected] });
+    }
+    if (q.time_limit) recStartCountdown(q.time_limit, recLock);
+  }
+
+  function recLock() {
+    // Client-only time limit (honor-based, #53): lock inputs when it expires.
+    for (const button of document.getElementById("rec-options").children) button.disabled = true;
+    document.getElementById("rec-submit").disabled = true;
+    document.getElementById("rec-textform").hidden = true;
+    const feedback = document.getElementById("rec-feedback");
+    feedback.textContent = I18N.timeUp;
+    feedback.style.color = "#a33630";
+    feedback.hidden = false;
+  }
+
+  async function submitRec(q, payload) {
+    const response = await post(`/api/live/recording/${REC_TOKEN}/vote/`, {
+      token, question: q.id, ...payload,
+    });
+    if (response.status === 409) {
+      rec.answered[String(q.id)] = { is_correct: null, mine: payload };
+      renderRec();
+      return;
+    }
+    if (response.status !== 201) return;
+    const data = await response.json();
+    rec.answered[String(q.id)] = {
+      results: data.results, words: data.words, likert: data.likert, priorities: data.priorities,
+      ordering: data.ordering,
+      is_correct: data.correct ? data.is_correct : null,
+      correct: data.correct, mine: payload,
+    };
+    recStopCountdown();
+    renderRec();
+  }
+
+  document.getElementById("rec-prev").addEventListener("click", () => {
+    if (recIndex > 0) { recIndex--; renderRec(); }
+  });
+  document.getElementById("rec-next").addEventListener("click", () => {
+    if (rec && recIndex < rec.questions.length - 1) { recIndex++; renderRec(); }
+  });
+  document.getElementById("rec-textform").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const q = rec.questions[recIndex];
+    const value = (q.kind === "word_cloud"
+      ? document.getElementById("rec-word").value
+      : document.getElementById("rec-textarea").value).trim();
+    if (value) void submitRec(q, { text: value });
+  });
+
+  if (PREVIEW) {
+    // Editor preview (#74): render the seeded question directly, no run/SSE.
+    state = PREVIEW_STATE;
+    render();
+  } else if (REC_TOKEN) {
+    void startRecording();
+  } else {
+    join().then(connect);
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,122 @@
+# Local development stack. Host ports are shifted (+1 / +2) against
+# Ausleihbar's defaults so both projects can run side by side:
+#   PostgreSQL 5433, Keycloak 8081, Backend 8002, Frontend 5174.
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: abstimmbar_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-abstimmbar}
+      POSTGRES_USER: ${POSTGRES_USER:-abstimmbar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abstimmbar}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-abstimmbar} -d ${POSTGRES_DB:-abstimmbar}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: abstimmbar_backend
+    restart: unless-stopped
+    # uvicorn instead of runserver: the SSE stream view is async (ADR-0003).
+    # --timeout-graceful-shutdown is essential: open SSE streams never close
+    # on their own, so reloads/shutdowns would otherwise wait forever
+    # ("Waiting for connections to close") and the server hangs.
+    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 5
+    # SSE holds one socket per participant — the 1024 default is too low
+    # for the ≥1000-participants target (and the in-container load test).
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - ./backend:/app
+    ports:
+      - "${BACKEND_PORT:-8002}:8000"
+    environment:
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-insecure-secret-key-change-me}
+      DJANGO_DEBUG: ${DJANGO_DEBUG:-1}
+      POSTGRES_DB: ${POSTGRES_DB:-abstimmbar}
+      POSTGRES_USER: ${POSTGRES_USER:-abstimmbar}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-abstimmbar}
+      POSTGRES_HOST: db
+      POSTGRES_PORT: 5432
+      # OIDC (local Keycloak). The browser uses localhost:8081 for the login
+      # redirect; the backend reaches Keycloak via host.docker.internal:8081.
+      OIDC_RP_CLIENT_ID: ${OIDC_RP_CLIENT_ID:-abstimmbar-backend}
+      OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:-abstimmbar-dev-secret}
+      OIDC_OP_AUTHORIZATION_ENDPOINT: ${OIDC_OP_AUTHORIZATION_ENDPOINT:-http://localhost:8081/realms/abstimmbar/protocol/openid-connect/auth}
+      OIDC_OP_TOKEN_ENDPOINT: ${OIDC_OP_TOKEN_ENDPOINT:-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/token}
+      OIDC_OP_USER_ENDPOINT: ${OIDC_OP_USER_ENDPOINT:-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/userinfo}
+      OIDC_OP_JWKS_ENDPOINT: ${OIDC_OP_JWKS_ENDPOINT:-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/certs}
+      OIDC_OP_LOGOUT_ENDPOINT: ${OIDC_OP_LOGOUT_ENDPOINT:-http://localhost:8081/realms/abstimmbar/protocol/openid-connect/logout}
+      # Members of this IdP group are granted Django admin on login.
+      OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-abstimmbar-admins}
+      FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5174}
+      # virtiofs (colima) swallows inotify events — poll for code changes.
+      WATCHFILES_FORCE_POLLING: "true"
+      OIDC_LOGIN_REDIRECT_URL: ${OIDC_LOGIN_REDIRECT_URL:-http://localhost:5174/}
+      OIDC_LOGOUT_REDIRECT_URL: ${OIDC_LOGOUT_REDIRECT_URL:-http://localhost:5174/}
+      # Optional AI features (LiteLLM). Off unless all four are set.
+      AI_PROVIDER: ${AI_PROVIDER:-none}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-}
+      AI_TIMEOUT: ${AI_TIMEOUT:-30}
+      AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
+      AI_DISABLE_THINKING: ${AI_DISABLE_THINKING:-1}
+      # Content translation (#33). Canonical language + optional LibreTranslate
+      # pre-fill in the editor (off unless CONTENT_TRANSLATION_PROVIDER is set).
+      CONTENT_DEFAULT_LANGUAGE: ${CONTENT_DEFAULT_LANGUAGE:-de}
+      CONTENT_TRANSLATION_PROVIDER: ${CONTENT_TRANSLATION_PROVIDER:-none}
+      LIBRETRANSLATE_URL: ${LIBRETRANSLATE_URL:-}
+      LIBRETRANSLATE_API_KEY: ${LIBRETRANSLATE_API_KEY:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      db:
+        condition: service_healthy
+      keycloak:
+        condition: service_started
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    container_name: abstimmbar_keycloak
+    restart: unless-stopped
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_ADMIN:-admin}
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+      KC_HOSTNAME: http://localhost:8081
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - "${KEYCLOAK_PORT:-8081}:8080"
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: abstimmbar_frontend
+    restart: unless-stopped
+    command: npm run dev -- --host 0.0.0.0 --port 5174
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "${FRONTEND_PORT:-5174}:5174"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8002}
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:

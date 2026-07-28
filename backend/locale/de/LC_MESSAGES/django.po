@@ -1,0 +1,276 @@
+# German translations for the Abstimmbar participant page (i18n, #33).
+# Copyright (C) 2026 Universität Osnabrück (virtUOS)
+#
+msgid ""
+msgstr ""
+"Project-Id-Version: abstimmbar\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2026-07-23 19:47+0200\n"
+"PO-Revision-Date: 2026-07-10 08:06+0000\n"
+"Last-Translator: Abstimmbar\n"
+"Language-Team: German\n"
+"Language: de\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=2; plural=(n != 1);\n"
+
+#: live/templates/live/home.html:4
+msgid "Abstimmbar — join"
+msgstr "Abstimmbar — teilnehmen"
+
+#: live/templates/live/home.html:8
+msgid "Join a poll"
+msgstr "An einer Abstimmung teilnehmen"
+
+#: live/templates/live/home.html:9
+msgid "Enter the code shown on the wall."
+msgstr "Gib den Code ein, der an der Wand angezeigt wird."
+
+#: live/templates/live/home.html:12
+msgid "e.g. tiger-komet-radio"
+msgstr "z. B. tiger-komet-radio"
+
+#: live/templates/live/home.html:13
+msgid "Room code"
+msgstr "Raum-Code"
+
+#: live/templates/live/home.html:14
+msgid "Continue"
+msgstr "Weiter"
+
+#: live/templates/live/participant.html:15
+msgid "Language"
+msgstr "Sprache"
+
+#: live/templates/live/participant.html:20
+msgid "Deutsch"
+msgstr "Deutsch"
+
+#: live/templates/live/participant.html:22
+msgid "English"
+msgstr "English"
+
+#: live/templates/live/participant.html:27
+msgid "Menu"
+msgstr "Menü"
+
+#: live/templates/live/participant.html:32
+#: live/templates/live/participant.html:122
+msgid "My answers"
+msgstr "Meine Antworten"
+
+#: live/templates/live/participant.html:37
+msgid "Connecting …"
+msgstr "Verbinde …"
+
+#: live/templates/live/participant.html:41
+#: live/templates/live/participant.html:188
+msgid "The vote has not started yet."
+msgstr "Die Abstimmung hat noch nicht begonnen."
+
+#: live/templates/live/participant.html:42
+msgid "Keep this page open — it will start automatically."
+msgstr "Lass diese Seite geöffnet — es geht automatisch los."
+
+#: live/templates/live/participant.html:51
+#: live/templates/live/participant.html:135
+#: live/templates/live/participant.html:166
+msgid "Your term …"
+msgstr "Dein Begriff …"
+
+#: live/templates/live/participant.html:51
+#: live/templates/live/participant.html:67
+#: live/templates/live/participant.html:135
+#: live/templates/live/participant.html:137
+#: live/templates/live/participant.html:166
+#: live/templates/live/participant.html:168
+msgid "Answer"
+msgstr "Antwort"
+
+#: live/templates/live/participant.html:52
+#: live/templates/live/participant.html:69
+#: live/templates/live/participant.html:139
+#: live/templates/live/participant.html:170
+#: live/templates/live/participant.html:199
+msgid "Submit"
+msgstr "Abschicken"
+
+#: live/templates/live/participant.html:55
+msgid ""
+"You can submit several terms — but each only once. Use × to withdraw an "
+"entry again."
+msgstr ""
+"Du kannst mehrere Begriffe einreichen — jeden aber nur einmal. Über das × "
+"nimmst du einen Eintrag wieder zurück."
+
+#: live/templates/live/participant.html:63
+msgid "Done"
+msgstr "Fertig"
+
+#: live/templates/live/participant.html:67
+#: live/templates/live/participant.html:137
+#: live/templates/live/participant.html:168
+msgid "Your answer …"
+msgstr "Deine Antwort …"
+
+#: live/templates/live/participant.html:71
+#: live/templates/live/participant.html:141
+#: live/templates/live/participant.html:172
+msgid "Submit answer"
+msgstr "Antwort abschicken"
+
+#: live/templates/live/participant.html:81
+msgid "Your answer was received."
+msgstr "Deine Antwort ist angekommen."
+
+#: live/templates/live/participant.html:82
+msgid "Waiting for the next question."
+msgstr "Warte auf die nächste Frage."
+
+#: live/templates/live/participant.html:87
+msgid "Voting is closed."
+msgstr "Die Beantwortung ist geschlossen."
+
+#: live/templates/live/participant.html:88
+msgid "You can see the results on the screen."
+msgstr "Die Ergebnisse siehst du an der Wand."
+
+#: live/templates/live/participant.html:113
+msgid "The vote has ended."
+msgstr "Die Abstimmung ist beendet."
+
+#: live/templates/live/participant.html:114
+msgid "View my answers"
+msgstr "Meine Antworten ansehen"
+
+#: live/templates/live/participant.html:123
+msgid "You have not answered anything in this round yet."
+msgstr "Du hast in dieser Runde noch nichts beantwortet."
+
+#: live/templates/live/participant.html:125
+msgid "Back"
+msgstr "Zurück"
+
+#: live/templates/live/participant.html:143
+#: live/templates/live/participant.html:194
+msgid "Next"
+msgstr "Weiter"
+
+#: live/templates/live/participant.html:149
+msgid "You can close this page now."
+msgstr "Du kannst diese Seite jetzt schließen."
+
+#: live/templates/live/participant.html:155
+msgid "Previous question"
+msgstr "Vorherige Frage"
+
+#: live/templates/live/participant.html:158
+msgid "Next question"
+msgstr "Nächste Frage"
+
+#: live/templates/live/participant.html:189
+msgid "Almost there — look at the screen."
+msgstr "Gleich geht es weiter — schau an die Wand."
+
+#: live/templates/live/participant.html:190
+#, python-brace-format
+msgid "{n}s left"
+msgstr "noch {n} s"
+
+#: live/templates/live/participant.html:191
+msgid "Correct!"
+msgstr "Richtig!"
+
+#: live/templates/live/participant.html:192
+msgid "Not quite right."
+msgstr "Leider nicht richtig."
+
+#: live/templates/live/participant.html:193
+msgid "Answer saved."
+msgstr "Antwort gespeichert."
+
+#: live/templates/live/participant.html:195
+msgid "See results"
+msgstr "Zur Auswertung"
+
+#: live/templates/live/participant.html:196
+#, python-brace-format
+msgid "Done! {right} of {total} answered correctly."
+msgstr "Geschafft! {right} von {total} Fragen richtig beantwortet."
+
+#: live/templates/live/participant.html:197
+#, python-brace-format
+msgid "Done! You answered all {total} questions."
+msgstr "Geschafft! Du hast alle {total} Fragen beantwortet."
+
+#: live/templates/live/participant.html:198
+msgid "Add"
+msgstr "Hinzufügen"
+
+#: live/templates/live/participant.html:200
+msgid "You already submitted this term."
+msgstr "Diesen Begriff hast du schon genannt."
+
+#: live/templates/live/participant.html:201
+msgid "You have reached the maximum number of terms."
+msgstr "Du hast die maximale Anzahl an Begriffen erreicht."
+
+#: live/templates/live/participant.html:202
+#, python-brace-format
+msgid "Remove term “{word}”"
+msgstr "Begriff „{word}“ entfernen"
+
+#: live/templates/live/participant.html:203
+msgid "Your answer: "
+msgstr "Deine Antwort: "
+
+#: live/templates/live/participant.html:204
+msgid "Not answered."
+msgstr "Nicht beantwortet."
+
+#: live/templates/live/participant.html:205
+msgid "your choice"
+msgstr "deine Wahl"
+
+#: live/templates/live/participant.html:206
+#, python-brace-format
+msgid "{used} of {total} points allocated"
+msgstr "{used} von {total} Punkten vergeben"
+
+#: live/templates/live/participant.html:207
+msgid "lower a value to reallocate points"
+msgstr "reduziere einen Wert, um Punkte neu zu verteilen"
+
+#: live/templates/live/participant.html:208
+msgid "Drag the items or use the arrows to sort them."
+msgstr "Zieh die Elemente oder nutze die Pfeile zum Sortieren."
+
+#: live/templates/live/participant.html:209
+msgid "correct order"
+msgstr "komplett richtig"
+
+#: live/templates/live/participant.html:210
+msgid "correctly placed"
+msgstr "richtig platziert"
+
+#: live/templates/live/participant.html:211
+msgid "Move up"
+msgstr "Nach oben"
+
+#: live/templates/live/participant.html:212
+msgid "Move down"
+msgstr "Nach unten"
+
+#: live/templates/live/participant.html:213
+msgid "you"
+msgstr "du"
+
+#: live/templates/live/participant.html:214
+#, python-brace-format
+msgid "Question {i} of {n}"
+msgstr "Frage {i} von {n}"
+
+#: live/templates/live/participant.html:215
+msgid "Time is up."
+msgstr "Die Zeit ist abgelaufen."

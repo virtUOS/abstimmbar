@@ -1,0 +1,16 @@
+{
+  "question set_one": "question set",
+  "question set_other": "question sets",
+  "vote_one": "vote",
+  "vote_other": "votes",
+  "answer_one": "answer",
+  "answer_other": "answers",
+  "Start_action": "Start",
+  "Room code_input": "Room code",
+  "answer being evaluated_one": "answer is still being evaluated …",
+  "answer being evaluated_other": "answers are still being evaluated …",
+  "abstention_one": "abstention",
+  "abstention_other": "abstentions",
+  "question_one": "question",
+  "question_other": "questions"
+}

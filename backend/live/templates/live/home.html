@@ -1,0 +1,28 @@
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{% extends "live/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Abstimmbar — join" %}{% endblock %}
+{% block content %}
+<div class="center">
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></div>
+  <h1>{% trans "Join a poll" %}</h1>
+  <p class="soft">{% trans "Enter the code shown on the wall." %}</p>
+  <form id="join">
+    <input type="text" id="code" autocomplete="off" autocapitalize="none"
+           spellcheck="false" placeholder="{% trans 'e.g. tiger-komet-radio' %}"
+           aria-label="{% trans 'Room code' %}" autofocus>
+    <button class="primary" type="submit">{% trans "Continue" %}</button>
+  </form>
+</div>
+{% endblock %}
+{% block script %}
+<script>
+  document.getElementById("join").addEventListener("submit", (e) => {
+    e.preventDefault();
+    // Accept "Tiger Komet Radio", "tiger-komet-radio" or a numeric code.
+    const code = document.getElementById("code").value
+      .trim().toLowerCase().replace(/\s+/g, "-");
+    if (code) location.href = "/p/" + encodeURIComponent(code) + "/";
+  });
+</script>
+{% endblock %}

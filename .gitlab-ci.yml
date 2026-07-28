@@ -1,0 +1,42 @@
+# CI for the Uni Osnabrück GitLab. Three quick jobs: backend lint, backend
+# tests (against a real PostgreSQL, as in production), frontend type-check +
+# build. Add runner tags here if the instance's shared runners require them.
+stages:
+  - lint
+  - test
+  - build
+
+backend-lint:
+  stage: lint
+  image: python:3.12-slim
+  script:
+    - pip install --quiet ruff
+    - ruff check backend
+
+backend-test:
+  stage: test
+  image: python:3.12-slim
+  services:
+    - postgres:16-alpine
+  variables:
+    POSTGRES_DB: abstimmbar
+    POSTGRES_USER: abstimmbar
+    POSTGRES_PASSWORD: abstimmbar
+    POSTGRES_HOST: postgres
+  script:
+    - pip install --quiet -r backend/requirements.txt
+    - cd backend && python manage.py test
+
+frontend-build:
+  stage: build
+  image: node:22-slim
+  script:
+    - cd frontend
+    - npm ci
+    - npm run build
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - frontend/node_modules/

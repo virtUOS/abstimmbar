@@ -1,0 +1,67 @@
+# Caddyfile — Abstimmbar production reverse proxy with automatic HTTPS.
+#
+# Replace abstimmbar.example.org with your domain and set a real ACME contact
+# email. Caddy obtains and renews a Let's Encrypt certificate automatically as
+# long as ports 80 and 443 are reachable and the domain's DNS points here.
+# For institutional certificates (e.g. HARICA) mount them into the container
+# and use `tls /etc/caddy/certs/<name>.crt /etc/caddy/certs/<name>.key`.
+#
+# The `header Content-Security-Policy` line in the SPA `handle` block below
+# carries your LMS domain, for LTI iframe embedding — see that block.
+
+{
+	# Contact address for Let's Encrypt (expiry notices). Replace it.
+	email admin@example.org
+}
+
+abstimmbar.example.org {
+	encode zstd gzip
+
+	# API (including the SSE stream), Django admin, OIDC and LTI endpoints,
+	# and the server-rendered participant pages (/p/...) → Django (uvicorn).
+	# flush_interval -1 disables response buffering: SSE events must reach
+	# the devices immediately, not once a buffer fills up.
+	handle /api/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+	handle /admin/* {
+		reverse_proxy backend:8000
+	}
+	handle /oidc/* {
+		reverse_proxy backend:8000
+	}
+	handle /lti/* {
+		reverse_proxy backend:8000
+	}
+	handle /p/* {
+		reverse_proxy backend:8000
+	}
+
+	# Uploaded media and collected static files → served directly from volumes.
+	handle_path /media/* {
+		root * /srv/media
+		file_server
+	}
+	handle_path /static/* {
+		root * /srv/static
+		file_server
+	}
+
+	# Everything else → the built SPA, with client-side routing fallback.
+	handle {
+		# LTI iframe embedding (optional, opt-in): to let the institutional LMS
+		# embed the SPA in an iframe, UNCOMMENT the next line and replace the
+		# origin with your LMS (space-separate multiple). Only needed for
+		# in-iframe launches; "new window" launches don't need this. Django
+		# already sets frame-ancestors for /p/ and /lti/ from the registered
+		# platforms; this line covers the Caddy-served SPA. Left commented so a
+		# default install stays 'self'-only (no external framing).
+		# header Content-Security-Policy "frame-ancestors 'self' https://moodle.example.org"
+
+		root * /srv/www
+		try_files {path} /index.html
+		file_server
+	}
+}

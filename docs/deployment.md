@@ -1,0 +1,552 @@
+# Produktiv-Deployment
+
+Abstimmbar läuft produktiv als Docker-Compose-Stack nach dem Vorbild von
+AusleihBar: **PostgreSQL + Django (uvicorn/ASGI) + Caddy** als
+TLS-terminierender Reverse Proxy. Kein Keycloak im Stack — OIDC zeigt auf
+den institutionellen IdP.
+
+```
+Browser ── https ──> Caddy ──> /api, /admin, /oidc, /lti, /p → uvicorn (Django)
+                        │        /static, /media → Volumes (file_server)
+                        │        alles andere     → SPA-Build (frontend/dist)
+                        └── automatisches TLS (Let's Encrypt) oder eigene Zertifikate
+```
+
+Der erste Teil ist eine **vollständige Schritt-für-Schritt-Anleitung für
+Rocky Linux 9**, dem folgen Keycloak-/LTI-Konfiguration, Betriebshinweise,
+Alltagskommandos, Updates, Zertifikate und Backup.
+
+---
+
+## Installation auf Rocky Linux 9 — Schritt für Schritt
+
+Eine komplette Anleitung für einen frischen **Rocky-Linux-9-Server**, so
+geschrieben, dass sie ohne Linux-Vorerfahrung nachvollziehbar ist. Kopiere
+jeden Befehl exakt.
+
+**Wie es zusammenspielt (einmal lesen):** Auf dem Server wird nur eine
+Sache installiert — **Docker**. Docker lädt und betreibt alle Bausteine als
+*Container*: die Datenbank (**PostgreSQL**), die Anwendung (**Django**) und
+den Webserver mit HTTPS (**Caddy**). PostgreSQL und Caddy werden **nicht**
+von Hand installiert, und Caddy besorgt sich das HTTPS-Zertifikat von
+Let's Encrypt automatisch. Alles ist unter einer Adresse erreichbar, z. B.
+`https://abstimmbar.example.org` — Teilnehmende nutzen
+`https://abstimmbar.example.org/p/` bzw. den QR-Code aus dem
+Präsentationsmodus.
+
+**Vorher benötigt:**
+
+- Ein Server mit Rocky Linux 9 und ein Benutzer mit `sudo`-Rechten (oder
+  `root` — dann das `sudo` vor den Befehlen weglassen).
+- Ein **Domainname** (z. B. `abstimmbar.example.org`), für den du einen
+  DNS-Eintrag anlegen kannst. HTTPS braucht eine echte Domain.
+- Die **öffentliche IP-Adresse** des Servers.
+- Ein **OIDC-Client** im institutionellen Keycloak (Details unten; kann
+  auch nachgereicht werden, der Stack startet ohne funktionierenden Login).
+
+> Notation: Zeilen mit `sudo` werden im Terminal des Servers ausgeführt.
+> Im Editor `nano` speicherst du mit **Strg+O**, **Enter** und verlässt ihn
+> mit **Strg+X**.
+
+### Schritt 1 — Am Server anmelden
+
+Vom eigenen Rechner aus:
+
+```bash
+ssh dein-benutzer@SERVER-IP        # z. B. ssh admin@203.0.113.10
+```
+
+### Schritt 2 — System aktualisieren und Grundwerkzeuge installieren
+
+```bash
+sudo dnf -y update
+sudo dnf -y install git nano dnf-plugins-core
+```
+
+Hat `dnf update` einen neuen Kernel installiert (typisch bei einer frischen
+VM), dann **jetzt einmal neu starten**, damit der neue Kernel samt passender
+Module läuft — sonst kann Docker in Schritt 3 seine Netzwerk-Regeln nicht
+setzen (siehe [Troubleshooting](#troubleshooting)):
+
+```bash
+sudo reboot
+```
+
+### Schritt 3 — Docker installieren
+
+```bash
+sudo dnf config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
+sudo dnf -y install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+sudo systemctl enable --now docker
+sudo docker --version            # gibt eine Version aus → Docker läuft
+```
+
+(Optional, um das `sudo` vor `docker` loszuwerden:
+`sudo usermod -aG docker $USER`, dann ab- und wieder anmelden. Diese
+Anleitung behält `sudo` bei, damit sie so oder so funktioniert.)
+
+### Schritt 4 — Firewall für Web-Verkehr öffnen
+
+Caddy braucht Port **80** (für das Zertifikat und die Umleitung auf HTTPS)
+und **443** (HTTPS).
+
+Rocky nutzt **firewalld**; bei einer Minimalinstallation fehlt es unter
+Umständen. Erst installieren/aktivieren (ohne Wirkung, falls schon da):
+
+```bash
+sudo dnf -y install firewalld
+sudo systemctl enable --now firewalld
+```
+
+Dann die beiden Web-Ports öffnen und neu laden:
+
+```bash
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
+sudo firewall-cmd --list-services      # muss 'http' und 'https' enthalten
+```
+
+> **Hinweis:** Manche Server (v. a. Cloud-/Rechenzentrums-VMs) haben keine
+> Host-Firewall, sondern filtern über eine externe **Security Group /
+> Netz-Firewall**. Wenn `firewall-cmd` trotz der Schritte oben
+> `FirewallD is not running` meldet — oder ihr bewusst kein firewalld
+> nutzt — überspringe diesen Schritt und lass stattdessen die Ports **80**
+> und **443** in der externen Firewall freischalten.
+
+### Schritt 5 — Domain auf den Server zeigen lassen (DNS)
+
+Beim DNS-Verantwortlichen (an der Uni: das Rechenzentrum) einen
+**A-Record** der Domain auf die öffentliche IP des Servers anlegen lassen
+(und einen **AAAA-Record**, falls IPv6 vorhanden). Danach vom Server aus
+prüfen:
+
+```bash
+sudo dnf -y install bind-utils        # liefert den Befehl 'dig'
+dig +short abstimmbar.example.org     # muss die IP des Servers ausgeben
+```
+
+Nicht weitermachen, bevor hier die richtige IP erscheint — Let's Encrypt
+prüft genau das.
+
+### Schritt 6 — Anwendung herunterladen
+
+```bash
+sudo mkdir -p /opt && cd /opt
+sudo git clone git@gitlab.uni-osnabrueck.de:virtuos/digitale-dienste/abstimmbar.git
+cd abstimmbar
+```
+
+(Für das interne Repo braucht der Server einen SSH-Key mit Lesezugriff
+oder du nutzt die HTTPS-URL mit Zugangsdaten.)
+
+### Schritt 7 — Konfigurationsdatei anlegen
+
+```bash
+sudo cp .env.prod.example .env
+openssl rand -base64 48              # Ausgabe kopieren — das wird der Secret Key
+sudo nano .env
+```
+
+In `nano` mindestens diese Werte setzen (jedes `...` und die
+Beispiel-Domain ersetzen; den eben erzeugten Secret Key einfügen):
+
+```dotenv
+# Öffentliche Adresse der Instanz (dreimal derselbe Wert)
+PUBLIC_BASE_URL=https://abstimmbar.example.org
+VITE_API_BASE_URL=https://abstimmbar.example.org
+CSRF_TRUSTED_ORIGINS=https://abstimmbar.example.org
+
+# Django
+DJANGO_SECRET_KEY=HIER-DEN-ERZEUGTEN-SECRET-KEY-EINFUEGEN
+DJANGO_ALLOWED_HOSTS=abstimmbar.example.org
+
+# Datenbank — ein langes Zufallspasswort wählen (z. B. openssl rand -base64 24)
+POSTGRES_PASSWORD=hier-ein-starkes-passwort
+
+# Login (OIDC) — institutioneller Keycloak. OIDC_OP_ISSUER genügt, die
+# Endpunkte kommen per Discovery; Details im Abschnitt "Keycloak-Client".
+OIDC_RP_CLIENT_ID=abstimmbar
+OIDC_RP_CLIENT_SECRET=...
+OIDC_OP_ISSUER=https://sso.example.org/realms/example
+# Mitglieder dieser IdP-Gruppe bekommen beim Login Django-Admin (leer = aus).
+OIDC_ADMIN_GROUP=abstimmbar-admins
+```
+
+Speichern mit **Strg+O**, **Enter**, beenden mit **Strg+X**.
+
+### Schritt 8 — Webserver (Caddy) konfigurieren
+
+**Wie Caddy installiert wird:** gar nicht per `dnf` — Caddy läuft als
+Docker-Container aus dem offiziellen `caddy:2`-Image, das Docker beim
+Start des Stacks (Schritt 11) automatisch lädt. Definiert ist es in
+`docker-compose.prod.yml` (Service `caddy`); dort öffnet es die Ports
+80/443 und legt seine Zertifikate im Volume `caddy_data` ab.
+
+**Wo die Konfiguration liegt:** in der Datei `Caddyfile` im Projektordner,
+also `/opt/abstimmbar/Caddyfile`. Das Compose-File hängt sie **read-only in
+den Container** — du bearbeitest sie auf dem Host, nichts muss kopiert
+werden.
+
+Zwei Dinge ändern: die Domain in der Zeile `abstimmbar.example.org {` und
+die `email`-Adresse oben (Let's Encrypt schickt dorthin Ablauf-Hinweise):
+
+```bash
+cd /opt/abstimmbar
+sudo nano Caddyfile
+```
+
+Zertifikate richtest du **nicht** von Hand ein — Caddy besorgt und
+erneuert das Let's-Encrypt-Zertifikat automatisch, sobald Domain und Ports
+stimmen. Spätere Änderungen am Caddyfile übernimmst du mit
+`sudo docker compose -f docker-compose.prod.yml restart caddy`.
+
+### Schritt 9 — Website (Frontend) bauen
+
+Dieser Schritt übersetzt die Verwaltungsoberfläche in statische Dateien,
+die Caddy ausliefert. Er liest `VITE_API_BASE_URL` aus deiner `.env`:
+
+```bash
+sudo docker compose run --rm --no-deps frontend sh -c "npm ci && npm run build"
+```
+
+Das erzeugt den Ordner `frontend/dist`. (Bei jedem Update wiederholen —
+siehe „Updates einspielen".)
+
+> Das `npm ci` installiert die Abhängigkeiten sauber im Linux-Container
+> neu. Das umgeht einen npm-Bug (npm/cli#4828), durch den sonst das von
+> `vite build` benötigte Plattform-Paket
+> (`@rollup/rollup-linux-x64-gnu`) fehlen kann („Cannot find module …").
+
+### Schritt 10 — Dateien für SELinux freigeben
+
+Rocky Linux hat SELinux aktiviert; ohne Label darf ein Container keine vom
+Host gemounteten Dateien lesen. Die beiden Pfade freigeben, die Caddy
+liest:
+
+```bash
+sudo chcon -Rt container_file_t Caddyfile frontend/dist
+```
+
+### Schritt 11 — Alles starten
+
+```bash
+sudo docker compose -f docker-compose.prod.yml up -d --build
+```
+
+Das lädt PostgreSQL und Caddy, baut die Anwendung, führt die
+Datenbank-Migrationen aus und startet alle Dienste. Caddy holt das
+HTTPS-Zertifikat (dauert bis zu einer Minute). Logs beobachten:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml logs -f      # Strg+C beendet die Anzeige
+```
+
+Danach `https://abstimmbar.example.org` im Browser öffnen — die
+Startseite der Verwaltung erscheint; `https://abstimmbar.example.org/p/`
+zeigt die Code-Eingabe für Teilnehmende.
+
+### Schritt 12 — Erstes Admin-Konto anlegen
+
+Ein lokales Break-Glass-Konto, unabhängig vom IdP (nützlich, falls OIDC
+mal nicht erreichbar ist):
+
+```bash
+sudo docker compose -f docker-compose.prod.yml exec backend python manage.py createsuperuser
+```
+
+Den Eingaben folgen (Benutzername, E-Mail, Passwort); Login danach unter
+`https://abstimmbar.example.org/admin/`. Lehrende melden sich regulär per
+Uni-Login (OIDC) auf der Startseite an; Mitglieder der Gruppe aus
+`OIDC_ADMIN_GROUP` bekommen dabei automatisch Django-Admin-Rechte.
+
+### Übersteht das einen Server-Neustart?
+
+Ja — das Setup ist reboot-sicher:
+
+- Docker startet beim Boot (`systemctl enable docker`, Schritt 3).
+- Alle Dienste haben `restart: unless-stopped` — Datenbank, Backend und
+  Caddy kommen nach einem Reboot von selbst wieder hoch (außer du hast
+  den Stack bewusst mit `… down` gestoppt).
+- Alle Daten liegen in persistenten Volumes: Datenbank (`postgres_data`),
+  hochgeladene Bilder (`media_data`), Zertifikate (`caddy_data`). Beim
+  Start laufen Migrationen und `collectstatic` automatisch erneut.
+- Die Firewall-Regeln wurden mit `--permanent` gespeichert (Schritt 4).
+
+Prüfen:
+
+```bash
+sudo reboot
+# nach dem Neustart wieder anmelden, dann:
+cd /opt/abstimmbar
+sudo docker compose -f docker-compose.prod.yml ps     # alle Dienste "running"
+```
+
+---
+
+## Keycloak-Client (institutioneller IdP)
+
+Client-Einstellungen (Confidential Client, Standard Flow):
+
+- **Redirect URI:** `https://<domain>/oidc/callback/`
+- **Post-Logout-Redirect URI:** `https://<domain>/`
+- **Backchannel-Logout-URL:** `https://<domain>/oidc/backchannel-logout/`
+- Group-Membership-Mapper auf den Claim `groups` (für `OIDC_ADMIN_GROUP`)
+
+In `.env` reicht `OIDC_OP_ISSUER` (Endpunkte kommen per Discovery);
+abweichende Endpunkte lassen sich per `OIDC_OP_*` explizit setzen.
+
+## LTI (Moodle/Stud.IP)
+
+Registrierung der LMS-Plattformen wie in [lti.md](lti.md) beschrieben; die
+Tool-Endpunkte liegen unter `https://<domain>/lti/…`. Empfohlen ist der
+Start im **neuen Fenster**. Nur für iframe-Betrieb in `.env`
+`SESSION_COOKIE_SAMESITE=None` setzen (erzwingt Secure-Cookies).
+
+## Betriebshinweise
+
+- **Ein Backend-Prozess, kein Scale-out:** Der SSE-Hub (ADR-0003) lebt im
+  Prozessspeicher. Mehrere uvicorn-Worker oder Replikas würden die
+  Verbindungen aufteilen — Stimmen aus Worker A kämen nie bei Geräten an,
+  die mit Worker B verbunden sind. Ein Prozess trägt ≥1000 Teilnehmende
+  (Lasttest `scripts/loadtest.py`); mehr braucht erst einen externen
+  Broker (z. B. Redis Pub/Sub) — bewusst aufgeschoben.
+- **Dateideskriptoren:** SSE hält pro Teilnehmergerät einen Socket offen;
+  das Compose-File setzt `nofile` auf 65536.
+- **Graceful Shutdown:** `--timeout-graceful-shutdown 5` ist gesetzt, weil
+  offene SSE-Streams nie von selbst enden — ohne das Flag hinge jeder
+  Neustart.
+- **DB-Verbindungen:** Der psycopg-Pool (settings.py) deckelt bei 20
+  Verbindungen; PostgreSQLs Default (100) braucht keine Anpassung.
+
+## Alltagskommandos
+
+Alle im Ordner `/opt/abstimmbar` ausführen:
+
+```bash
+P="sudo docker compose -f docker-compose.prod.yml"
+$P ps                 # was läuft
+$P logs -f            # Live-Logs (Strg+C beendet)
+$P restart            # Anwendung neu starten
+$P down               # alles stoppen
+$P up -d --build      # starten / Änderungen übernehmen
+```
+
+Geplante Cron-Jobs braucht Abstimmbar nicht — es gibt keine periodischen
+Wartungsaufgaben.
+
+## Updates einspielen
+
+```bash
+cd /opt/abstimmbar
+sudo git pull
+sudo docker compose run --rm --no-deps frontend sh -c "npm ci && npm run build"  # Website neu bauen
+sudo chcon -Rt container_file_t frontend/dist                   # neue Dateien für SELinux labeln
+sudo docker compose -f docker-compose.prod.yml up -d --build    # Migrationen + Neustart automatisch
+```
+
+### Neue Konfigurations-Variable? An drei Stellen nachziehen
+
+`docker-compose.prod.yml` nutzt **kein `env_file`** — jede Variable wird
+einzeln unter `environment:` mit `${VAR}` durchgereicht. Eine Variable, die
+nur in der `.env` steht, aber **nicht** im `environment:`-Block, erreicht den
+Container nie. Bringt ein Update also eine neue Einstellung mit, an drei
+Stellen ergänzen:
+
+1. **`docker-compose.prod.yml`** → `environment:` des `backend`-Service
+   (die leicht vergessene Stelle),
+2. **`.env.prod.example`** (Doku),
+3. die echte **`.env`** auf dem Server, dann `up -d backend`.
+
+**`VITE_*`** ist ein Sonderfall: Vite backt den Wert **zur Buildzeit** fest
+ins Bundle (`frontend/dist`). Eine Änderung wirkt erst nach erneutem
+`npm run build` + `chcon`-Relabel (die beiden ersten Zeilen oben).
+
+Gegenprüfen, was im laufenden Container ankommt:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml exec backend env \
+  | grep -oE "^(DJANGO_|OIDC_|POSTGRES_|AI_|CSRF|FRONTEND|SESSION)[A-Z_]*" | sort
+# und ob das Frontend die richtige API-URL gebacken hat:
+grep -rl "localhost:8002" frontend/dist/assets/ 2>/dev/null \
+  && echo "!! noch localhost — neu bauen" || echo "ok: kein localhost gebacken"
+```
+
+## HTTPS-Zertifikate (Caddy), im Klartext
+
+- Caddy besorgt und **erneuert automatisch** ein kostenloses
+  Let's-Encrypt-Zertifikat für die Domain im `Caddyfile`. Nichts von Hand
+  zu tun. Voraussetzungen: Ports **80 und 443** aus dem Internet
+  erreichbar, korrektes **DNS** (Schritt 5) und eine gültige `email` im
+  `Caddyfile`.
+- Die Zertifikate liegen im Docker-Volume `caddy_data` — **mitsichern**,
+  damit sie einen Neuaufbau überleben (sonst stellt Caddy sie einfach neu
+  aus, was aber den Let's-Encrypt-Rate-Limits unterliegt).
+- Keine öffentliche Domain (rein interner Host)? Im `Caddyfile` innerhalb
+  des Site-Blocks die Zeile `tls internal` ergänzen — Caddy nutzt dann
+  seine eigene lokale CA statt Let's Encrypt.
+
+### Eigenes Zertifikat (z. B. HARICA) statt Let's Encrypt
+
+Wenn die Hochschule das Zertifikat ausstellt (HARICA, DFN, interne CA …),
+zeigt Caddy auf die Dateien statt auf automatisches HTTPS:
+
+1. Die beiden PEM-Dateien auf dem Host ablegen, außerhalb des Repos, damit
+   der **private Schlüssel nie committet wird**, z. B. unter
+   `/etc/abstimmbar/certs/`:
+   - `abstimmbar.pem` — Serverzertifikat **mit Zwischenzertifikat(en)**
+     (Leaf zuerst, dann die CA-Kette), PEM-Format.
+   - `abstimmbar.key` — der passende **private Schlüssel**, PEM, **ohne
+     Passphrase** (Caddy kann keine abfragen).
+2. Das Verzeichnis in den Caddy-Container mounten —
+   `docker-compose.prod.yml` enthält die (auskommentierte) Zeile dafür:
+   ```yaml
+   - /etc/abstimmbar/certs:/etc/caddy/certs:ro
+   ```
+3. Im `Caddyfile`-Site-Block das automatische Verhalten durch eine
+   `tls`-Zeile mit den **Container**-Pfaden ersetzen (Zertifikat zuerst,
+   dann Schlüssel):
+   ```
+   tls /etc/caddy/certs/abstimmbar.pem /etc/caddy/certs/abstimmbar.key
+   ```
+4. Das Verzeichnis für SELinux labeln (Rocky), damit der Container lesen
+   darf:
+   ```bash
+   sudo chcon -Rt container_file_t /etc/abstimmbar/certs
+   ```
+5. Übernehmen mit `sudo docker compose -f docker-compose.prod.yml up -d`
+   (oder `restart caddy`). Die Erneuerung ist in diesem Modus **manuell**:
+   Dateien vor Ablauf ersetzen, dann `restart caddy`. Die globale `email`
+   wird dabei nicht genutzt.
+
+## Backup
+
+Die Daten liegen in den Volumes `postgres_data` (Datenbank) und
+`media_data` (hochgeladene Bilder); `caddy_data` (Zertifikate) ist
+verzichtbar, erspart aber Neuausstellungen:
+
+```bash
+cd /opt/abstimmbar
+sudo docker compose -f docker-compose.prod.yml exec db \
+  pg_dump -U abstimmbar abstimmbar | gzip > abstimmbar-$(date +%F).sql.gz
+sudo docker run --rm -v abstimmbar_media_data:/data -v "$PWD":/backup alpine \
+  tar czf /backup/abstimmbar-media-$(date +%F).tar.gz -C /data .
+```
+
+Die Dumps regelmäßig (z. B. per Cron) erzeugen und auf ein anderes System
+kopieren.
+
+## Troubleshooting
+
+### Docker startet nicht: fehlende Netfilter-Kernel-Module
+
+**Symptom.** `sudo systemctl enable --now docker` schlägt fehl; in
+`sudo journalctl -u docker --no-pager` stehen Zeilen wie:
+
+```
+iptables ... -m addrtype ... Warning: Extension addrtype revision 0 not supported, missing kernel module?
+iptables ... RULE_APPEND failed (No such file or directory)
+failed to start daemon: Error initializing network controller ...
+```
+
+**Ursache.** Docker legt beim Start seine NAT-Regeln an und braucht dafür
+Kernel-Module wie `xt_addrtype`, `br_netfilter` und `nf_nat`. Auf
+Minimal- oder Cloud-Images (z. B. OpenStack/Nova) fehlt oft das Paket
+`kernel-modules`, oder `dnf update` (Schritt 2) hat einen neuen Kernel
+installiert, ohne dass neu gebootet wurde — dann passt das laufende
+Kernel-Verzeichnis nicht zu den vorhandenen Modulen.
+
+**Prüfen.** Bestätigt die Diagnose, wenn hier „Module not found" erscheint:
+
+```bash
+sudo modprobe xt_addrtype
+```
+
+**Beheben.** Passende Kernel-Module nachinstallieren und neu starten (der
+Reboot bringt zugleich den nach dem Update aktuellen Kernel ans Laufen):
+
+```bash
+sudo dnf -y install "kernel-modules-$(uname -r)" iptables-nft
+sudo reboot
+```
+
+Nach dem Reboot die fehlgeschlagene Startsperre lösen und Docker starten:
+
+```bash
+sudo systemctl reset-failed docker.service
+sudo systemctl enable --now docker
+sudo docker run --rm hello-world      # muss "Hello from Docker!" ausgeben
+```
+
+Meldet `dnf`, `kernel-modules-$(uname -r)` sei bereits installiert oder es
+gebe keinen Treffer, liegt es rein am Kernel/Modul-Versatz nach dem Update —
+dann genügt der **Reboot** allein (das `dnf install` überspringen).
+
+### Kein HTTPS: `ERR_SSL_PROTOCOL_ERROR` / Let's-Encrypt-Timeout (Firewall)
+
+**Symptom.** Der Browser meldet `ERR_SSL_PROTOCOL_ERROR`, und in den
+Caddy-Logs scheitert die Zertifikatsausstellung:
+
+```bash
+sudo docker compose -f docker-compose.prod.yml logs caddy | grep -iE "challenge|obtain|error"
+```
+```
+challenge failed ... "detail":"<IP>: Timeout during connect (likely firewall problem)"
+could not get certificate from issuer ... acme:error:connection
+```
+
+**Ursache.** Let's Encrypt validiert per `http-01` (eingehend Port 80) bzw.
+`tls-alpn-01` (eingehend Port 443). Beide Challenges müssen den Server **aus
+dem öffentlichen Internet** erreichen. Kommt das Timeout, ist eingehend
+80/443 geblockt. Ohne Zertifikat kann Caddy auf 443 kein gültiges TLS
+ausliefern → `ERR_SSL_PROTOCOL_ERROR`. Auf OpenStack-VMs gibt es dafür
+**zwei** mögliche Sperren: die **Security-Group** der Instanz (Standard
+lässt oft nur SSH/22 zu) und den **Perimeter-Firewall** des Rechenzentrums.
+
+**Prüfen.** DNS zeigt auf eine öffentliche IP (`dig +short <domain>`), die
+Ports lauschen lokal (`sudo ss -tlnp | grep -E ':80|:443'`) — aber ein Test
+von außerhalb des Uni-Netzes (z. B. Handy im Mobilfunknetz) läuft ins Leere.
+
+**Beheben.**
+1. **Security-Group** öffnen (in Horizon: Netzwerk → Sicherheitsgruppen →
+   Regel hinzufügen — Ingress TCP 80 und 443 aus `0.0.0.0/0`; optional
+   UDP 443 für HTTP/3), oder per CLI:
+   ```bash
+   openstack security group rule create --proto tcp --dst-port 80  --remote-ip 0.0.0.0/0 <sg>
+   openstack security group rule create --proto tcp --dst-port 443 --remote-ip 0.0.0.0/0 <sg>
+   ```
+2. Bleibt es zu, den **Perimeter-Firewall** durch das Netz-Team eingehend
+   für TCP 80+443 auf die Server-IP freigeben lassen.
+3. Danach einen frischen Versuch anstoßen und mitlesen:
+   ```bash
+   sudo docker compose -f docker-compose.prod.yml restart caddy
+   sudo docker compose -f docker-compose.prod.yml logs -f caddy | grep -iE "obtain|certificate|error"
+   ```
+   Erfolg: `certificate obtained successfully`.
+
+> Hinweis: Wiederholte Fehlversuche zählen auf Let's Encrypts Limit
+> „5 fehlgeschlagene Validierungen pro Konto/Hostname/Stunde". Erst die
+> Freigabe klären, dann neu starten — nicht in Schleife, solange 80/443
+> noch dicht sind. Bei `rateLimited` ~1 Stunde warten.
+>
+> Kann der Dienst gar nicht öffentlich erreichbar sein, ist statt Let's
+> Encrypt ein **HARICA-Zertifikat** der Weg (siehe unten) — es braucht
+> keinen eingehenden Internet-Zugriff.
+
+## Sicherheits-Checkliste
+
+- [ ] `DJANGO_DEBUG` ist im Prod-Compose fest auf `0`; starker
+      `DJANGO_SECRET_KEY`; echtes `DJANGO_ALLOWED_HOSTS`.
+- [ ] `PUBLIC_BASE_URL`, `VITE_API_BASE_URL` und `CSRF_TRUSTED_ORIGINS`
+      zeigen alle auf die echte `https://`-Domain.
+- [ ] Website neu gebaut (Schritt 9) nach jeder Änderung an
+      `VITE_API_BASE_URL`.
+- [ ] Starkes `POSTGRES_PASSWORD`; alle Geheimnisse nur in `.env` (wird
+      nie committet).
+- [ ] OIDC zeigt auf den institutionellen IdP; `/oidc/callback/` und die
+      Backchannel-Logout-URL sind dort registriert.
+- [ ] Regelmäßige Backups von `postgres_data` und `media_data`.
+- [ ] Nur die Ports 80/443 sind offen; Datenbank und Backend sind nicht
+      veröffentlicht (`expose` statt `ports`).
+- [ ] Einmal geprüft, dass der Stack nach `sudo reboot` von selbst
+      wiederkommt.

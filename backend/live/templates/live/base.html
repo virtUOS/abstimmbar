@@ -1,0 +1,66 @@
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{# Ultra-light participant shell (ADR-0001): no framework, one inline stylesheet. #}
+<!doctype html>
+<html lang="{{ LANGUAGE_CODE }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Abstimmbar{% endblock %}</title>
+<style>
+  :root {
+    --ink: #26292b; --ink-soft: #6b7176; --line: #e4e7e9;
+    --brand: #8fd6a2; --brand-strong: #2c7a45; --brand-soft: #eefaf1;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--ink); background: #fff; min-height: 100svh;
+    display: flex; flex-direction: column;
+  }
+  header { padding: 14px 18px; border-bottom: 1px solid var(--line);
+           font-weight: 800; font-size: 18px; letter-spacing: -.02em; }
+  header .bar { color: var(--brand-strong); }
+  main { flex: 1; width: 100%; max-width: 480px; margin: 0 auto;
+         padding: 22px 18px 40px; }
+  h1 { font-size: 20px; margin-bottom: 4px; }
+  .soft { color: var(--ink-soft); font-size: 14px; }
+  .center { text-align: center; padding-top: 8vh; }
+  .emoji { width: 64px; height: 64px; border-radius: 18px; background: var(--brand-soft);
+           display: flex; align-items: center; justify-content: center;
+           font-size: 30px; margin: 0 auto 14px; }
+  /* Inline Lucide icons (same set as the SPA; the participant page is
+     framework-free, so they're inlined SVG rather than lucide-react). */
+  .ic { display: inline-block; vertical-align: middle; }
+  .emoji .ic { width: 32px; height: 32px; color: var(--brand-strong); }
+  button, .btn {
+    font: inherit; width: 100%; padding: 14px 16px; margin-top: 10px;
+    border: 1px solid var(--line); border-radius: 14px; background: #fff;
+    color: var(--ink); font-weight: 600; text-align: left; cursor: pointer;
+    min-height: 52px;
+  }
+  button:focus-visible { outline: 2px solid var(--brand-strong); outline-offset: 2px; }
+  button.primary { background: var(--brand); border-color: var(--brand); text-align: center; }
+  button:disabled { opacity: .5; }
+  button.selected { background: var(--brand-soft); border-color: var(--brand-strong); }
+  /* Self-paced feedback: keep the colors readable on frozen buttons. */
+  button.correct { background: var(--brand-soft); border-color: var(--brand-strong);
+                   color: var(--brand-strong); }
+  button.wrong { background: #fdeeee; border-color: #c4453e; color: #a33630; }
+  button:disabled.correct, button:disabled.wrong { opacity: 1; }
+  input[type=text] {
+    font: inherit; width: 100%; padding: 14px 16px; margin-top: 10px;
+    border: 1px solid var(--line); border-radius: 14px; min-height: 52px;
+  }
+  input[type=text]:focus-visible { outline: 2px solid var(--brand-strong); }
+  .question-text { margin: 10px 0 6px; font-size: 18px; line-height: 1.45; }
+  .question-text img { max-width: 100%; border-radius: 10px; }
+  .question-text ul, .question-text ol { padding-left: 22px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>abstimm<span class="bar">BAR</span></header>
+<main>{% block content %}{% endblock %}</main>
+{% block script %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,22 @@
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{% extends "live/base.html" %}
+{% block title %}Fragenset auswählen — Abstimmbar{% endblock %}
+{% block content %}
+<h1>Fragenset einbinden</h1>
+<p class="soft">Raum: {{ room.title }} (Code {{ room.code }})</p>
+<form method="post" action="{% url 'lti-deep-link' %}">
+  {% csrf_token %}
+  <input type="hidden" name="launch_id" value="{{ launch_id }}">
+  {% for set in question_sets %}
+    <button type="submit" name="question_set" value="{{ set.pk }}">
+      {{ set.title }}
+      <span class="soft" style="float:right">{{ set.questions.count }} Fragen</span>
+    </button>
+  {% empty %}
+    <p class="soft" style="margin-top:12px">Noch keine Fragensets in diesem Raum.</p>
+  {% endfor %}
+  <p class="soft" style="margin-top:20px">… oder ein neues Fragenset anlegen:</p>
+  <input type="text" name="new_title" maxlength="200" placeholder="Titel des neuen Fragensets">
+  <button type="submit" class="primary">Neues Fragenset einbinden</button>
+</form>
+{% endblock %}
