@@ -103,6 +103,28 @@ Django apps (ADR-0002): `common`, `accounts`, `rooms` (authoring: Room,
 QuestionSet, Section, Question, AnswerOption), `live` (Run, Vote,
 ParticipantToken, SSE), later `lti`.
 
+### Without Docker (Claude Code on the web / CI sandboxes)
+
+Sandboxes have no Docker daemon, so `.claude/hooks/session-start.sh` (a
+SessionStart hook, remote sessions only) bootstraps the same stack natively
+and idempotently: system PostgreSQL 16 on **5432** with role+db `abstimmbar`,
+a Python 3.12 `.venv` from `backend/requirements.txt` (+ ruff), migrations,
+`compilemessages`, and `npm install`. It exports `PATH` (venv first),
+`POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT=5432` for the session. Then:
+
+```bash
+cd backend && python manage.py test          # 430 tests
+ruff check backend                           # CI lint job
+cd backend && uvicorn config.asgi:application --port 8000 --reload \
+      --timeout-graceful-shutdown 5
+cd frontend && npm run dev                   # Vite on 5173
+```
+
+No Keycloak in that setup — OIDC login is unavailable; use
+`manage.py createsuperuser` + Django admin (`/admin/`) when a signed-in user
+is needed. The default ports here are *unshifted* (5432/8000/5173); the
+5433/8002/5174 shift only exists to run alongside Ausleihbar locally.
+
 ## Sibling project
 
 `/Users/rrolf/dev/ausleihbar` — same organisation (virtUOS), same stack.
