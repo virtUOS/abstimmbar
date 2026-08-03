@@ -3,10 +3,10 @@
 
 import type { LocalizedText } from "@basicbar/ui";
 
-/** Backend base URL; the SPA talks to the API cross-origin with the session
- * cookie (CORS_ALLOW_CREDENTIALS on the Django side). */
-export const API_BASE_URL =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8002";
+/** Backend base URL. Defaults to "" (same-origin, relative URLs) — production
+ * serves the SPA and API from one origin behind Caddy. Dev overrides this via
+ * VITE_API_BASE_URL since the dev frontend and backend run cross-origin. */
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
 export interface Whoami {
   authenticated: boolean;

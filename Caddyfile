@@ -22,21 +22,21 @@ abstimmbar.example.org {
 	# flush_interval -1 disables response buffering: SSE events must reach
 	# the devices immediately, not once a buffer fills up.
 	handle /api/* {
-		reverse_proxy backend:8000 {
+		reverse_proxy app:8000 {
 			flush_interval -1
 		}
 	}
 	handle /admin/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 	handle /oidc/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 	handle /lti/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 	handle /p/* {
-		reverse_proxy backend:8000
+		reverse_proxy app:8000
 	}
 
 	# Uploaded media and collected static files → served directly from volumes.

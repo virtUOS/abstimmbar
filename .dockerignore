@@ -1,0 +1,28 @@
+.git/
+
+# Python
+**/__pycache__/
+**/*.py[cod]
+.venv/
+venv/
+**/*.egg-info/
+
+# Node
+**/node_modules/
+frontend/dist/
+**/*.tsbuildinfo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Editors & OS
+.idea/
+.vscode/
+.DS_Store
+
+# Local data
+media/
+**/*.sqlite3

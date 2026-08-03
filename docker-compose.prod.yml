@@ -1,9 +1,13 @@
 # Production stack: PostgreSQL + Django (uvicorn/ASGI) + Caddy (TLS proxy).
 # Mirrors Ausleihbar's layout; differences are SSE-driven (see comments).
-# The SPA is built to ./frontend/dist (see docs/deployment.md) and served by
-# Caddy; OIDC points at the institutional IdP, so no Keycloak service here.
+# The app image (root Dockerfile) bakes in the built SPA; on start it
+# copies the build into the frontend_data volume, which Caddy serves
+# directly (see docs/deployment.md). OIDC points at the institutional IdP,
+# so no Keycloak service here.
 #
-#   docker compose -f docker-compose.prod.yml up -d --build
+#   docker compose -f docker-compose.prod.yml up -d --build   # build from source
+#   docker compose -f docker-compose.prod.yml pull            # or run a released image, then
+#   docker compose -f docker-compose.prod.yml up -d
 #
 # Required env (in .env): PUBLIC_BASE_URL, DJANGO_SECRET_KEY,
 # POSTGRES_PASSWORD, DJANGO_ALLOWED_HOSTS, CSRF_TRUSTED_ORIGINS and the
@@ -26,10 +30,16 @@ services:
       timeout: 5s
       retries: 5
 
-  backend:
+  # Django/uvicorn plus the baked-in SPA build (see Dockerfile) — named
+  # "app" since the image is no longer backend-only. `image:` lets `pull`
+  # fetch a released tag directly; `build:` still works via `up -d --build`
+  # for building from source. Override ABSTIMMBAR_VERSION to pin/roll back.
+  app:
+    image: ghcr.io/virtuos/abstimmbar:${ABSTIMMBAR_VERSION:-latest}
     build:
-      context: ./backend
-    container_name: abstimmbar_backend
+      context: .
+      dockerfile: Dockerfile
+    container_name: abstimmbar_app
     restart: unless-stopped
     # uvicorn (ASGI), deliberately a SINGLE process: the SSE hub (ADR-0003)
     # lives in process memory, so multiple workers would split subscribers
@@ -38,12 +48,19 @@ services:
     # --proxy-headers trusts Caddy's X-Forwarded-* (https detection);
     # --timeout-graceful-shutdown is essential, open SSE streams never close
     # on their own and a restart would otherwise hang.
+    # Copies the image's baked-in SPA (/app/frontend_dist) into frontend_data
+    # for Caddy to serve. Keep every continuation line at this indentation —
+    # YAML's folded (">") scalar only joins same-indented lines with spaces;
+    # a deeper-indented line keeps its literal newline, which previously
+    # split the uvicorn flags into their own (failing) shell commands.
     command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py collectstatic --noinput &&
-             uvicorn config.asgi:application --host 0.0.0.0 --port 8000
-             --proxy-headers --forwarded-allow-ips '*'
-             --timeout-graceful-shutdown 5"
+      sh -c "mkdir -p /shared_frontend &&
+      cp -a /app/frontend_dist/. /shared_frontend/ &&
+      python manage.py migrate --noinput &&
+      python manage.py collectstatic --noinput &&
+      uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+      --proxy-headers --forwarded-allow-ips '*'
+      --timeout-graceful-shutdown 5"
     # SSE holds one socket per participant — the 1024 default is too low.
     ulimits:
       nofile:
@@ -102,6 +119,7 @@ services:
     volumes:
       - static_data:/app/staticfiles
       - media_data:/app/media
+      - frontend_data:/shared_frontend
     depends_on:
       db:
         condition: service_healthy
@@ -120,17 +138,18 @@ services:
       # Optional: mount institutional TLS certificates (e.g. HARICA) when not
       # using Caddy's automatic Let's Encrypt; see the note in the Caddyfile.
       # - /etc/abstimmbar/certs:/etc/caddy/certs:ro
-      - ./frontend/dist:/srv/www:ro
+      - frontend_data:/srv/www:ro
       - static_data:/srv/static:ro
       - media_data:/srv/media:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - backend
+      - app
 
 volumes:
   postgres_data:
   static_data:
   media_data:
+  frontend_data:
   caddy_data:
   caddy_config:

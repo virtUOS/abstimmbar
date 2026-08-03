@@ -8,9 +8,15 @@ den institutionellen IdP.
 ```
 Browser ── https ──> Caddy ──> /api, /admin, /oidc, /lti, /p → uvicorn (Django)
                         │        /static, /media → Volumes (file_server)
-                        │        alles andere     → SPA-Build (frontend/dist)
+                        │        alles andere     → SPA-Build (Volume frontend_data)
                         └── automatisches TLS (Let's Encrypt) oder eigene Zertifikate
 ```
+
+Das `app`-Image (Dockerfile im Repo-Root) bringt die fertig gebaute SPA
+bereits mit (mehrstufiger Build: Node baut das Frontend, die Stufe danach
+enthält Django) — beim Start kopiert der Container sie ins Volume
+`frontend_data`, aus dem Caddy sie direkt ausliefert. Ein separater
+Frontend-Build-Schritt auf dem Host entfällt dadurch.
 
 Der erste Teil ist eine **vollständige Schritt-für-Schritt-Anleitung für
 Rocky Linux 9**, dem folgen Keycloak-/LTI-Konfiguration, Betriebshinweise,
@@ -152,9 +158,8 @@ In `nano` mindestens diese Werte setzen (jedes `...` und die
 Beispiel-Domain ersetzen; den eben erzeugten Secret Key einfügen):
 
 ```dotenv
-# Öffentliche Adresse der Instanz (dreimal derselbe Wert)
+# Öffentliche Adresse der Instanz (zweimal derselbe Wert)
 PUBLIC_BASE_URL=https://abstimmbar.example.org
-VITE_API_BASE_URL=https://abstimmbar.example.org
 CSRF_TRUSTED_ORIGINS=https://abstimmbar.example.org
 
 # Django
@@ -179,7 +184,7 @@ Speichern mit **Strg+O**, **Enter**, beenden mit **Strg+X**.
 
 **Wie Caddy installiert wird:** gar nicht per `dnf` — Caddy läuft als
 Docker-Container aus dem offiziellen `caddy:2`-Image, das Docker beim
-Start des Stacks (Schritt 11) automatisch lädt. Definiert ist es in
+Start des Stacks (Schritt 10) automatisch lädt. Definiert ist es in
 `docker-compose.prod.yml` (Service `caddy`); dort öffnet es die Ports
 80/443 und legt seine Zertifikate im Volume `caddy_data` ab.
 
@@ -201,42 +206,39 @@ erneuert das Let's-Encrypt-Zertifikat automatisch, sobald Domain und Ports
 stimmen. Spätere Änderungen am Caddyfile übernimmst du mit
 `sudo docker compose -f docker-compose.prod.yml restart caddy`.
 
-### Schritt 9 — Website (Frontend) bauen
-
-Dieser Schritt übersetzt die Verwaltungsoberfläche in statische Dateien,
-die Caddy ausliefert. Er liest `VITE_API_BASE_URL` aus deiner `.env`:
-
-```bash
-sudo docker compose run --rm --no-deps frontend sh -c "npm ci && npm run build"
-```
-
-Das erzeugt den Ordner `frontend/dist`. (Bei jedem Update wiederholen —
-siehe „Updates einspielen".)
-
-> Das `npm ci` installiert die Abhängigkeiten sauber im Linux-Container
-> neu. Das umgeht einen npm-Bug (npm/cli#4828), durch den sonst das von
-> `vite build` benötigte Plattform-Paket
-> (`@rollup/rollup-linux-x64-gnu`) fehlen kann („Cannot find module …").
-
-### Schritt 10 — Dateien für SELinux freigeben
+### Schritt 9 — Dateien für SELinux freigeben
 
 Rocky Linux hat SELinux aktiviert; ohne Label darf ein Container keine vom
-Host gemounteten Dateien lesen. Die beiden Pfade freigeben, die Caddy
-liest:
+Host gemounteten Dateien lesen. Den Pfad freigeben, den Caddy liest
+(`frontend/dist` gibt es nicht mehr — die SPA liegt jetzt in einem
+Docker-Volume, das keine Host-Freigabe braucht):
 
 ```bash
-sudo chcon -Rt container_file_t Caddyfile frontend/dist
+sudo chcon -Rt container_file_t Caddyfile
 ```
 
-### Schritt 11 — Alles starten
+### Schritt 10 — Alles starten
+
+Entweder aus dem Quellcode bauen (Node baut die SPA, Django-Image
+entsteht direkt danach — kein separater Frontend-Build-Schritt mehr
+nötig):
 
 ```bash
 sudo docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Das lädt PostgreSQL und Caddy, baut die Anwendung, führt die
-Datenbank-Migrationen aus und startet alle Dienste. Caddy holt das
-HTTPS-Zertifikat (dauert bis zu einer Minute). Logs beobachten:
+… oder ein veröffentlichtes Release-Image laden (kein lokaler Build nötig,
+schneller; `ABSTIMMBAR_VERSION` z. B. `v1.2.0` in der `.env` setzen, sonst
+wird `latest` verwendet):
+
+```bash
+sudo docker compose -f docker-compose.prod.yml pull
+sudo docker compose -f docker-compose.prod.yml up -d
+```
+
+Das lädt PostgreSQL und Caddy, führt die Datenbank-Migrationen aus und
+startet alle Dienste. Caddy holt das HTTPS-Zertifikat (dauert bis zu einer
+Minute). Logs beobachten:
 
 ```bash
 sudo docker compose -f docker-compose.prod.yml logs -f      # Strg+C beendet die Anzeige
@@ -246,13 +248,13 @@ Danach `https://abstimmbar.example.org` im Browser öffnen — die
 Startseite der Verwaltung erscheint; `https://abstimmbar.example.org/p/`
 zeigt die Code-Eingabe für Teilnehmende.
 
-### Schritt 12 — Erstes Admin-Konto anlegen
+### Schritt 11 — Erstes Admin-Konto anlegen
 
 Ein lokales Break-Glass-Konto, unabhängig vom IdP (nützlich, falls OIDC
 mal nicht erreichbar ist):
 
 ```bash
-sudo docker compose -f docker-compose.prod.yml exec backend python manage.py createsuperuser
+sudo docker compose -f docker-compose.prod.yml exec app python manage.py createsuperuser
 ```
 
 Den Eingaben folgen (Benutzername, E-Mail, Passwort); Login danach unter
@@ -337,12 +339,22 @@ Wartungsaufgaben.
 
 ## Updates einspielen
 
+Aus dem Quellcode bauen:
+
 ```bash
 cd /opt/abstimmbar
 sudo git pull
-sudo docker compose run --rm --no-deps frontend sh -c "npm ci && npm run build"  # Website neu bauen
-sudo chcon -Rt container_file_t frontend/dist                   # neue Dateien für SELinux labeln
-sudo docker compose -f docker-compose.prod.yml up -d --build    # Migrationen + Neustart automatisch
+sudo docker compose -f docker-compose.prod.yml up -d --build    # Build + Migrationen + Neustart automatisch
+```
+
+Oder ein veröffentlichtes Release-Image einspielen (kein lokaler Build,
+`ABSTIMMBAR_VERSION` in der `.env` auf die gewünschte Version setzen, z. B.
+`v1.3.0`):
+
+```bash
+cd /opt/abstimmbar
+sudo docker compose -f docker-compose.prod.yml pull
+sudo docker compose -f docker-compose.prod.yml up -d             # Migrationen + Neustart automatisch
 ```
 
 ### Neue Konfigurations-Variable? An drei Stellen nachziehen
@@ -353,23 +365,24 @@ nur in der `.env` steht, aber **nicht** im `environment:`-Block, erreicht den
 Container nie. Bringt ein Update also eine neue Einstellung mit, an drei
 Stellen ergänzen:
 
-1. **`docker-compose.prod.yml`** → `environment:` des `backend`-Service
+1. **`docker-compose.prod.yml`** → `environment:` des `app`-Service
    (die leicht vergessene Stelle),
 2. **`.env.prod.example`** (Doku),
-3. die echte **`.env`** auf dem Server, dann `up -d backend`.
+3. die echte **`.env`** auf dem Server, dann `up -d app`.
 
-**`VITE_*`** ist ein Sonderfall: Vite backt den Wert **zur Buildzeit** fest
-ins Bundle (`frontend/dist`). Eine Änderung wirkt erst nach erneutem
-`npm run build` + `chcon`-Relabel (die beiden ersten Zeilen oben).
+**`VITE_API_BASE_URL`** ist ein Sonderfall und im Normalfall **nicht
+nötig**: die SPA nutzt standardmäßig relative URLs (gleicher Origin wie die
+API, hinter Caddy). Nur für einen bewusst abweichenden Aufbau (SPA und API
+auf unterschiedlichen Origins) setzen. Vite backt den Wert dann **zur
+Buildzeit** fest ins Bundle — das funktioniert nur, wenn du selbst baust
+(`up -d --build`); ein veröffentlichtes Release-Image wurde bereits mit dem
+Standardwert gebaut und lässt sich nicht nachträglich umkonfigurieren.
 
 Gegenprüfen, was im laufenden Container ankommt:
 
 ```bash
-sudo docker compose -f docker-compose.prod.yml exec backend env \
+sudo docker compose -f docker-compose.prod.yml exec app env \
   | grep -oE "^(DJANGO_|OIDC_|POSTGRES_|AI_|CSRF|FRONTEND|SESSION)[A-Z_]*" | sort
-# und ob das Frontend die richtige API-URL gebacken hat:
-grep -rl "localhost:8002" frontend/dist/assets/ 2>/dev/null \
-  && echo "!! noch localhost — neu bauen" || echo "ok: kein localhost gebacken"
 ```
 
 ## HTTPS-Zertifikate (Caddy), im Klartext
@@ -537,16 +550,15 @@ von außerhalb des Uni-Netzes (z. B. Handy im Mobilfunknetz) läuft ins Leere.
 
 - [ ] `DJANGO_DEBUG` ist im Prod-Compose fest auf `0`; starker
       `DJANGO_SECRET_KEY`; echtes `DJANGO_ALLOWED_HOSTS`.
-- [ ] `PUBLIC_BASE_URL`, `VITE_API_BASE_URL` und `CSRF_TRUSTED_ORIGINS`
-      zeigen alle auf die echte `https://`-Domain.
-- [ ] Website neu gebaut (Schritt 9) nach jeder Änderung an
-      `VITE_API_BASE_URL`.
+- [ ] `PUBLIC_BASE_URL` und `CSRF_TRUSTED_ORIGINS` zeigen auf die echte
+      `https://`-Domain (`VITE_API_BASE_URL` nur bei bewusst abweichendem
+      Aufbau, siehe „Neue Konfigurations-Variable?").
 - [ ] Starkes `POSTGRES_PASSWORD`; alle Geheimnisse nur in `.env` (wird
       nie committet).
 - [ ] OIDC zeigt auf den institutionellen IdP; `/oidc/callback/` und die
       Backchannel-Logout-URL sind dort registriert.
 - [ ] Regelmäßige Backups von `postgres_data` und `media_data`.
-- [ ] Nur die Ports 80/443 sind offen; Datenbank und Backend sind nicht
-      veröffentlicht (`expose` statt `ports`).
+- [ ] Nur die Ports 80/443 sind offen; die Services `db` und `app` sind
+      nicht veröffentlicht (`expose` statt `ports`).
 - [ ] Einmal geprüft, dass der Stack nach `sudo reboot` von selbst
       wiederkommt.
