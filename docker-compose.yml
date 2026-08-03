@@ -50,15 +50,26 @@ services:
       POSTGRES_PORT: 5432
       # OIDC (local Keycloak). The browser uses localhost:8081 for the login
       # redirect; the backend reaches Keycloak via host.docker.internal:8081.
+      # To point dev at another IdP instead, set OIDC_OP_ISSUER in .env and
+      # blank the five endpoints there (see .env.example) — settings.py then
+      # reads them from the discovery document. The `-` (not `:-`) defaults
+      # below exist for exactly that: an explicit empty value wins.
       OIDC_RP_CLIENT_ID: ${OIDC_RP_CLIENT_ID:-abstimmbar-backend}
       OIDC_RP_CLIENT_SECRET: ${OIDC_RP_CLIENT_SECRET:-abstimmbar-dev-secret}
-      OIDC_OP_AUTHORIZATION_ENDPOINT: ${OIDC_OP_AUTHORIZATION_ENDPOINT:-http://localhost:8081/realms/abstimmbar/protocol/openid-connect/auth}
-      OIDC_OP_TOKEN_ENDPOINT: ${OIDC_OP_TOKEN_ENDPOINT:-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/token}
-      OIDC_OP_USER_ENDPOINT: ${OIDC_OP_USER_ENDPOINT:-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/userinfo}
-      OIDC_OP_JWKS_ENDPOINT: ${OIDC_OP_JWKS_ENDPOINT:-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/certs}
-      OIDC_OP_LOGOUT_ENDPOINT: ${OIDC_OP_LOGOUT_ENDPOINT:-http://localhost:8081/realms/abstimmbar/protocol/openid-connect/logout}
+      OIDC_OP_ISSUER: ${OIDC_OP_ISSUER:-}
+      OIDC_OP_AUTHORIZATION_ENDPOINT: ${OIDC_OP_AUTHORIZATION_ENDPOINT-http://localhost:8081/realms/abstimmbar/protocol/openid-connect/auth}
+      OIDC_OP_TOKEN_ENDPOINT: ${OIDC_OP_TOKEN_ENDPOINT-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/token}
+      OIDC_OP_USER_ENDPOINT: ${OIDC_OP_USER_ENDPOINT-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/userinfo}
+      OIDC_OP_JWKS_ENDPOINT: ${OIDC_OP_JWKS_ENDPOINT-http://host.docker.internal:8081/realms/abstimmbar/protocol/openid-connect/certs}
+      OIDC_OP_LOGOUT_ENDPOINT: ${OIDC_OP_LOGOUT_ENDPOINT-http://localhost:8081/realms/abstimmbar/protocol/openid-connect/logout}
       # Members of this IdP group are granted Django admin on login.
       OIDC_ADMIN_GROUP: ${OIDC_ADMIN_GROUP:-abstimmbar-admins}
+      # Claim mapping — only needed for an IdP with non-standard claim names.
+      OIDC_GROUPS_CLAIM: ${OIDC_GROUPS_CLAIM:-groups}
+      OIDC_CLAIM_USERNAME: ${OIDC_CLAIM_USERNAME:-preferred_username}
+      OIDC_CLAIM_EMAIL: ${OIDC_CLAIM_EMAIL:-email}
+      OIDC_CLAIM_FIRST_NAME: ${OIDC_CLAIM_FIRST_NAME:-given_name}
+      OIDC_CLAIM_LAST_NAME: ${OIDC_CLAIM_LAST_NAME:-family_name}
       FRONTEND_BASE_URL: ${FRONTEND_BASE_URL:-http://localhost:5174}
       # virtiofs (colima) swallows inotify events — poll for code changes.
       WATCHFILES_FORCE_POLLING: "true"

@@ -26,6 +26,41 @@ cd "$ROOT"
 
 log() { echo "[session-start] $*"; }
 
+# --- .env --------------------------------------------------------------------
+# Docker Compose reads .env by itself; natively nothing does, so parse it here
+# (Compose format: KEY=VALUE, literal values, no shell expansion) and put it
+# into both this script's environment and the session's. Host-port keys are
+# skipped: they configure Docker's published ports, while the native services
+# are on their defaults.
+ENV_EXPORTS=""
+if [ -f .env ]; then
+  log "loading .env"
+  while IFS= read -r line; do
+    case "$line" in
+      ''|'#'*) continue ;;
+    esac
+    line="${line#export }"
+    key="${line%%=*}"
+    value="${line#*=}"
+    case "$line" in *=*) ;; *) continue ;; esac
+    # Trim surrounding whitespace and optional quotes around the value.
+    key="$(printf '%s' "$key" | tr -d '[:space:]')"
+    value="${value%\"}"; value="${value#\"}"
+    value="${value%\'}"; value="${value#\'}"
+    case "$key" in
+      ''|*[!A-Za-z0-9_]*) continue ;;
+      POSTGRES_HOST|POSTGRES_PORT|BACKEND_PORT|KEYCLOAK_PORT|FRONTEND_PORT)
+        log "  ignoring $key (Docker-only; native services use their defaults)"
+        continue
+        ;;
+    esac
+    export "$key=$value"
+    # Single-quote for the session env file, escaping embedded quotes.
+    ENV_EXPORTS="${ENV_EXPORTS}export ${key}='$(printf '%s' "$value" | sed "s/'/'\\\\''/g")'
+"
+  done < .env
+fi
+
 # --- PostgreSQL 16 -----------------------------------------------------------
 # The port shift to 5433 in docker-compose.yml only exists so Abstimmbar and
 # Ausleihbar can run side by side; natively the default 5432 is free.
@@ -66,7 +101,8 @@ else
 fi
 
 log "applying migrations"
-(cd backend && POSTGRES_HOST=127.0.0.1 "$ROOT/.venv/bin/python" manage.py migrate --noinput >/dev/null)
+(cd backend && POSTGRES_HOST=127.0.0.1 POSTGRES_PORT=5432 \
+  "$ROOT/.venv/bin/python" manage.py migrate --noinput >/dev/null)
 
 log "compiling gettext catalogs"
 # The framework-free participant page uses Django gettext; .mo files are not
@@ -94,10 +130,12 @@ log "installing frontend dependencies"
 if [ -n "${CLAUDE_ENV_FILE:-}" ]; then
   {
     echo "export PATH=\"$ROOT/.venv/bin:\$PATH\""
+    echo 'export DJANGO_DEBUG=1'
+    # .env first, so the pinned database coordinates below always win.
+    [ -n "$ENV_EXPORTS" ] && printf '%s' "$ENV_EXPORTS"
     # 'localhost' would resolve to ::1 first; pin the cluster explicitly.
     echo 'export POSTGRES_HOST=127.0.0.1'
     echo 'export POSTGRES_PORT=5432'
-    echo 'export DJANGO_DEBUG=1'
   } >> "$CLAUDE_ENV_FILE"
 fi
 

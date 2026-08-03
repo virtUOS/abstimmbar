@@ -370,6 +370,9 @@ Stellen ergänzen:
 2. **`.env.prod.example`** (Doku),
 3. die echte **`.env`** auf dem Server, dann `up -d app`.
 
+Dasselbe gilt für die Entwicklung: `docker-compose.yml` reicht ebenfalls
+einzeln durch, dokumentiert wird in `.env.example`.
+
 **`VITE_API_BASE_URL`** ist ein Sonderfall und im Normalfall **nicht
 nötig**: die SPA nutzt standardmäßig relative URLs (gleicher Origin wie die
 API, hinter Caddy). Nur für einen bewusst abweichenden Aufbau (SPA und API

@@ -79,11 +79,21 @@ production deployment.
 ## Running the project
 
 ```bash
+cp .env.example .env          # optional — all defaults live in the compose file
 colima start                  # container VM (after a reboot)
 docker compose up -d          # db + keycloak + backend + frontend
 docker compose exec backend python manage.py migrate
 docker compose exec backend python manage.py test
 ```
+
+`.env` (gitignored) is read by Compose for the `${VAR}` substitutions in
+`docker-compose.yml`; `.env.example` documents the knobs — an external
+Keycloak (`OIDC_OP_ISSUER` + the five `OIDC_OP_*_ENDPOINT`s blanked, so
+discovery runs), LiteLLM (`AI_*`) and LibreTranslate
+(`CONTENT_TRANSLATION_PROVIDER`, `LIBRETRANSLATE_URL`). A variable that is
+only in `.env` but not in the compose `environment:` block never reaches the
+container (docs/deployment.md). Env is read at startup — recreate/restart to
+apply.
 
 Host ports are shifted so **Ausleihbar can run in parallel**:
 
@@ -110,7 +120,9 @@ SessionStart hook, remote sessions only) bootstraps the same stack natively
 and idempotently: system PostgreSQL 16 on **5432** with role+db `abstimmbar`,
 a Python 3.12 `.venv` from `backend/requirements.txt` (+ ruff), migrations,
 `compilemessages`, and `npm install`. It exports `PATH` (venv first),
-`POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT=5432` for the session. Then:
+`POSTGRES_HOST=127.0.0.1`, `POSTGRES_PORT=5432` for the session, and — since
+nothing else reads it without Compose — the contents of `.env`, minus the
+host-port keys (the native services use 5432/8000/5173). Then:
 
 ```bash
 cd backend && python manage.py test          # 430 tests
@@ -120,9 +132,12 @@ cd backend && uvicorn config.asgi:application --port 8000 --reload \
 cd frontend && npm run dev                   # Vite on 5173
 ```
 
-No Keycloak in that setup — OIDC login is unavailable; use
-`manage.py createsuperuser` + Django admin (`/admin/`) when a signed-in user
-is needed. The default ports here are *unshifted* (5432/8000/5173); the
+No Keycloak in that setup — OIDC login against the dev realm is unavailable;
+use `manage.py createsuperuser` + Django admin (`/admin/`) when a signed-in
+user is needed. An *external* IdP, LiteLLM or LibreTranslate configured in
+`.env` does work there (outbound HTTPS goes through the sandbox proxy;
+`SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` are pre-set, and both integrations use
+stdlib `urllib`, which honours them). The default ports here are *unshifted* (5432/8000/5173); the
 5433/8002/5174 shift only exists to run alongside Ausleihbar locally.
 
 ## Sibling project
