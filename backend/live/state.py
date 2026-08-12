@@ -22,6 +22,7 @@ from .models import Run
 from .results import (
     freetext_evaluation,
     likert_summary,
+    matrix_stats,
     options_with_counts,
     ordering_stats,
     priority_stats,
@@ -76,6 +77,11 @@ def question_payload(question, shuffle_seed):
                 **({"image": o.image} if o.image else {}),
             }
             for o in options
+        ],
+        # matrix only (#4): the second axis, alongside "options" (the rows).
+        "columns": [
+            {"id": c.pk, "text": translated_map(c, "text")}
+            for c in question.columns.all()
         ],
     }
 
@@ -149,6 +155,8 @@ def build_payloads(room):
             participant["priorities"] = priority_stats(run, question)
         elif question.kind == Question.Kind.ORDERING:
             participant["ordering"] = ordering_stats(run, question)
+        elif question.kind == Question.Kind.MATRIX:
+            participant["matrix"] = matrix_stats(run, question)
         else:
             participant["results"] = [
                 {
@@ -187,6 +195,8 @@ def build_payloads(room):
             presenter["priorities"] = priority_stats(run, question)
         elif question.kind == Question.Kind.ORDERING:
             presenter["ordering"] = ordering_stats(run, question)
+        elif question.kind == Question.Kind.MATRIX:
+            presenter["matrix"] = matrix_stats(run, question)
         else:
             presenter["results"] = options_with_counts(run, question)
             if question.kind == Question.Kind.LIKERT:
