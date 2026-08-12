@@ -115,7 +115,8 @@ export type QuestionKind =
   | "likert"
   | "open_text"
   | "priorities"
-  | "ordering";
+  | "ordering"
+  | "matrix";
 
 export interface AnswerOption {
   id?: number;
@@ -124,6 +125,13 @@ export interface AnswerOption {
   image?: string;
   is_correct: boolean;
   is_abstention?: boolean;
+}
+
+/** One column of a ``matrix`` question (#4); rows are the question's own
+ * ``options`` (AnswerOption). */
+export interface MatrixColumn {
+  id?: number;
+  text: LocalizedText;
 }
 
 export interface Question {
@@ -136,6 +144,8 @@ export interface Question {
   time_limit: number | null;
   position: number;
   options: AnswerOption[];
+  /** matrix only (#4): the second axis; rows are `options` above. */
+  columns: MatrixColumn[];
   /** open_text only: classify each answer live during the run. */
   ai_evaluate: boolean;
   evaluation_hint: string;
@@ -680,12 +690,16 @@ export interface LiveState {
     wordcloud_live?: boolean;
     wordcloud_ai_enabled?: boolean;
     options: LiveOption[];
+    /** matrix only (#4): the second axis; rows are `options` above. */
+    columns?: { id: number; text: LocalizedText }[];
   };
   results?: LiveOption[];
   /** Priorities (#58): per-option avg/min/max in the presenter snapshot. */
   priorities?: PriorityStat[];
   /** Ordering (#72): per-item correct-position rate in the presenter snapshot. */
   ordering?: OrderingResults;
+  /** Matrix (#4): per-row × per-column check counts in the presenter snapshot. */
+  matrix?: MatrixStats;
   likert?: LikertSummary;
   /** Before/after pair (#54): for an after-question, the before-question's
    *  aggregates from the same run, so the beamer shows the comparison. */
@@ -742,6 +756,26 @@ export interface OrderingResults {
   n: number;
 }
 
+/** Matrix question aggregation (#4): per-row × per-column check counts over
+ *  all submissions (``n``); rates aren't reported since a row's checks don't
+ *  sum to 100% (any number of columns may be checked per row). */
+export interface MatrixCell {
+  column_id: number;
+  count: number;
+}
+
+export interface MatrixRow {
+  id: number;
+  text: LocalizedText;
+  cells: MatrixCell[];
+}
+
+export interface MatrixStats {
+  columns: { id: number; text: LocalizedText }[];
+  rows: MatrixRow[];
+  n: number;
+}
+
 export interface RunResults {
   run: number;
   phase: string;
@@ -769,6 +803,7 @@ export interface RunResults {
     /** Priorities (#58): per-option avg/min/max/n. */
     priorities?: PriorityStat[];
     ordering?: OrderingResults;
+    matrix?: MatrixStats;
   }[];
 }
 
