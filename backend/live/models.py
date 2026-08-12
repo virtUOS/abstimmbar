@@ -213,3 +213,30 @@ class OrderingResponse(models.Model):
 
     def __str__(self):
         return f"pos {self.position} (vote {self.vote_id}, option {self.option_id})"
+
+
+class MatrixResponse(models.Model):
+    """One checked cell of a ``matrix`` question (#4): the participant ticked
+    ``column`` for ``row``. A submission stores one row per checked cell only
+    (unlike ``PriorityScore``, unchecked cells are simply absent) — several
+    columns may be checked per row, independently per row."""
+
+    vote = models.ForeignKey(
+        "Vote", on_delete=models.CASCADE, related_name="matrix_responses"
+    )
+    row = models.ForeignKey(
+        "rooms.AnswerOption", on_delete=models.CASCADE, related_name="matrix_responses"
+    )
+    column = models.ForeignKey(
+        "rooms.MatrixColumn", on_delete=models.CASCADE, related_name="matrix_responses"
+    )
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["vote", "row", "column"], name="one_cell_per_vote"
+            )
+        ]
+
+    def __str__(self):
+        return f"row {self.row_id} × col {self.column_id} (vote {self.vote_id})"

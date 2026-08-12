@@ -210,6 +210,7 @@ class Question(TimeStampedModel):
         OPEN_TEXT = "open_text", "Open text"
         PRIORITIES = "priorities", "Priorities"
         ORDERING = "ordering", "Ordering"
+        MATRIX = "matrix", "Matrix"
 
     # Kinds whose answers are AnswerOption rows (vs. free text).
     CHOICE_KINDS = ("single_choice", "multiple_choice", "likert")
@@ -325,6 +326,25 @@ class AnswerOption(TimeStampedModel):
     # Likert only: an optional "Enthaltung" — flagged so ordinal analyses
     # can exclude it from the scale (v2 review feedback).
     is_abstention = models.BooleanField(default=False)
+    position = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering: ClassVar = ["position", "id"]
+
+    def __str__(self):
+        return self.text[:50]
+
+
+class MatrixColumn(TimeStampedModel):
+    """One column of a ``matrix`` question (issue #4). The question's own
+    ``AnswerOption`` rows are the matrix rows (e.g. "Fanta", "Cola Zero");
+    columns are the second axis (e.g. "Zucker", "Koffein"). A participant may
+    check any number of row×column cells, independently per row."""
+
+    question = models.ForeignKey(
+        Question, on_delete=models.CASCADE, related_name="columns"
+    )
+    text = models.CharField(max_length=200, blank=True)
     position = models.PositiveIntegerField(default=0)
 
     class Meta:
