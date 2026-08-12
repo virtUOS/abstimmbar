@@ -629,6 +629,46 @@ export default function ResultsPage() {
                               )}
                             </div>
                           )}
+                          {question.matrix && question.kind === "matrix" && (
+                            <div className="overflow-x-auto">
+                              {question.matrix.n === 0 ? (
+                                <span className="text-slate-400">{t("No answers yet.")}</span>
+                              ) : (
+                                <table className="border-collapse text-sm">
+                                  <thead>
+                                    <tr>
+                                      <th className="p-1.5" />
+                                      {question.matrix.columns.map((col) => (
+                                        <th
+                                          key={col.id}
+                                          className="p-1.5 text-center font-medium text-slate-700 dark:text-slate-300"
+                                        >
+                                          {localizedText(col.text)}
+                                        </th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {question.matrix.rows.map((row) => (
+                                      <tr key={row.id} className="border-t border-slate-200 dark:border-slate-800">
+                                        <th className="p-1.5 pr-3 text-left font-normal text-slate-700 dark:text-slate-300">
+                                          {localizedText(row.text)}
+                                        </th>
+                                        {row.cells.map((cell) => (
+                                          <td
+                                            key={cell.column_id}
+                                            className="p-1.5 text-center tabular-nums text-slate-500 dark:text-slate-400"
+                                          >
+                                            {cell.count}
+                                          </td>
+                                        ))}
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                            </div>
+                          )}
                           {question.words && question.kind === "word_cloud" && (
                             <WordCloudResult
                               runId={run.run}

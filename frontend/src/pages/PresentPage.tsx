@@ -839,8 +839,51 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             </div>
           )}
 
+          {question.kind === "matrix" && state.matrix && phase === "results" && (
+            <div className="mt-8 overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className="p-2" />
+                    {state.matrix.columns.map((col) => (
+                      <th key={col.id} className="p-2 text-center text-lg font-semibold">
+                        {localizedText(col.text)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {state.matrix.rows.map((row) => {
+                    const rowMax = Math.max(1, ...row.cells.map((cell) => cell.count));
+                    return (
+                      <tr key={row.id} className="border-t border-slate-200 dark:border-slate-800">
+                        <th className="p-2 pr-4 text-left text-xl font-medium">
+                          {localizedText(row.text)}
+                        </th>
+                        {row.cells.map((cell) => (
+                          <td key={cell.column_id} className="p-2">
+                            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg bg-slate-100 text-lg tabular-nums dark:bg-slate-800">
+                              {cell.count}
+                            </div>
+                            <div className="mx-auto mt-1 h-1.5 w-10 rounded bg-slate-100 dark:bg-slate-800">
+                              <div
+                                className="h-1.5 rounded bg-brand-500"
+                                style={{ width: `${Math.round((cell.count / rowMax) * 100)}%` }}
+                              />
+                            </div>
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {question.kind !== "word_cloud" && question.kind !== "open_text" &&
             question.kind !== "priorities" && question.kind !== "ordering" &&
+            question.kind !== "matrix" &&
             !(question.kind === "likert" && state.likert) && phase === "results" && (
             <div className="mt-8 space-y-3">
               {(state.results ?? []).map((option, i) => {
