@@ -291,6 +291,12 @@ multi-line note must use {% comment %} or it renders as text.)
     } else if (question.kind === "ordering" && payload.order) {
       const byId = new Map((question.options || []).map((o) => [String(o.id), locText(o.text)]));
       item.ordering = payload.order.map((id) => ({ id, text: byId.get(String(id)) || "" }));
+    } else if (question.kind === "matrix" && payload.selections) {
+      const colById = new Map((question.columns || []).map((c) => [String(c.id), locText(c.text)]));
+      item.matrix = (question.options || []).map((o) => ({
+        id: o.id, text: locText(o.text),
+        columns: (payload.selections[o.id] || []).map((id) => colById.get(String(id)) || ""),
+      }));
     }
     saveHistory();
   }
@@ -474,6 +480,41 @@ multi-line note must use {% comment %} or it renders as text.)
       full.textContent = data.ordering.full_correct_rate + " % " + I18N.orderingFullCorrect;
       list.appendChild(full);
     }
+    if (data.matrix) {
+      // Plain check-count table: rates aren't shown (any number of columns
+      // may be checked per row, so counts don't sum to 100%, unlike the
+      // single-axis bar charts above).
+      const table = document.createElement("table");
+      table.style.cssText = "width:100%;border-collapse:collapse;margin:6px 0 10px";
+      const thead = document.createElement("thead");
+      const headRow = document.createElement("tr");
+      headRow.appendChild(document.createElement("th"));
+      for (const col of data.matrix.columns) {
+        const th = document.createElement("th");
+        th.textContent = locText(col.text);
+        th.style.cssText = "padding:6px 8px;font-size:13px;font-weight:600;text-align:center";
+        headRow.appendChild(th);
+      }
+      thead.appendChild(headRow);
+      const tbody = document.createElement("tbody");
+      for (const row of data.matrix.rows) {
+        const tr = document.createElement("tr");
+        tr.style.borderTop = "1px solid var(--line)";
+        const th = document.createElement("th");
+        th.textContent = locText(row.text);
+        th.style.cssText = "padding:8px 8px 8px 0;text-align:left;font-weight:500";
+        tr.appendChild(th);
+        for (const cell of row.cells) {
+          const td = document.createElement("td");
+          td.style.cssText = "text-align:center;padding:8px;color:var(--ink-soft)";
+          td.textContent = String(cell.count);
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.append(thead, tbody);
+      list.appendChild(table);
+    }
   }
 
   function renderResults() {
@@ -516,6 +557,17 @@ multi-line note must use {% comment %} or it renders as text.)
           ol.appendChild(li);
         }
         card.appendChild(ol);
+      } else if (item.matrix && item.matrix.length) {
+        ans.append(I18N.yourAnswer);
+        card.appendChild(ans);
+        const ul = document.createElement("ul");
+        ul.style.cssText = "margin:0 0 8px;padding-left:22px;color:var(--ink)";
+        for (const row of item.matrix) {
+          const li = document.createElement("li");
+          li.textContent = row.text + ": " + (row.columns.length ? row.columns.join(", ") : "—");
+          ul.appendChild(li);
+        }
+        card.appendChild(ul);
       } else {
         if ((item.answerOptions && item.answerOptions.length) || item.answerText != null ||
           (item.priorities && item.priorities.length)) {
@@ -840,6 +892,64 @@ multi-line note must use {% comment %} or it renders as text.)
     refreshArrows();
   }
 
+  // --- matrix (rows × columns, #4) -----------------------------------------
+  // A table of checkboxes: one row per option, one column per MatrixColumn.
+  // Any number of columns may be checked per row, independently — no shared
+  // budget/order state to preserve, so (unlike priorities/ordering) this
+  // needs no persistence guard beyond the generic rebuild-on-change one in
+  // renderQuestion. onSubmit is called with { selections: { rowId: [colId] } }.
+  function renderMatrixGrid(container, question, onSubmit) {
+    container.replaceChildren();
+    const selections = new Map((question.options || []).map((o) => [o.id, new Set()]));
+    const table = document.createElement("table");
+    table.style.cssText = "width:100%;border-collapse:collapse;margin:14px 0";
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    headRow.appendChild(document.createElement("th"));
+    for (const col of question.columns || []) {
+      const th = document.createElement("th");
+      th.textContent = locText(col.text);
+      th.style.cssText = "padding:6px 8px;font-size:13px;font-weight:600;text-align:center";
+      headRow.appendChild(th);
+    }
+    thead.appendChild(headRow);
+    const tbody = document.createElement("tbody");
+    for (const row of question.options || []) {
+      const tr = document.createElement("tr");
+      tr.style.borderTop = "1px solid var(--line)";
+      const th = document.createElement("th");
+      th.textContent = locText(row.text);
+      th.style.cssText = "padding:10px 10px 10px 0;text-align:left;font-weight:500";
+      tr.appendChild(th);
+      for (const col of question.columns || []) {
+        const td = document.createElement("td");
+        td.style.cssText = "text-align:center;padding:10px 8px";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.setAttribute("aria-label", locText(row.text) + " – " + locText(col.text));
+        cb.addEventListener("change", () => {
+          const set = selections.get(row.id);
+          if (cb.checked) set.add(col.id); else set.delete(col.id);
+        });
+        td.appendChild(cb);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.append(thead, tbody);
+    container.appendChild(table);
+    const submit = document.createElement("button");
+    submit.className = "primary";
+    submit.type = "button";
+    submit.textContent = I18N.submit;
+    submit.addEventListener("click", () => {
+      const payload = {};
+      for (const [rowId, set] of selections) payload[rowId] = [...set];
+      onSubmit({ selections: payload });
+    });
+    container.appendChild(submit);
+  }
+
   function renderQuestion() {
     const q = state.question;
     const optionsBox = document.getElementById("options");
@@ -896,6 +1006,10 @@ multi-line note must use {% comment %} or it renders as text.)
     }
     if (q.kind === "ordering") {
       renderOrderingSorter(optionsBox, q, (payload) => submitVote(payload));
+      return;
+    }
+    if (q.kind === "matrix") {
+      renderMatrixGrid(optionsBox, q, (payload) => submitVote(payload));
       return;
     }
     for (const option of q.options) {
@@ -982,6 +1096,13 @@ multi-line note must use {% comment %} or it renders as text.)
       form.hidden = true;
       submit.hidden = true;
       renderOrderingSorter(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
+      show("quiz");
+      return;
+    }
+    if (q.kind === "matrix") {
+      form.hidden = true;
+      submit.hidden = true;
+      renderMatrixGrid(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
       show("quiz");
       return;
     }
@@ -1472,6 +1593,13 @@ multi-line note must use {% comment %} or it renders as text.)
       form.hidden = true;
       submit.hidden = true;
       renderOrderingSorter(optionsBox, q, (payload) => submitRec(q, payload));
+      if (q.time_limit) recStartCountdown(q.time_limit, recLock);
+      return;
+    }
+    if (q.kind === "matrix") {
+      form.hidden = true;
+      submit.hidden = true;
+      renderMatrixGrid(optionsBox, q, (payload) => submitRec(q, payload));
       if (q.time_limit) recStartCountdown(q.time_limit, recLock);
       return;
     }
