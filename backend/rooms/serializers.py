@@ -16,7 +16,15 @@ from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin
 
-from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
+from .models import (
+    AnswerOption,
+    MatrixColumn,
+    Question,
+    QuestionSet,
+    Room,
+    Section,
+    UploadedImage,
+)
 from .naming import default_title, unique_title
 from .sanitize import clean_html, clean_media_url
 from .transfer import sync_after_question
@@ -310,12 +318,27 @@ class AnswerOptionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return clean_media_url(value)
 
 
+class MatrixColumnSerializer(TranslatedMapMixin, serializers.ModelSerializer):
+    # text is a {"de","en"} map (#33 MR2), like AnswerOptionSerializer.text.
+    translated_fields = ("text",)
+
+    # Explicit id lets the client reference existing columns in nested updates.
+    id = serializers.IntegerField(required=False)
+
+    class Meta:
+        model = MatrixColumn
+        fields: ClassVar = ["id", "text"]
+
+
 class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     # text is a {"de","en"} map (#33 MR2); validate_text (HTML sanitizing)
     # keeps running — the mixin invokes it per language.
     translated_fields = ("text",)
 
     options = AnswerOptionSerializer(many=True, required=False)
+    # matrix only (#4): the question's own AnswerOption rows are the matrix
+    # rows; columns are the second axis, a separate nested list.
+    columns = MatrixColumnSerializer(many=True, required=False)
 
     # Vorher-Nachher-Paar (#54): all read-only — the link is set only by the
     # add-after action, and an after-question's content is managed by its
@@ -328,9 +351,9 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         model = Question
         fields: ClassVar = [
             "id", "question_set", "section", "kind", "text", "shuffle_options",
-            "time_limit", "position", "options", "ai_evaluate", "evaluation_hint",
-            "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
-            "wordcloud_grouping", "wordcloud_max_answers",
+            "time_limit", "position", "options", "columns", "ai_evaluate",
+            "evaluation_hint", "allow_multiple", "wordcloud_live",
+            "wordcloud_ai_enabled", "wordcloud_grouping", "wordcloud_max_answers",
             "evaluation_categories", "evaluation_chart",
             "reveal_answers", "before_question", "after_question", "is_after",
             "created_at", "updated_at",
@@ -376,6 +399,10 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}
             )
+        if kind != Question.Kind.MATRIX and attrs.get("columns"):
+            raise serializers.ValidationError(
+                {"columns": "Only matrix questions have columns."}
+            )
         # A section must belong to the same set as the question.
         section = attrs.get("section")
         if section is not None:
@@ -390,6 +417,7 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
 
     def create(self, validated_data):
         options = validated_data.pop("options", [])
+        columns = validated_data.pop("columns", [])
         question_set = validated_data["question_set"]
         last = question_set.questions.order_by("-position").first()
         # New questions append at the end of the shared outline sequence and,
@@ -400,15 +428,19 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             validated_data["section"] = last.section
         question = super().create(validated_data)
         self._write_options(question, options)
+        self._write_columns(question, columns)
         return question
 
     def update(self, instance, validated_data):
         # A question stays in its set; moving between sets is a v2 feature.
         validated_data.pop("question_set", None)
         options = validated_data.pop("options", None)
+        columns = validated_data.pop("columns", None)
         question = super().update(instance, validated_data)
         if options is not None:
             self._write_options(question, options)
+        if columns is not None:
+            self._write_columns(question, columns)
         # Keep a linked after-question's content in sync (#54); no-op otherwise.
         sync_after_question(question)
         return question
@@ -428,6 +460,23 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
                 option = AnswerOption.objects.create(question=question, **data)
             keep.append(option.pk)
         question.options.exclude(pk__in=keep).delete()
+
+    def _write_columns(self, question, columns_data):
+        # matrix only (#4): identical replace-by-id strategy as _write_options.
+        keep = []
+        existing = {column.pk: column for column in question.columns.all()}
+        for index, data in enumerate(columns_data):
+            column_id = data.pop("id", None)
+            data["position"] = index
+            if column_id and column_id in existing:
+                column = existing[column_id]
+                for field, value in data.items():
+                    setattr(column, field, value)
+                column.save()
+            else:
+                column = MatrixColumn.objects.create(question=question, **data)
+            keep.append(column.pk)
+        question.columns.exclude(pk__in=keep).delete()
 
 
 class UploadedImageSerializer(serializers.ModelSerializer):
