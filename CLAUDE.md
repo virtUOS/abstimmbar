@@ -93,7 +93,8 @@ discovery runs), LiteLLM (`AI_*`) and LibreTranslate
 (`CONTENT_TRANSLATION_PROVIDER`, `LIBRETRANSLATE_URL`). A variable that is
 only in `.env` but not in the compose `environment:` block never reaches the
 container (docs/deployment.md). Env is read at startup — recreate/restart to
-apply.
+apply. `backend/scripts/check_integrations.py [--probe]` prints what actually
+arrived (resolved OIDC endpoints, AI/translation on or off), secrets masked.
 
 Host ports are shifted so **Ausleihbar can run in parallel**:
 
