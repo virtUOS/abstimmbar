@@ -9,6 +9,7 @@ import {
   API_BASE_URL,
   api,
   type AnswerOption,
+  type MatrixColumn,
   type Question,
   type QuestionSet,
   type RevealAnswers,
@@ -35,6 +36,9 @@ function aiErrorText(err: unknown): string {
  * kept as the full `{de, en}` map so each option can be edited bilingually
  * via TranslatableField (#33 MR2 Task 9). */
 type EditableOption = Omit<AnswerOption, "text"> & { text: LocalizedText; clientId: number };
+/** matrix only (#4): a column gets the same stable client-side id treatment
+ * as an option, for the same reason (drag-and-drop before it has a server id). */
+type EditableColumn = Omit<MatrixColumn, "text"> & { text: LocalizedText; clientId: number };
 let nextClientId = -1;
 
 /** Likert scales are fixed presets — freely editable items would make the
@@ -127,6 +131,8 @@ export default function QuestionPage() {
   const [shuffle, setShuffle] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
   const [options, setOptions] = useState<EditableOption[]>([]);
+  // matrix only (#4): the second axis, alongside `options` (the rows).
+  const [columns, setColumns] = useState<EditableColumn[]>([]);
   const [timeLimit, setTimeLimit] = useState("");
   const [likertPreset, setLikertPreset] = useState("agree5");
   const [abstention, setAbstention] = useState(false);
@@ -191,6 +197,12 @@ export default function QuestionPage() {
         setAbstention(editableOptions.some((option) => option.is_abstention));
       }
       setOptions(editableOptions);
+      setColumns(
+        (data.columns ?? []).map((column) => ({
+          ...column,
+          clientId: column.id ?? nextClientId--,
+        })),
+      );
     });
   }, [questionId]);
 
@@ -201,6 +213,14 @@ export default function QuestionPage() {
         const updated = { ...option, ...patch };
         return updated;
       }),
+    );
+  }
+
+  function updateColumn(clientId: number, patch: Partial<EditableColumn>) {
+    setColumns((current) =>
+      current.map((column) =>
+        column.clientId === clientId ? { ...column, ...patch } : column,
+      ),
     );
   }
 
@@ -275,6 +295,13 @@ export default function QuestionPage() {
                   ...(id ? { id } : {}),
                   ...option,
                 })),
+        columns:
+          question.kind === "matrix"
+            ? columns.map(({ clientId, id, ...column }) => ({
+                ...(id ? { id } : {}),
+                ...column,
+              }))
+            : [],
       });
       if (!stay) navigate(`/sets/${setId}`);
       return true;
@@ -401,8 +428,9 @@ export default function QuestionPage() {
     !isLikert;
   const isPriorities = question.kind === "priorities";
   const isOrdering = question.kind === "ordering";
-  // Kinds with a "correct answer" concept. Priorities, Ordering and Likert
-  // use the option list but have no correct answer (#58, #72).
+  const isMatrix = question.kind === "matrix";
+  // Kinds with a "correct answer" concept. Priorities, Ordering, Likert and
+  // Matrix use the option list but have no correct answer (#58, #72, #4).
   const hasCorrect =
     question.kind === "single_choice" || question.kind === "multiple_choice";
 
@@ -588,7 +616,7 @@ export default function QuestionPage() {
             <div>
               <div className="mb-1 flex items-baseline justify-between">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {t("Answer options")}
+                  {isMatrix ? t("Rows") : t("Answer options")}
                 </span>
                 {hasCorrect && (
                   <span className="text-xs text-slate-400">
@@ -634,7 +662,7 @@ export default function QuestionPage() {
                       onChange={(text) => updateOption(item.id, { text })}
                       className="min-w-0 flex-1"
                     />
-                    {!isLikert && (
+                    {!isLikert && !isMatrix && (
                       <label
                         title={item.image ? t("Replace image") : t("Add image")}
                         className="shrink-0 cursor-pointer rounded-lg px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -660,7 +688,7 @@ export default function QuestionPage() {
                         />
                       </label>
                     )}
-                    {!isLikert && item.image && (
+                    {!isLikert && !isMatrix && item.image && (
                       <Button
                         variant="ghost"
                         aria-label={t("Remove image")}
@@ -693,7 +721,7 @@ export default function QuestionPage() {
                     ])
                   }
                 >
-                  + {t("Add answer")}
+                  + {isMatrix ? t("Add row") : t("Add answer")}
                 </Button>
                 {/* Random order is meaningless for priorities (sliders, order
                     irrelevant) and for ordering (the server always shuffles —
@@ -771,6 +799,55 @@ export default function QuestionPage() {
             </div>
 
           </>
+        )}
+
+        {isMatrix && (
+          <div className="mt-6">
+            <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t("Columns")}
+            </span>
+            <SortableList
+              items={columns.map((column) => ({ ...column, id: column.clientId }))}
+              onReorder={(items) =>
+                setColumns(
+                  items.map(
+                    (item) => columns.find((column) => column.clientId === item.id)!,
+                  ),
+                )
+              }
+              renderItem={(item) => (
+                <>
+                  <TranslatableField
+                    value={item.text}
+                    placeholder={t("Column text")}
+                    ariaLabel={t("Column text")}
+                    onChange={(text) => updateColumn(item.id, { text })}
+                    className="min-w-0 flex-1"
+                  />
+                  <Button
+                    variant="ghost"
+                    aria-label={t("Delete column")}
+                    onClick={() =>
+                      setColumns((current) =>
+                        current.filter((column) => column.clientId !== item.id),
+                      )
+                    }
+                  >
+                    <X aria-hidden className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
+            />
+            <div className="mt-2">
+              <Button
+                onClick={() =>
+                  setColumns((current) => [...current, { clientId: nextClientId--, text: "" }])
+                }
+              >
+                + {t("Add column")}
+              </Button>
+            </div>
+          </div>
         )}
 
         {isLikert && (

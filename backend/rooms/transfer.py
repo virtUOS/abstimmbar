@@ -27,7 +27,7 @@ from rest_framework import serializers
 
 from common.i18n_fields import LANGS, translated_map
 
-from .models import AnswerOption, Question, QuestionSet, Section
+from .models import AnswerOption, MatrixColumn, Question, QuestionSet, Section
 from .naming import unique_title
 from .sanitize import clean_html, clean_media_url
 
@@ -118,6 +118,19 @@ def _copy_options(source, target):
     )
 
 
+def _copy_columns(source, target):
+    """Deep-copy ``source``'s matrix columns onto ``target`` (#4), mirroring
+    ``_copy_options``. No-op for non-matrix questions (no columns to copy)."""
+    MatrixColumn.objects.bulk_create(
+        MatrixColumn(
+            question=target,
+            **_lang_columns(column, "text"),
+            position=column.position,
+        )
+        for column in MatrixColumn.objects.filter(question=source)
+    )
+
+
 def duplicate_question(question, *, question_set, section, position):
     """Deep-copy a single question (content + options, no results) into a set.
 
@@ -134,15 +147,16 @@ def duplicate_question(question, *, question_set, section, position):
         section=section,
     )
     _copy_options(question, clone)
+    _copy_columns(question, clone)
     return clone
 
 
 def sync_after_question(before):
     """Mirror ``before``'s content onto its linked after-question, if any (#54).
 
-    Copies text + all content fields and replaces the after-question's options;
-    keeps the after-question's own id/position/section/link and its results.
-    No-op when the question has no after-question.
+    Copies text + all content fields and replaces the after-question's options
+    (and matrix columns, #4); keeps the after-question's own id/position/
+    section/link and its results. No-op when the question has no after-question.
     """
     after = Question.objects.filter(before_question=before).first()
     if after is None:
@@ -155,6 +169,8 @@ def sync_after_question(before):
     after.save()
     after.options.all().delete()
     _copy_options(before, after)
+    after.columns.all().delete()
+    _copy_columns(before, after)
 
 
 def duplicate_set(question_set, target_room, title=None):
@@ -242,8 +258,15 @@ def export_set(question_set):
                     }
                     for option in question.options.all()
                 ],
+                # matrix only (#4); empty for every other kind.
+                "columns": [
+                    {"text": translated_map(column, "text")}
+                    for column in question.columns.all()
+                ],
             }
-            for question in question_set.questions.prefetch_related("options")
+            for question in question_set.questions.prefetch_related(
+                "options", "columns"
+            )
         ],
     }
 
@@ -377,4 +400,18 @@ def import_set(room, data):
             for position_option, option in enumerate(options)
             if isinstance(option, dict)
         )
+        if item["kind"] == Question.Kind.MATRIX:
+            columns = item.get("columns") or []
+            MatrixColumn.objects.bulk_create(
+                MatrixColumn(
+                    question=question,
+                    **{
+                        f"text_{lang}": (v[:200] or None)
+                        for lang, v in _lang_map(column.get("text")).items()
+                    },
+                    position=position_column,
+                )
+                for position_column, column in enumerate(columns)
+                if isinstance(column, dict)
+            )
     return question_set

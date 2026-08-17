@@ -9,7 +9,7 @@ wordcloud_grouping, evaluation_categories) and identifiers stay single-valued.
 """
 from modeltranslation.translator import TranslationOptions, register
 
-from .models import AnswerOption, Question, QuestionSet, Room, Section
+from .models import AnswerOption, MatrixColumn, Question, QuestionSet, Room, Section
 
 
 @register(Room)
@@ -34,4 +34,9 @@ class QuestionTranslationOptions(TranslationOptions):
 
 @register(AnswerOption)
 class AnswerOptionTranslationOptions(TranslationOptions):
+    fields = ("text",)
+
+
+@register(MatrixColumn)
+class MatrixColumnTranslationOptions(TranslationOptions):
     fields = ("text",)

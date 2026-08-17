@@ -262,6 +262,41 @@ def ordering_stats(run, question):
     }
 
 
+def matrix_stats(run, question):
+    """Per-row × per-column check counts for a ``matrix`` question (#4).
+
+    Rows are the question's ``AnswerOption``s, columns its ``MatrixColumn``s
+    (both ordered by ``position``). ``n`` is the number of submissions
+    (one vote per participant covers the whole grid); each row also reports
+    ``n`` so a per-row percentage can be computed even though a participant
+    may check any number of columns per row (rates don't sum to 100%).
+    """
+    from .models import MatrixResponse
+
+    counts = Counter(
+        MatrixResponse.objects.filter(
+            vote__run=run, vote__question=question
+        ).values_list("row_id", "column_id")
+    )
+    n = run.votes.filter(question=question).count()
+    columns = list(question.columns.all())
+    return {
+        "columns": [{"id": column.pk, "text": translated_map(column, "text")} for column in columns],
+        "rows": [
+            {
+                "id": row.pk,
+                "text": translated_map(row, "text"),
+                "cells": [
+                    {"column_id": column.pk, "count": counts.get((row.pk, column.pk), 0)}
+                    for column in columns
+                ],
+            }
+            for row in question.options.all()
+        ],
+        "n": n,
+    }
+
+
 def run_results(run):
     """Full per-question aggregation of one run (management results view)."""
     questions = run.question_set.questions.prefetch_related("options")
@@ -292,6 +327,8 @@ def run_results(run):
             item["priorities"] = priority_stats(run, question)
         elif question.kind == Question.Kind.ORDERING:
             item["ordering"] = ordering_stats(run, question)
+        elif question.kind == Question.Kind.MATRIX:
+            item["matrix"] = matrix_stats(run, question)
         else:
             item["options"] = options_with_counts(run, question)
             if question.kind == Question.Kind.LIKERT:

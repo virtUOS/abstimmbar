@@ -43,6 +43,7 @@ const KIND_LABEL: Record<QuestionKind, string> = {
   open_text: "Free text",
   priorities: "Priorities",
   ordering: "Ordering",
+  matrix: "Matrix",
 };
 
 // Kinds whose answers are options (mirror of backend Question.CHOICE_KINDS) —
@@ -238,6 +239,11 @@ const QUESTION_TYPES: {
     kind: "ordering",
     label: "Ordering",
     description: "Participants sort items into the correct order (drag & drop).",
+  },
+  {
+    kind: "matrix",
+    label: "Matrix",
+    description: "Rows and columns; participants may check several columns per row.",
   },
 ];
 
@@ -566,6 +572,7 @@ export default function SetPage() {
       kind,
       text: "",
       options,
+      ...(kind === "matrix" ? { columns: [{ text: "" }, { text: "" }] } : {}),
     });
     navigate(`/sets/${id}/questions/${question.id}`);
   }

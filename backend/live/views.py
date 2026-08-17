@@ -34,9 +34,17 @@ from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import ai_evaluation, ai_freetext, ai_report, ai_wordcloud, ai_wordcloud_live
 from .hub import hub, sse_frame
-from .models import OrderingResponse, ParticipantToken, PriorityScore, Run, Vote
+from .models import (
+    MatrixResponse,
+    OrderingResponse,
+    ParticipantToken,
+    PriorityScore,
+    Run,
+    Vote,
+)
 from .results import (
     likert_summary,
+    matrix_stats,
     options_with_counts,
     ordering_stats,
     priority_stats,
@@ -246,6 +254,43 @@ def _clean_ordering(question, raw):
     return cleaned, None
 
 
+def _clean_matrix_selection(question, raw):
+    """Validate a ``matrix`` submission (#4).
+
+    ``raw`` must be an object mapping row (option) id -> list of checked
+    column ids. Empty rows may be omitted. Returns ``(cell_pairs, None)`` —
+    a list of ``(row_id, column_id)`` tuples, one per checked cell — or
+    ``(None, error_message)`` on invalid input.
+    """
+    if not isinstance(raw, dict):
+        return None, "Selection must be an object."
+    valid_rows = set(question.options.values_list("pk", flat=True))
+    valid_columns = set(question.columns.values_list("pk", flat=True))
+    cells = []
+    for row_key, column_ids in raw.items():
+        try:
+            row_id = int(row_key)
+        except (TypeError, ValueError):
+            return None, "Invalid row id."
+        if row_id not in valid_rows:
+            return None, "Invalid row."
+        if not isinstance(column_ids, list):
+            return None, "Columns must be a list."
+        seen = set()
+        for entry in column_ids:
+            if isinstance(entry, bool):
+                return None, "Invalid column id."
+            try:
+                column_id = int(entry)
+            except (TypeError, ValueError):
+                return None, "Invalid column id."
+            if column_id not in valid_columns or column_id in seen:
+                return None, "Invalid column."
+            seen.add(column_id)
+            cells.append((row_id, column_id))
+    return cells, None
+
+
 @api_view(["POST"])
 def vote(request, code):
     """Record one participant's answer to the currently open question."""
@@ -340,6 +385,24 @@ def vote(request, code):
                     [
                         OrderingResponse(vote=vote_obj, option=options[oid], position=idx)
                         for idx, oid in enumerate(order)
+                    ]
+                )
+        except IntegrityError:
+            return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
+        broadcast(room, debounce=True)
+        return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+
+    if question.kind == Question.Kind.MATRIX:
+        cells, error = _clean_matrix_selection(question, request.data.get("selections"))
+        if error:
+            return Response({"detail": error}, status=400)
+        try:
+            with transaction.atomic():
+                vote_obj = Vote.objects.create(run=run, question=question, token=token)
+                MatrixResponse.objects.bulk_create(
+                    [
+                        MatrixResponse(vote=vote_obj, row_id=row_id, column_id=column_id)
+                        for row_id, column_id in cells
                     ]
                 )
         except IntegrityError:
@@ -552,6 +615,8 @@ def _question_results(run, question):
         return {"priorities": priority_stats(run, question)}
     if question.kind == Question.Kind.ORDERING:
         return {"ordering": ordering_stats(run, question)}
+    if question.kind == Question.Kind.MATRIX:
+        return {"matrix": matrix_stats(run, question)}
     payload = {"results": options_with_counts(run, question)}
     if question.kind == Question.Kind.LIKERT:
         payload["likert"] = likert_summary(payload["results"])
@@ -673,6 +738,24 @@ def recording_vote(request, token):
             OrderingResponse.objects.bulk_create(
                 [OrderingResponse(vote=vote_obj, option=options[oid], position=idx)
                  for idx, oid in enumerate(order)]
+            )
+        return Response(
+            {"status": "ok", **_question_results(run, question)},
+            status=status.HTTP_201_CREATED,
+        )
+
+    if question.kind == Question.Kind.MATRIX:
+        cells, error = _clean_matrix_selection(question, request.data.get("selections"))
+        if error:
+            return Response({"detail": error}, status=400)
+        with transaction.atomic():
+            vote_obj = Vote.objects.create(
+                run=run, question=question, token=token_obj,
+                source=Vote.Source.RECORDING,
+            )
+            MatrixResponse.objects.bulk_create(
+                [MatrixResponse(vote=vote_obj, row_id=row_id, column_id=column_id)
+                 for row_id, column_id in cells]
             )
         return Response(
             {"status": "ok", **_question_results(run, question)},
@@ -1275,6 +1358,22 @@ def results_csv(request, set_id):
                     base + ["Zusammenfassung: komplett richtig", "",
                             stats["full_correct_rate"], "", "", ""]
                 )
+            elif question.kind == Question.Kind.MATRIX:
+                # Fixed CSV schema: one row per row×column cell — "antwort"
+                # carries "<row> / <column>", "stimmen" the cell's check count.
+                stats = matrix_stats(run, question)
+                columns_by_id = {c["id"]: c["text"] for c in stats["columns"]}
+                for row in stats["rows"]:
+                    row_text = resolve_translated_text(row["text"])
+                    for cell in row["cells"]:
+                        column_text = resolve_translated_text(
+                            columns_by_id[cell["column_id"]]
+                        )
+                        writer.writerow(
+                            base
+                            + [f"{row_text} / {column_text}", "",
+                               cell["count"], "", "", ""]
+                        )
             else:
                 options = options_with_counts(run, question)
                 summary = (
