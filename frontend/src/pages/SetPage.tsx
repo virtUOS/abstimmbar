@@ -1081,20 +1081,27 @@ export default function SetPage() {
                       />
                     ) : (
                       <>
-                        <Button
-                          variant="ghost"
-                          aria-label={t("Present this question")}
-                          onClick={() =>
-                            navigate(`/sets/${id}/present?question=${question.id}`)
-                          }
-                        >
-                          <Play aria-hidden className="h-4 w-4" />
-                        </Button>
+                        {!easyMode && (
+                          <Button
+                            variant="ghost"
+                            aria-label={t("Present this question")}
+                            onClick={() =>
+                              window.open(
+                                `/sets/${id}/present?question=${question.id}`,
+                                "_blank",
+                              )
+                            }
+                          >
+                            <Play aria-hidden className="h-4 w-4" />
+                          </Button>
+                        )}
                         <MoreMenu label={t("Question actions")}>
-                          <MenuItem onClick={() => void copyQuestionLink(question.id)}>
-                            <Copy aria-hidden className="h-4 w-4" />
-                            {t("Copy link")}
-                          </MenuItem>
+                          {!easyMode && (
+                            <MenuItem onClick={() => void copyQuestionLink(question.id)}>
+                              <Copy aria-hidden className="h-4 w-4" />
+                              {t("Copy link")}
+                            </MenuItem>
+                          )}
                           {canAddAfter && (
                             <MenuItem onClick={() => void handleAddAfter(question.id)}>
                               <CopyPlus aria-hidden className="h-4 w-4" />
