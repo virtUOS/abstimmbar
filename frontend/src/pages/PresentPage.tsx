@@ -221,6 +221,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   }, []);
 
   const phase = state?.phase ?? "lobby";
+
+  // A presenter tab opened via the editor's play button (window.open) keeps a
+  // window.opener and can close itself; a normally-opened tab cannot, so we
+  // only offer "Close window" in the former case (#deep-link-polish).
+  const canCloseWindow = typeof window !== "undefined" && window.opener != null;
+
   const reveal = state?.reveal_answers ?? "after_close";
   const revealed = state?.revealed ?? false;
   const showCorrect =
@@ -620,6 +626,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             }}
             onNext={confirmInterstitial}
             onFinish={() => void finish()}
+            onCloseWindow={canCloseWindow ? () => window.close() : undefined}
           />
         }
       >
@@ -686,6 +693,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           viewValue={wcView}
           onSelectView={(v) => setWcView(v as "raw" | "consolidated" | "grouped")}
           onFinish={() => void finish()}
+          onCloseWindow={canCloseWindow ? () => window.close() : undefined}
         />
       }
     >
@@ -1430,6 +1438,7 @@ function Footer(props: {
   viewValue?: string;
   onSelectView?: (value: string) => void;
   onFinish: () => void;
+  onCloseWindow?: () => void;
 }) {
   const { t } = useTranslation();
   const btn =
@@ -1494,6 +1503,11 @@ function Footer(props: {
         <button className={`${btn} text-red-700`} onClick={props.onFinish}>
           {t("End")} <Kbd>Esc</Kbd>
         </button>
+        {props.onCloseWindow && (
+          <button className={btn} onClick={props.onCloseWindow}>
+            {t("Close window")}
+          </button>
+        )}
         <button className={btn} onClick={props.onPrev} aria-label={t("Back (←)")}>
           <ChevronLeft aria-hidden className="h-5 w-5" />
         </button>
