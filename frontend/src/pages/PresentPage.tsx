@@ -895,26 +895,54 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           )}
 
           {question.kind === "ordering" && state.ordering && phase === "results" && (
-            <div className="mt-8 space-y-3">
-              <p className="mb-1 text-xl font-semibold">
+            <div className="mt-8">
+              <p className="mb-4 text-xl font-semibold">
                 {t("{{pct}}% got the full order correct", { pct: state.ordering.full_correct_rate })}
               </p>
-              {state.ordering.items.map((it) => (
-                <div key={it.id}>
-                  <div className="mb-1 flex items-center justify-between text-xl">
-                    <span>
-                      {it.correct_position}. {localizedText(it.text)}
-                    </span>
-                    <span className="tabular-nums text-slate-500">{it.correct_rate}%</span>
-                  </div>
-                  <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
+              <div className="grid gap-x-3" style={{ gridTemplateColumns: "1fr auto" }}>
+                {state.ordering.items.flatMap((it, i) => {
+                  const link = state.ordering!.links?.[i];
+                  const rows = [
                     <div
-                      className="absolute h-6 rounded bg-brand-500"
-                      style={{ width: `${it.correct_rate}%` }}
-                    />
+                      key={`item-${it.id}`}
+                      className="col-start-1 flex items-center gap-3 text-xl"
+                      style={{ gridRow: 2 * i + 1 }}
+                    >
+                      <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
+                      <span>{localizedText(it.text)}</span>
+                    </div>,
+                  ];
+                  if (link) {
+                    rows.push(
+                      <div
+                        key={`link-${it.id}`}
+                        className="col-start-1 flex items-center justify-center py-1"
+                        style={{ gridRow: 2 * i + 2 }}
+                      >
+                        <span
+                          className="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                          style={{ opacity: 0.4 + 0.6 * (link.rate / 100) }}
+                        >
+                          {t("{{pct}}% in a row", { pct: link.rate })}
+                        </span>
+                      </div>,
+                    );
+                  }
+                  return rows;
+                })}
+                {state.ordering.chains.map((c, idx) => (
+                  <div
+                    key={`chain-${idx}`}
+                    className="col-start-2 flex items-center gap-2 pl-1"
+                    style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
+                  >
+                    <div className="h-full w-2 rounded-l-lg border-y-2 border-l-2 border-brand-400" />
+                    <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
+                      {c.rate}%
+                    </span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 

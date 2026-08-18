@@ -736,10 +736,24 @@ export interface OrderingItem {
   n: number;
 }
 
+export interface OrderingLink {
+  from: number;
+  to: number;
+  rate: number;
+}
+
+export interface OrderingChain {
+  start: number;
+  end: number;
+  rate: number;
+}
+
 export interface OrderingResults {
   items: OrderingItem[];
   full_correct_rate: number;
   n: number;
+  links: OrderingLink[];
+  chains: OrderingChain[];
 }
 
 export interface RunResults {

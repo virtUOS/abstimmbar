@@ -308,6 +308,7 @@
   "Participants sort items into the correct order (drag & drop).": "Teilnehmende bringen Elemente in die richtige Reihenfolge (Drag & Drop).",
   "The option order is the correct solution — participants see it shuffled.": "Die Reihenfolge der Optionen ist die Musterlösung — den Teilnehmenden wird sie gemischt angezeigt.",
   "{{pct}}% got the full order correct": "{{pct}} % komplett richtig sortiert",
+  "{{pct}}% in a row": "{{pct}}% direkt in Folge",
   "Mark as correct": "Als richtig markieren",
   "Answer text": "Antworttext",
   "Replace image": "Bild austauschen",

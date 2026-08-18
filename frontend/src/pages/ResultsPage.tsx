@@ -611,29 +611,55 @@ export default function ResultsPage() {
                                 <span className="text-slate-400">{t("No answers yet.")}</span>
                               ) : (
                                 <>
-                                  <div className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+                                  <div className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
                                     {t("{{pct}}% got the full order correct", {
                                       pct: question.ordering.full_correct_rate,
                                     })}
                                   </div>
-                                  {question.ordering.items.map((it) => (
-                                    <div key={it.id} className="text-sm">
-                                      <div className="flex items-center gap-3">
-                                        <span className="w-56 truncate text-slate-700 dark:text-slate-300">
-                                          {it.correct_position}. {localizedText(it.text)}
-                                        </span>
-                                        <div className="relative h-4 flex-1 rounded bg-slate-100 dark:bg-slate-800">
+                                  <div className="grid gap-x-2" style={{ gridTemplateColumns: "1fr auto" }}>
+                                    {question.ordering.items.flatMap((it, i) => {
+                                      const link = question.ordering!.links?.[i];
+                                      const rows = [
+                                        <div
+                                          key={`item-${it.id}`}
+                                          className="col-start-1 flex items-center gap-2 py-0.5 text-sm text-slate-700 dark:text-slate-300"
+                                          style={{ gridRow: 2 * i + 1 }}
+                                        >
+                                          <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
+                                          <span className="truncate">{localizedText(it.text)}</span>
+                                        </div>,
+                                      ];
+                                      if (link) {
+                                        rows.push(
                                           <div
-                                            className="absolute h-4 rounded bg-brand-400"
-                                            style={{ width: `${it.correct_rate}%` }}
-                                          />
-                                        </div>
-                                        <span className="w-28 text-right tabular-nums text-slate-500 dark:text-slate-400">
-                                          {it.correct_rate}%
+                                            key={`link-${it.id}`}
+                                            className="col-start-1 flex items-center justify-center"
+                                            style={{ gridRow: 2 * i + 2 }}
+                                          >
+                                            <span
+                                              className="rounded-full bg-slate-100 px-1.5 text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                                              style={{ opacity: 0.4 + 0.6 * (link.rate / 100) }}
+                                            >
+                                              {t("{{pct}}% in a row", { pct: link.rate })}
+                                            </span>
+                                          </div>,
+                                        );
+                                      }
+                                      return rows;
+                                    })}
+                                    {question.ordering.chains.map((c, idx) => (
+                                      <div
+                                        key={`chain-${idx}`}
+                                        className="col-start-2 flex items-center gap-1.5 pl-1"
+                                        style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
+                                      >
+                                        <div className="h-full w-1.5 rounded-l-md border-y-2 border-l-2 border-brand-400" />
+                                        <span className="text-xs font-medium tabular-nums text-brand-700 dark:text-brand-300">
+                                          {c.rate}%
                                         </span>
                                       </div>
-                                    </div>
-                                  ))}
+                                    ))}
+                                  </div>
                                 </>
                               )}
                             </div>
