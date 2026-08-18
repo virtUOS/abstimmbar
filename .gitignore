@@ -29,3 +29,7 @@ dist/
 # Local data
 media/
 *.sqlite3
+
+# Internal dev-process artifacts (kept local, not part of the public repo)
+docs/superpowers/
+.superpowers/

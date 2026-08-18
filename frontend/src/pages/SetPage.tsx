@@ -539,6 +539,14 @@ export default function SetPage() {
     window.setTimeout(() => setLinkCopied(false), 1500);
   }
 
+  const [questionLinkCopied, setQuestionLinkCopied] = useState(false);
+  async function copyQuestionLink(questionId: number) {
+    const url = `${window.location.origin}/sets/${id}/present?question=${questionId}`;
+    await navigator.clipboard.writeText(url);
+    setQuestionLinkCopied(true);
+    window.setTimeout(() => setQuestionLinkCopied(false), 1500);
+  }
+
   function doExport() {
     const a = document.createElement("a");
     a.href = results.exportUrl(id);
@@ -1072,18 +1080,33 @@ export default function SetPage() {
                         onCancel={() => setConfirmDelete(null)}
                       />
                     ) : (
-                      <MoreMenu label={t("Question actions")}>
-                        {canAddAfter && (
-                          <MenuItem onClick={() => void handleAddAfter(question.id)}>
-                            <CopyPlus aria-hidden className="h-4 w-4" />
-                            {t("Add after-question")}
+                      <>
+                        <Button
+                          variant="ghost"
+                          aria-label={t("Present this question")}
+                          onClick={() =>
+                            navigate(`/sets/${id}/present?question=${question.id}`)
+                          }
+                        >
+                          <Play aria-hidden className="h-4 w-4" />
+                        </Button>
+                        <MoreMenu label={t("Question actions")}>
+                          <MenuItem onClick={() => void copyQuestionLink(question.id)}>
+                            <Copy aria-hidden className="h-4 w-4" />
+                            {t("Copy link")}
                           </MenuItem>
-                        )}
-                        <MenuItem danger onClick={() => setConfirmDelete(question.id)}>
-                          <Trash2 aria-hidden className="h-4 w-4" />
-                          {t("Delete")}
-                        </MenuItem>
-                      </MoreMenu>
+                          {canAddAfter && (
+                            <MenuItem onClick={() => void handleAddAfter(question.id)}>
+                              <CopyPlus aria-hidden className="h-4 w-4" />
+                              {t("Add after-question")}
+                            </MenuItem>
+                          )}
+                          <MenuItem danger onClick={() => setConfirmDelete(question.id)}>
+                            <Trash2 aria-hidden className="h-4 w-4" />
+                            {t("Delete")}
+                          </MenuItem>
+                        </MoreMenu>
+                      </>
                     )}
                   </div>
                 </>
@@ -1100,6 +1123,11 @@ export default function SetPage() {
             </button>
           )}
         </>
+      )}
+      {questionLinkCopied && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900">
+          {t("Copied")}
+        </div>
       )}
     </div>
   );

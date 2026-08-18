@@ -82,6 +82,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // ?recording=1; live only (self-paced is already async).
   const [searchParams] = useSearchParams();
   const recording = searchParams.get("recording") === "1" && mode !== "self_paced";
+  // Deep link (#7): jump straight to a specific question.
+  const targetQuestionId = Number(searchParams.get("question")) || null;
   const [code, setCode] = useState<string | null>(null);
   const [state, setState] = useState<LiveState | null>(null);
   const [dialog, setDialog] = useState(false);
@@ -98,6 +100,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [interstitial, setInterstitial] = useState<{ title: string; index: number } | null>(null);
   const announcedRef = useRef<Set<number>>(new Set());
   const indexRef = useRef(-1);
+  // #7 deep link: index the lobby Start should open, and a one-shot guard.
+  const pendingStartIndexRef = useRef<number | null>(null);
+  const appliedTargetRef = useRef(false);
   // Keyed by the deadline (not the question): re-opening the same question
   // gets a fresh opened_at/ends_at and must auto-close again.
   const autoClosedRef = useRef<string | null>(null);
@@ -279,6 +284,30 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     [runId, questions, sectionTitles, goto],
   );
 
+  // Start from the lobby into the armed deep-link question (#7), or the first
+  // question when there is no target.
+  const startFromLobby = useCallback(() => {
+    const index = pendingStartIndexRef.current ?? 0;
+    pendingStartIndexRef.current = null;
+    requestGoto(index);
+  }, [requestGoto]);
+
+  // Once the run is ready, apply the ?question=<id> target exactly once:
+  // arm the lobby Start (fresh run) or jump straight (a question already live).
+  useEffect(() => {
+    if (appliedTargetRef.current) return;
+    if (!runId || questions.length === 0 || !state) return;
+    appliedTargetRef.current = true;
+    if (targetQuestionId == null) return;
+    const targetIndex = questions.findIndex((q) => q.id === targetQuestionId);
+    if (targetIndex < 0) return; // unknown/deleted id → normal presenter start
+    if (state.question?.id != null) {
+      void goto(targetIndex); // run already showing a question → jump straight
+    } else {
+      pendingStartIndexRef.current = targetIndex; // fresh lobby → arm Start
+    }
+  }, [runId, questions, state, targetQuestionId, goto]);
+
   const confirmInterstitial = useCallback(() => {
     if (!interstitial) return;
     const section = questions[interstitial.index]?.section;
@@ -311,6 +340,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const PREVIEW_DWELL_MS = 5000;
   const OPEN_MIN_MS = 30000;
   const advanceNext = useCallback(() => {
+    if (phase === "lobby") return startFromLobby();
     // Past the last question there is nothing to page to — end the run so it
     // reaches the finished state (#29), instead of clamping onto the last
     // slide and appearing to do nothing.
@@ -331,7 +361,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     } else {
       go();
     }
-  }, [suppressLeaveWarn, phase, state?.ends_at, requestGoto, questions.length]);
+  }, [suppressLeaveWarn, phase, state?.ends_at, requestGoto, questions.length, startFromLobby]);
 
   // Prompt actions.
   function dismissWarn() {
@@ -379,7 +409,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         if (phase === "open") void live.control(runId, { phase: "closed" });
         else if (phase === "preview" || phase === "closed" || phase === "results")
           void live.control(runId, { phase: "open" });
-        else if (phase === "lobby") requestGoto(0);
+        else if (phase === "lobby") startFromLobby();
       } else if ((key === "e" || key === "r") && (phase === "closed" || phase === "open")) {
         if (phase === "open") void live.control(runId, { phase: "closed" });
         void live.control(runId, { phase: "results" });
@@ -392,7 +422,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, reveal, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView],
+    [runId, phase, reveal, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby],
   );
 
   useEffect(() => {
@@ -634,7 +664,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             phase === "open"
               ? void live.control(runId!, { phase: "closed" })
               : phase === "lobby"
-                ? requestGoto(0)
+                ? startFromLobby()
                 : void live.control(runId!, { phase: "open" })
           }
           onResults={() => void live.control(runId!, { phase: "results" })}
