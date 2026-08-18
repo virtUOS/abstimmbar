@@ -369,6 +369,8 @@ class ControlTests(LiveTestCase):
         self.owner.save(update_fields=["easy_mode", "is_staff"])
         self.login()
         run = self.open_question()
+        token = self.join()
+        self.vote(token, options=[self.correct.pk])
         Run.objects.filter(pk=run.pk).update(
             opened_at=timezone.now(),
             created_at=timezone.now() - timezone.timedelta(days=1),
