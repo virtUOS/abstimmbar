@@ -229,6 +229,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   const reveal = state?.reveal_answers ?? "after_close";
   const revealed = state?.revealed ?? false;
+  // Only single/multiple choice have a correct answer to reveal (#82/#83).
+  const hasCorrect = activeKind === "single_choice" || activeKind === "multiple_choice";
+  const canReveal = hasCorrect && reveal === "after_close";
   const showCorrect =
     phase === "results" && (reveal === "immediately" || (reveal === "after_close" && revealed));
 
@@ -387,19 +390,31 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     if (runId) void live.control(runId, { phase: "open" });
   }
 
-  const toggleResults = useCallback(() => {
-    if (!runId) return;
-    if (phase === "results") {
-      void live.control(runId, { phase: "closed" });
-    } else if (phase === "open" || phase === "closed" || phase === "preview") {
-      if (phase === "open") void live.control(runId, { phase: "closed" });
-      void live.control(runId, { phase: "results" });
-    }
+  // Reveal-level controls for the footer pill (Frage · Ergebnisse · Lösung).
+  // No-ops in lobby/finished so we never request results without a question.
+  const showQuestion = useCallback(() => {
+    if (runId && phase === "results") void live.control(runId, { phase: "closed" });
   }, [runId, phase]);
 
-  const toggleReveal = useCallback(() => {
-    if (runId) void live.control(runId, { reveal: !revealed });
-  }, [runId, revealed]);
+  const showResults = useCallback(async () => {
+    if (!runId) return;
+    if (phase === "results") {
+      if (revealed) await live.control(runId, { reveal: false });
+      return;
+    }
+    if (phase === "open" || phase === "closed" || phase === "preview") {
+      if (phase === "open") await live.control(runId, { phase: "closed" });
+      await live.control(runId, { phase: "results" });
+    }
+  }, [runId, phase, revealed]);
+
+  const showSolution = useCallback(async () => {
+    if (!runId) return;
+    if (phase === "lobby" || phase === "finished") return; // no active question
+    if (phase === "open") await live.control(runId, { phase: "closed" });
+    if (phase !== "results") await live.control(runId, { phase: "results" });
+    await live.control(runId, { reveal: true });
+  }, [runId, phase]);
 
   const onKey = useCallback(
     (event: KeyboardEvent) => {
@@ -432,17 +447,19 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           void live.control(runId, { phase: "open" });
         else if (phase === "lobby") startFromLobby();
       } else if (key === "e" || key === "r") {
-        toggleResults();
+        if (phase === "results") showQuestion();
+        else showResults();
       } else if (key === "a" && aiCloud) {
         // Word clouds have no correct answer — "a" cycles the AI views.
         cycleWcView();
-      } else if (key === "a" && phase === "results" && reveal === "after_close") {
-        toggleReveal();
+      } else if (key === "a" && canReveal && phase === "results") {
+        if (revealed) showResults();
+        else showSolution();
       } else if (key === "escape") {
         void finish();
       }
     },
-    [runId, phase, reveal, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, toggleResults, toggleReveal],
+    [runId, phase, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed],
   );
 
   useEffect(() => {
@@ -688,11 +705,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 ? startFromLobby()
                 : void live.control(runId!, { phase: "open" })
           }
-          onResults={toggleResults}
-          onReveal={
-            phase === "results" && reveal === "after_close" ? toggleReveal : undefined
-          }
-          revealed={revealed}
+          revealLevel={phase === "results" ? (revealed ? "solution" : "results") : "question"}
+          canReveal={canReveal}
+          onShowQuestion={showQuestion}
+          onShowResults={showResults}
+          onShowSolution={showSolution}
           views={
             aiCloud
               ? [
@@ -967,7 +984,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   </div>
                 );
               })}
-              {reveal === "after_close" && !revealed && (
+              {canReveal && !revealed && (
                 <p className="pt-2 text-sm text-slate-400">
                   <Trans i18nKey="present_reveal_hint">
                     Reveal correct answer with <Kbd>A</Kbd>
@@ -977,7 +994,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             </div>
           )}
 
-          {question.kind === "open_text" && state.evaluation && (
+          {question.kind === "open_text" && phase === "results" && state.evaluation && (
             <div className="mt-8">
               {state.evaluation.pending > 0 && (
                 <p className="mb-4 text-lg text-slate-500">
@@ -1051,7 +1068,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               </div>
             </div>
           )}
-          {question.kind === "open_text" && !state.evaluation && (
+          {question.kind === "open_text" && phase === "results" && !state.evaluation && (
             <ul className="mt-8 max-h-96 space-y-2 overflow-auto">
               {(state.words ?? []).map((entry) => (
                 <li
@@ -1444,9 +1461,11 @@ function Footer(props: {
   onPrev: () => void;
   onNext: () => void;
   onToggle?: () => void;
-  onResults?: () => void;
-  onReveal?: () => void;
-  revealed?: boolean;
+  revealLevel?: "question" | "results" | "solution";
+  canReveal?: boolean;
+  onShowQuestion?: () => void;
+  onShowResults?: () => void;
+  onShowSolution?: () => void;
   views?: { value: string; label: string }[];
   viewValue?: string;
   onSelectView?: (value: string) => void;
@@ -1480,19 +1499,39 @@ function Footer(props: {
             <Kbd>S</Kbd>
           </button>
         )}
-        {!isSection && props.onResults && (
-          <button className={btn} onClick={props.onResults}>
-            {props.phase === "results" ? t("Hide results") : t("Results")} <Kbd>E</Kbd>
-          </button>
-        )}
-        {/* Reveal the correct answer without the keyboard (#28); toggles (#83). */}
-        {!isSection && props.onReveal && (
-          <button
-            className={`${btn} border-brand-300 bg-brand-50 text-brand-800`}
-            onClick={props.onReveal}
+        {!isSection && props.onShowResults && props.phase !== "lobby" && (
+          <div
+            className="flex items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
+            role="group"
+            aria-label={t("View")}
           >
-            {props.revealed ? t("Hide answer") : t("Reveal")} <Kbd>A</Kbd>
-          </button>
+            <button
+              type="button"
+              aria-pressed={props.revealLevel === "question"}
+              onClick={props.onShowQuestion}
+              className={`rounded-full px-2.5 py-1 ${props.revealLevel === "question" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+            >
+              {t("Question")}
+            </button>
+            <button
+              type="button"
+              aria-pressed={props.revealLevel === "results"}
+              onClick={props.onShowResults}
+              className={`rounded-full px-2.5 py-1 ${props.revealLevel === "results" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+            >
+              {t("Results")} <Kbd>E</Kbd>
+            </button>
+            {props.canReveal && (
+              <button
+                type="button"
+                aria-pressed={props.revealLevel === "solution"}
+                onClick={props.onShowSolution}
+                className={`rounded-full px-2.5 py-1 ${props.revealLevel === "solution" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+              >
+                {t("Solution")} <Kbd>A</Kbd>
+              </button>
+            )}
+          </div>
         )}
         {/* Word-cloud AI views (#75): a dropdown shows which views exist and
             which is active; the "a" key still cycles them. */}
