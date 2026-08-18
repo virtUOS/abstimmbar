@@ -410,16 +410,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   const showSolution = useCallback(() => {
     if (!runId) return;
-    if (phase !== "results") {
-      if (phase === "open") void live.control(runId, { phase: "closed" });
-      if (phase === "closed" || phase === "preview") {
-        void live.control(runId, { phase: "results" });
-      } else {
-        return; // lobby/finished: no question to reveal
-      }
-    }
-    if (!revealed) void live.control(runId, { reveal: true });
-  }, [runId, phase, revealed]);
+    if (phase === "lobby" || phase === "finished") return; // no active question
+    if (phase === "open") void live.control(runId, { phase: "closed" });
+    if (phase !== "results") void live.control(runId, { phase: "results" });
+    void live.control(runId, { reveal: true });
+  }, [runId, phase]);
 
   const onKey = useCallback(
     (event: KeyboardEvent) => {
@@ -464,7 +459,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, reveal, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed],
+    [runId, phase, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed],
   );
 
   useEffect(() => {
