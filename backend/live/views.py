@@ -966,8 +966,8 @@ def control_run(request, run_id):
 
     # Reveal correct answers (v2): server state so participant devices
     # highlight in sync with the beamer (presenter key "A").
-    if request.data.get("reveal"):
-        run.answers_revealed = True
+    if "reveal" in request.data:
+        run.answers_revealed = bool(request.data["reveal"])
         run.save(update_fields=["answers_revealed", "updated_at"])
         broadcast(room)
         return Response({"status": "ok", "phase": run.phase})

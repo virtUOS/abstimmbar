@@ -387,6 +387,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     if (runId) void live.control(runId, { phase: "open" });
   }
 
+  const toggleResults = useCallback(() => {
+    if (!runId) return;
+    if (phase === "results") {
+      void live.control(runId, { phase: "closed" });
+    } else if (phase === "open" || phase === "closed" || phase === "preview") {
+      if (phase === "open") void live.control(runId, { phase: "closed" });
+      void live.control(runId, { phase: "results" });
+    }
+  }, [runId, phase]);
+
+  const toggleReveal = useCallback(() => {
+    if (runId) void live.control(runId, { reveal: !revealed });
+  }, [runId, revealed]);
+
   const onKey = useCallback(
     (event: KeyboardEvent) => {
       if (!runId) return;
@@ -417,19 +431,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         else if (phase === "preview" || phase === "closed" || phase === "results")
           void live.control(runId, { phase: "open" });
         else if (phase === "lobby") startFromLobby();
-      } else if ((key === "e" || key === "r") && (phase === "closed" || phase === "open")) {
-        if (phase === "open") void live.control(runId, { phase: "closed" });
-        void live.control(runId, { phase: "results" });
+      } else if (key === "e" || key === "r") {
+        toggleResults();
       } else if (key === "a" && aiCloud) {
         // Word clouds have no correct answer — "a" cycles the AI views.
         cycleWcView();
       } else if (key === "a" && phase === "results" && reveal === "after_close") {
-        void live.control(runId, { reveal: true });
+        toggleReveal();
       } else if (key === "escape") {
         void finish();
       }
     },
-    [runId, phase, reveal, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby],
+    [runId, phase, reveal, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, toggleResults, toggleReveal],
   );
 
   useEffect(() => {
@@ -675,12 +688,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 ? startFromLobby()
                 : void live.control(runId!, { phase: "open" })
           }
-          onResults={() => void live.control(runId!, { phase: "results" })}
+          onResults={toggleResults}
           onReveal={
-            phase === "results" && reveal === "after_close" && !revealed
-              ? () => void live.control(runId!, { reveal: true })
-              : undefined
+            phase === "results" && reveal === "after_close" ? toggleReveal : undefined
           }
+          revealed={revealed}
           views={
             aiCloud
               ? [
@@ -1434,6 +1446,7 @@ function Footer(props: {
   onToggle?: () => void;
   onResults?: () => void;
   onReveal?: () => void;
+  revealed?: boolean;
   views?: { value: string; label: string }[];
   viewValue?: string;
   onSelectView?: (value: string) => void;
@@ -1469,16 +1482,16 @@ function Footer(props: {
         )}
         {!isSection && props.onResults && (
           <button className={btn} onClick={props.onResults}>
-            {t("Results")} <Kbd>E</Kbd>
+            {props.phase === "results" ? t("Hide results") : t("Results")} <Kbd>E</Kbd>
           </button>
         )}
-        {/* Reveal the correct answer without the keyboard (#28). */}
+        {/* Reveal the correct answer without the keyboard (#28); toggles (#83). */}
         {!isSection && props.onReveal && (
           <button
             className={`${btn} border-brand-300 bg-brand-50 text-brand-800`}
             onClick={props.onReveal}
           >
-            {t("Reveal")} <Kbd>A</Kbd>
+            {props.revealed ? t("Hide answer") : t("Reveal")} <Kbd>A</Kbd>
           </button>
         )}
         {/* Word-cloud AI views (#75): a dropdown shows which views exist and
