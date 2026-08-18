@@ -753,6 +753,21 @@ def recording_page(request, token):
 # --- presenter API -----------------------------------------------------------
 
 
+# An ongoing presentation: a question opened within this window on a still-
+# running (non-finished) run means "same session" — the presenter skips the
+# start dialog and the lobby (#recent-session).
+RECENT_START_WINDOW = timezone.timedelta(minutes=120)
+
+
+def _recently_started(question_set):
+    cutoff = timezone.now() - RECENT_START_WINDOW
+    return (
+        Run.objects.filter(question_set=question_set, opened_at__gte=cutoff)
+        .exclude(phase=Run.Phase.FINISHED)
+        .exists()
+    )
+
+
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def live_status(request, set_id):
@@ -774,6 +789,7 @@ def live_status(request, set_id):
             "active_run": run.pk if run else None,
             "has_votes": has_votes,
             "active_run_has_votes": active_run_has_votes,
+            "recently_started": _recently_started(question_set),
             "room_code": question_set.room.code,
         }
     )
@@ -848,15 +864,20 @@ def start_run(request, set_id):
         # when the request carries no explicit signal at all (no
         # ``existing``, no legacy ``reset``) — an easy-mode UI never sends
         # either, but pre-existing/legacy callers that do must be unaffected.
-        last = (
-            question_set.runs.filter(votes__isnull=False)
-            .order_by("-created_at")
-            .first()
-        )
-        if last is not None and timezone.localdate(last.created_at) != timezone.localdate():
-            existing = "archive"
-        else:
+        if _recently_started(question_set):
+            # An ongoing session (a question opened within the window) always
+            # continues, even across a calendar-day boundary.
             existing = "continue"
+        else:
+            last = (
+                question_set.runs.filter(votes__isnull=False)
+                .order_by("-created_at")
+                .first()
+            )
+            if last is not None and timezone.localdate(last.created_at) != timezone.localdate():
+                existing = "archive"
+            else:
+                existing = "continue"
     if existing not in {"delete", "continue", "archive"}:
         existing = "delete" if request.data.get("reset") else "continue"
 

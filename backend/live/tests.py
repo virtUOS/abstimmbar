@@ -324,6 +324,63 @@ class ControlTests(LiveTestCase):
         self.assertTrue(resp["has_votes"])
         self.assertTrue(resp["active_run_has_votes"])
 
+    def test_live_status_recently_started_true_for_open_run(self):
+        self.login()
+        run = self.open_question()
+        Run.objects.filter(pk=run.pk).update(opened_at=timezone.now())
+        resp = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/live-status/"
+        ).json()
+        self.assertTrue(resp["recently_started"])
+
+    def test_live_status_recently_started_false_when_only_finished(self):
+        self.login()
+        run = self._finished_run_with_vote()
+        Run.objects.filter(pk=run.pk).update(opened_at=timezone.now())  # recent but finished
+        resp = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/live-status/"
+        ).json()
+        self.assertFalse(resp["recently_started"])
+
+    def test_live_status_recently_started_false_when_stale(self):
+        self.login()
+        run = self.open_question()
+        Run.objects.filter(pk=run.pk).update(
+            opened_at=timezone.now() - timezone.timedelta(minutes=121)
+        )
+        resp = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/live-status/"
+        ).json()
+        self.assertFalse(resp["recently_started"])
+
+    def test_live_status_recently_started_false_when_never_opened(self):
+        self.login()
+        self.open_question()  # phase OPEN but opened_at stays null
+        resp = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/live-status/"
+        ).json()
+        self.assertFalse(resp["recently_started"])
+
+    def test_easy_mode_continues_recent_session_across_day(self):
+        # An ongoing session (non-finished run opened within the window) continues
+        # even when it was created on a previous calendar day — no archive.
+        self.owner.easy_mode = True
+        self.owner.is_staff = False
+        self.owner.save(update_fields=["easy_mode", "is_staff"])
+        self.login()
+        run = self.open_question()
+        Run.objects.filter(pk=run.pk).update(
+            opened_at=timezone.now(),
+            created_at=timezone.now() - timezone.timedelta(days=1),
+        )
+        resp = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"mode": "live"},
+            content_type="application/json",
+        ).json()
+        self.assertEqual(resp["run"], run.pk)      # continued, not archived
+        self.assertEqual(Run.objects.count(), 1)
+
     def test_continue_reactivates_latest_run(self):
         # "Weiterzählen": the most recent Durchführung is reactivated and its
         # votes are kept — no second run (#17).
