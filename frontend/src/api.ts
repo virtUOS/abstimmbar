@@ -836,6 +836,7 @@ export const live = {
       active_run: number | null;
       has_votes: boolean;
       active_run_has_votes: boolean;
+      recently_started: boolean;
       room_code: string;
     }>(`/api/question-sets/${setId}/live-status/`),
   startRun: (
