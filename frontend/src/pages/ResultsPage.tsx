@@ -616,7 +616,7 @@ export default function ResultsPage() {
                                       pct: question.ordering.full_correct_rate,
                                     })}
                                   </div>
-                                  <div className="grid gap-x-2" style={{ gridTemplateColumns: "1fr auto" }}>
+                                  <div className="inline-grid gap-x-2" style={{ gridTemplateColumns: "max-content auto" }}>
                                     {question.ordering.items.flatMap((it, i) => {
                                       const link = question.ordering!.links?.[i];
                                       const rows = [

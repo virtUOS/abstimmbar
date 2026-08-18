@@ -899,7 +899,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               <p className="mb-4 text-xl font-semibold">
                 {t("{{pct}}% got the full order correct", { pct: state.ordering.full_correct_rate })}
               </p>
-              <div className="grid gap-x-3" style={{ gridTemplateColumns: "1fr auto" }}>
+              <div className="inline-grid gap-x-3" style={{ gridTemplateColumns: "max-content auto" }}>
                 {state.ordering.items.flatMap((it, i) => {
                   const link = state.ordering!.links?.[i];
                   const rows = [
