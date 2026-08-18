@@ -2466,6 +2466,48 @@ class OrderingStatsTests(LiveTestCase):
         self.assertIn("ordering", payloads["presenter"])
         self.assertIn("ordering", payloads["participant"])
 
+    def test_links_full_correct_single_chain(self):
+        from .results import ordering_stats
+        self._submit([self.oa, self.ob, self.oc])
+        self._submit([self.oa, self.ob, self.oc])
+        stats = ordering_stats(self.run, self.oq)
+        self.assertEqual(
+            [(l["from"], l["to"], l["rate"]) for l in stats["links"]],
+            [(self.oa.pk, self.ob.pk, 100.0), (self.ob.pk, self.oc.pk, 100.0)],
+        )
+        self.assertEqual(stats["chains"], [{"start": 0, "end": 2, "rate": 100.0}])
+
+    def test_links_partial_swap(self):
+        from .results import ordering_stats
+        self._submit([self.oa, self.ob, self.oc])   # A,B,C
+        self._submit([self.ob, self.oa, self.oc])   # B,A,C (A/B swapped)
+        stats = ordering_stats(self.run, self.oq)
+        # A->B adjacency holds only in submission 1; B->C only in submission 1.
+        self.assertEqual([l["rate"] for l in stats["links"]], [50.0, 50.0])
+        # Both links >= 50 -> one chain over all items; whole-run correct = 1/2.
+        self.assertEqual(stats["chains"], [{"start": 0, "end": 2, "rate": 50.0}])
+
+    def test_chains_split_on_weak_link(self):
+        from .results import ordering_stats
+        od = AnswerOption.objects.create(question=self.oq, text="D", position=3)
+        a, b, c, d = self.oa, self.ob, self.oc, od
+        self._submit([a, b, c, d])   # all links hold
+        self._submit([a, b, d, c])   # A->B holds; B->C, C->D fail
+        self._submit([b, a, c, d])   # A->B fails; B->C fails; C->D holds
+        stats = ordering_stats(self.run, self.oq)
+        rates = [round(l["rate"], 1) for l in stats["links"]]
+        self.assertEqual(rates, [66.7, 33.3, 66.7])  # link1 < 50 breaks the run
+        self.assertEqual(
+            [(ch["start"], ch["end"]) for ch in stats["chains"]],
+            [(0, 1), (2, 3)],
+        )
+
+    def test_empty_run_links_chains(self):
+        from .results import ordering_stats
+        stats = ordering_stats(self.run, self.oq)
+        self.assertEqual([l["rate"] for l in stats["links"]], [0, 0])
+        self.assertEqual(stats["chains"], [])
+
 
 class PriorityStatsTests(LiveTestCase):
     def setUp(self):
