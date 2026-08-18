@@ -149,6 +149,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       // is reliably offered instead of silently appending (#70).
       if (
         !easyMode &&
+        !status.recently_started &&
         ((status.has_votes && !status.active_run) || status.active_run_has_votes)
       ) {
         setDialog(true); // ask before touching stored results
