@@ -574,15 +574,24 @@ export default function ResultsPage() {
                                       {localizedText(opt.text)}
                                     </span>
                                     <div className="relative h-4 flex-1 rounded bg-slate-100 dark:bg-slate-800">
-                                      {/* min–max range band */}
-                                      <div
-                                        className="absolute h-4 rounded bg-slate-200 dark:bg-slate-700"
-                                        style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
-                                      />
                                       {/* average fill */}
                                       <div
-                                        className="absolute h-4 rounded bg-brand-400"
+                                        className="absolute inset-y-0 left-0 rounded bg-brand-400"
                                         style={{ width: `${opt.avg}%` }}
+                                      />
+                                      {/* deviation range line on top */}
+                                      <div
+                                        className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-600 dark:bg-slate-300"
+                                        style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
+                                      />
+                                      {/* min / max whiskers */}
+                                      <div
+                                        className="absolute -top-0.5 -bottom-0.5 w-0.5 -translate-x-1/2 bg-slate-600 dark:bg-slate-300"
+                                        style={{ left: `${opt.min}%` }}
+                                      />
+                                      <div
+                                        className="absolute -top-0.5 -bottom-0.5 w-0.5 -translate-x-1/2 bg-slate-600 dark:bg-slate-300"
+                                        style={{ left: `${opt.max}%` }}
                                       />
                                     </div>
                                     <span className="w-28 text-right tabular-nums text-slate-500 dark:text-slate-400">

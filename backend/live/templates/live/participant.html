@@ -437,14 +437,20 @@ multi-line note must use {% comment %} or it renders as text.)
       nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
       label.append(name, nums);
       const track = document.createElement("div");
-      track.style.cssText = "position:relative;height:12px;border-radius:6px;background:var(--line)";
-      const band = document.createElement("div");
-      band.style.cssText = "position:absolute;height:12px;border-radius:6px;background:#b6bcc1;left:" +
-        opt.min + "%;width:" + Math.max(opt.max - opt.min, 0) + "%";
-      const bar = document.createElement("div");
-      bar.style.cssText = "position:absolute;height:12px;border-radius:6px;background:var(--brand);width:" +
+      track.style.cssText = "position:relative;height:12px;border-radius:6px;background:var(--line);overflow:visible";
+      const bar = document.createElement("div");   // average fill
+      bar.style.cssText = "position:absolute;left:0;top:0;height:12px;border-radius:6px;background:var(--brand);width:" +
         opt.avg + "%";
-      track.append(band, bar);
+      const range = document.createElement("div");  // deviation line on top
+      range.style.cssText = "position:absolute;top:50%;transform:translateY(-50%);height:2px;background:var(--ink);left:" +
+        opt.min + "%;width:" + Math.max(opt.max - opt.min, 0) + "%";
+      const wMin = document.createElement("div");    // min whisker
+      wMin.style.cssText = "position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transform:translateX(-50%);left:" +
+        opt.min + "%";
+      const wMax = document.createElement("div");    // max whisker
+      wMax.style.cssText = "position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transform:translateX(-50%);left:" +
+        opt.max + "%";
+      track.append(bar, range, wMin, wMax);
       item.append(label, track);
       list.appendChild(item);
     }

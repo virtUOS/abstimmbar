@@ -869,13 +869,24 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     </span>
                   </div>
                   <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
+                    {/* average fill (green) */}
                     <div
-                      className="absolute h-6 rounded bg-slate-200 dark:bg-slate-700"
+                      className="absolute inset-y-0 left-0 rounded bg-brand-500"
+                      style={{ width: `${opt.avg}%` }}
+                    />
+                    {/* deviation range line, drawn on top so the min side is visible */}
+                    <div
+                      className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-700 dark:bg-slate-200"
                       style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
                     />
+                    {/* min / max whiskers, sticking out above and below the bar */}
                     <div
-                      className="absolute h-6 rounded bg-brand-500"
-                      style={{ width: `${opt.avg}%` }}
+                      className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
+                      style={{ left: `${opt.min}%` }}
+                    />
+                    <div
+                      className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
+                      style={{ left: `${opt.max}%` }}
                     />
                   </div>
                 </div>
