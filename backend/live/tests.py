@@ -399,6 +399,36 @@ class ControlTests(LiveTestCase):
         self.assertNotEqual(run_a.phase, Run.Phase.FINISHED)
         self.assertEqual(run_a.votes.count(), 1)
 
+    def test_continue_recent_session_resumes_in_place(self):
+        self.login()
+        run = self.open_question()
+        Run.objects.filter(pk=run.pk).update(opened_at=timezone.now())
+        resp = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"existing": "continue"},
+            content_type="application/json",
+        ).json()
+        run.refresh_from_db()
+        self.assertEqual(resp["run"], run.pk)
+        self.assertEqual(run.phase, Run.Phase.OPEN)                 # not reset to lobby
+        self.assertEqual(run.active_question_id, self.question.pk)  # preserved
+
+    def test_continue_stale_unfinished_run_resets_to_lobby(self):
+        self.login()
+        run = self.open_question()
+        Run.objects.filter(pk=run.pk).update(
+            opened_at=timezone.now() - timezone.timedelta(minutes=121)
+        )
+        resp = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"existing": "continue"},
+            content_type="application/json",
+        ).json()
+        run.refresh_from_db()
+        self.assertEqual(resp["run"], run.pk)
+        self.assertEqual(run.phase, Run.Phase.LOBBY)   # reset (not recent)
+        self.assertIsNone(run.active_question_id)      # reset
+
     def test_easy_mode_archives_when_last_run_another_day(self):
         # Effective easy mode + no explicit ``existing``: a finished run from
         # a previous calendar day is kept as an archive, a fresh run starts.

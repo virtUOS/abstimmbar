@@ -918,9 +918,13 @@ def start_run(request, set_id):
             run.save(update_fields=["first_opened_at"])
     else:
         run.mode = mode
-        run.phase = initial_phase
-        run.active_question = None
-        run.answers_revealed = False
+        # Recent ongoing session (#recent-session): resume in place — keep the
+        # current phase / active question / reveal so the presenter lands back
+        # on the live question instead of the lobby. Otherwise start fresh.
+        if not _recently_started(question_set):
+            run.phase = initial_phase
+            run.active_question = None
+            run.answers_revealed = False
         run.ended_at = None
         if mode == Run.Mode.SELF_PACED and run.first_opened_at is None:
             run.first_opened_at = timezone.now()
