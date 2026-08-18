@@ -396,24 +396,24 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     if (runId && phase === "results") void live.control(runId, { phase: "closed" });
   }, [runId, phase]);
 
-  const showResults = useCallback(() => {
+  const showResults = useCallback(async () => {
     if (!runId) return;
     if (phase === "results") {
-      if (revealed) void live.control(runId, { reveal: false });
+      if (revealed) await live.control(runId, { reveal: false });
       return;
     }
     if (phase === "open" || phase === "closed" || phase === "preview") {
-      if (phase === "open") void live.control(runId, { phase: "closed" });
-      void live.control(runId, { phase: "results" });
+      if (phase === "open") await live.control(runId, { phase: "closed" });
+      await live.control(runId, { phase: "results" });
     }
   }, [runId, phase, revealed]);
 
-  const showSolution = useCallback(() => {
+  const showSolution = useCallback(async () => {
     if (!runId) return;
     if (phase === "lobby" || phase === "finished") return; // no active question
-    if (phase === "open") void live.control(runId, { phase: "closed" });
-    if (phase !== "results") void live.control(runId, { phase: "results" });
-    void live.control(runId, { reveal: true });
+    if (phase === "open") await live.control(runId, { phase: "closed" });
+    if (phase !== "results") await live.control(runId, { phase: "results" });
+    await live.control(runId, { reveal: true });
   }, [runId, phase]);
 
   const onKey = useCallback(
