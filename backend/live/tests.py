@@ -694,6 +694,25 @@ class ControlTests(LiveTestCase):
         self.assertTrue(payload["has_votes"])
         self.assertIsNotNone(payload["active_run"])
 
+    def test_control_reveal_can_be_toggled_off(self):
+        self.login()
+        run = self.open_question()
+        self.client.post(
+            f"/api/runs/{run.pk}/control/",
+            {"reveal": True},
+            content_type="application/json",
+        )
+        run.refresh_from_db()
+        self.assertTrue(run.answers_revealed)
+        resp = self.client.post(
+            f"/api/runs/{run.pk}/control/",
+            {"reveal": False},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        run.refresh_from_db()
+        self.assertFalse(run.answers_revealed)
+
 
 class StatePayloadTests(LiveTestCase):
     def test_participant_sees_question_only_when_open(self):
