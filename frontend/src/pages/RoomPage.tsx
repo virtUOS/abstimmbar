@@ -403,6 +403,10 @@ export default function RoomPage() {
   const [settingsDraft, setSettingsDraft] = useState<RoomSettings | null>(null);
   const [settingsError, setSettingsError] = useState("");
 
+  // #21: settings and new-set panels are mutually exclusive; switching away
+  // from one with unsaved edits asks first.
+  const [pendingSwitch, setPendingSwitch] = useState<"settings" | "newSet" | null>(null);
+
   const reload = (term = search) =>
     Promise.all([api.getRoom(id), api.listQuestionSets(id, term)]).then(
       ([roomData, page]) => {
@@ -440,6 +444,49 @@ export default function RoomPage() {
     } catch (err) {
       setSettingsError(fieldError(err));
     }
+  }
+
+  const newSetDirty =
+    newSet !== null && JSON.stringify(newSet) !== JSON.stringify(NEW_SET_DEFAULTS);
+  const settingsDirty =
+    settingsDraft !== null &&
+    room !== null &&
+    JSON.stringify(settingsDraft) !==
+      JSON.stringify({
+        title: room.title,
+        description: room.description,
+        show_logo_in_presentation: room.show_logo_in_presentation,
+        show_qr_in_presentation: room.show_qr_in_presentation,
+        show_code_in_presentation: room.show_code_in_presentation,
+        presentation_corner: room.presentation_corner,
+        closing_info: room.closing_info,
+      });
+
+  function requestOpenSettings() {
+    if (newSetDirty) {
+      setPendingSwitch("settings");
+      return;
+    }
+    setNewSet(null);
+    openSettings();
+  }
+  function requestOpenNewSet() {
+    if (settingsDirty) {
+      setPendingSwitch("newSet");
+      return;
+    }
+    setSettingsDraft(null);
+    setNewSet(NEW_SET_DEFAULTS);
+  }
+  function performSwitch() {
+    if (pendingSwitch === "settings") {
+      setNewSet(null);
+      openSettings();
+    } else if (pendingSwitch === "newSet") {
+      setSettingsDraft(null);
+      setNewSet(NEW_SET_DEFAULTS);
+    }
+    setPendingSwitch(null);
   }
 
   async function handleImportFile(file: File) {
@@ -569,7 +616,7 @@ export default function RoomPage() {
             {room.is_favorite ? t("Favorite") : t("Mark as favorite")}
           </button>
           <MoreMenu label={t("Room actions")}>
-            <MenuItem onClick={openSettings}>
+            <MenuItem onClick={requestOpenSettings}>
               <Settings aria-hidden className="h-4 w-4" />{t("Settings")}
             </MenuItem>
             {/* Easy mode (#52): hide collaboration + JSON import. */}
@@ -628,6 +675,18 @@ export default function RoomPage() {
           : t("Last changed on {{date}}", { date: formatDateTime(room.updated_at) })}
       </p>
 
+      {pendingSwitch && (
+        <div className="mb-4 max-w-2xl rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+          <ConfirmInline
+            message={t("Discard unsaved changes?")}
+            confirmLabel={t("Discard")}
+            confirmVariant="danger"
+            onConfirm={performSwitch}
+            onCancel={() => setPendingSwitch(null)}
+          />
+        </div>
+      )}
+
       {/* Room settings (#2): title / description / features. */}
       {settingsDraft && (
         <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900">
@@ -671,7 +730,7 @@ export default function RoomPage() {
           <InfoHint
             text={t("A question set is a single quiz — e.g. for one lecture session.")}
           />
-          <Button variant="primary" onClick={() => setNewSet(NEW_SET_DEFAULTS)}>
+          <Button variant="primary" onClick={requestOpenNewSet}>
             + {t("New question set")}
           </Button>
         </div>
