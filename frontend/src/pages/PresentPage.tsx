@@ -869,13 +869,24 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     </span>
                   </div>
                   <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
+                    {/* average fill (green) */}
                     <div
-                      className="absolute h-6 rounded bg-slate-200 dark:bg-slate-700"
+                      className="absolute inset-y-0 left-0 rounded bg-brand-500"
+                      style={{ width: `${opt.avg}%` }}
+                    />
+                    {/* deviation range line, drawn on top so the min side is visible */}
+                    <div
+                      className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-700 dark:bg-slate-200"
                       style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
                     />
+                    {/* min / max whiskers, sticking out above and below the bar */}
                     <div
-                      className="absolute h-6 rounded bg-brand-500"
-                      style={{ width: `${opt.avg}%` }}
+                      className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
+                      style={{ left: `${opt.min}%` }}
+                    />
+                    <div
+                      className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
+                      style={{ left: `${opt.max}%` }}
                     />
                   </div>
                 </div>
@@ -884,26 +895,54 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           )}
 
           {question.kind === "ordering" && state.ordering && phase === "results" && (
-            <div className="mt-8 space-y-3">
-              <p className="mb-1 text-xl font-semibold">
+            <div className="mt-8">
+              <p className="mb-4 text-xl font-semibold">
                 {t("{{pct}}% got the full order correct", { pct: state.ordering.full_correct_rate })}
               </p>
-              {state.ordering.items.map((it) => (
-                <div key={it.id}>
-                  <div className="mb-1 flex items-center justify-between text-xl">
-                    <span>
-                      {it.correct_position}. {localizedText(it.text)}
-                    </span>
-                    <span className="tabular-nums text-slate-500">{it.correct_rate}%</span>
-                  </div>
-                  <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
+              <div className="inline-grid gap-x-3" style={{ gridTemplateColumns: "max-content auto" }}>
+                {state.ordering.items.flatMap((it, i) => {
+                  const link = state.ordering!.links?.[i];
+                  const rows = [
                     <div
-                      className="absolute h-6 rounded bg-brand-500"
-                      style={{ width: `${it.correct_rate}%` }}
-                    />
+                      key={`item-${it.id}`}
+                      className="col-start-1 flex items-center gap-3 text-xl"
+                      style={{ gridRow: 2 * i + 1 }}
+                    >
+                      <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
+                      <span>{localizedText(it.text)}</span>
+                    </div>,
+                  ];
+                  if (link) {
+                    rows.push(
+                      <div
+                        key={`link-${it.id}`}
+                        className="col-start-1 flex items-center justify-center py-1"
+                        style={{ gridRow: 2 * i + 2 }}
+                      >
+                        <span
+                          className="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                          style={{ opacity: 0.4 + 0.6 * (link.rate / 100) }}
+                        >
+                          {t("{{pct}}% in a row", { pct: link.rate })}
+                        </span>
+                      </div>,
+                    );
+                  }
+                  return rows;
+                })}
+                {state.ordering.chains.map((c, idx) => (
+                  <div
+                    key={`chain-${idx}`}
+                    className="col-start-2 flex items-center gap-2 pl-1"
+                    style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
+                  >
+                    <div className="h-full w-2 rounded-r-lg border-y-2 border-r-2 border-brand-400" />
+                    <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
+                      {c.rate}%
+                    </span>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 

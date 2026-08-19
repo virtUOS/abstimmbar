@@ -215,6 +215,9 @@ multi-line note must use {% comment %} or it renders as text.)
     orderingHint: "{% trans 'Drag the items or use the arrows to sort them.' %}",
     orderingFullCorrect: "{% trans 'correct order' %}",
     orderingItemCorrect: "{% trans 'correctly placed' %}",
+    yourOrder: "{% trans 'Your order' %}",
+    correctOrder: "{% trans 'Correct order' %}",
+    allCorrect: "{% trans 'All correct!' %}",
     moveUp: "{% trans 'Move up' %}",
     moveDown: "{% trans 'Move down' %}",
     you: "{% trans 'you' %}",
@@ -437,42 +440,60 @@ multi-line note must use {% comment %} or it renders as text.)
       nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
       label.append(name, nums);
       const track = document.createElement("div");
-      track.style.cssText = "position:relative;height:12px;border-radius:6px;background:var(--line)";
-      const band = document.createElement("div");
-      band.style.cssText = "position:absolute;height:12px;border-radius:6px;background:#b6bcc1;left:" +
-        opt.min + "%;width:" + Math.max(opt.max - opt.min, 0) + "%";
-      const bar = document.createElement("div");
-      bar.style.cssText = "position:absolute;height:12px;border-radius:6px;background:var(--brand);width:" +
+      track.style.cssText = "position:relative;height:12px;border-radius:6px;background:var(--line);overflow:visible";
+      const bar = document.createElement("div");   // average fill
+      bar.style.cssText = "position:absolute;left:0;top:0;height:12px;border-radius:6px;background:var(--brand);width:" +
         opt.avg + "%";
-      track.append(band, bar);
+      const range = document.createElement("div");  // deviation line on top
+      range.style.cssText = "position:absolute;top:50%;transform:translateY(-50%);height:2px;background:var(--ink);left:" +
+        opt.min + "%;width:" + Math.max(opt.max - opt.min, 0) + "%";
+      const wMin = document.createElement("div");    // min whisker
+      wMin.style.cssText = "position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transform:translateX(-50%);left:" +
+        opt.min + "%";
+      const wMax = document.createElement("div");    // max whisker
+      wMax.style.cssText = "position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transform:translateX(-50%);left:" +
+        opt.max + "%";
+      track.append(bar, range, wMin, wMax);
       item.append(label, track);
       list.appendChild(item);
     }
     if (data.ordering) {
-      for (const oi of data.ordering.items || []) {
-        const item = document.createElement("div");
-        item.style.cssText = "margin-bottom:10px";
-        const label = document.createElement("div");
-        label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
-        const name = document.createElement("span");
-        name.textContent = oi.correct_position + ". " + locText(oi.text);
-        const nums = document.createElement("span");
-        nums.style.color = "var(--ink-soft)";
-        nums.textContent = oi.correct_rate + " % " + I18N.orderingItemCorrect;
-        label.append(name, nums);
-        const track = document.createElement("div");
-        track.style.cssText = "height:12px;border-radius:6px;background:var(--line)";
-        const bar = document.createElement("div");
-        bar.style.cssText = "height:12px;border-radius:6px;background:var(--brand);width:" +
-          oi.correct_rate + "%";
-        track.appendChild(bar);
-        item.append(label, track);
-        list.appendChild(item);
+      const correct = (data.ordering.items || []).map((o) => String(o.id));
+      const textById = new Map((data.ordering.items || []).map((o) => [String(o.id), locText(o.text)]));
+      const own = mine && mine.ordering ? mine.ordering.map((o) => String(o.id)) : null;
+
+      if (own && own.length === correct.length && own.every((id, i) => id === correct[i])) {
+        const ok = document.createElement("div");
+        ok.style.cssText = "margin:6px 0 12px;padding:10px 12px;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;text-align:center";
+        ok.textContent = "✓ " + I18N.allCorrect;
+        list.appendChild(ok);
       }
-      const full = document.createElement("p");
-      full.style.cssText = "font-size:14px;margin:8px 0 0;color:var(--ink-soft)";
-      full.textContent = data.ordering.full_correct_rate + " % " + I18N.orderingFullCorrect;
-      list.appendChild(full);
+
+      function orderedList(title, ids, markCorrect) {
+        const h = document.createElement("p");
+        h.className = "soft";
+        h.style.cssText = "margin:10px 0 4px;font-size:14px";
+        h.textContent = title;
+        list.appendChild(h);
+        const ol = document.createElement("ol");
+        ol.style.cssText = "margin:0 0 8px;padding-left:22px;color:var(--ink)";
+        ids.forEach((id, i) => {
+          const li = document.createElement("li");
+          li.style.cssText = "margin:2px 0";
+          li.textContent = textById.get(id) || "";
+          if (markCorrect && id === correct[i]) {
+            const tick = document.createElement("span");
+            tick.textContent = " ✓";
+            tick.style.color = "var(--brand)";
+            li.appendChild(tick);
+          }
+          ol.appendChild(li);
+        });
+        list.appendChild(ol);
+      }
+
+      if (own) orderedList(I18N.yourOrder, own, true);
+      orderedList(I18N.correctOrder, correct, false);
     }
   }
 

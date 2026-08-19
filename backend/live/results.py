@@ -211,6 +211,11 @@ def priority_stats(run, question):
     return result
 
 
+# Minimum per-link relative-adjacency rate (%) for a pair of consecutive
+# solution items to join a "correctly-ordered run" (brace) in the results.
+ORDERING_CHAIN_THRESHOLD = 50.0
+
+
 def ordering_stats(run, question):
     """Per-item correct-placement rate for an ``ordering`` question (#72).
 
@@ -255,10 +260,51 @@ def ordering_stats(run, question):
             if all(r.position == solution.get(r.option_id) for r in vote.ordering_responses.all()) \
                and vote.ordering_responses.count() == len(options):
                 full_correct += 1
+    # Relative-adjacency links + chains: load each submission's assigned
+    # position per option once, then score consecutive solution pairs.
+    subs = []  # [{option_id: assigned_position}, ...]
+    if n:
+        for vote in run.votes.filter(question=question).prefetch_related(
+            "ordering_responses"
+        ):
+            subs.append({r.option_id: r.position for r in vote.ordering_responses.all()})
+
+    def _adjacent(pos, a, b):
+        return a.pk in pos and b.pk in pos and pos[b.pk] == pos[a.pk] + 1
+
+    links = []
+    for k in range(len(options) - 1):
+        a, b = options[k], options[k + 1]
+        hits = sum(1 for pos in subs if _adjacent(pos, a, b))
+        links.append(
+            {"from": a.pk, "to": b.pk, "rate": round(100.0 * hits / n, 1) if n else 0}
+        )
+
+    chains = []
+    k = 0
+    while k < len(links):
+        if links[k]["rate"] >= ORDERING_CHAIN_THRESHOLD:
+            start = k
+            while k < len(links) and links[k]["rate"] >= ORDERING_CHAIN_THRESHOLD:
+                k += 1
+            end = k  # item index one past the last qualifying link
+            whole = sum(
+                1
+                for pos in subs
+                if all(_adjacent(pos, options[j], options[j + 1]) for j in range(start, end))
+            )
+            chains.append(
+                {"start": start, "end": end, "rate": round(100.0 * whole / n, 1) if n else 0}
+            )
+        else:
+            k += 1
+
     return {
         "items": items,
         "full_correct_rate": round(100.0 * full_correct / n, 1) if n else 0,
         "n": n,
+        "links": links,
+        "chains": chains,
     }
 
 
