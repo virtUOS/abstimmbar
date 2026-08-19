@@ -38,6 +38,9 @@ abstimmbar.example.org {
 	handle /p/* {
 		reverse_proxy app:8000
 	}
+	handle /question-preview/* {
+		reverse_proxy app:8000
+	}
 
 	# Uploaded media and collected static files → served directly from volumes.
 	handle_path /media/* {
