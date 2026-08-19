@@ -203,6 +203,9 @@ export default function QuestionPage() {
       setOptions(defaultOptions(kind, template));
       return;
     }
+    // Already have this question in state (e.g. just created via save →
+    // URL replaced to the real id) — don't refetch and clobber live edits.
+    if (question && question.id === Number(questionId)) return;
     void api.getQuestion(Number(questionId)).then((data) => {
       setQuestion(data);
       setText(data.text);
