@@ -103,7 +103,7 @@ export default function RichTextEditor({
       attributes: {
         class:
           "min-h-28 max-h-[420px] overflow-y-auto rounded-b-lg px-3 py-2 focus:outline-none " +
-          "[&_img]:max-w-xs [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 " +
+          "[&_img]:max-w-full [&_img]:h-auto [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 " +
           "[&_p]:my-1 [&_li]:my-0.5 [&_h2]:mt-2 [&_h2]:mb-1 [&_h2]:text-xl [&_h2]:font-bold " +
           "[&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-base [&_h3]:font-semibold " +
           "[&_a]:text-brand-700 [&_a]:underline dark:[&_a]:text-brand-300",

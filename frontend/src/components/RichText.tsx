@@ -20,7 +20,7 @@ export default function RichText({
   // Sites that pass nothing (MR-B descriptions) get a sane prose default.
   const cls =
     className ??
-    "text-slate-700 dark:text-slate-300 [&_img]:max-w-xs [&_p]:my-2 " +
+    "text-slate-700 dark:text-slate-300 [&_img]:max-w-full [&_img]:h-auto [&_p]:my-2 " +
     "[&_ul]:list-disc [&_ul]:pl-6 [&_ol]:list-decimal [&_ol]:pl-6 [&_li]:my-0.5 " +
     "[&_h2]:mt-4 [&_h2]:mb-1 [&_h2]:text-xl [&_h2]:font-bold [&_h2]:text-slate-900 dark:[&_h2]:text-slate-100 " +
     "[&_h3]:mt-3 [&_h3]:mb-1 [&_h3]:text-base [&_h3]:font-semibold [&_h3]:text-slate-900 dark:[&_h3]:text-slate-100 " +
