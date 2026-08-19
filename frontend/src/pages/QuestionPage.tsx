@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Check, Eye, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, X } from "lucide-react";
 import {
   API_BASE_URL,
@@ -48,6 +48,21 @@ function stripHtml(html: string) {
  * via TranslatableField (#33 MR2 Task 9). */
 type EditableOption = Omit<AnswerOption, "text"> & { text: LocalizedText; clientId: number };
 let nextClientId = -1;
+
+// Mirrors backend Question.kind choices; used to validate the `?kind=`
+// query param on a new (unsaved) question.
+const QUESTION_KINDS = [
+  "single_choice", "multiple_choice", "word_cloud", "likert",
+  "open_text", "priorities", "ordering",
+] as const;
+
+/** Per-kind default options for a brand-new question, moved out of
+ * `SetPage.addQuestion` now that creation is deferred to the first save. */
+function defaultOptions(kind: string, template?: string | null): EditableOption[] {
+  if (kind === "word_cloud" || kind === "open_text" || kind === "likert") return [];
+  const texts = template === "yes_no" ? ["Ja", "Nein"] : ["", "", ""];
+  return texts.map((text) => ({ clientId: nextClientId--, text, is_correct: false }));
+}
 
 /** Likert scales are fixed presets — freely editable items would make the
  * question plain single choice and break ordinal analyses (review feedback).
@@ -132,6 +147,8 @@ function detectPreset(options: { text: LocalizedText; is_abstention?: boolean }[
 export default function QuestionPage() {
   const { t } = useTranslation();
   const { setId, questionId } = useParams();
+  const [searchParams] = useSearchParams();
+  const isNew = questionId === "new";
   const navigate = useNavigate();
   const [question, setQuestion] = useState<Question | null>(null);
   const [set, setSet] = useState<QuestionSet | null>(null);
@@ -173,6 +190,19 @@ export default function QuestionPage() {
 
   useEffect(() => {
     void api.getQuestionSet(Number(setId)).then(setSet);
+    if (isNew) {
+      const raw = searchParams.get("kind") ?? "single_choice";
+      const kind = (QUESTION_KINDS as readonly string[]).includes(raw)
+        ? (raw as Question["kind"])
+        : "single_choice";
+      const template = searchParams.get("template");
+      // Synthetic question so kind-based derivations and the `!question`
+      // render guard work; id 0 until the first save creates the real row.
+      setQuestion({ id: 0, kind, is_after: false } as Question);
+      setText("");
+      setOptions(defaultOptions(kind, template));
+      return;
+    }
     void api.getQuestion(Number(questionId)).then((data) => {
       setQuestion(data);
       setText(data.text);
@@ -258,7 +288,7 @@ export default function QuestionPage() {
     setError("");
     try {
       const parsedLimit = parseInt(timeLimit, 10);
-      await api.updateQuestion(question.id, {
+      const payload = {
         kind: question.kind,
         text,
         shuffle_options: shuffle,
@@ -277,10 +307,8 @@ export default function QuestionPage() {
         wordcloud_max_answers:
           question.kind === "word_cloud" && allowMultiple ? wordcloudMaxAnswers : 0,
         wordcloud_live: question.kind !== "word_cloud" || wordcloudLive,
-        wordcloud_ai_enabled:
-          question.kind === "word_cloud" && wordcloudAiEnabled,
-        wordcloud_grouping:
-          question.kind === "word_cloud" ? wordcloudGrouping : "",
+        wordcloud_ai_enabled: question.kind === "word_cloud" && wordcloudAiEnabled,
+        wordcloud_grouping: question.kind === "word_cloud" ? wordcloudGrouping : "",
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
         options:
           question.kind === "word_cloud" || question.kind === "open_text"
@@ -291,7 +319,23 @@ export default function QuestionPage() {
                   ...(id ? { id } : {}),
                   ...option,
                 })),
-      });
+      };
+      if (isNew) {
+        const created = await api.createQuestion({
+          question_set: Number(setId),
+          ...payload,
+        });
+        setQuestion(created);
+        if (stay) {
+          // Adopt the real id so the editor leaves new mode; the effect
+          // re-runs once on the new questionId and reloads the saved data.
+          navigate(`/sets/${setId}/questions/${created.id}`, { replace: true });
+        } else {
+          navigate(`/sets/${setId}`);
+        }
+        return true;
+      }
+      await api.updateQuestion(question.id, payload);
       if (!stay) navigate(`/sets/${setId}`);
       return true;
     } catch (err) {
@@ -588,7 +632,7 @@ export default function QuestionPage() {
           </p>
         )}
 
-        {aiEnabled && (
+        {aiEnabled && !isNew && (
           <AiAssistPanel title={t("Rephrase question")}>
             <Button onClick={() => void runRephrase()} disabled={aiBusy === "rephrase"}>
               {aiBusy === "rephrase" ? t("Generating …") : t("Generate suggestions")}
@@ -779,7 +823,7 @@ export default function QuestionPage() {
                 </label>
               )}
 
-              {aiEnabled && hasCorrect && (
+              {aiEnabled && !isNew && hasCorrect && (
                 <div className="mt-3">
                   <AiAssistPanel title={t("Suggest distractors")}>
                     <Button
@@ -1111,6 +1155,7 @@ export default function QuestionPage() {
           <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>
         </div>
 
+        {!isNew && (
         <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
           {moveTargets === null ? (
             <button
@@ -1174,6 +1219,7 @@ export default function QuestionPage() {
             </div>
           )}
         </div>
+        )}
       </div>
       )}
     </div>
