@@ -398,9 +398,17 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         # back to the instance's stored value.
         if self.instance is not None:
             canonical = f"text_{CONTENT_DEFAULT_LANGUAGE}"
-            resolved = attrs.get(canonical)
-            if resolved is None:
+            # Distinguish "key absent" (a partial PATCH not touching text at
+            # all -> fall back to the instance) from "key present with value
+            # None" (client explicitly cleared the canonical language via a
+            # partial map, e.g. {"de": "", "en": "..."} -> treat as empty).
+            # attrs.get(canonical) alone can't tell these apart since both
+            # read as None.
+            _missing = object()
+            resolved = attrs.get(canonical, _missing)
+            if resolved is _missing:
                 resolved = getattr(self.instance, canonical, "") or ""
+            resolved = resolved or ""
             if not (strip_tags(resolved).strip() or "<img" in resolved.lower()):
                 raise serializers.ValidationError(
                     {"text": "Question text is required."}

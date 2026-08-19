@@ -403,6 +403,34 @@ class QuestionApiTests(ApiTestCase):
         # Guards the "+ New question" flow: empty create must NOT 400.
         self._scaffold()
 
+    def test_update_rejects_clearing_canonical_via_map(self):
+        qid = self._scaffold()
+        # First give the question real canonical text, so the instance
+        # fallback (used when the map's canonical key is absent) can't
+        # accidentally mask a later explicit clear with old, valid text.
+        setup = self._patch(
+            qid,
+            text="<p>Q?</p>",
+            options=[{"text": "A"}, {"text": "B"}],
+        )
+        self.assertEqual(setup.status_code, 200)
+        resp = self._patch(
+            qid,
+            text={"de": "", "en": "English only"},
+            options=[{"text": "A"}, {"text": "B"}],
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("text", resp.json())
+
+    def test_update_accepts_canonical_map_with_blank_secondary(self):
+        qid = self._scaffold()
+        resp = self._patch(
+            qid,
+            text={"de": "<p>Frage?</p>", "en": ""},
+            options=[{"text": "A"}, {"text": "B"}],
+        )
+        self.assertEqual(resp.status_code, 200)
+
 
 class BeforeAfterTests(ApiTestCase):
     """Vorher-Nachher-Fragen (#54)."""
