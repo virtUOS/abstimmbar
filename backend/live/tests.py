@@ -873,6 +873,12 @@ class ParticipantPageTests(LiveTestCase):
         self.assertContains(self.client.get(f"/p/{self.room.code}/"), self.room.title)
         self.assertEqual(self.client.get("/p/00000000/").status_code, 404)
 
+    def test_unknown_code_renders_friendly_page(self):
+        resp = self.client.get("/p/nope-nope-nope/")
+        self.assertEqual(resp.status_code, 404)
+        self.assertTemplateUsed(resp, "live/not_found.html")
+        self.assertContains(resp, "not found", status_code=404)
+
     def test_qr_png(self):
         response = self.client.get(f"/p/{self.room.code}/qr.png")
         self.assertEqual(response.status_code, 200)

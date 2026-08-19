@@ -5,7 +5,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: abstimmbar\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-08-18 22:41+0200\n"
+"POT-Creation-Date: 2026-08-19 13:07+0200\n"
 "PO-Revision-Date: 2026-07-10 08:06+0000\n"
 "Last-Translator: Abstimmbar\n"
 "Language-Team: German\n"
@@ -38,6 +38,18 @@ msgstr "Raum-Code"
 #: live/templates/live/home.html:14
 msgid "Continue"
 msgstr "Weiter"
+
+#: live/templates/live/not_found.html:4 live/templates/live/not_found.html:8
+msgid "Room not found"
+msgstr "Raum nicht gefunden"
+
+#: live/templates/live/not_found.html:9
+msgid "Check the code and try again."
+msgstr "Prüfe den Code und versuche es erneut."
+
+#: live/templates/live/not_found.html:10
+msgid "Enter a code"
+msgstr "Code eingeben"
 
 #: live/templates/live/participant.html:15
 msgid "Language"

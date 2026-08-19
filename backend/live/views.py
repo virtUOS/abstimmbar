@@ -88,7 +88,14 @@ def participant_home(request):
 @ensure_csrf_cookie
 def participant_page(request, code):
     lang = _lang_from_query(request)
-    room = _room_by_code(code)
+    room = Room.objects.filter(code=(code or "").strip().lower()).first()
+    if room is None:
+        response = render(request, "live/not_found.html", status=404)
+        if lang:
+            response.set_cookie(
+                settings.LANGUAGE_COOKIE_NAME, lang, max_age=31536000, samesite="Lax"
+            )
+        return response
     # Closing info shown once the vote is finished (#24): the site-wide text
     # first, the room's own below it. closing_info now stores sanitized HTML
     # (editor-unify #49); render it directly (defensively re-cleaned) instead
