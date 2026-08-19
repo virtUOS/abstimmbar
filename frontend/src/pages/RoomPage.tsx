@@ -404,8 +404,16 @@ export default function RoomPage() {
   const [settingsError, setSettingsError] = useState("");
 
   // #21: settings and new-set panels are mutually exclusive; switching away
-  // from one with unsaved edits asks first.
+  // from one with unsaved edits asks first. The triggers live in different
+  // places (⋮ menu top-right, "+ New question set" mid-page), so scroll the
+  // warning into view and focus it — otherwise it can appear off-screen.
   const [pendingSwitch, setPendingSwitch] = useState<"settings" | "newSet" | null>(null);
+  const pendingSwitchRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!pendingSwitch) return;
+    pendingSwitchRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    pendingSwitchRef.current?.focus();
+  }, [pendingSwitch]);
 
   const reload = (term = search) =>
     Promise.all([api.getRoom(id), api.listQuestionSets(id, term)]).then(
@@ -679,7 +687,12 @@ export default function RoomPage() {
       </p>
 
       {pendingSwitch && (
-        <div className="mb-4 max-w-2xl rounded-xl border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/40">
+        <div
+          ref={pendingSwitchRef}
+          role="alert"
+          tabIndex={-1}
+          className="mb-4 max-w-2xl scroll-mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 outline-none dark:border-amber-900 dark:bg-amber-950/40"
+        >
           <ConfirmInline
             message={t("Discard unsaved changes?")}
             confirmLabel={t("Discard")}
