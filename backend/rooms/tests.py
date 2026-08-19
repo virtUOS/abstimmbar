@@ -343,6 +343,66 @@ class QuestionApiTests(ApiTestCase):
         after = QuestionSet.objects.get(pk=self.question_set.pk).updated_at
         self.assertGreater(after, before)
 
+    def _scaffold(self, **overrides):
+        # Mimic "+ New question": create is exempt from content validation,
+        # so this yields a saved question with empty text / blank options.
+        payload = {
+            "question_set": self.question_set.pk,
+            "kind": "single_choice",
+            "text": "",
+            "options": [{"text": ""}, {"text": ""}],
+        }
+        payload.update(overrides)
+        resp = self.client.post("/api/questions/", payload, content_type="application/json")
+        self.assertEqual(resp.status_code, 201)  # create stays permissive
+        return resp.json()["id"]
+
+    def _patch(self, qid, **body):
+        return self.client.patch(
+            f"/api/questions/{qid}/", body, content_type="application/json"
+        )
+
+    def test_update_rejects_empty_text(self):
+        qid = self._scaffold()
+        resp = self._patch(qid, options=[{"text": "A"}, {"text": "B"}])
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("text", resp.json())
+
+    def test_update_rejects_fewer_than_two_options(self):
+        qid = self._scaffold()
+        resp = self._patch(qid, text="<p>Q?</p>", options=[{"text": "only one"}])
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("options", resp.json())
+
+    def test_update_rejects_blank_option_text(self):
+        qid = self._scaffold()
+        resp = self._patch(qid, text="<p>Q?</p>", options=[{"text": "A"}, {"text": "  "}])
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("options", resp.json())
+
+    def test_update_accepts_valid_choice(self):
+        qid = self._scaffold()
+        resp = self._patch(qid, text="<p>Q?</p>", options=[{"text": "A"}, {"text": "B"}])
+        self.assertEqual(resp.status_code, 200)
+
+    def test_update_allows_image_only_option(self):
+        qid = self._scaffold()
+        resp = self._patch(
+            qid,
+            text="<p>Q?</p>",
+            options=[{"text": "A"}, {"text": "", "image": "/media/uploads/x.webp"}],
+        )
+        self.assertEqual(resp.status_code, 200)
+
+    def test_update_open_text_needs_text_not_options(self):
+        qid = self._scaffold(kind="open_text", options=[])
+        self.assertEqual(self._patch(qid, text="").status_code, 400)          # empty text
+        self.assertEqual(self._patch(qid, text="<p>Prompt</p>").status_code, 200)
+
+    def test_create_scaffold_still_allowed(self):
+        # Guards the "+ New question" flow: empty create must NOT 400.
+        self._scaffold()
+
 
 class BeforeAfterTests(ApiTestCase):
     """Vorher-Nachher-Fragen (#54)."""
@@ -1547,8 +1607,11 @@ class SectionTests(ApiTestCase):
 
     def test_assign_question_to_section(self):
         section = self.create_section("Begrüßung").json()
+        # Content validation (#32/#23) resolves canonical text from the
+        # instance on update, so a directly-ORM-created question needs real
+        # text here or this unrelated section-only PATCH would 400.
         question = Question.objects.create(
-            question_set=self.qset, kind=Question.Kind.SINGLE_CHOICE
+            question_set=self.qset, kind=Question.Kind.SINGLE_CHOICE, text_de="<p>Q?</p>"
         )
         response = self.client.patch(
             f"/api/questions/{question.pk}/",

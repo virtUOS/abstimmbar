@@ -12,6 +12,7 @@ from typing import ClassVar
 
 from django.conf import settings
 from django.db.models import Max
+from django.utils.html import strip_tags
 from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin
@@ -22,6 +23,10 @@ from .sanitize import clean_html, clean_media_url
 from .transfer import sync_after_question
 
 CONTENT_DEFAULT_LANGUAGE = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+
+# Kinds whose editor requires answer options (excludes likert's preset scale
+# and the text kinds). Distinct from models.CHOICE_KINDS on purpose.
+OPTION_TEXT_KINDS = ("single_choice", "multiple_choice", "priorities", "ordering")
 
 
 def _user_name(user):
@@ -386,6 +391,31 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"section": "Section belongs to another set."}
                 )
+        # Content validation (#32/#23) runs on the editor Save (update) only, so
+        # the "+ New question" scaffold (create) stays permissive. The canonical
+        # (content-default-language) text lives in attrs["text_<default>"] when
+        # written, but a blank map is a no-op that never lands there — so fall
+        # back to the instance's stored value.
+        if self.instance is not None:
+            canonical = f"text_{CONTENT_DEFAULT_LANGUAGE}"
+            resolved = attrs.get(canonical)
+            if resolved is None:
+                resolved = getattr(self.instance, canonical, "") or ""
+            if not (strip_tags(resolved).strip() or "<img" in resolved.lower()):
+                raise serializers.ValidationError(
+                    {"text": "Question text is required."}
+                )
+            if kind in OPTION_TEXT_KINDS and "options" in attrs:
+                options = attrs["options"]
+
+                def _filled(option):
+                    text = (option.get(canonical) or "").strip()
+                    return bool(text) or bool(option.get("image"))
+
+                if len(options) < 2 or not all(_filled(o) for o in options):
+                    raise serializers.ValidationError(
+                        {"options": "Add at least two answer options, each with text."}
+                    )
         return attrs
 
     def create(self, validated_data):
