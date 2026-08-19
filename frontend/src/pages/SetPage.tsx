@@ -49,14 +49,6 @@ const KIND_LABEL: Record<QuestionKind, string> = {
 // the only kinds that can get an after-question (#54).
 const CHOICE_KINDS: QuestionKind[] = ["single_choice", "multiple_choice", "likert"];
 
-const LIKERT_SCALE = [
-  "Stimme voll zu",
-  "Stimme eher zu",
-  "Teils-teils",
-  "Stimme eher nicht zu",
-  "Stimme gar nicht zu",
-];
-
 // Labels are English source strings, translated with t() at each render site.
 export const REVEAL_OPTIONS: { value: RevealAnswers; label: string }[] = [
   { value: "immediately", label: "immediately, with the results" },
@@ -553,29 +545,10 @@ export default function SetPage() {
     a.click();
   }
 
-  async function addQuestion(kind: QuestionKind, template?: "yes_no") {
-    const options =
-      kind === "word_cloud" || kind === "open_text"
-        ? []
-        : kind === "likert"
-          ? LIKERT_SCALE.map((text) => ({ text, is_correct: false }))
-          : template === "yes_no"
-            ? [
-                { text: "Ja", is_correct: false },
-                { text: "Nein", is_correct: false },
-              ]
-            : [
-                { text: "", is_correct: false },
-                { text: "", is_correct: false },
-                { text: "", is_correct: false },
-              ];
-    const question = await api.createQuestion({
-      question_set: id,
-      kind,
-      text: "",
-      options,
-    });
-    navigate(`/sets/${id}/questions/${question.id}`);
+  function addQuestion(kind: QuestionKind, template?: "yes_no") {
+    const query = new URLSearchParams({ kind });
+    if (template) query.set("template", template);
+    navigate(`/sets/${id}/questions/new?${query.toString()}`);
   }
 
   async function handleDelete(questionId: number) {
