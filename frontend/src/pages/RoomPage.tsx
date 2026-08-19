@@ -441,6 +441,7 @@ export default function RoomPage() {
       const updated = await api.updateRoom(id, settingsDraft);
       setRoom(updated);
       setSettingsDraft(null);
+      setPendingSwitch(null);
     } catch (err) {
       setSettingsError(fieldError(err));
     }
@@ -463,6 +464,7 @@ export default function RoomPage() {
       });
 
   function requestOpenSettings() {
+    if (pendingSwitch) return;
     if (newSetDirty) {
       setPendingSwitch("settings");
       return;
@@ -471,6 +473,7 @@ export default function RoomPage() {
     openSettings();
   }
   function requestOpenNewSet() {
+    if (pendingSwitch) return;
     if (settingsDirty) {
       setPendingSwitch("newSet");
       return;
@@ -700,7 +703,13 @@ export default function RoomPage() {
             <Button variant="primary" onClick={() => void saveSettings()}>
               {t("Save")}
             </Button>
-            <Button variant="ghost" onClick={() => setSettingsDraft(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setSettingsDraft(null);
+                setPendingSwitch(null);
+              }}
+            >
               {t("Cancel")}
             </Button>
           </div>
@@ -749,7 +758,13 @@ export default function RoomPage() {
             <Button variant="primary" onClick={() => void handleCreate()}>
               {t("Save")}
             </Button>
-            <Button variant="ghost" onClick={() => setNewSet(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setNewSet(null);
+                setPendingSwitch(null);
+              }}
+            >
               {t("Cancel")}
             </Button>
           </div>
