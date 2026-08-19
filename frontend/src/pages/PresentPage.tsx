@@ -936,7 +936,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     className="col-start-2 flex items-center gap-2 pl-1"
                     style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
                   >
-                    <div className="h-full w-2 rounded-l-lg border-y-2 border-l-2 border-brand-400" />
+                    <div className="h-full w-2 rounded-r-lg border-y-2 border-r-2 border-brand-400" />
                     <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
                       {c.rate}%
                     </span>

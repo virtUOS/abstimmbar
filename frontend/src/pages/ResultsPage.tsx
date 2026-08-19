@@ -653,7 +653,7 @@ export default function ResultsPage() {
                                         className="col-start-2 flex items-center gap-1.5 pl-1"
                                         style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
                                       >
-                                        <div className="h-full w-1.5 rounded-l-md border-y-2 border-l-2 border-brand-400" />
+                                        <div className="h-full w-1.5 rounded-r-md border-y-2 border-r-2 border-brand-400" />
                                         <span className="text-xs font-medium tabular-nums text-brand-700 dark:text-brand-300">
                                           {c.rate}%
                                         </span>
