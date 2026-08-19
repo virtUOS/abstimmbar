@@ -14,7 +14,13 @@ import {
   type RevealAnswers,
 } from "../api";
 import { useApp, useEasyMode } from "../App";
-import { getDefaultContentLang, localizedText, setLocalizedLang, type LocalizedText } from "@basicbar/ui";
+import {
+  getDefaultContentLang,
+  localizedMap,
+  localizedText,
+  setLocalizedLang,
+  type LocalizedText,
+} from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
@@ -28,6 +34,12 @@ function aiErrorText(err: unknown): string {
   } catch {
     return String(err);
   }
+}
+
+function stripHtml(html: string) {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  return div.textContent?.trim() ?? "";
 }
 
 /** Options get a stable client-side id for drag-and-drop before they have a
@@ -238,6 +250,10 @@ export default function QuestionPage() {
 
   async function save({ stay = false }: { stay?: boolean } = {}) {
     if (!question) return false;
+    if (invalid) {
+      setError(t("Please fill in the question text and at least two answer options."));
+      return false;
+    }
     setSaving(true);
     setError("");
     try {
@@ -406,6 +422,20 @@ export default function QuestionPage() {
   const hasCorrect =
     question.kind === "single_choice" || question.kind === "multiple_choice";
 
+  // Content validity (#32/#23): canonical-language question text required
+  // (image-only text counts); option-bearing kinds need >=2 filled options
+  // (text or image). Mirrors the backend QuestionSerializer.validate rule.
+  const canonicalLang = getDefaultContentLang() as "de" | "en";
+  const canonicalHtml = localizedMap(text)[canonicalLang] ?? "";
+  const textMissing = !stripHtml(canonicalHtml) && !/<img/i.test(canonicalHtml);
+  const optionsMissing =
+    isChoice &&
+    (options.length < 2 ||
+      !options.every(
+        (o) => (localizedMap(o.text)[canonicalLang] ?? "").trim() !== "" || !!o.image,
+      ));
+  const invalid = textMissing || optionsMissing;
+
   const breadcrumb = (leaf: string) => (
     <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
       <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
@@ -552,6 +582,11 @@ export default function QuestionPage() {
       {tab === "edit" && (
       <div className="grid gap-5">
         <TranslatableField variant="rich" label={t("Question text")} value={text} onChange={setText} />
+        {textMissing && (
+          <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+            {t("Question text is required.")}
+          </p>
+        )}
 
         {aiEnabled && (
           <AiAssistPanel title={t("Rephrase question")}>
@@ -715,6 +750,11 @@ export default function QuestionPage() {
                   </button>
                 )}
               </div>
+              {optionsMissing && (
+                <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                  {t("Add at least two answer options, each with text.")}
+                </p>
+              )}
 
               {/* Per-question reveal of the correct answer (#28); only for
                   kinds that have a correct answer. */}
@@ -1065,7 +1105,7 @@ export default function QuestionPage() {
         {error && <p className="text-sm text-red-600">{error}</p>}
 
         <div className="flex gap-2">
-          <Button variant="primary" disabled={saving} onClick={() => void save()}>
+          <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
             {saving ? t("Saving …") : t("Save")}
           </Button>
           <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>

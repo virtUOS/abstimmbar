@@ -1,0 +1,13 @@
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{% extends "live/base.html" %}
+{% load i18n %}
+{% block title %}{% trans "Room not found" %}{% endblock %}
+{% block content %}
+<div class="center">
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+  <h1>{% trans "Room not found" %}</h1>
+  <p class="soft">{% trans "Check the code and try again." %}</p>
+  <a class="btn" href="{% url 'participant-home' %}"
+     style="display:block;max-width:320px;margin:20px auto 0;text-align:center;background:var(--brand);border-color:var(--brand)">{% trans "Enter a code" %}</a>
+</div>
+{% endblock %}
