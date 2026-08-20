@@ -8,7 +8,9 @@ import {
   useRef,
   useState,
   type ButtonHTMLAttributes,
+  type CSSProperties,
   type InputHTMLAttributes,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
   type SelectHTMLAttributes,
 } from "react";
@@ -293,6 +295,122 @@ export function EmptyState({
       </div>
       <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{title}</h2>
       <div className="mt-2 text-sm text-slate-500 dark:text-slate-400">{children}</div>
+    </div>
+  );
+}
+
+export interface SegOption<T extends string> {
+  value: T;
+  label: ReactNode;
+}
+
+/** Equal-width segmented control with an animated sliding thumb. Supports
+ *  click, keyboard (the segments are real buttons) and pointer-drag: the
+ *  thumb follows the finger and snaps to the nearest segment on release. */
+export function SegmentedControl<T extends string>({
+  options,
+  value,
+  onChange,
+  ariaLabel,
+  disabled = false,
+  className = "",
+}: {
+  options: SegOption<T>[];
+  value: T;
+  onChange: (value: T) => void;
+  ariaLabel: string;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const n = options.length;
+  const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [dragX, setDragX] = useState<number | null>(null); // thumb px offset while dragging
+  const draggingRef = useRef(false);
+  const movedRef = useRef(false);
+
+  function seg() {
+    const track = trackRef.current!;
+    const inner = track.clientWidth - 4; // p-0.5 = 2px each side
+    return { left: track.getBoundingClientRect().left, inner, w: inner / n };
+  }
+  function thumbLeftFrom(clientX: number) {
+    const { left, inner, w } = seg();
+    return Math.min(inner - w, Math.max(0, clientX - left - 2 - w / 2));
+  }
+  function indexFrom(left: number) {
+    return Math.min(n - 1, Math.max(0, Math.round(left / seg().w)));
+  }
+
+  function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (disabled) return;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    draggingRef.current = true;
+    movedRef.current = false;
+  }
+  function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    movedRef.current = true;
+    setDragX(thumbLeftFrom(e.clientX));
+  }
+  function onPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
+    const wasDrag = movedRef.current;
+    const left = wasDrag ? thumbLeftFrom(e.clientX) : 0;
+    setDragX(null);
+    if (wasDrag) {
+      const picked = options[indexFrom(left)].value;
+      if (picked !== value) onChange(picked);
+    }
+  }
+
+  const thumbStyle: CSSProperties = {
+    width: `calc((100% - 4px) / ${n})`,
+    transform:
+      dragX !== null ? `translateX(${dragX}px)` : `translateX(${activeIndex * 100}%)`,
+    transition: dragX !== null ? "none" : undefined,
+  };
+
+  return (
+    <div
+      ref={trackRef}
+      role="group"
+      aria-label={ariaLabel}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        draggingRef.current = false;
+        setDragX(null);
+      }}
+      style={{ touchAction: "none" }}
+      className={`relative grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute bottom-0.5 left-0.5 top-0.5 rounded-full bg-brand-100 duration-150 dark:bg-brand-900"
+        style={thumbStyle}
+      />
+      {options.map((o) => (
+        <button
+          key={o.value}
+          type="button"
+          role="radio"
+          aria-checked={o.value === value}
+          disabled={disabled}
+          onClick={() => {
+            if (movedRef.current) {
+              movedRef.current = false; // ignore the click synthesized after a drag
+              return;
+            }
+            if (o.value !== value) onChange(o.value);
+          }}
+          className={`relative z-10 inline-flex items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-center transition-colors ${o.value === value ? "text-brand-800 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+        >
+          {o.label}
+        </button>
+      ))}
     </div>
   );
 }

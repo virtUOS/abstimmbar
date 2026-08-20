@@ -20,7 +20,7 @@ import Footer from "./components/Footer";
 import JoinByCode from "./components/JoinByCode";
 import { LanguageMenu, LanguageOptions } from "./components/LanguageSwitcher";
 import RichText from "./components/RichText";
-import { EmptyState } from "./components/ui";
+import { EmptyState, SegmentedControl } from "./components/ui";
 import RoomsPage from "./pages/RoomsPage";
 import {
   useTheme,
@@ -301,28 +301,15 @@ export default function App() {
                   <Settings aria-hidden className="h-5 w-5" />
                 </Link>
               )}
-              <div
-                className="flex items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
-                role="group"
-                aria-label={t("Mode")}
-              >
-                <button
-                  type="button"
-                  aria-pressed={whoami.easy_mode === true}
-                  onClick={() => setEasyMode(true)}
-                  className={`min-w-[4rem] rounded-full px-2.5 py-1 text-center ${whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
-                >
-                  {t("Simple")}
-                </button>
-                <button
-                  type="button"
-                  aria-pressed={whoami.easy_mode === false}
-                  onClick={() => setEasyMode(false)}
-                  className={`min-w-[4rem] rounded-full px-2.5 py-1 text-center ${!whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
-                >
-                  {t("Pro")}
-                </button>
-              </div>
+              <SegmentedControl
+                ariaLabel={t("Mode")}
+                value={whoami.easy_mode ? "simple" : "pro"}
+                onChange={(v) => setEasyMode(v === "simple")}
+                options={[
+                  { value: "simple", label: t("Simple") },
+                  { value: "pro", label: t("Pro") },
+                ]}
+              />
               <UserMenu whoami={whoami} />
             </div>
           ) : (
