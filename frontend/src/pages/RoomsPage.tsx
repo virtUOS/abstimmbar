@@ -449,11 +449,19 @@ export default function RoomsPage() {
       {searching ? (
         <SearchView results={results} query={term} />
       ) : rooms.length === 0 ? (
-        <EmptyState icon={DoorOpen} title={t("No rooms yet")}>
-          {t(
-            "A room is the permanent access point for participants — typically a course. Its code stays the same across all quizzes.",
-          )}
-        </EmptyState>
+        roomFilter === "archived" ? (
+          <EmptyState icon={Archive} title={t("No archived rooms")}>
+            {t(
+              "Archived rooms disappear from “My rooms” and show up here instead. Use a room's ⋮ menu to archive it.",
+            )}
+          </EmptyState>
+        ) : (
+          <EmptyState icon={DoorOpen} title={t("No rooms yet")}>
+            {t(
+              "A room is the permanent access point for participants — typically a course. Its code stays the same across all quizzes.",
+            )}
+          </EmptyState>
+        )
       ) : (
         <>
           {favorites.length > 0 && (
