@@ -412,6 +412,13 @@ export default function RoomsPage() {
               {t("My rooms")}
             </h2>
             <div className="flex items-center gap-4">
+              <Link
+                to="/archiv"
+                className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-brand-700 dark:text-slate-400 dark:hover:text-brand-300"
+              >
+                <Archive aria-hidden className="h-4 w-4" />
+                {t("Archived rooms")}
+              </Link>
               {isStaff && (
                 <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
                   <input
