@@ -244,6 +244,7 @@
   "only when triggered": "erst auf Knopfdruck",
   "never": "nie",
   "Question set title": "Titel des Fragensets",
+  "Answers & results": "Antworten & Ergebnisse",
   "Reveal correct answers": "Richtige Antworten aufdecken",
   "Default for all questions with correct answers; individual questions can deviate from this.": "Voreinstellung für alle Fragen mit richtigen Antworten; einzelne Fragen können davon abweichen.",
   "Questions can be answered immediately on open (no separate start)": "Fragen sind beim Aufrufen sofort beantwortbar (ohne separates Starten)",

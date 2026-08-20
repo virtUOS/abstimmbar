@@ -21,9 +21,11 @@ import {
   ConfirmDialog,
   ConfirmInline,
   EmptyState,
+  Field,
   InfoHint,
   MenuItem,
   MoreMenu,
+  Select,
   TextInput,
 } from "../components/ui";
 import RichText from "../components/RichText";
@@ -167,24 +169,24 @@ export function RoomSettingsForm({
             {t("Always show room code")}
           </label>
           {(draft.show_qr_in_presentation || draft.show_code_in_presentation) && (
-            <label className="ml-6 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-              {t("Corner:")}
-              <select
-                value={draft.presentation_corner}
-                onChange={(event) =>
-                  onChange({
-                    presentation_corner: event.target.value as PresentationCorner,
-                  })
-                }
-                className="rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
-              >
-                {CORNER_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.label)}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="ml-6">
+              <Field label={t("Corner:")}>
+                <Select
+                  value={draft.presentation_corner}
+                  onChange={(event) =>
+                    onChange({
+                      presentation_corner: event.target.value as PresentationCorner,
+                    })
+                  }
+                >
+                  {CORNER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {t(option.label)}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            </div>
           )}
         </div>
       </fieldset>

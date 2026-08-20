@@ -10,6 +10,7 @@ import {
   type ButtonHTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type SelectHTMLAttributes,
 } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -51,6 +52,27 @@ export function Field({ label, children }: { label: string; children: ReactNode 
       <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">{label}</span>
       {children}
     </label>
+  );
+}
+
+/** Styled native <select>, matching TextInput/Field. Pass <option>s as children. */
+export function Select({
+  className = "",
+  children,
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      {...props}
+      className={
+        "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm " +
+        "text-slate-700 focus:border-brand-600 focus:outline-none " +
+        "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 " +
+        className
+      }
+    >
+      {children}
+    </select>
   );
 }
 

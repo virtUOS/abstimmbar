@@ -29,6 +29,7 @@ import {
   InfoHint,
   MenuItem,
   MoreMenu,
+  Select,
   TextInput,
 } from "../components/ui";
 import { LICENSE_OPTIONS, licenseNeedsHolder } from "../licenses";
@@ -114,48 +115,52 @@ export function SetSettingsForm({
         onChange={(description) => onChange({ description })}
       />
       {!easyMode && (
-      <>
-      <Field label={t("Reveal correct answers")}>
-        <select
-          value={draft.reveal_answers}
-          onChange={(event) =>
-            onChange({ reveal_answers: event.target.value as RevealAnswers })
-          }
-          className="w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-3 py-2 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
-        >
-          {REVEAL_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {t(option.label)}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-xs text-slate-400">
-          {t(
-            "Default for all questions with correct answers; individual questions can deviate from this.",
-          )}
-        </p>
-      </Field>
-      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-        <input
-          type="checkbox"
-          checked={draft.open_on_show}
-          onChange={(event) => onChange({ open_on_show: event.target.checked })}
-          className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-        />
-        {t("Questions can be answered immediately on open (no separate start)")}
-      </label>
-      <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-        <input
-          type="checkbox"
-          checked={draft.show_results_to_participants}
-          onChange={(event) =>
-            onChange({ show_results_to_participants: event.target.checked })
-          }
-          className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-        />
-        {t("Participants also see the results on their own device")}
-      </label>
-      </>
+        <fieldset>
+          <legend className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+            {t("Answers & results")}
+          </legend>
+          <div className="grid gap-2">
+            <Field label={t("Reveal correct answers")}>
+              <Select
+                value={draft.reveal_answers}
+                onChange={(event) =>
+                  onChange({ reveal_answers: event.target.value as RevealAnswers })
+                }
+              >
+                {REVEAL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </option>
+                ))}
+              </Select>
+              <p className="mt-1 text-xs text-slate-400">
+                {t(
+                  "Default for all questions with correct answers; individual questions can deviate from this.",
+                )}
+              </p>
+            </Field>
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={draft.open_on_show}
+                onChange={(event) => onChange({ open_on_show: event.target.checked })}
+                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+              />
+              {t("Questions can be answered immediately on open (no separate start)")}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                checked={draft.show_results_to_participants}
+                onChange={(event) =>
+                  onChange({ show_results_to_participants: event.target.checked })
+                }
+                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+              />
+              {t("Participants also see the results on their own device")}
+            </label>
+          </div>
+        </fieldset>
       )}
     </div>
   );
