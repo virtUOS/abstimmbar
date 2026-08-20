@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, ChevronDown, ChevronUp, Crown, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
+import { Archive, ChartColumnDecreasing, Crown, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
 import { useEasyMode } from "../App";
 import {
   api,
@@ -18,6 +18,7 @@ import {
 import { Pager } from "../components/Pager";
 import {
   Button,
+  ConfirmDialog,
   ConfirmInline,
   EmptyState,
   InfoHint,
@@ -38,14 +39,25 @@ const NEW_SET_DEFAULTS: SetSettings = {
   show_results_to_participants: false,
 };
 
-type SortKey = "title" | "created_at" | "updated_at" | "question_count";
+type SortKey = "updated" | "created" | "title" | "questions";
 
-const COLUMNS: { key: SortKey; label: string }[] = [
-  { key: "title", label: "Name" },
-  { key: "created_at", label: "Created" },
-  { key: "updated_at", label: "Updated" },
-  { key: "question_count", label: "Questions" },
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "updated", label: "Last edited" },
+  { value: "created", label: "Last created" },
+  { value: "title", label: "A–Z" },
+  { value: "questions", label: "Most questions" },
 ];
+
+function sortSets(list: QuestionSet[], key: SortKey): QuestionSet[] {
+  return [...list].sort((a, b) => {
+    if (key === "title") {
+      return localizedText(a.title).localeCompare(localizedText(b.title), "de");
+    }
+    if (key === "created") return b.created_at.localeCompare(a.created_at);
+    if (key === "questions") return b.question_count - a.question_count;
+    return b.updated_at.localeCompare(a.updated_at); // "updated"
+  });
+}
 
 function fieldError(err: unknown): string {
   try {
@@ -378,7 +390,7 @@ function formatDateTime(iso: string) {
 }
 
 /** Room page: header with editable title/description, provenance, and a
- * sortable question-set table (concept §5.1). */
+ * question-set card grid with a sort dropdown (concept §5.1). */
 export default function RoomPage() {
   const { t } = useTranslation();
   const { roomId } = useParams();
@@ -389,8 +401,7 @@ export default function RoomPage() {
   const [sets, setSets] = useState<QuestionSet[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<number | null>(null);
-  const [sortKey, setSortKey] = useState<SortKey>("updated_at");
-  const [ascending, setAscending] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("updated");
   const [search, setSearch] = useState("");
   const [setsPage, setSetsPage] = useState(1);
   const [setsPageSize, setSetsPageSize] = useState(20);
@@ -511,32 +522,7 @@ export default function RoomPage() {
     }
   }
 
-  const sorted = useMemo(() => {
-    if (!sets) return null;
-    const copy = [...sets].sort((a, b) => {
-      if (sortKey === "title") {
-        const cmp = localizedText(a.title).localeCompare(localizedText(b.title), "de");
-        return ascending ? cmp : -cmp;
-      }
-      const va = a[sortKey];
-      const vb = b[sortKey];
-      const cmp =
-        typeof va === "number" && typeof vb === "number"
-          ? va - vb
-          : String(va).localeCompare(String(vb), "de");
-      return ascending ? cmp : -cmp;
-    });
-    return copy;
-  }, [sets, sortKey, ascending]);
-
-  function toggleSort(key: SortKey) {
-    if (key === sortKey) {
-      setAscending(!ascending);
-    } else {
-      setSortKey(key);
-      setAscending(key === "title");
-    }
-  }
+  const sorted = useMemo(() => (sets ? sortSets(sets, sortKey) : null), [sets, sortKey]);
 
   async function toggleArchive() {
     if (!room) return;
@@ -784,6 +770,23 @@ export default function RoomPage() {
         </div>
       )}
 
+      {confirmDelete !== null && (
+        <ConfirmDialog
+          message={t("Delete question set?")}
+          onConfirm={() => void handleDelete(confirmDelete)}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
+      {confirmArchive !== null && (
+        <ConfirmDialog
+          message={t("Archive results? The next presentation starts fresh.")}
+          confirmLabel={t("Archive results")}
+          confirmVariant="primary"
+          onConfirm={() => void handleArchive(confirmArchive)}
+          onCancel={() => setConfirmArchive(null)}
+        />
+      )}
+
       {sorted.length === 0 && search ? (
         <EmptyState icon={SearchX} title={t("No results")}>
           {t("No question set matches “{{query}}”.", { query: search })}
@@ -793,133 +796,96 @@ export default function RoomPage() {
           {t("A question set is a single quiz — e.g. for one lecture session.")}
         </EmptyState>
       ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
-          <table className="w-full text-left text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300">
-              <tr>
-                {COLUMNS.map((column) => (
-                  <th key={column.key} className="px-4 py-2 font-medium">
-                    <button
-                      type="button"
-                      onClick={() => toggleSort(column.key)}
-                      className="inline-flex items-center gap-1 hover:text-slate-900 dark:text-slate-100"
-                    >
-                      {t(column.label)}
-                      {sortKey === column.key && (
-                        <span aria-hidden>{ascending ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</span>
-                      )}
-                    </button>
-                  </th>
+        <>
+          <div className="mb-3 flex justify-end">
+            <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+              {t("Sort by:")}
+              <select
+                value={sortKey}
+                onChange={(event) => {
+                  setSortKey(event.target.value as SortKey);
+                  setSetsPage(1);
+                }}
+                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+              >
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {t(option.label)}
+                  </option>
                 ))}
-                <th className="px-4 py-2 font-medium">{t("Results")}</th>
-                <th className="px-4 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {pagedSets.map((set) => (
-                <tr
-                  key={set.id}
-                  onClick={() => navigate(`/sets/${set.id}`)}
-                  className="cursor-pointer border-t border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/60"
-                >
-                  <td className="px-4 py-2">
-                    <Link
-                      to={`/sets/${set.id}`}
-                      onClick={(event) => event.stopPropagation()}
-                      className="font-semibold text-slate-900 dark:text-slate-100 hover:text-brand-700 dark:hover:text-brand-300"
-                    >
+              </select>
+            </label>
+          </div>
+          <ul className="grid gap-3 sm:grid-cols-2">
+            {pagedSets.map((set) => (
+              <li
+                key={set.id}
+                className="relative min-w-0 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-brand-600"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <Link
+                    to={`/sets/${set.id}`}
+                    className="min-w-0 flex-1 after:absolute after:inset-0 after:rounded-2xl"
+                  >
+                    <h3 className="truncate font-semibold text-slate-900 dark:text-slate-100">
                       {localizedText(set.title)}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
-                    {formatDate(set.created_at)}
-                  </td>
-                  <td className="px-4 py-2 text-slate-500 dark:text-slate-400">
-                    {formatDate(set.updated_at)}
-                  </td>
-                  <td className="px-4 py-2 text-slate-500 dark:text-slate-400">{set.question_count}</td>
-                  <td className="px-4 py-2">
-                    {set.has_results ? (
+                    </h3>
+                    <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+                      {set.question_count} {t("question", { count: set.question_count })}
+                      {" · "}
+                      {t("Last edited")} {formatDate(set.updated_at)}
+                    </p>
+                  </Link>
+                  <div className="relative z-10 flex shrink-0 items-center gap-1">
+                    {set.has_results && (
                       <Link
                         to={`/sets/${set.id}/results`}
-                        onClick={(event) => event.stopPropagation()}
-                        className="font-medium text-brand-700 dark:text-brand-300 hover:underline"
+                        aria-label={t("View results of {{title}}", { title: localizedText(set.title) })}
+                        title={t("View results")}
+                        className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
                       >
-                        {t("view")}
+                        <ChartColumnDecreasing aria-hidden className="h-4 w-4" />
                       </Link>
-                    ) : (
-                      <span className="text-slate-400">—</span>
                     )}
-                  </td>
-                  <td
-                    className="px-4 py-2"
-                    onClick={(event) => event.stopPropagation()}
-                  >
-                    <div className="flex items-center justify-end gap-1">
-                      {set.question_count > 0 && (
-                        <Link
-                          to={`/sets/${set.id}/present`}
-                          aria-label={t("Present {{title}}", { title: localizedText(set.title) })}
-                          title={t("Present")}
-                          className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
-                        >
-                          <Play aria-hidden className="h-4 w-4" />
-                        </Link>
-                      )}
-                      {/* Archive current results & prepare a fresh run (#27) —
-                          only when there is something to archive. Easy mode
-                          (#52) hides it; MR1's auto-archive replaces it. */}
-                      {!easyMode &&
-                        set.has_results &&
-                        (confirmArchive === set.id ? (
-                          <ConfirmInline
-                            message={t(
-                              "Archive results? The next presentation starts fresh.",
-                            )}
-                            confirmLabel={t("Archive results")}
-                            confirmVariant="primary"
-                            onConfirm={() => void handleArchive(set.id)}
-                            onCancel={() => setConfirmArchive(null)}
-                          />
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            aria-label={t("Archive results of {{title}}", {
-                              title: localizedText(set.title),
-                            })}
-                            title={t("Archive results")}
-                            className="inline-flex items-center"
-                            onClick={() => setConfirmArchive(set.id)}
-                          >
-                            <Archive aria-hidden className="h-4 w-4" />
-                          </Button>
-                        ))}
-                      {confirmDelete === set.id ? (
-                        <ConfirmInline
-                          message={t("Delete question set?")}
-                          onConfirm={() => void handleDelete(set.id)}
-                          onCancel={() => setConfirmDelete(null)}
-                        />
-                      ) : (
-                        <Button
-                          variant="ghost"
-                          aria-label={t("Delete question set {{title}}", {
-                            title: localizedText(set.title),
-                          })}
-                          title={t("Delete")}
-                          className="inline-flex items-center"
-                          onClick={() => setConfirmDelete(set.id)}
-                        >
-                          <Trash2 aria-hidden className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                    {set.question_count > 0 && (
+                      <Link
+                        to={`/sets/${set.id}/present`}
+                        aria-label={t("Present {{title}}", { title: localizedText(set.title) })}
+                        title={t("Present")}
+                        className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
+                      >
+                        <Play aria-hidden className="h-4 w-4" />
+                      </Link>
+                    )}
+                    {/* Archive current results & prepare a fresh run (#27) —
+                        only when there is something to archive. Easy mode
+                        (#52) hides it; MR1's auto-archive replaces it. */}
+                    {!easyMode && set.has_results && (
+                      <Button
+                        variant="ghost"
+                        aria-label={t("Archive results of {{title}}", { title: localizedText(set.title) })}
+                        title={t("Archive results")}
+                        className="inline-flex items-center"
+                        onClick={() => setConfirmArchive(set.id)}
+                      >
+                        <Archive aria-hidden className="h-4 w-4" />
+                      </Button>
+                    )}
+                    <Button
+                      variant="ghost"
+                      aria-label={t("Delete question set {{title}}", { title: localizedText(set.title) })}
+                      title={t("Delete")}
+                      className="inline-flex items-center"
+                      onClick={() => setConfirmDelete(set.id)}
+                    >
+                      <Trash2 aria-hidden className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
       {!search && (
         <Pager
