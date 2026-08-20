@@ -273,7 +273,7 @@ export default function App() {
   return (
     <div className="flex min-h-screen flex-col overflow-x-hidden bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 dark:border-slate-800">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <Link to="/" className="flex items-center gap-3">
             {site?.logo && (
               <>
@@ -288,9 +288,7 @@ export default function App() {
                 />
               </>
             )}
-            <span
-              className={`text-xl font-extrabold tracking-tight${site?.logo ? " hidden sm:inline" : ""}`}
-            >
+            <span className="text-xl font-extrabold tracking-tight">
               abstimm<span className="text-brand-700 dark:text-brand-300">BAR</span>
             </span>
           </Link>

@@ -55,8 +55,8 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 /** A subtle info icon whose explanation opens as a small popover on click
- * (and shows as a native tooltip on hover) (#51). Closes on outside click and
- * on Escape, like MoreMenu. Dependency-free, no tooltip framework. */
+ * (#51). Closes on outside click and on Escape, like MoreMenu.
+ * Dependency-free, no tooltip framework. */
 export function InfoHint({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
