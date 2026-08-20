@@ -1517,27 +1517,21 @@ function Footer(props: {
   const isSection = props.variant === "section";
   return (
     <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
-      <span>
-        {isSection
-          ? t("Section")
-          : props.index >= 0
-            ? t("Question {{current}}/{{total}}", {
-                current: props.index + 1,
-                total: props.count,
-              })
-            : t("Start")}
-      </span>
-      {/* Phase-dependent actions sit on the left of the group; the always-
-       * present Beenden + navigation stay flush right, so they never move
-       * as Starten/Ergebnisse appear and disappear. */}
-      <div className="flex gap-2">
-        {/* Starting/results only make sense on a question, not a section. */}
-        {!isSection && props.onToggle && (
-          <button className={btn} onClick={props.onToggle}>
-            {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}
-            <Kbd>S</Kbd>
-          </button>
-        )}
+      {/* Left cluster: the question indicator, and — next to it — the
+       * Frage/Ergebnis/Lösung reveal pill (it belongs to the current
+       * question, so it reads better beside "Frage x/Y" than over on the
+       * right with Beenden/navigation). */}
+      <div className="flex items-center gap-3">
+        <span>
+          {isSection
+            ? t("Section")
+            : props.index >= 0
+              ? t("Question {{current}}/{{total}}", {
+                  current: props.index + 1,
+                  total: props.count,
+                })
+              : t("Start")}
+        </span>
         {!isSection && props.onShowResults && props.phase !== "lobby" && (
           <div
             className="grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
@@ -1571,6 +1565,17 @@ function Footer(props: {
               </button>
             )}
           </div>
+        )}
+      </div>
+      {/* Always-present Beenden + navigation stay flush right; Starten sits
+       * on the left of this group so they never shift as it appears. */}
+      <div className="flex gap-2">
+        {/* Starting/results only make sense on a question, not a section. */}
+        {!isSection && props.onToggle && (
+          <button className={btn} onClick={props.onToggle}>
+            {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}
+            <Kbd>S</Kbd>
+          </button>
         )}
         {/* Word-cloud AI views (#75): a dropdown shows which views exist and
             which is active; the "a" key still cycles them. */}
