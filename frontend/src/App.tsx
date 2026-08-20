@@ -174,16 +174,18 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
           <LanguageOptions authenticated />
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
           <AppearanceControl theme={appearance} onChange={setAppearance} />
-          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
           {whoami.is_staff && (
-            <Link
-              to="/admin"
-              role="menuitem"
-              onClick={() => setOpen(false)}
-              className="block px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-            >
-              {t("Manage website")}
-            </Link>
+            <>
+              <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+              <Link
+                to="/admin"
+                role="menuitem"
+                onClick={() => setOpen(false)}
+                className="block px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+              >
+                {t("Manage website")}
+              </Link>
+            </>
           )}
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
           <button
