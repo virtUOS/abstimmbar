@@ -127,6 +127,55 @@ export function ConfirmInline({
   );
 }
 
+/** Centered confirmation modal (backdrop + Escape/backdrop-click cancel).
+ *  Same props as ConfirmInline; use where an inline confirm would break the
+ *  surrounding layout (e.g. room cards, #30). */
+export function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+  confirmLabel,
+  confirmVariant = "danger",
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmLabel?: string;
+  confirmVariant?: "primary" | "secondary" | "danger" | "ghost";
+}) {
+  const { t } = useTranslation();
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+      role="dialog"
+      aria-modal="true"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p className="text-slate-700 dark:text-slate-200">{message}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>
+            {t("Cancel")}
+          </Button>
+          <Button variant={confirmVariant} onClick={onConfirm}>
+            {confirmLabel ?? t("Delete")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** A "⋮" button opening a small dropdown of actions. Closes on outside
  * click, on Escape, and after any click inside (menu items act on click). */
 export function MoreMenu({

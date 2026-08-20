@@ -10,7 +10,7 @@ import { api, type Room, type SearchResults } from "../api";
 import { localizedText } from "@basicbar/ui";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
-import { Button, ConfirmInline, EmptyState, InfoHint, TextInput } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, InfoHint, TextInput } from "../components/ui";
 import { RoomSettingsForm, NEW_ROOM_DEFAULTS, type RoomSettings } from "./RoomPage";
 
 type SortKey = "title" | "last_used" | "created";
@@ -58,22 +58,14 @@ function RoomCard({
   room,
   onToggleFavorite,
   onArchive,
-  confirmDelete,
   setConfirmDelete,
-  onDelete,
-  confirmLeave,
   setConfirmLeave,
-  onLeave,
 }: {
   room: Room;
   onToggleFavorite: (room: Room) => void;
   onArchive: (room: Room) => void;
-  confirmDelete: number | null;
   setConfirmDelete: (id: number | null) => void;
-  onDelete: (id: number) => void;
-  confirmLeave: number | null;
   setConfirmLeave: (id: number | null) => void;
-  onLeave: (id: number) => void;
 }) {
   const { t } = useTranslation();
   const sharedByMe = room.is_owner && room.owner_count > 1;
@@ -162,45 +154,22 @@ function RoomCard({
           )}
           {/* A room shared with me can only be left, not deleted (#26). */}
           {!room.is_owner && room.is_member ? (
-            confirmLeave === room.id ? (
-              <ConfirmInline
-                message={t("Leave this shared room?")}
-                confirmLabel={t("Leave")}
-                onConfirm={() => onLeave(room.id)}
-                onCancel={() => setConfirmLeave(null)}
-              />
-            ) : (
-              <Button
-                variant="ghost"
-                aria-label={t("Leave room {{title}}", { title: localizedText(room.title) })}
-                title={t("Leave this shared room")}
-                onClick={() => setConfirmLeave(room.id)}
-              >
-                <LogOut aria-hidden className="h-4 w-4" />
-              </Button>
-            )
+            <Button
+              variant="ghost"
+              aria-label={t("Leave room {{title}}", { title: localizedText(room.title) })}
+              title={t("Leave this shared room")}
+              onClick={() => setConfirmLeave(room.id)}
+            >
+              <LogOut aria-hidden className="h-4 w-4" />
+            </Button>
           ) : room.is_owner ? (
-            confirmDelete === room.id ? (
-              <ConfirmInline
-                message={
-                  sharedByMe
-                    ? t("Delete room for all {{count}} people?", {
-                        count: room.owner_count,
-                      })
-                    : t("Delete room?")
-                }
-                onConfirm={() => onDelete(room.id)}
-                onCancel={() => setConfirmDelete(null)}
-              />
-            ) : (
-              <Button
-                variant="ghost"
-                aria-label={t("Delete room {{title}}", { title: localizedText(room.title) })}
-                onClick={() => setConfirmDelete(room.id)}
-              >
-                <Trash2 aria-hidden className="h-4 w-4" />
-              </Button>
-            )
+            <Button
+              variant="ghost"
+              aria-label={t("Delete room {{title}}", { title: localizedText(room.title) })}
+              onClick={() => setConfirmDelete(room.id)}
+            >
+              <Trash2 aria-hidden className="h-4 w-4" />
+            </Button>
           ) : null}
         </div>
       </div>
@@ -315,16 +284,36 @@ export default function RoomsPage() {
   const cardProps = {
     onToggleFavorite: (r: Room) => void toggleFavorite(r),
     onArchive: (r: Room) => void archiveRoom(r),
-    confirmDelete,
     setConfirmDelete,
-    onDelete: (id: number) => void handleDelete(id),
-    confirmLeave,
     setConfirmLeave,
-    onLeave: (id: number) => void handleLeave(id),
   };
 
   return (
     <div>
+      {confirmDelete !== null && (() => {
+        const r = rooms.find((room) => room.id === confirmDelete);
+        const sharedByMe = !!r && r.is_owner && r.owner_count > 1;
+        return (
+          <ConfirmDialog
+            message={
+              sharedByMe
+                ? t("Delete room for all {{count}} people?", { count: r!.owner_count })
+                : t("Delete room?")
+            }
+            confirmLabel={t("Delete")}
+            onConfirm={() => handleDelete(confirmDelete)}
+            onCancel={() => setConfirmDelete(null)}
+          />
+        );
+      })()}
+      {confirmLeave !== null && (
+        <ConfirmDialog
+          message={t("Leave this shared room?")}
+          confirmLabel={t("Leave")}
+          onConfirm={() => handleLeave(confirmLeave)}
+          onCancel={() => setConfirmLeave(null)}
+        />
+      )}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">{t("My rooms")}</h1>
         <JoinByCode compact />
