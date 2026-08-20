@@ -49,7 +49,7 @@ function Heart({ filled }: { filled: boolean }) {
     <HeartIcon
       aria-hidden
       fill={filled ? "currentColor" : "none"}
-      className="h-5 w-5"
+      className="h-4 w-4"
     />
   );
 }
@@ -160,7 +160,7 @@ function RoomCard({
                   onClick={() => onRestore(room)}
                   className={iconBtn}
                 >
-                  <ArchiveRestore aria-hidden className="h-5 w-5" />
+                  <ArchiveRestore aria-hidden className="h-4 w-4" />
                 </button>
               ) : (
                 <button
@@ -170,7 +170,7 @@ function RoomCard({
                   onClick={() => onArchive(room)}
                   className={iconBtn}
                 >
-                  <Archive aria-hidden className="h-5 w-5" />
+                  <Archive aria-hidden className="h-4 w-4" />
                 </button>
               )}
             </>
@@ -184,7 +184,7 @@ function RoomCard({
               onClick={() => setConfirmLeave(room.id)}
               className={iconBtn}
             >
-              <LogOut aria-hidden className="h-5 w-5" />
+              <LogOut aria-hidden className="h-4 w-4" />
             </button>
           ) : room.is_owner ? (
             <button
@@ -194,7 +194,7 @@ function RoomCard({
               onClick={() => setConfirmDelete(room.id)}
               className={iconBtn}
             >
-              <Trash2 aria-hidden className="h-5 w-5" />
+              <Trash2 aria-hidden className="h-4 w-4" />
             </button>
           ) : null}
         </div>
