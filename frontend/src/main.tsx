@@ -10,7 +10,6 @@ import "./i18n";
 import { ThemeProvider } from "@basicbar/ui";
 import App, { Home, RequireAuth } from "./App";
 import AdminPage from "./pages/AdminPage";
-import ArchivePage from "./pages/ArchivePage";
 import PageView from "./pages/PageView";
 import PresentPage from "./pages/PresentPage";
 import QuestionPage from "./pages/QuestionPage";
@@ -34,7 +33,6 @@ const router = createBrowserRouter([
         element: <RequireAuth />,
         children: [
           { path: "admin", element: <AdminPage /> },
-          { path: "archiv", element: <ArchivePage /> },
           { path: "rooms/:roomId", element: <RoomPage /> },
           { path: "sets/:setId", element: <SetPage /> },
           { path: "sets/:setId/results", element: <ResultsPage /> },
