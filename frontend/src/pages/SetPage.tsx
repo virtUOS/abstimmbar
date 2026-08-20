@@ -748,7 +748,7 @@ export default function SetPage() {
       )}
 
       {copyOpen && (
-        <div className="mb-8 flex max-w-xl flex-wrap items-end gap-3 rounded-2xl border border-brand-200 dark:border-brand-900 bg-brand-50/50 p-4">
+        <div className="mb-8 flex max-w-xl flex-wrap items-end gap-3 rounded-2xl border border-brand-200 dark:border-brand-900 bg-brand-50/50 p-4 dark:bg-brand-950/40">
           <Field label={t("Copy to which room?")}>
             <select
               value={copyTarget ?? undefined}
@@ -781,7 +781,7 @@ export default function SetPage() {
       )}
 
       {sharePanelOpen && set.share_token && (
-        <div className="mb-8 grid max-w-2xl gap-3 rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900">
+        <div className="mb-8 grid max-w-2xl gap-3 rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
           <p className="text-sm text-slate-700 dark:text-slate-200">
             <Trans i18nKey="share_copy_hint">
               Anyone signed in with this link can <strong>copy</strong> the set into their own rooms (not edit it):

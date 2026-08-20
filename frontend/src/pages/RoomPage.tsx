@@ -693,7 +693,7 @@ export default function RoomPage() {
 
       {/* Room settings (#2): title / description / features. */}
       {settingsDraft && (
-        <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900">
+        <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
           <h2 className="mb-3 font-semibold">{t("Room settings")}</h2>
           <RoomSettingsForm
             draft={settingsDraft}
@@ -748,7 +748,7 @@ export default function RoomPage() {
       {importError && <p className="mb-4 text-sm text-red-600">{importError}</p>}
 
       {newSet && (
-        <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900">
+        <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
           <h2 className="mb-3 font-semibold">{t("New question set")}</h2>
           <SetSettingsForm
             draft={newSet}

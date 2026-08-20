@@ -413,7 +413,7 @@ export default function RoomsPage() {
       {newRoom && (
         <form
           onSubmit={handleCreate}
-          className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900"
+          className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40"
         >
           <h2 className="mb-3 font-semibold">{t("New room")}</h2>
           <RoomSettingsForm

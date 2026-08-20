@@ -1131,7 +1131,7 @@ export default function QuestionPage() {
                 </button>
               );
             })}
-            <span className="ml-1 text-sm text-slate-400 dark:text-slate-500">
+            <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
               {t("or")}
             </span>
             <TextInput
