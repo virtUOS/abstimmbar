@@ -55,8 +55,8 @@ export function Field({ label, children }: { label: string; children: ReactNode 
 }
 
 /** A subtle info icon whose explanation opens as a small popover on click
- * (and shows as a native tooltip on hover) (#51). Closes on outside click and
- * on Escape, like MoreMenu. Dependency-free, no tooltip framework. */
+ * (#51). Closes on outside click and on Escape, like MoreMenu.
+ * Dependency-free, no tooltip framework. */
 export function InfoHint({ text }: { text: string }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -82,7 +82,6 @@ export function InfoHint({ text }: { text: string }) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={text}
-        title={text}
         onClick={() => setOpen((value) => !value)}
         className="inline-flex rounded text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
       >
@@ -91,7 +90,7 @@ export function InfoHint({ text }: { text: string }) {
       {open && (
         <div
           role="note"
-          className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+          className="absolute right-0 top-full z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
         >
           {text}
         </div>
@@ -125,6 +124,55 @@ export function ConfirmInline({
         {t("Cancel")}
       </Button>
     </span>
+  );
+}
+
+/** Centered confirmation modal (backdrop + Escape/backdrop-click cancel).
+ *  Same props as ConfirmInline; use where an inline confirm would break the
+ *  surrounding layout (e.g. room cards, #30). */
+export function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+  confirmLabel,
+  confirmVariant = "danger",
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmLabel?: string;
+  confirmVariant?: "primary" | "secondary" | "danger" | "ghost";
+}) {
+  const { t } = useTranslation();
+  useEffect(() => {
+    function onKey(event: KeyboardEvent) {
+      if (event.key === "Escape") onCancel();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+      role="dialog"
+      aria-modal="true"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <p className="text-slate-700 dark:text-slate-200">{message}</p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>
+            {t("Cancel")}
+          </Button>
+          <Button variant={confirmVariant} onClick={onConfirm}>
+            {confirmLabel ?? t("Delete")}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

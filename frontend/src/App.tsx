@@ -271,9 +271,9 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex min-h-screen flex-col overflow-x-hidden bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 dark:border-slate-800">
-        <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-3">
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <Link to="/" className="flex items-center gap-3">
             {site?.logo && (
               <>
@@ -313,7 +313,7 @@ export default function App() {
                   type="button"
                   aria-pressed={whoami.easy_mode === true}
                   onClick={() => setEasyMode(true)}
-                  className={`rounded-full px-2.5 py-1 ${whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+                  className={`min-w-[4rem] rounded-full px-2.5 py-1 text-center ${whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
                 >
                   {t("Simple")}
                 </button>
@@ -321,7 +321,7 @@ export default function App() {
                   type="button"
                   aria-pressed={whoami.easy_mode === false}
                   onClick={() => setEasyMode(false)}
-                  className={`rounded-full px-2.5 py-1 ${!whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+                  className={`min-w-[4rem] rounded-full px-2.5 py-1 text-center ${!whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
                 >
                   {t("Pro")}
                 </button>
