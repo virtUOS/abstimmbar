@@ -74,6 +74,10 @@ function RoomCard({
   const favoriteLabel = room.is_favorite
     ? t("Remove favorite")
     : t("Mark as favorite");
+  // One square icon-button style for every card action (#29), so favorite,
+  // archive/restore, leave and delete share size, padding and a focus ring.
+  const iconBtn =
+    "rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:hover:bg-slate-800";
   const description = stripHtml(localizedText(room.description));
   return (
     <li className="relative min-w-0 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-brand-600">
@@ -140,7 +144,7 @@ function RoomCard({
                 aria-pressed={room.is_favorite}
                 title={favoriteLabel}
                 onClick={() => onToggleFavorite(room)}
-                className={`rounded-lg p-1.5 transition-colors ${
+                className={`rounded-lg p-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
                   room.is_favorite
                     ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
                     : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
@@ -154,7 +158,7 @@ function RoomCard({
                   aria-label={t("Restore room {{title}}", { title: localizedText(room.title) })}
                   title={t("Restore")}
                   onClick={() => onRestore(room)}
-                  className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                  className={iconBtn}
                 >
                   <ArchiveRestore aria-hidden className="h-5 w-5" />
                 </button>
@@ -164,7 +168,7 @@ function RoomCard({
                   aria-label={t("Archive room")}
                   title={t("Archive room")}
                   onClick={() => onArchive(room)}
-                  className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                  className={iconBtn}
                 >
                   <Archive aria-hidden className="h-5 w-5" />
                 </button>
@@ -173,22 +177,25 @@ function RoomCard({
           )}
           {/* A room shared with me can only be left, not deleted (#26). */}
           {!room.is_owner && room.is_member ? (
-            <Button
-              variant="ghost"
+            <button
+              type="button"
               aria-label={t("Leave room {{title}}", { title: localizedText(room.title) })}
               title={t("Leave this shared room")}
               onClick={() => setConfirmLeave(room.id)}
+              className={iconBtn}
             >
-              <LogOut aria-hidden className="h-4 w-4" />
-            </Button>
+              <LogOut aria-hidden className="h-5 w-5" />
+            </button>
           ) : room.is_owner ? (
-            <Button
-              variant="ghost"
+            <button
+              type="button"
               aria-label={t("Delete room {{title}}", { title: localizedText(room.title) })}
+              title={t("Delete room")}
               onClick={() => setConfirmDelete(room.id)}
+              className={iconBtn}
             >
-              <Trash2 aria-hidden className="h-4 w-4" />
-            </Button>
+              <Trash2 aria-hidden className="h-5 w-5" />
+            </button>
           ) : null}
         </div>
       </div>
