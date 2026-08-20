@@ -4,7 +4,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
-import { Archive, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
+import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
 import { useApp, useEasyMode } from "../App";
 import { api, type Room, type SearchResults } from "../api";
 import { localizedText } from "@basicbar/ui";
@@ -58,12 +58,14 @@ function RoomCard({
   room,
   onToggleFavorite,
   onArchive,
+  onRestore,
   setConfirmDelete,
   setConfirmLeave,
 }: {
   room: Room;
   onToggleFavorite: (room: Room) => void;
   onArchive: (room: Room) => void;
+  onRestore: (room: Room) => void;
   setConfirmDelete: (id: number | null) => void;
   setConfirmLeave: (id: number | null) => void;
 }) {
@@ -98,6 +100,11 @@ function RoomCard({
                 className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400"
               >
                 {t("From LMS")}
+              </span>
+            )}
+            {room.is_archived && (
+              <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+                {t("Archived")}
               </span>
             )}
           </h2>
@@ -141,15 +148,27 @@ function RoomCard({
               >
                 <Heart filled={room.is_favorite} />
               </button>
-              <button
-                type="button"
-                aria-label={t("Archive room")}
-                title={t("Archive room")}
-                onClick={() => onArchive(room)}
-                className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
-              >
-                <Archive aria-hidden className="h-5 w-5" />
-              </button>
+              {room.is_archived ? (
+                <button
+                  type="button"
+                  aria-label={t("Restore room {{title}}", { title: localizedText(room.title) })}
+                  title={t("Restore")}
+                  onClick={() => onRestore(room)}
+                  className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                >
+                  <ArchiveRestore aria-hidden className="h-5 w-5" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  aria-label={t("Archive room")}
+                  title={t("Archive room")}
+                  onClick={() => onArchive(room)}
+                  className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
+                >
+                  <Archive aria-hidden className="h-5 w-5" />
+                </button>
+              )}
             </>
           )}
           {/* A room shared with me can only be left, not deleted (#26). */}
@@ -196,12 +215,25 @@ export default function RoomsPage() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [showAll, setShowAll] = useState(false);
+  const [roomFilter, setRoomFilter] = useState<"active" | "archived" | "all">("active");
 
-  const reload = () => api.listRooms(showAll).then((page) => setRooms(page.results));
+  const reload = async () => {
+    if (roomFilter === "archived") {
+      setRooms((await api.listArchivedRooms()).results);
+    } else if (roomFilter === "all") {
+      const [act, arch] = await Promise.all([
+        api.listRooms(showAll),
+        api.listArchivedRooms(),
+      ]);
+      setRooms([...act.results, ...arch.results]);
+    } else {
+      setRooms((await api.listRooms(showAll)).results);
+    }
+  };
   useEffect(() => {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAll]);
+  }, [showAll, roomFilter]);
 
   const term = query.trim();
   useEffect(() => {
@@ -255,9 +287,14 @@ export default function RoomsPage() {
   }
 
   async function archiveRoom(room: Room) {
-    // Archiving drops the room from the overview; it lives on in the archive.
+    // Re-fetch so the room reflects its new archive state in the current filter.
     await api.toggleRoomArchive(room.id, true);
-    setRooms((current) => (current ?? []).filter((r) => r.id !== room.id));
+    void reload();
+  }
+
+  async function restoreRoom(room: Room) {
+    await api.toggleRoomArchive(room.id, false);
+    void reload();
   }
 
   if (!rooms) return null;
@@ -284,6 +321,7 @@ export default function RoomsPage() {
   const cardProps = {
     onToggleFavorite: (r: Room) => void toggleFavorite(r),
     onArchive: (r: Room) => void archiveRoom(r),
+    onRestore: (r: Room) => void restoreRoom(r),
     setConfirmDelete,
     setConfirmLeave,
   };
@@ -349,6 +387,33 @@ export default function RoomsPage() {
         </div>
       </div>
 
+      <div
+        className="mb-6 flex w-max items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
+        role="group"
+        aria-label={t("Show rooms")}
+      >
+        {(
+          [
+            ["active", "Active rooms"],
+            ["archived", "Archived rooms"],
+            ["all", "All rooms"],
+          ] as const
+        ).map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={roomFilter === value}
+            onClick={() => {
+              setRoomFilter(value);
+              setPage(1);
+            }}
+            className={`rounded-full px-3 py-1 ${roomFilter === value ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+          >
+            {t(label)}
+          </button>
+        ))}
+      </div>
+
       {/* Single-step create dialog: name, description and features (#2). */}
       {newRoom && (
         <form
@@ -384,11 +449,19 @@ export default function RoomsPage() {
       {searching ? (
         <SearchView results={results} query={term} />
       ) : rooms.length === 0 ? (
-        <EmptyState icon={DoorOpen} title={t("No rooms yet")}>
-          {t(
-            "A room is the permanent access point for participants — typically a course. Its code stays the same across all quizzes.",
-          )}
-        </EmptyState>
+        roomFilter === "archived" ? (
+          <EmptyState icon={Archive} title={t("No archived rooms")}>
+            {t(
+              "Archived rooms disappear from “My rooms” and show up here instead. Use a room's ⋮ menu to archive it.",
+            )}
+          </EmptyState>
+        ) : (
+          <EmptyState icon={DoorOpen} title={t("No rooms yet")}>
+            {t(
+              "A room is the permanent access point for participants — typically a course. Its code stays the same across all quizzes.",
+            )}
+          </EmptyState>
+        )
       ) : (
         <>
           {favorites.length > 0 && (
