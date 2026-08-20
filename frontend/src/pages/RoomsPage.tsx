@@ -10,7 +10,7 @@ import { api, type Room, type SearchResults } from "../api";
 import { localizedText } from "@basicbar/ui";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
-import { Button, ConfirmDialog, EmptyState, InfoHint, TextInput } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, InfoHint, SegmentedControl, TextInput } from "../components/ui";
 import { RoomSettingsForm, NEW_ROOM_DEFAULTS, type RoomSettings } from "./RoomPage";
 
 type SortKey = "title" | "last_used" | "created";
@@ -387,32 +387,20 @@ export default function RoomsPage() {
         </div>
       </div>
 
-      <div
-        className="mb-6 flex w-max items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
-        role="group"
-        aria-label={t("Show rooms")}
-      >
-        {(
-          [
-            ["active", "Active rooms"],
-            ["archived", "Archived rooms"],
-            ["all", "All rooms"],
-          ] as const
-        ).map(([value, label]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={roomFilter === value}
-            onClick={() => {
-              setRoomFilter(value);
-              setPage(1);
-            }}
-            className={`rounded-full px-3 py-1 ${roomFilter === value ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
-          >
-            {t(label)}
-          </button>
-        ))}
-      </div>
+      <SegmentedControl
+        className="mb-6 w-max"
+        ariaLabel={t("Show rooms")}
+        value={roomFilter}
+        onChange={(v) => {
+          setRoomFilter(v);
+          setPage(1);
+        }}
+        options={[
+          { value: "active", label: t("Active rooms") },
+          { value: "archived", label: t("Archived rooms") },
+          { value: "all", label: t("All rooms") },
+        ]}
+      />
 
       {/* Single-step create dialog: name, description and features (#2). */}
       {newRoom && (

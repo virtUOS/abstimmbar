@@ -1540,7 +1540,7 @@ function Footer(props: {
         )}
         {!isSection && props.onShowResults && props.phase !== "lobby" && (
           <div
-            className="flex items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
+            className="grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
             role="group"
             aria-label={t("View")}
           >
@@ -1548,7 +1548,7 @@ function Footer(props: {
               type="button"
               aria-pressed={props.revealLevel === "question"}
               onClick={props.onShowQuestion}
-              className={`rounded-full px-2.5 py-1 ${props.revealLevel === "question" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+              className={`rounded-full px-2.5 py-1 text-center ${props.revealLevel === "question" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
             >
               {t("Question")}
             </button>
@@ -1556,7 +1556,7 @@ function Footer(props: {
               type="button"
               aria-pressed={props.revealLevel === "results"}
               onClick={props.onShowResults}
-              className={`rounded-full px-2.5 py-1 ${props.revealLevel === "results" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+              className={`rounded-full px-2.5 py-1 text-center ${props.revealLevel === "results" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
             >
               {t("Results")} <Kbd>E</Kbd>
             </button>
@@ -1565,7 +1565,7 @@ function Footer(props: {
                 type="button"
                 aria-pressed={props.revealLevel === "solution"}
                 onClick={props.onShowSolution}
-                className={`rounded-full px-2.5 py-1 ${props.revealLevel === "solution" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+                className={`rounded-full px-2.5 py-1 text-center ${props.revealLevel === "solution" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
               >
                 {t("Solution")} <Kbd>A</Kbd>
               </button>
