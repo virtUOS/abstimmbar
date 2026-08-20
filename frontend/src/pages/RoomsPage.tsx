@@ -388,7 +388,7 @@ export default function RoomsPage() {
       </div>
 
       <SegmentedControl
-        className="mb-6"
+        className="mb-6 w-max"
         ariaLabel={t("Show rooms")}
         value={roomFilter}
         onChange={(v) => {
