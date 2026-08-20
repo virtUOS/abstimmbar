@@ -604,7 +604,7 @@ export default function RoomPage() {
             {t("— stays the same across all sessions.")}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             aria-pressed={room.is_favorite}
