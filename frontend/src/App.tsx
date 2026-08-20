@@ -315,7 +315,7 @@ export default function App() {
                   type="button"
                   aria-pressed={whoami.easy_mode === true}
                   onClick={() => setEasyMode(true)}
-                  className={`rounded-full px-2.5 py-1 ${whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+                  className={`min-w-[4rem] rounded-full px-2.5 py-1 text-center ${whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
                 >
                   {t("Simple")}
                 </button>
@@ -323,7 +323,7 @@ export default function App() {
                   type="button"
                   aria-pressed={whoami.easy_mode === false}
                   onClick={() => setEasyMode(false)}
-                  className={`rounded-full px-2.5 py-1 ${!whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+                  className={`min-w-[4rem] rounded-full px-2.5 py-1 text-center ${!whoami.easy_mode ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
                 >
                   {t("Pro")}
                 </button>
