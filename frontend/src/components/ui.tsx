@@ -326,8 +326,14 @@ export function SegmentedControl<T extends string>({
   const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
   const trackRef = useRef<HTMLDivElement>(null);
   const [dragX, setDragX] = useState<number | null>(null); // thumb px offset while dragging
+  // Pointer state. `startX` marks a pressed pointer; `dragging` flips only
+  // once it moves past DRAG_THRESHOLD — until then it's a plain press, so we
+  // do NOT capture the pointer and let the native click reach the button
+  // (capturing eagerly would redirect the click to the track and kill taps).
+  const startXRef = useRef<number | null>(null);
   const draggingRef = useRef(false);
   const movedRef = useRef(false);
+  const DRAG_THRESHOLD = 4; // px of travel before a press becomes a drag
 
   function seg() {
     const track = trackRef.current!;
@@ -344,25 +350,30 @@ export function SegmentedControl<T extends string>({
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (disabled) return;
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-    draggingRef.current = true;
+    startXRef.current = e.clientX;
+    draggingRef.current = false;
     movedRef.current = false;
   }
   function onPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (!draggingRef.current) return;
-    movedRef.current = true;
+    if (startXRef.current === null) return;
+    if (!draggingRef.current) {
+      if (Math.abs(e.clientX - startXRef.current) < DRAG_THRESHOLD) return;
+      // Real drag begins: now capture the pointer so it keeps tracking even
+      // if the finger leaves the control, and suppress the trailing click.
+      draggingRef.current = true;
+      movedRef.current = true;
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    }
     setDragX(thumbLeftFrom(e.clientX));
   }
   function onPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
-    if (!draggingRef.current) return;
+    const wasDrag = draggingRef.current;
+    startXRef.current = null;
     draggingRef.current = false;
-    const wasDrag = movedRef.current;
-    const left = wasDrag ? thumbLeftFrom(e.clientX) : 0;
+    if (!wasDrag) return; // a plain tap: let the button's onClick handle it
     setDragX(null);
-    if (wasDrag) {
-      const picked = options[indexFrom(left)].value;
-      if (picked !== value) onChange(picked);
-    }
+    const picked = options[indexFrom(thumbLeftFrom(e.clientX))].value;
+    if (picked !== value) onChange(picked);
   }
 
   const thumbStyle: CSSProperties = {
@@ -381,6 +392,7 @@ export function SegmentedControl<T extends string>({
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
       onPointerCancel={() => {
+        startXRef.current = null;
         draggingRef.current = false;
         setDragX(null);
       }}
