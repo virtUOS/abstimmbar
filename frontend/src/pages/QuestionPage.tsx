@@ -25,7 +25,7 @@ import AiAssistPanel from "../components/AiAssistPanel";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
-import { Button, Field, TextInput } from "../components/ui";
+import { Button, Field, SegmentedControl, TextInput } from "../components/ui";
 import { REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
@@ -588,31 +588,32 @@ export default function QuestionPage() {
       )}
 
       <div className="mb-4 flex justify-end">
-        <div
-          className="flex items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
-          role="group"
-          aria-label={t("View")}
-        >
-          <button
-            type="button"
-            aria-pressed={tab === "edit"}
-            onClick={() => setTab("edit")}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${tab === "edit" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
-          >
-            <Pencil aria-hidden className="h-3.5 w-3.5" />
-            {t("Edit")}
-          </button>
-          <button
-            type="button"
-            aria-pressed={tab === "preview"}
-            onClick={() => void showPreview()}
-            disabled={saving}
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${tab === "preview" ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
-          >
-            <Eye aria-hidden className="h-3.5 w-3.5" />
-            {t("Preview")}
-          </button>
-        </div>
+        <SegmentedControl
+          ariaLabel={t("View")}
+          value={tab}
+          disabled={saving}
+          onChange={(v) => (v === "preview" ? void showPreview() : setTab("edit"))}
+          options={[
+            {
+              value: "edit",
+              label: (
+                <>
+                  <Pencil aria-hidden className="h-3.5 w-3.5" />
+                  {t("Edit")}
+                </>
+              ),
+            },
+            {
+              value: "preview",
+              label: (
+                <>
+                  <Eye aria-hidden className="h-3.5 w-3.5" />
+                  {t("Preview")}
+                </>
+              ),
+            },
+          ]}
+        />
       </div>
 
       {tab === "preview" && (
