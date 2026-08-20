@@ -82,7 +82,6 @@ export function InfoHint({ text }: { text: string }) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={text}
-        title={text}
         onClick={() => setOpen((value) => !value)}
         className="inline-flex rounded text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
       >
@@ -91,7 +90,7 @@ export function InfoHint({ text }: { text: string }) {
       {open && (
         <div
           role="note"
-          className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+          className="absolute right-0 top-full z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
         >
           {text}
         </div>
