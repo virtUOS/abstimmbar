@@ -287,9 +287,9 @@ export default function RoomsPage() {
   }
 
   async function archiveRoom(room: Room) {
-    // Archiving drops the room from the overview; it lives on in the archive.
+    // Re-fetch so the room reflects its new archive state in the current filter.
     await api.toggleRoomArchive(room.id, true);
-    setRooms((current) => (current ?? []).filter((r) => r.id !== room.id));
+    void reload();
   }
 
   async function restoreRoom(room: Room) {
