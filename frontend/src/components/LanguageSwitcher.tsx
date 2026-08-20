@@ -4,24 +4,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Globe } from "lucide-react";
-import { api } from "../api";
-import { SUPPORTED_LANGUAGES } from "../i18n";
+import { SUPPORTED_LANGUAGES, applyLangPref, getLangPref, type LangPref } from "../i18n";
 
-/** Current language + a change handler. When the user is signed in, the choice
- *  is also persisted server-side (best-effort). */
+/** Current language preference + a change handler. When the user is signed
+ *  in, a non-"auto" choice is also persisted server-side (best-effort). */
 export function useLanguage(authenticated = false) {
-  const { i18n } = useTranslation();
-  const resolved = i18n.resolvedLanguage ?? i18n.language;
-  const current = SUPPORTED_LANGUAGES.some((l) => l.code === resolved)
-    ? resolved
-    : "en";
-
-  function change(lang: string) {
-    i18n.changeLanguage(lang);
-    if (authenticated) api.setLanguage(lang).catch(() => {});
+  const [pref, setPrefState] = useState<LangPref>(getLangPref);
+  function setPref(next: LangPref) {
+    applyLangPref(next, authenticated);
+    setPrefState(next);
   }
-
-  return { current, change };
+  return { pref, setPref };
 }
 
 /** Language options as menu rows — used inside the account menu and the guest
@@ -33,25 +26,35 @@ export function LanguageOptions({
   authenticated?: boolean;
   onPicked?: () => void;
 }) {
-  const { current, change } = useLanguage(authenticated);
+  const { t } = useTranslation();
+  const { pref, setPref } = useLanguage(authenticated);
+  const rows: { code: LangPref; label: string; hint?: string }[] = [
+    { code: "auto", label: t("Auto"), hint: t("(follows your system)") },
+    ...SUPPORTED_LANGUAGES.map((l) => ({ code: l.code as LangPref, label: l.label })),
+  ];
   return (
     <>
-      {SUPPORTED_LANGUAGES.map((lang) => (
+      {rows.map((row) => (
         <button
-          key={lang.code}
+          key={row.code}
           type="button"
           role="menuitemradio"
-          aria-checked={lang.code === current}
+          aria-checked={pref === row.code}
           onClick={() => {
-            change(lang.code);
+            setPref(row.code);
             onPicked?.();
           }}
-          className="flex w-full items-center justify-between px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
+          className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
         >
-          {lang.label}
-          {lang.code === current && (
-            <Check aria-hidden className="h-4 w-4 text-brand-600" />
-          )}
+          <span className="flex-1">
+            {row.label}
+            {row.hint && (
+              <span className="block text-xs text-slate-400 dark:text-slate-500">
+                {row.hint}
+              </span>
+            )}
+          </span>
+          {pref === row.code && <Check aria-hidden className="h-4 w-4 text-brand-600" />}
         </button>
       ))}
     </>

@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, Navigate, Outlet, useNavigate, useOutletContext } from "react-router-dom";
 import {
-  Archive,
   BarChart3,
   Check,
   Monitor,
@@ -19,7 +18,7 @@ import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami 
 import { localizedText, setDefaultContentLang, setTranslationEnabled } from "@basicbar/ui";
 import Footer from "./components/Footer";
 import JoinByCode from "./components/JoinByCode";
-import { LanguageMenu } from "./components/LanguageSwitcher";
+import { LanguageMenu, LanguageOptions } from "./components/LanguageSwitcher";
 import RichText from "./components/RichText";
 import { EmptyState } from "./components/ui";
 import RoomsPage from "./pages/RoomsPage";
@@ -169,17 +168,13 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
             </span>
           </p>
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+          <p className="px-3 pb-0.5 pt-1 text-xs text-slate-400 dark:text-slate-500">
+            {t("Language")}
+          </p>
+          <LanguageOptions authenticated />
+          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
           <AppearanceControl theme={appearance} onChange={setAppearance} />
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-          <Link
-            to="/archiv"
-            role="menuitem"
-            onClick={() => setOpen(false)}
-            className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-          >
-            <Archive aria-hidden className="h-4 w-4 text-slate-400" />
-            {t("Archived rooms")}
-          </Link>
           {whoami.is_staff && (
             <Link
               to="/admin"
@@ -326,7 +321,6 @@ export default function App() {
                   {t("Pro")}
                 </button>
               </div>
-              <LanguageMenu authenticated />
               <UserMenu whoami={whoami} />
             </div>
           ) : (
