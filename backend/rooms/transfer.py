@@ -84,6 +84,7 @@ def _lang_map(value):
 # deliberately excluded.
 QUESTION_CONTENT_FIELDS = (
     "shuffle_options",
+    "binary_choice",
     "time_limit",
     "allow_multiple",
     "wordcloud_live",
@@ -221,6 +222,7 @@ def export_set(question_set):
                 "kind": question.kind,
                 "text": translated_map(question, "text"),
                 "shuffle_options": question.shuffle_options,
+                "binary_choice": question.binary_choice,
                 "time_limit": question.time_limit,
                 "allow_multiple": question.allow_multiple,
                 "wordcloud_live": question.wordcloud_live,
@@ -340,6 +342,7 @@ def import_set(room, data):
             kind=item["kind"],
             **{f"text_{lang}": (v or None) for lang, v in text_map.items()},
             shuffle_options=bool(item.get("shuffle_options")),
+            binary_choice=bool(item.get("binary_choice")),
             time_limit=time_limit,
             allow_multiple=bool(item.get("allow_multiple")),
             wordcloud_live=bool(item.get("wordcloud_live", True)),

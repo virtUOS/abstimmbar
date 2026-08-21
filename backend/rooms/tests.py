@@ -284,6 +284,24 @@ class QuestionApiTests(ApiTestCase):
         )
         self.assertTrue(data["options"][0]["is_correct"])
 
+    def test_binary_choice_round_trips(self):
+        # The Ja/Nein preset persists a marker so the editor shows the
+        # template quick-fill again on re-open (#79).
+        response = self._create_question(
+            binary_choice=True,
+            options=[
+                {"text": "Ja", "is_correct": True},
+                {"text": "Nein", "is_correct": False},
+            ],
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["binary_choice"])
+        qid = response.json()["id"]
+        self.assertTrue(self.client.get(f"/api/questions/{qid}/").json()["binary_choice"])
+
+    def test_binary_choice_defaults_false(self):
+        self.assertFalse(self._create_question().json()["binary_choice"])
+
     def test_text_is_sanitized(self):
         response = self._create_question(text='<p>Hi<script>alert(1)</script></p>')
         # Sanitizing (validate_text) still runs per language inside the mixin.
@@ -2501,6 +2519,39 @@ class AiGenerateLevelsTests(TestCase):
     def test_prompt_declares_unsuitable_reason_contract(self):
         p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
         self.assertIn("unsuitable_reason", p)
+
+    def test_true_false_draft_normalised_to_single_choice(self):
+        data = {"questions": [
+            {"kind": "true_false", "text": "Osnabrück ist die größte Stadt.", "correct": False},
+            {"kind": "true_false", "text": "Wasser siedet bei 100 °C.", "correct": True},
+        ]}
+        drafts = ai_generate.build_drafts(data, ["true_false"], 5)
+        self.assertEqual(len(drafts), 2)
+        first = drafts[0]
+        self.assertEqual(first["kind"], "single_choice")
+        self.assertTrue(first["binary_choice"])  # gets the editor template chooser
+        self.assertEqual([o["text"] for o in first["options"]], ["Wahr", "Falsch"])
+        # correct=False -> Falsch is the correct option
+        self.assertFalse(first["options"][0]["is_correct"])
+        self.assertTrue(first["options"][1]["is_correct"])
+        # correct=True -> Wahr is correct
+        self.assertTrue(drafts[1]["options"][0]["is_correct"])
+
+    def test_true_false_falls_back_to_options_shape(self):
+        data = {"questions": [
+            {"kind": "true_false", "text": "Aussage.",
+             "options": [{"text": "Wahr", "is_correct": False},
+                         {"text": "Falsch", "is_correct": True}]},
+        ]}
+        drafts = ai_generate.build_drafts(data, ["true_false"], 5)
+        self.assertEqual(drafts[0]["kind"], "single_choice")
+        self.assertTrue(drafts[0]["options"][1]["is_correct"])  # Falsch
+
+    def test_true_false_is_an_allowed_generation_kind(self):
+        self.assertIn("true_false", ai_generate.ALLOWED_KINDS)
+        p = ai_generate.build_generate_prompt("Stoff", 5, ["true_false"], "mixed")
+        self.assertIn("true_false", p)
+        self.assertIn("correct", p)  # the boolean contract is documented
 
     def test_prompt_includes_guidance_when_given(self):
         p = ai_generate.build_generate_prompt(
