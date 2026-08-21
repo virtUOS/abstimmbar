@@ -837,8 +837,13 @@ export default function RoomPage() {
                     </h3>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {set.question_count} {t("question", { count: set.question_count })}
-                      {" · "}
-                      {t("Last edited")} {formatDate(set.updated_at)}
+                      {/* "Last edited" date is decluttered away in simple mode (#78). */}
+                      {!easyMode && (
+                        <>
+                          {" · "}
+                          {t("Last edited")} {formatDate(set.updated_at)}
+                        </>
+                      )}
                     </p>
                   </Link>
                   <div className="relative z-10 flex shrink-0 items-center gap-1">

@@ -714,35 +714,40 @@ export default function SetPage() {
               </div>
             </div>
           )}
-          {/* Rendered as rich HTML from the WYSIWYG editor (#49). */}
-          <div className="mt-1 max-w-2xl text-sm">
-            {localizedText(set.description) ? (
+          {/* Rendered as rich HTML from the WYSIWYG editor (#49). Nothing shown
+              when empty — the "No description" placeholder was just noise (#78). */}
+          {localizedText(set.description) && (
+            <div className="mt-1 max-w-2xl text-sm">
               <RichText html={localizedText(set.description)} />
-            ) : (
-              <span className="italic text-slate-400">{t("No description")}</span>
-            )}
-          </div>
-          <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            {t("Correct answers:")}{" "}
-            <strong className="font-semibold text-slate-700 dark:text-slate-200">
-              {t(REVEAL_LABEL[set.reveal_answers])}
-            </strong>{" "}
-            · {t("Immediately answerable:")}{" "}
-            <strong className="font-semibold text-slate-700 dark:text-slate-200">
-              {set.open_on_show ? t("yes") : t("no")}
-            </strong>{" "}
-            · {t("Results for participants:")}{" "}
-            <strong className="font-semibold text-slate-700 dark:text-slate-200">
-              {set.show_results_to_participants ? t("yes") : t("no")}
-            </strong>
-          </p>
-          <p className="mt-1 text-xs text-slate-400">
-            {t("Created {{created}} · Updated {{updated}}", {
-              created: formatDate(set.created_at),
-              updated: formatDate(set.updated_at),
-            })}
-            {set.share_token && t(" · shareable via link")}
-          </p>
+            </div>
+          )}
+          {/* Answer-flow summary reflects pro-only settings, so it is hidden in
+              the decluttered simple mode (#78). */}
+          {!easyMode && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {t("Correct answers:")}{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {t(REVEAL_LABEL[set.reveal_answers])}
+              </strong>{" "}
+              · {t("Immediately answerable:")}{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.open_on_show ? t("yes") : t("no")}
+              </strong>{" "}
+              · {t("Results for participants:")}{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.show_results_to_participants ? t("yes") : t("no")}
+              </strong>
+            </p>
+          )}
+          {!easyMode && (
+            <p className="mt-1 text-xs text-slate-400">
+              {t("Created {{created}} · Updated {{updated}}", {
+                created: formatDate(set.created_at),
+                updated: formatDate(set.updated_at),
+              })}
+              {set.share_token && t(" · shareable via link")}
+            </p>
+          )}
           {metaError && <p className="mt-1 text-sm text-red-600">{metaError}</p>}
         </div>
       )}
