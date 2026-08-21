@@ -346,6 +346,7 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         model = Question
         fields: ClassVar = [
             "id", "question_set", "section", "kind", "text", "shuffle_options",
+            "binary_choice",
             "time_limit", "position", "options", "ai_evaluate", "evaluation_hint",
             "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
             "wordcloud_grouping", "wordcloud_max_answers",

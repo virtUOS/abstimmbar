@@ -60,12 +60,9 @@ const QUESTION_KINDS = [
  * `SetPage.addQuestion` now that creation is deferred to the first save. */
 function defaultOptions(kind: string, template?: string | null): EditableOption[] {
   if (kind === "word_cloud" || kind === "open_text" || kind === "likert") return [];
-  const texts =
-    template === "yes_no"
-      ? ["Ja", "Nein"]
-      : template === "true_false"
-        ? ["Wahr", "Falsch"]
-        : ["", "", ""];
+  // The binary preset starts as Ja/Nein; the editor's template quick-fill
+  // lets the author switch to Wahr/Falsch or type their own (#79).
+  const texts = template === "binary" ? ["Ja", "Nein"] : ["", "", ""];
   return texts.map((text) => ({ clientId: nextClientId--, text, is_correct: false }));
 }
 
@@ -159,6 +156,7 @@ export default function QuestionPage() {
   const [set, setSet] = useState<QuestionSet | null>(null);
   const [text, setText] = useState<LocalizedText>("");
   const [shuffle, setShuffle] = useState(false);
+  const [binaryChoice, setBinaryChoice] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
   const [options, setOptions] = useState<EditableOption[]>([]);
   const [timeLimit, setTimeLimit] = useState("");
@@ -205,6 +203,7 @@ export default function QuestionPage() {
       // render guard work; id 0 until the first save creates the real row.
       setQuestion({ id: 0, kind, is_after: false } as Question);
       setText("");
+      setBinaryChoice(template === "binary");
       setOptions(defaultOptions(kind, template));
       return;
     }
@@ -215,6 +214,7 @@ export default function QuestionPage() {
       setQuestion(data);
       setText(data.text);
       setShuffle(data.shuffle_options);
+      setBinaryChoice(data.binary_choice ?? false);
       setReveal(data.reveal_answers);
       setAiEvaluate(data.ai_evaluate);
       setEvaluationHint(data.evaluation_hint);
@@ -271,6 +271,18 @@ export default function QuestionPage() {
     );
   }
 
+  // Binary template quick-fill (#79): overwrite the two option texts with a
+  // preset (Ja/Nein or Wahr/Falsch), keeping which one is marked correct.
+  function applyBinaryTemplate(texts: [string, string]) {
+    setOptions((current) =>
+      texts.map((text, i) => ({
+        clientId: current[i]?.clientId ?? nextClientId--,
+        text,
+        is_correct: current[i]?.is_correct ?? false,
+      })),
+    );
+  }
+
   function likertOptions(): AnswerOption[] {
     const preset = LIKERT_PRESETS.find((entry) => entry.key === likertPreset);
     const scale = preset
@@ -300,6 +312,7 @@ export default function QuestionPage() {
         kind: question.kind,
         text,
         shuffle_options: shuffle,
+        binary_choice: question.kind === "single_choice" && binaryChoice,
         reveal_answers:
           question.kind === "single_choice" || question.kind === "multiple_choice"
             ? reveal
@@ -694,6 +707,25 @@ export default function QuestionPage() {
                   {t("The option order is the correct solution — participants see it shuffled.")}
                 </p>
               )}
+              {binaryChoice && (
+                <div className="mb-2 flex items-center gap-2 text-sm">
+                  <span className="text-slate-500 dark:text-slate-400">{t("Template")}</span>
+                  <button
+                    type="button"
+                    onClick={() => applyBinaryTemplate(["Ja", "Nein"])}
+                    className="rounded-full border border-slate-300 px-3 py-1 text-slate-600 transition-colors hover:border-brand-500 hover:text-brand-700 dark:border-slate-700 dark:text-slate-300 dark:hover:text-brand-300"
+                  >
+                    {t("Yes/No")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyBinaryTemplate(["Wahr", "Falsch"])}
+                    className="rounded-full border border-slate-300 px-3 py-1 text-slate-600 transition-colors hover:border-brand-500 hover:text-brand-700 dark:border-slate-700 dark:text-slate-300 dark:hover:text-brand-300"
+                  >
+                    {t("True/False")}
+                  </button>
+                </div>
+              )}
               <SortableList
                 items={options.map((option) => ({ ...option, id: option.clientId }))}
                 onReorder={(items) =>
@@ -758,31 +790,35 @@ export default function QuestionPage() {
                         <ImageOff aria-hidden className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button
-                      variant="ghost"
-                      aria-label={t("Delete answer")}
-                      onClick={() =>
-                        setOptions((current) =>
-                          current.filter((option) => option.clientId !== item.id),
-                        )
-                      }
-                    >
-                      <X aria-hidden className="h-4 w-4" />
-                    </Button>
+                    {!binaryChoice && (
+                      <Button
+                        variant="ghost"
+                        aria-label={t("Delete answer")}
+                        onClick={() =>
+                          setOptions((current) =>
+                            current.filter((option) => option.clientId !== item.id),
+                          )
+                        }
+                      >
+                        <X aria-hidden className="h-4 w-4" />
+                      </Button>
+                    )}
                   </>
                 )}
               />
               <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Button
-                  onClick={() =>
-                    setOptions((current) => [
-                      ...current,
-                      { clientId: nextClientId--, text: "", is_correct: false },
-                    ])
-                  }
-                >
-                  + {t("Add answer")}
-                </Button>
+                {!binaryChoice && (
+                  <Button
+                    onClick={() =>
+                      setOptions((current) => [
+                        ...current,
+                        { clientId: nextClientId--, text: "", is_correct: false },
+                      ])
+                    }
+                  >
+                    + {t("Add answer")}
+                  </Button>
+                )}
                 {/* Random order is meaningless for priorities (sliders, order
                     irrelevant) and for ordering (the server always shuffles —
                     that's the task), so hide the toggle for those kinds. */}

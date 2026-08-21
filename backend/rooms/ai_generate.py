@@ -114,6 +114,7 @@ def build_drafts(data, kinds, count):
             drafts.append({
                 "kind": "single_choice",
                 "text": text,
+                "binary_choice": True,
                 "options": [
                     {"text": "Wahr", "is_correct": correct_true},
                     {"text": "Falsch", "is_correct": not correct_true},

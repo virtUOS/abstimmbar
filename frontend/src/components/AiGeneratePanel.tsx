@@ -112,6 +112,7 @@ export default function AiGeneratePanel({
           question_set: setId,
           kind: draft.kind,
           text: draft.text,
+          binary_choice: draft.binary_choice ?? false,
           options: draft.options.map((option) => ({
             text: option.text,
             is_correct: option.is_correct,

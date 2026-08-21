@@ -231,6 +231,11 @@ class Question(TimeStampedModel):
     text = models.TextField(blank=True)
     # Show answer options in random order during presentation (choice kinds).
     shuffle_options = models.BooleanField(default=False)
+    # Editor-only (#79): this single_choice was created via the binary
+    # "Ja/Nein" preset. The editor then shows a Ja/Nein · Wahr/Falsch template
+    # quick-fill above its two options and locks the list to exactly two.
+    # No effect on voting/results — it stays an ordinary single_choice.
+    binary_choice = models.BooleanField(default=False)
     # v2: optional answering time in seconds (countdown; server-enforced).
     time_limit = models.PositiveIntegerField(null=True, blank=True)
     position = models.PositiveIntegerField(default=0)

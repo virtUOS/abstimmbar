@@ -133,6 +133,9 @@ export interface Question {
   kind: QuestionKind;
   text: LocalizedText;
   shuffle_options: boolean;
+  /** single_choice only: created via the binary Ja/Nein preset — the editor
+   *  shows the Ja/Nein · Wahr/Falsch template quick-fill above two options (#79). */
+  binary_choice: boolean;
   time_limit: number | null;
   position: number;
   options: AnswerOption[];
@@ -168,6 +171,8 @@ export interface Question {
 export interface GeneratedQuestion {
   kind: "single_choice" | "multiple_choice" | "open_text";
   text: string;
+  /** True/False drafts come back as single_choice + this flag (#79). */
+  binary_choice?: boolean;
   options: { text: string; is_correct: boolean }[];
 }
 

@@ -284,6 +284,24 @@ class QuestionApiTests(ApiTestCase):
         )
         self.assertTrue(data["options"][0]["is_correct"])
 
+    def test_binary_choice_round_trips(self):
+        # The Ja/Nein preset persists a marker so the editor shows the
+        # template quick-fill again on re-open (#79).
+        response = self._create_question(
+            binary_choice=True,
+            options=[
+                {"text": "Ja", "is_correct": True},
+                {"text": "Nein", "is_correct": False},
+            ],
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["binary_choice"])
+        qid = response.json()["id"]
+        self.assertTrue(self.client.get(f"/api/questions/{qid}/").json()["binary_choice"])
+
+    def test_binary_choice_defaults_false(self):
+        self.assertFalse(self._create_question().json()["binary_choice"])
+
     def test_text_is_sanitized(self):
         response = self._create_question(text='<p>Hi<script>alert(1)</script></p>')
         # Sanitizing (validate_text) still runs per language inside the mixin.
@@ -2511,6 +2529,7 @@ class AiGenerateLevelsTests(TestCase):
         self.assertEqual(len(drafts), 2)
         first = drafts[0]
         self.assertEqual(first["kind"], "single_choice")
+        self.assertTrue(first["binary_choice"])  # gets the editor template chooser
         self.assertEqual([o["text"] for o in first["options"]], ["Wahr", "Falsch"])
         # correct=False -> Falsch is the correct option
         self.assertFalse(first["options"][0]["is_correct"])
