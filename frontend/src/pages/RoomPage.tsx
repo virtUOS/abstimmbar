@@ -649,30 +649,33 @@ export default function RoomPage() {
       </div>
 
       {/* Description (read-only; edit via ⋮ → Einstellungen, #2). Rendered as
-          rich HTML from the WYSIWYG editor (#49). */}
-      <div className="mb-4 max-w-2xl text-sm">
-        {localizedText(room.description) ? (
+          rich HTML from the WYSIWYG editor (#49). Nothing shown when empty —
+          the "No description" placeholder was just noise (#78). */}
+      {localizedText(room.description) && (
+        <div className="mb-4 max-w-2xl text-sm">
           <RichText html={localizedText(room.description)} />
-        ) : (
-          <span className="italic text-slate-400">{t("No description")}</span>
-        )}
-      </div>
+        </div>
+      )}
 
-      <p className="mb-3 text-xs text-slate-400">
-        {room.created_by_name
-          ? t("Created on {{date}} by {{name}}", {
-              date: formatDateTime(room.created_at),
-              name: room.created_by_name,
-            })
-          : t("Created on {{date}}", { date: formatDateTime(room.created_at) })}
-        {" · "}
-        {room.updated_by_name
-          ? t("Last changed on {{date}} by {{name}}", {
-              date: formatDateTime(room.updated_at),
-              name: room.updated_by_name,
-            })
-          : t("Last changed on {{date}}", { date: formatDateTime(room.updated_at) })}
-      </p>
+      {/* Created/changed metadata: kept in Pro mode (useful when several
+          people co-edit a room), hidden in the decluttered Simple mode (#78). */}
+      {!easyMode && (
+        <p className="mb-3 text-xs text-slate-400">
+          {room.created_by_name
+            ? t("Created on {{date}} by {{name}}", {
+                date: formatDateTime(room.created_at),
+                name: room.created_by_name,
+              })
+            : t("Created on {{date}}", { date: formatDateTime(room.created_at) })}
+          {" · "}
+          {room.updated_by_name
+            ? t("Last changed on {{date}} by {{name}}", {
+                date: formatDateTime(room.updated_at),
+                name: room.updated_by_name,
+              })
+            : t("Last changed on {{date}}", { date: formatDateTime(room.updated_at) })}
+        </p>
+      )}
 
       {pendingSwitch && (
         <div
@@ -834,8 +837,13 @@ export default function RoomPage() {
                     </h3>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {set.question_count} {t("question", { count: set.question_count })}
-                      {" · "}
-                      {t("Last edited")} {formatDate(set.updated_at)}
+                      {/* "Last edited" date is decluttered away in simple mode (#78). */}
+                      {!easyMode && (
+                        <>
+                          {" · "}
+                          {t("Last edited")} {formatDate(set.updated_at)}
+                        </>
+                      )}
                     </p>
                   </Link>
                   <div className="relative z-10 flex shrink-0 items-center gap-1">
