@@ -448,10 +448,13 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         level = request.data.get("level")
         if level not in ai_generate.LEVELS:
             level = ai_generate.DEFAULT_LEVEL
+        # Optional free-text guidance from the teacher (#84), capped so it
+        # can't crowd out the material in the prompt.
+        guidance = str(request.data.get("guidance") or "").strip()[:1000]
         try:
             data = ai.chat_json(
                 ai_generate.generate_system(),
-                ai_generate.build_generate_prompt(text, count, kinds, level),
+                ai_generate.build_generate_prompt(text, count, kinds, level, guidance),
             )
         except ai.AIError as exc:
             return Response({"detail": f"KI-Fehler: {exc}"}, status=502)

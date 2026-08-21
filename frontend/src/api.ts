@@ -557,7 +557,14 @@ export const api = {
   /** Generate draft questions from an uploaded document or pasted text. */
   aiGenerateQuestions: (
     setId: number,
-    opts: { file?: File; text?: string; count: number; kinds: string[]; level: string },
+    opts: {
+      file?: File;
+      text?: string;
+      count: number;
+      kinds: string[];
+      level: string;
+      guidance?: string;
+    },
   ) => {
     const body = new FormData();
     if (opts.file) body.append("file", opts.file);
@@ -565,6 +572,7 @@ export const api = {
     body.append("count", String(opts.count));
     body.append("kinds", opts.kinds.join(","));
     body.append("level", opts.level);
+    if (opts.guidance?.trim()) body.append("guidance", opts.guidance.trim());
     return request<{ questions: GeneratedQuestion[]; notice?: string }>(
       `/api/question-sets/${setId}/ai-generate/`,
       { method: "POST", body },
