@@ -61,11 +61,16 @@ class SiteConfigSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     translated_fields = ("landing_text", "closing_info", "ai_notice")
 
     logo = serializers.SerializerMethodField()
+    # Read/write the internal notice page by its slug (null = none).
+    ai_notice_page = serializers.SlugRelatedField(
+        slug_field="slug", queryset=Page.objects.all(), allow_null=True, required=False,
+    )
 
     class Meta:
         model = SiteConfig
         fields: ClassVar = [
-            "landing_text", "closing_info", "logo", "ai_notice", "ai_notice_url",
+            "landing_text", "closing_info", "logo",
+            "ai_notice", "ai_notice_page", "ai_notice_url",
         ]
 
     def validate_landing_text(self, value):

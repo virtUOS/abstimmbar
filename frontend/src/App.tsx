@@ -242,7 +242,18 @@ function AiNoticeBanner({ site, whoami }: { site: SitePublic; whoami: Whoami }) 
         <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-300" />
         <p className="min-w-0 flex-1">
           {notice}
-          {site.ai_notice_url && (
+          {/* An internal content page takes precedence over an external URL. */}
+          {site.ai_notice_page ? (
+            <>
+              {" "}
+              <Link
+                to={`/pages/${site.ai_notice_page}`}
+                className="font-medium text-brand-700 underline dark:text-brand-300"
+              >
+                {t("Privacy policy")}
+              </Link>
+            </>
+          ) : site.ai_notice_url ? (
             <>
               {" "}
               <a
@@ -254,7 +265,7 @@ function AiNoticeBanner({ site, whoami }: { site: SitePublic; whoami: Whoami }) 
                 {t("Privacy policy")}
               </a>
             </>
-          )}
+          ) : null}
         </p>
         <button
           type="button"

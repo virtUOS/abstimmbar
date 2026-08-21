@@ -12,7 +12,7 @@ import { api, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSi
 import { useApp } from "../App";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import TranslatableField from "../components/TranslatableField";
-import { Button, ConfirmInline, EmptyState, Field, InfoHint, TextInput } from "../components/ui";
+import { Button, ConfirmInline, EmptyState, Field, InfoHint, Select, TextInput } from "../components/ui";
 
 function slugify(value: string) {
   return value
@@ -57,7 +57,9 @@ function BrandingSection() {
   const [text, setText] = useState<LocalizedText>("");
   const [closing, setClosing] = useState<LocalizedText>("");
   const [aiNotice, setAiNotice] = useState<LocalizedText>("");
+  const [aiNoticePage, setAiNoticePage] = useState("");
   const [aiNoticeUrl, setAiNoticeUrl] = useState("");
+  const [pages, setPages] = useState<ManagePage[]>([]);
   const [saved, setSaved] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -67,8 +69,10 @@ function BrandingSection() {
       setText(data.landing_text);
       setClosing(data.closing_info);
       setAiNotice(data.ai_notice);
+      setAiNoticePage(data.ai_notice_page ?? "");
       setAiNoticeUrl(data.ai_notice_url);
     });
+    void api.listManagePages().then(setPages);
   }, []);
 
   async function saveText() {
@@ -76,6 +80,7 @@ function BrandingSection() {
       landing_text: text,
       closing_info: closing,
       ai_notice: aiNotice,
+      ai_notice_page: aiNoticePage || null,
       ai_notice_url: aiNoticeUrl,
     });
     setSite(updated);
@@ -157,12 +162,30 @@ function BrandingSection() {
           />
         </div>
         <div className="mt-3">
-          <Field label={t("Privacy policy URL")}>
+          <Field label={t("Privacy policy page (internal)")}>
+            <Select
+              value={aiNoticePage}
+              onChange={(event) => setAiNoticePage(event.target.value)}
+            >
+              <option value="">{t("— none —")}</option>
+              {pages
+                .filter((page) => page.is_published)
+                .map((page) => (
+                  <option key={page.slug} value={page.slug}>
+                    {localizedText(page.title)}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+        </div>
+        <div className="mt-3">
+          <Field label={t("…or external privacy policy URL")}>
             <TextInput
               type="url"
               value={aiNoticeUrl}
               onChange={(event) => setAiNoticeUrl(event.target.value)}
               placeholder="https://…"
+              disabled={!!aiNoticePage}
             />
           </Field>
         </div>

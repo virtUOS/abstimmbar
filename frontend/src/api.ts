@@ -244,6 +244,9 @@ export interface SitePublic {
   /** AI privacy notice (#80): operator-authored, translatable; shown as a
    * one-time dismissible banner while AI is available. Empty = no banner. */
   ai_notice: LocalizedText;
+  /** "More info" link: an internal content page (slug) takes precedence over
+   * the external URL. */
+  ai_notice_page: string | null;
   ai_notice_url: string;
 }
 
@@ -278,6 +281,7 @@ export interface ManageSite {
   closing_info: LocalizedText;
   logo: string | null;
   ai_notice: LocalizedText;
+  ai_notice_page: string | null;
   ai_notice_url: string;
 }
 
@@ -391,6 +395,7 @@ export const api = {
     landing_text: LocalizedText;
     closing_info: LocalizedText;
     ai_notice: LocalizedText;
+    ai_notice_page: string | null;
     ai_notice_url: string;
   }) =>
     request<ManageSite>("/api/manage/site/", {
