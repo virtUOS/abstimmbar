@@ -2502,6 +2502,38 @@ class AiGenerateLevelsTests(TestCase):
         p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
         self.assertIn("unsuitable_reason", p)
 
+    def test_true_false_draft_normalised_to_single_choice(self):
+        data = {"questions": [
+            {"kind": "true_false", "text": "Osnabrück ist die größte Stadt.", "correct": False},
+            {"kind": "true_false", "text": "Wasser siedet bei 100 °C.", "correct": True},
+        ]}
+        drafts = ai_generate.build_drafts(data, ["true_false"], 5)
+        self.assertEqual(len(drafts), 2)
+        first = drafts[0]
+        self.assertEqual(first["kind"], "single_choice")
+        self.assertEqual([o["text"] for o in first["options"]], ["Wahr", "Falsch"])
+        # correct=False -> Falsch is the correct option
+        self.assertFalse(first["options"][0]["is_correct"])
+        self.assertTrue(first["options"][1]["is_correct"])
+        # correct=True -> Wahr is correct
+        self.assertTrue(drafts[1]["options"][0]["is_correct"])
+
+    def test_true_false_falls_back_to_options_shape(self):
+        data = {"questions": [
+            {"kind": "true_false", "text": "Aussage.",
+             "options": [{"text": "Wahr", "is_correct": False},
+                         {"text": "Falsch", "is_correct": True}]},
+        ]}
+        drafts = ai_generate.build_drafts(data, ["true_false"], 5)
+        self.assertEqual(drafts[0]["kind"], "single_choice")
+        self.assertTrue(drafts[0]["options"][1]["is_correct"])  # Falsch
+
+    def test_true_false_is_an_allowed_generation_kind(self):
+        self.assertIn("true_false", ai_generate.ALLOWED_KINDS)
+        p = ai_generate.build_generate_prompt("Stoff", 5, ["true_false"], "mixed")
+        self.assertIn("true_false", p)
+        self.assertIn("correct", p)  # the boolean contract is documented
+
     def test_prompt_includes_guidance_when_given(self):
         p = ai_generate.build_generate_prompt(
             "Stoff", 5, ["single_choice"], "mixed", "Alltagsbeispiele verwenden"

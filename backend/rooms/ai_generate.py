@@ -7,10 +7,14 @@ the allowed kinds and repair the answer-key shape (single = exactly one
 correct, multiple = at least one) so a malformed suggestion never reaches
 the editor. Nothing is persisted here — the teacher reviews and picks."""
 
-ALLOWED_KINDS = ("single_choice", "multiple_choice", "open_text")
+ALLOWED_KINDS = ("single_choice", "multiple_choice", "true_false", "open_text")
 KIND_LABELS = {
     "single_choice": "Single Choice (genau eine richtige Antwort)",
     "multiple_choice": "Multiple Choice (eine oder mehrere richtige Antworten)",
+    "true_false": (
+        "Wahr/Falsch (formuliere eine Aussage; die TN entscheiden, ob sie "
+        "zutrifft – genau eine der beiden Optionen „Wahr\"/„Falsch\" ist korrekt)"
+    ),
     "open_text": "Freitext (offene Antwort, keine Optionen)",
 }
 TEXT_MAX = 1000
@@ -81,7 +85,9 @@ def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
         '"options": [{"text": "Antwort", "is_correct": true}, '
         '{"text": "Antwort", "is_correct": false}]}], '
         '"unsuitable_reason": ""}\n'
-        'Bei "open_text" lasse "options" weg oder leer. Setze '
+        'Bei "open_text" lasse "options" weg oder leer. Bei "true_false" ist '
+        '"text" die zu bewertende Aussage und "correct" ein Boolean (true, '
+        'wenn die Aussage zutrifft); "options" entfällt. Setze '
         '"unsuitable_reason" nur, wenn sich aus dem Material keine sinnvollen '
         'Fragen bilden lassen; dann bleibt "questions" leer.'
     )
@@ -100,6 +106,19 @@ def build_drafts(data, kinds, count):
             continue
         if kind == "open_text":
             drafts.append({"kind": kind, "text": text, "options": []})
+        elif kind == "true_false":
+            # A statement + its truth value. Normalise into a plain
+            # single_choice draft with the fixed options Wahr/Falsch so the
+            # editor and the rest of the pipeline need no special case (#79).
+            correct_true = _true_false_correct(item)
+            drafts.append({
+                "kind": "single_choice",
+                "text": text,
+                "options": [
+                    {"text": "Wahr", "is_correct": correct_true},
+                    {"text": "Falsch", "is_correct": not correct_true},
+                ],
+            })
         else:
             options = []
             for raw in item.get("options") or []:
@@ -118,6 +137,24 @@ def build_drafts(data, kinds, count):
         if len(drafts) >= count:
             break
     return drafts
+
+
+def _true_false_correct(item):
+    """Whether a true/false statement is true. Prefers the boolean `correct`
+    field; falls back to inspecting an options list if the model used that
+    shape instead; defaults to True when nothing is marked."""
+    val = item.get("correct")
+    if isinstance(val, bool):
+        return val
+    for raw in item.get("options") or []:
+        if not isinstance(raw, dict) or not raw.get("is_correct"):
+            continue
+        label = str(raw.get("text", "")).strip().lower()
+        if label in ("wahr", "true", "ja", "richtig"):
+            return True
+        if label in ("falsch", "false", "nein", "unwahr"):
+            return False
+    return True
 
 
 def _fix_answer_key(kind, options):

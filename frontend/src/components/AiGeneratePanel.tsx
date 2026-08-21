@@ -16,6 +16,7 @@ import { Button, TextInput } from "./ui";
 const KIND_OPTIONS = [
   { value: "single_choice", label: "Single Choice" },
   { value: "multiple_choice", label: "Multiple Choice" },
+  { value: "true_false", label: "True/False" },
   { value: "open_text", label: "Free text" },
 ];
 const KIND_LABEL: Record<string, string> = {

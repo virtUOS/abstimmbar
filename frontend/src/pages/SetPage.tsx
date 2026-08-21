@@ -191,7 +191,7 @@ function buildRows(questions: Question[], sections: SectionType[]): OutlineRow[]
 // NewQuestionMenu render site (this array lives at module scope).
 const QUESTION_TYPES: {
   kind: QuestionKind;
-  template?: "yes_no";
+  template?: "yes_no" | "true_false";
   label: string;
   description: string;
 }[] = [
@@ -210,6 +210,12 @@ const QUESTION_TYPES: {
     template: "yes_no",
     label: "Yes/No",
     description: "Single choice with the fixed answers Yes and No.",
+  },
+  {
+    kind: "single_choice",
+    template: "true_false",
+    label: "True/False",
+    description: "Single choice with the fixed answers True and False.",
   },
   {
     kind: "likert",
@@ -242,7 +248,7 @@ const QUESTION_TYPES: {
 function NewQuestionMenu({
   onPick,
 }: {
-  onPick: (kind: QuestionKind, template?: "yes_no") => void;
+  onPick: (kind: QuestionKind, template?: "yes_no" | "true_false") => void;
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -550,7 +556,7 @@ export default function SetPage() {
     a.click();
   }
 
-  function addQuestion(kind: QuestionKind, template?: "yes_no") {
+  function addQuestion(kind: QuestionKind, template?: "yes_no" | "true_false") {
     const query = new URLSearchParams({ kind });
     if (template) query.set("template", template);
     navigate(`/sets/${id}/questions/new?${query.toString()}`);

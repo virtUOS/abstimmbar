@@ -60,7 +60,12 @@ const QUESTION_KINDS = [
  * `SetPage.addQuestion` now that creation is deferred to the first save. */
 function defaultOptions(kind: string, template?: string | null): EditableOption[] {
   if (kind === "word_cloud" || kind === "open_text" || kind === "likert") return [];
-  const texts = template === "yes_no" ? ["Ja", "Nein"] : ["", "", ""];
+  const texts =
+    template === "yes_no"
+      ? ["Ja", "Nein"]
+      : template === "true_false"
+        ? ["Wahr", "Falsch"]
+        : ["", "", ""];
   return texts.map((text) => ({ clientId: nextClientId--, text, is_correct: false }));
 }
 
