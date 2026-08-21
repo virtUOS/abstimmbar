@@ -21,7 +21,7 @@ import RichTextEditor from "./RichTextEditor";
 export type TranslatableFieldVariant = "input" | "rich";
 
 const INPUT_CLASS =
-  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100";
+  "w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 dark:bg-slate-900 dark:text-slate-100";
 
 interface TranslatableFieldProps {
   /** The field's current value — a legacy plain string or a `{de, en}` map. */
@@ -48,12 +48,16 @@ export default function TranslatableField({
   variant = "input",
   inputClassName = "",
   onActiveLangChange,
+  className = "",
   ...rest
 }: TranslatableFieldProps) {
   const easyMode = useEasyMode();
   return (
     <BaseTranslatableField
       {...rest}
+      // Space the label/language-tab row off the input so the input's focus
+      // ring doesn't crowd the DE/EN tags above it.
+      className={`space-y-1.5 ${className}`.trim()}
       values={localizedMap(value)}
       onChange={(lang, text) => onChange(setLocalizedLang(value, lang, text))}
       singleLanguage={easyMode}

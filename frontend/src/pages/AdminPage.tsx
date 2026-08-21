@@ -449,7 +449,7 @@ function LtiPlatformForm({
   }
 
   return (
-    <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900">
+    <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
       <h3 className="mb-3 font-semibold">{platform ? t("Edit platform") : t("Add platform")}</h3>
       <div className="grid gap-3">
         <Field label={t("Name")}>
@@ -580,7 +580,7 @@ function PageForm({
   }
 
   return (
-    <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900">
+    <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
       <h3 className="mb-3 font-semibold">{page ? t("Edit page") : t("New page")}</h3>
       <div className="grid gap-3">
         <TranslatableField

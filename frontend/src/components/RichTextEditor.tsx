@@ -102,7 +102,15 @@ export default function RichTextEditor({
     editorProps: {
       attributes: {
         class:
-          "min-h-28 max-h-[420px] overflow-y-auto rounded-b-lg px-3 py-2 focus:outline-none " +
+          // Match the single-line inputs' ink so typed text is crisp in both
+          // themes (the editor otherwise inherits a dim slate-400/500).
+          "text-slate-900 dark:text-slate-100 " +
+          // The editable fills the frame edge-to-edge, so the global
+          // :focus-visible ring (base.css) would bulge out past the border and
+          // look wider than the toolbar. Suppress it — the container's
+          // focus-within:border-brand-600 already signals focus.
+          "min-h-28 max-h-[420px] overflow-y-auto rounded-b-lg px-3 py-2 " +
+          "focus:outline-none focus-visible:outline-none focus-visible:ring-0 focus-visible:ring-offset-0 " +
           "[&_img]:max-w-full [&_img]:h-auto [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 " +
           "[&_p]:my-1 [&_li]:my-0.5 [&_h2]:mt-2 [&_h2]:mb-1 [&_h2]:text-xl [&_h2]:font-bold " +
           "[&_h3]:mt-2 [&_h3]:mb-1 [&_h3]:text-base [&_h3]:font-semibold " +
@@ -147,7 +155,7 @@ export default function RichTextEditor({
   }
 
   return (
-    <div className="rounded-lg border border-slate-300 dark:border-slate-700 focus-within:border-brand-600 focus-within:ring-1 focus-within:ring-brand-600">
+    <div className="rounded-lg border border-slate-300 dark:border-slate-700 focus-within:ring-2 focus-within:ring-brand-600 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-slate-950">
       <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800 px-2 py-1">
         <ToolbarButton
           label={t("Bold")}
