@@ -1437,15 +1437,18 @@ class UniqueTitleTests(ApiTestCase):
     def test_blank_room_title_gets_dated_default(self):
         response = self.create_room()
         self.assertEqual(response.status_code, 201)
-        # title is a {"de","en"} map (#33 MR2); the default is generated for
-        # the canonical (de) language, the (also blank) English side stays "".
+        # title is a {"de","en"} map (#33 MR2); the default is generated in
+        # BOTH languages (#19) so it reads naturally whatever the UI language.
         title = response.json()["title"]
         self.assertTrue(title["de"].startswith("Unbenannter Raum vom "))
-        self.assertEqual(title["en"], "")
-        # A second untitled room in the same minute gets a suffix.
+        self.assertTrue(title["en"].startswith("Unnamed room from "))
+        # A second untitled room in the same minute gets a suffix, mirrored
+        # across both languages.
         second = self.create_room().json()["title"]
         self.assertNotEqual(second["de"], title["de"])
+        self.assertNotEqual(second["en"], title["en"])
         self.assertTrue(second["de"].startswith("Unbenannter Raum vom "))
+        self.assertTrue(second["en"].startswith("Unnamed room from "))
 
     def test_duplicate_room_title_rejected_per_user(self):
         self.assertEqual(self.create_room("Bio 101").status_code, 400)  # exists
@@ -1470,9 +1473,9 @@ class UniqueTitleTests(ApiTestCase):
     def test_blank_set_title_gets_dated_default(self):
         response = self.create_set()
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(
-            response.json()["title"]["de"].startswith("Unbenanntes Fragenset vom ")
-        )
+        title = response.json()["title"]
+        self.assertTrue(title["de"].startswith("Unbenanntes Fragenset vom "))
+        self.assertTrue(title["en"].startswith("Unnamed question set from "))
 
     def test_duplicate_set_title_rejected_within_room_only(self):
         self.assertEqual(self.create_set("Termin 1").status_code, 201)
