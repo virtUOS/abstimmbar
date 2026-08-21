@@ -56,6 +56,8 @@ function BrandingSection() {
   const [site, setSite] = useState<ManageSite | null>(null);
   const [text, setText] = useState<LocalizedText>("");
   const [closing, setClosing] = useState<LocalizedText>("");
+  const [aiNotice, setAiNotice] = useState<LocalizedText>("");
+  const [aiNoticeUrl, setAiNoticeUrl] = useState("");
   const [saved, setSaved] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -64,11 +66,18 @@ function BrandingSection() {
       setSite(data);
       setText(data.landing_text);
       setClosing(data.closing_info);
+      setAiNotice(data.ai_notice);
+      setAiNoticeUrl(data.ai_notice_url);
     });
   }, []);
 
   async function saveText() {
-    const updated = await api.updateSite(text, closing);
+    const updated = await api.updateSite({
+      landing_text: text,
+      closing_info: closing,
+      ai_notice: aiNotice,
+      ai_notice_url: aiNoticeUrl,
+    });
     setSite(updated);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1500);
@@ -138,7 +147,26 @@ function BrandingSection() {
           onChange={setClosing}
           placeholder={t("Shown to participants after every vote — e.g. contact, feedback link …")}
         />
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-4">
+          <TranslatableField
+            label={t("AI privacy notice")}
+            value={aiNotice}
+            onChange={setAiNotice}
+            placeholder={t("e.g. An external model processes uploaded material.")}
+            hint={t("Shown as a one-time banner while the AI features are available. Leave empty for no banner.")}
+          />
+        </div>
+        <div className="mt-3">
+          <Field label={t("Privacy policy URL")}>
+            <TextInput
+              type="url"
+              value={aiNoticeUrl}
+              onChange={(event) => setAiNoticeUrl(event.target.value)}
+              placeholder="https://…"
+            />
+          </Field>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" onClick={() => void saveText()}>
             {t("Save")}
           </Button>

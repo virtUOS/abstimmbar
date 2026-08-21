@@ -241,6 +241,10 @@ export interface SearchResults {
 export interface SitePublic {
   landing_text: LocalizedText;
   logo: string | null;
+  /** AI privacy notice (#80): operator-authored, translatable; shown as a
+   * one-time dismissible banner while AI is available. Empty = no banner. */
+  ai_notice: LocalizedText;
+  ai_notice_url: string;
 }
 
 export interface FooterPageLink {
@@ -273,6 +277,8 @@ export interface ManageSite {
   /** Sanitized HTML shown to participants on every room's closing screen (#24). */
   closing_info: LocalizedText;
   logo: string | null;
+  ai_notice: LocalizedText;
+  ai_notice_url: string;
 }
 
 export interface ManagePage {
@@ -381,13 +387,15 @@ export const api = {
 
   // --- site content (staff management) ---
   getManageSite: () => request<ManageSite>("/api/manage/site/"),
-  updateSite: (landingText: LocalizedText, closingInfo: LocalizedText) =>
+  updateSite: (patch: {
+    landing_text: LocalizedText;
+    closing_info: LocalizedText;
+    ai_notice: LocalizedText;
+    ai_notice_url: string;
+  }) =>
     request<ManageSite>("/api/manage/site/", {
       method: "PUT",
-      body: JSON.stringify({
-        landing_text: landingText,
-        closing_info: closingInfo,
-      }),
+      body: JSON.stringify(patch),
     }),
   uploadLogo: (file: File) => {
     const body = new FormData();

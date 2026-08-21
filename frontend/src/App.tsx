@@ -7,11 +7,13 @@ import { Link, Navigate, Outlet, useNavigate, useOutletContext } from "react-rou
 import {
   BarChart3,
   Check,
+  Info,
   Monitor,
   Moon,
   Settings,
   Sun,
   Unplug,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami } from "./api";
@@ -220,6 +222,56 @@ export function useEasyMode(): boolean {
 }
 
 /** Layout shell: header (logo/login), routed content, global footer. */
+/** One-time, dismissible AI privacy notice (GitLab #80). Shown when the admin
+ *  configured a notice (SiteConfig, translatable) and AI is available;
+ *  dismissal is stored per browser, keyed by the notice so an edit re-shows. */
+function AiNoticeBanner({ site, whoami }: { site: SitePublic; whoami: Whoami }) {
+  const { t } = useTranslation();
+  const notice = whoami.ai_enabled ? localizedText(site.ai_notice).trim() : "";
+  // Keyed by the raw (all-language) notice so an edit re-surfaces it, but a
+  // mere UI-language switch does not.
+  const key = "abstimmbar_ai_notice_seen";
+  const stamp = notice ? JSON.stringify(site.ai_notice).slice(0, 120) : "";
+  const [dismissed, setDismissed] = useState(
+    () => !notice || localStorage.getItem(key) === stamp,
+  );
+  if (!notice || dismissed) return null;
+  return (
+    <div className="border-b border-brand-200 bg-brand-50/60 dark:border-brand-900 dark:bg-brand-950/40">
+      <div className="mx-auto flex w-full max-w-5xl items-start gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200">
+        <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-300" />
+        <p className="min-w-0 flex-1">
+          {notice}
+          {site.ai_notice_url && (
+            <>
+              {" "}
+              <a
+                href={site.ai_notice_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-brand-700 underline dark:text-brand-300"
+              >
+                {t("Privacy policy")}
+              </a>
+            </>
+          )}
+        </p>
+        <button
+          type="button"
+          aria-label={t("Dismiss")}
+          onClick={() => {
+            localStorage.setItem(key, stamp);
+            setDismissed(true);
+          }}
+          className="-mr-1 shrink-0 rounded-lg p-1 text-slate-500 transition-colors hover:bg-brand-100 hover:text-slate-700 dark:text-slate-400 dark:hover:bg-brand-900/50"
+        >
+          <X aria-hidden className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const { t } = useTranslation();
   const [whoami, setWhoami] = useState<Whoami | null>(null);
@@ -326,6 +378,8 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {whoami?.authenticated && site && <AiNoticeBanner site={site} whoami={whoami} />}
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
         {error ? (

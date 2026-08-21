@@ -107,6 +107,30 @@ class ManageSiteTests(TestCase):
         self.assertEqual(SiteConfig.load().landing_text_de, "Willkommen!")
         self.assertEqual(response.json()["landing_text"], {"de": "Willkommen!", "en": ""})
 
+    def test_admin_edits_ai_notice_bilingually_and_public_reads_it(self):
+        self.client.force_login(self.admin)
+        response = self.client.put(
+            "/api/manage/site/",
+            {
+                "ai_notice": {"de": "Externes Modell.", "en": "External model."},
+                "ai_notice_url": "https://uni.example/datenschutz",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        config = SiteConfig.load()
+        self.assertEqual(config.ai_notice_de, "Externes Modell.")
+        self.assertEqual(config.ai_notice_en, "External model.")
+        self.assertEqual(config.ai_notice_url, "https://uni.example/datenschutz")
+        # The public site endpoint exposes it (the SPA reads it there).
+        self.client.logout()
+        public = self.client.get("/api/site/").json()
+        self.assertEqual(public["ai_notice"], {"de": "Externes Modell.", "en": "External model."})
+        self.assertEqual(public["ai_notice_url"], "https://uni.example/datenschutz")
+
+    def test_ai_notice_empty_by_default(self):
+        self.assertEqual(self.client.get("/api/site/").json()["ai_notice"], {"de": "", "en": ""})
+
     def test_admin_edits_landing_text_via_map(self):
         self.client.force_login(self.admin)
         response = self.client.put(
