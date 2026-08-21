@@ -18,7 +18,7 @@ from rest_framework import serializers
 from common.i18n_fields import TranslatedMapMixin
 
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
-from .naming import default_title, unique_title
+from .naming import generate_default_titles
 from .sanitize import clean_html, clean_media_url
 from .transfer import sync_after_question
 
@@ -157,11 +157,18 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         title = (attrs.get(canonical_key, attrs.get("title")) or "").strip()
         if not title:
             if self.instance is None:
-                generated = unique_title(
-                    default_title("Unbenannter Raum"),
+                generated = generate_default_titles(
+                    {"de": "Unbenannter Raum", "en": "Unnamed room"},
+                    CONTENT_DEFAULT_LANGUAGE,
                     lambda t: owned.filter(**{f"{canonical_key}__iexact": t}).exists(),
                 )
-                attrs[canonical_key] = generated
+                # Fill the canonical column, and any OTHER language only when
+                # the user left it blank too — never clobber a translation
+                # they did provide (e.g. de="" but en="Keep me").
+                for lang, value in generated.items():
+                    col = f"title_{lang}"
+                    if lang == CONTENT_DEFAULT_LANGUAGE or not (attrs.get(col) or "").strip():
+                        attrs[col] = value
             else:
                 attrs.pop(canonical_key, None)
                 attrs.pop("title", None)  # blank rename keeps the old title
@@ -223,13 +230,19 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         title = (attrs.get(canonical_key, attrs.get("title")) or "").strip()
         if not title:
             if self.instance is None:
-                generated = unique_title(
-                    default_title("Unbenanntes Fragenset"),
+                generated = generate_default_titles(
+                    {"de": "Unbenanntes Fragenset", "en": "Unnamed question set"},
+                    CONTENT_DEFAULT_LANGUAGE,
                     lambda t: room.question_sets.filter(
                         **{f"{canonical_key}__iexact": t}
                     ).exists(),
                 )
-                attrs[canonical_key] = generated
+                # Fill the canonical column, and any OTHER language only when
+                # the user left it blank too (never clobber a provided one).
+                for lang, value in generated.items():
+                    col = f"title_{lang}"
+                    if lang == CONTENT_DEFAULT_LANGUAGE or not (attrs.get(col) or "").strip():
+                        attrs[col] = value
             else:
                 attrs.pop(canonical_key, None)
                 attrs.pop("title", None)
