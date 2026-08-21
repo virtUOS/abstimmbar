@@ -101,7 +101,7 @@ export function SetSettingsForm({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="grid max-w-2xl gap-6">
+    <div className="grid max-w-2xl gap-8">
       <TranslatableField
         label={t("Title")}
         value={draft.title}
