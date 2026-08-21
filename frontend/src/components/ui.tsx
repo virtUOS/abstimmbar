@@ -43,7 +43,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100 ${props.className ?? ""}`}
+      className={`w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 dark:bg-slate-900 dark:text-slate-100 ${props.className ?? ""}`}
     />
   );
 }
@@ -68,7 +68,7 @@ export function Select({
       {...props}
       className={
         "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm " +
-        "text-slate-700 focus:border-brand-600 focus:outline-none " +
+        "text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 " +
         "dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 " +
         className
       }

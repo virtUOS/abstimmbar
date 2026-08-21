@@ -155,7 +155,7 @@ export default function RichTextEditor({
   }
 
   return (
-    <div className="rounded-lg border border-slate-300 dark:border-slate-700 focus-within:border-brand-600 dark:focus-within:border-brand-600">
+    <div className="rounded-lg border border-slate-300 dark:border-slate-700 focus-within:ring-2 focus-within:ring-brand-600 focus-within:ring-offset-2 focus-within:ring-offset-white dark:focus-within:ring-offset-slate-950">
       <div className="flex flex-nowrap gap-1 overflow-x-auto border-b border-slate-200 dark:border-slate-800 px-2 py-1">
         <ToolbarButton
           label={t("Bold")}
