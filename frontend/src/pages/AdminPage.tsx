@@ -12,7 +12,7 @@ import { api, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSi
 import { useApp } from "../App";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import TranslatableField from "../components/TranslatableField";
-import { Button, ConfirmInline, EmptyState, Field, InfoHint, TextInput } from "../components/ui";
+import { Button, ConfirmInline, EmptyState, Field, InfoHint, Select, TextInput } from "../components/ui";
 
 function slugify(value: string) {
   return value
@@ -56,6 +56,10 @@ function BrandingSection() {
   const [site, setSite] = useState<ManageSite | null>(null);
   const [text, setText] = useState<LocalizedText>("");
   const [closing, setClosing] = useState<LocalizedText>("");
+  const [aiNotice, setAiNotice] = useState<LocalizedText>("");
+  const [aiNoticePage, setAiNoticePage] = useState("");
+  const [aiNoticeUrl, setAiNoticeUrl] = useState("");
+  const [pages, setPages] = useState<ManagePage[]>([]);
   const [saved, setSaved] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -64,11 +68,21 @@ function BrandingSection() {
       setSite(data);
       setText(data.landing_text);
       setClosing(data.closing_info);
+      setAiNotice(data.ai_notice);
+      setAiNoticePage(data.ai_notice_page ?? "");
+      setAiNoticeUrl(data.ai_notice_url);
     });
+    void api.listManagePages().then(setPages);
   }, []);
 
   async function saveText() {
-    const updated = await api.updateSite(text, closing);
+    const updated = await api.updateSite({
+      landing_text: text,
+      closing_info: closing,
+      ai_notice: aiNotice,
+      ai_notice_page: aiNoticePage || null,
+      ai_notice_url: aiNoticeUrl,
+    });
     setSite(updated);
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1500);
@@ -138,7 +152,44 @@ function BrandingSection() {
           onChange={setClosing}
           placeholder={t("Shown to participants after every vote — e.g. contact, feedback link …")}
         />
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-4">
+          <TranslatableField
+            label={t("AI privacy notice")}
+            value={aiNotice}
+            onChange={setAiNotice}
+            placeholder={t("e.g. An external model processes uploaded material.")}
+            hint={t("Shown as a one-time banner while the AI features are available. Leave empty for no banner.")}
+          />
+        </div>
+        <div className="mt-3">
+          <Field label={t("Privacy policy page (internal)")}>
+            <Select
+              value={aiNoticePage}
+              onChange={(event) => setAiNoticePage(event.target.value)}
+            >
+              <option value="">{t("— none —")}</option>
+              {pages
+                .filter((page) => page.is_published)
+                .map((page) => (
+                  <option key={page.slug} value={page.slug}>
+                    {localizedText(page.title)}
+                  </option>
+                ))}
+            </Select>
+          </Field>
+        </div>
+        <div className="mt-3">
+          <Field label={t("…or external privacy policy URL")}>
+            <TextInput
+              type="url"
+              value={aiNoticeUrl}
+              onChange={(event) => setAiNoticeUrl(event.target.value)}
+              placeholder="https://…"
+              disabled={!!aiNoticePage}
+            />
+          </Field>
+        </div>
+        <div className="mt-4 flex items-center gap-3">
           <Button variant="primary" onClick={() => void saveText()}>
             {t("Save")}
           </Button>

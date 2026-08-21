@@ -34,6 +34,18 @@ class SiteConfig(models.Model):
     closing_info = models.TextField(blank=True, default="")
     # FileField (not ImageField) so an SVG logo is allowed.
     logo = models.FileField(upload_to="branding/", blank=True, null=True)
+    # AI privacy notice (#80): a short operator-authored sentence saying
+    # whether a local or external model processes uploaded material. Shown as
+    # a one-time, dismissible banner while AI is available. Translatable
+    # (de/en); the link points at the operator's privacy policy.
+    ai_notice = models.TextField(blank=True, default="")
+    # The notice's "more info" link: either an internal content page (#80,
+    # e.g. a self-authored privacy page) or an external URL. The page wins
+    # when both are set; SET_NULL so deleting the page just drops the link.
+    ai_notice_page = models.ForeignKey(
+        "Page", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
+    )
+    ai_notice_url = models.URLField(blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):

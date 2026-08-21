@@ -58,13 +58,20 @@ class SiteConfigSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     landing_text/closing_info are authored in de+en (#33 MR2); each is
     represented as a {"de": ..., "en": ...} map, resolved client-side."""
 
-    translated_fields = ("landing_text", "closing_info")
+    translated_fields = ("landing_text", "closing_info", "ai_notice")
 
     logo = serializers.SerializerMethodField()
+    # Read/write the internal notice page by its slug (null = none).
+    ai_notice_page = serializers.SlugRelatedField(
+        slug_field="slug", queryset=Page.objects.all(), allow_null=True, required=False,
+    )
 
     class Meta:
         model = SiteConfig
-        fields: ClassVar = ["landing_text", "closing_info", "logo"]
+        fields: ClassVar = [
+            "landing_text", "closing_info", "logo",
+            "ai_notice", "ai_notice_page", "ai_notice_url",
+        ]
 
     def validate_landing_text(self, value):
         return clean_html(value)
