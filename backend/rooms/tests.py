@@ -1910,6 +1910,18 @@ class AiGenerateEndpointTests(ApiTestCase):
         self.assertEqual(r.json()["questions"][0]["text"], "Was ist X?")
         self.assertIn("open_text", chat.call_args.args[1])
 
+    def test_guidance_is_passed_into_the_prompt(self):
+        reply = {"questions": [{"kind": "open_text", "text": "Was ist X?"}]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ) as chat:
+            r = self.client.post(
+                self.url,
+                {"text": "Ein längerer Materialtext.", "guidance": "Nur Alltagsbeispiele"},
+            )
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("Nur Alltagsbeispiele", chat.call_args.args[1])
+
     def test_no_text_returns_400(self):
         with self.override_settings(**AI_ON):
             r = self.client.post(self.url, {})
@@ -2489,6 +2501,21 @@ class AiGenerateLevelsTests(TestCase):
     def test_prompt_declares_unsuitable_reason_contract(self):
         p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
         self.assertIn("unsuitable_reason", p)
+
+    def test_prompt_includes_guidance_when_given(self):
+        p = ai_generate.build_generate_prompt(
+            "Stoff", 5, ["single_choice"], "mixed", "Alltagsbeispiele verwenden"
+        )
+        self.assertIn("Alltagsbeispiele verwenden", p)
+        self.assertIn("Lehrperson", p)  # framed as subordinate teacher wishes
+
+    def test_prompt_omits_guidance_block_when_empty(self):
+        p = ai_generate.build_generate_prompt(
+            "Stoff", 5, ["single_choice"], "mixed", "   "
+        )
+        self.assertEqual(
+            p, ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
+        )
 
     def test_system_mentions_cognitive_variety_and_declining(self):
         s = ai_generate.generate_system().lower()

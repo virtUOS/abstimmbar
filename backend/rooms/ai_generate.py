@@ -56,13 +56,24 @@ def generate_system():
     )
 
 
-def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL):
+def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
     allowed = [k for k in ALLOWED_KINDS if k in kinds] or list(ALLOWED_KINDS)
     kind_lines = "\n".join(f"- {k}: {KIND_LABELS[k]}" for k in allowed)
     hint = _LEVEL_HINTS.get(level, _LEVEL_HINTS[DEFAULT_LEVEL])
+    # Optional free-text wishes from the teacher (#84). They steer emphasis
+    # and style but must not override the material-fidelity and JSON rules
+    # above, so they are framed explicitly as subordinate.
+    guidance_block = ""
+    if guidance and guidance.strip():
+        guidance_block = (
+            "Zusätzliche Vorgaben der Lehrperson (befolge sie, soweit sie dem "
+            "Material treu bleiben – sie heben die obigen Regeln nicht auf):\n"
+            f"{guidance.strip()}\n\n"
+        )
     return (
         f"Erzeuge bis zu {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
         f"Kognitive Ausrichtung: {hint}\n\n"
+        f"{guidance_block}"
         "Material:\n"
         f"{text}\n\n"
         "Gib JSON in genau dieser Form zurück:\n"
