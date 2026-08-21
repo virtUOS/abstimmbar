@@ -116,7 +116,7 @@ export function RoomSettingsForm({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="grid max-w-2xl gap-4">
+    <div className="grid max-w-2xl gap-6">
       <TranslatableField
         label={t("Name")}
         value={draft.title}
