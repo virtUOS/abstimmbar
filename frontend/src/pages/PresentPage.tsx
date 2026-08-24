@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { Check, ChevronLeft, ChevronRight, Timer, Users, Vote } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, QrCode, Timer, Users, Vote, X } from "lucide-react";
 import { API_BASE_URL, api, live, type LiveState, type Question, type WordCloudAI } from "../api";
 import { localizedText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
@@ -120,6 +120,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // After ending, dwell on a closing slide instead of jumping straight back
   // to the management screen (#32).
   const [ended, setEnded] = useState(false);
+  // On-demand QR/join panel on the beamer (#): a scannable side panel the
+  // presenter can flash without changing the vote phase. Toggled by the
+  // footer icon or the "q" key; Esc closes it.
+  const [showJoin, setShowJoin] = useState(false);
   // Word-cloud view cycle: raw → AI-consolidated → AI-grouped (#Wortwolke-KI).
   const [wcView, setWcView] = useState<"raw" | "consolidated" | "grouped">("raw");
   const activeAiRef = useRef<number | null>(null);
@@ -439,6 +443,17 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         else if (key === "escape") setInterstitial(null);
         return;
       }
+      // The QR/join panel is a transient overlay — Esc closes it first (so it
+      // doesn't end the presentation), "q" toggles it. Neither touches the
+      // vote phase.
+      if (key === "escape" && showJoin) {
+        setShowJoin(false);
+        return;
+      }
+      if (key === "q") {
+        setShowJoin((v) => !v);
+        return;
+      }
       if (key === "arrowright") advanceNext();
       else if (key === "arrowleft") goPrev();
       else if (advance) {
@@ -459,7 +474,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed],
+    [runId, phase, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin],
   );
 
   useEffect(() => {
@@ -686,6 +701,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 questionId={question.id}
               />
             )}
+            {showJoin && (
+              <JoinPanel room={state.room} onClose={() => setShowJoin(false)} />
+            )}
           </>
         ) : null
       }
@@ -721,6 +739,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           }
           viewValue={wcView}
           onSelectView={(v) => setWcView(v as "raw" | "consolidated" | "grouped")}
+          joinShown={showJoin}
+          onToggleJoin={() => setShowJoin((v) => !v)}
           onFinish={() => void finish()}
           onCloseWindow={canCloseWindow ? () => window.close() : undefined}
         />
@@ -1313,6 +1333,47 @@ function JoinCorner({ room }: { room: LiveState["room"] }) {
   );
 }
 
+/** On-demand join panel (#): a large, scannable QR plus the room name, join
+ *  URL and code. Docked to the right so the question/vote stay fully visible;
+ *  it only displays, never changes the vote phase. Closed via its X, the
+ *  footer icon, or Esc. */
+function JoinPanel({
+  room,
+  onClose,
+}: {
+  room: LiveState["room"];
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const url = live.participantUrl(room.code);
+  return (
+    <div className="fixed right-6 top-1/2 z-30 w-72 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl backdrop-blur">
+      <button
+        type="button"
+        aria-label={t("Close")}
+        onClick={onClose}
+        className="absolute right-2 top-2 rounded-lg p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+      >
+        <X aria-hidden className="h-4 w-4" />
+      </button>
+      <p className="mb-3 truncate pr-4 text-lg font-bold text-slate-900">
+        {localizedText(room.title)}
+      </p>
+      <img
+        src={live.qrUrl(room.code)}
+        alt={t("QR code for {{url}}", { url })}
+        className="mx-auto h-56 w-56 rounded-lg"
+      />
+      <p className="mt-3 break-all text-sm text-slate-600">
+        {url.replace(/^https?:\/\//, "")}
+      </p>
+      <p className="text-3xl font-extrabold tracking-widest text-brand-700">
+        {room.code}
+      </p>
+    </div>
+  );
+}
+
 function Kbd({ children }: { children: React.ReactNode }) {
   return (
     <kbd className="rounded-md border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-sm">
@@ -1510,6 +1571,8 @@ function Footer(props: {
   onSelectView?: (value: string) => void;
   onFinish: () => void;
   onCloseWindow?: () => void;
+  joinShown?: boolean;
+  onToggleJoin?: () => void;
 }) {
   const { t } = useTranslation();
   const btn =
@@ -1532,6 +1595,20 @@ function Footer(props: {
                 })
               : t("Start")}
         </span>
+        {/* Toggle a scannable QR/join panel on demand (#), without touching
+         *  the vote state. "Q" does the same. */}
+        {!isSection && props.onToggleJoin && (
+          <button
+            type="button"
+            aria-label={t("Show QR code and join link")}
+            aria-pressed={props.joinShown}
+            title={t("Show QR code and join link (Q)")}
+            onClick={props.onToggleJoin}
+            className={`rounded-lg p-1.5 transition-colors ${props.joinShown ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200" : "text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:text-slate-400"}`}
+          >
+            <QrCode aria-hidden className="h-5 w-5" />
+          </button>
+        )}
         {!isSection && props.onShowResults && props.phase !== "lobby" && (
           <div
             className="grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
