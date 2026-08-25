@@ -1081,69 +1081,32 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {t("answer being evaluated", { count: state.evaluation.pending })}
                 </p>
               )}
-              {/* Optional bar chart of the category distribution (#Freitext-Skalen). */}
-              {state.evaluation.chart && (
-                <div className="mx-auto mb-6 max-w-3xl space-y-3">
-                  {state.evaluation.groups.map((group, i) => {
-                    const total = state.evaluation!.groups.reduce((s, g) => s + g.count, 0);
-                    const pct = total ? Math.round((group.count / total) * 100) : 0;
-                    return (
-                      <div key={group.verdict}>
-                        <div className="mb-1 flex items-center justify-between text-xl">
-                          <span className={EVAL_COLORS[i % EVAL_COLORS.length].title}>
-                            {evalLabel(group.verdict)}
-                          </span>
-                          <span className="tabular-nums text-slate-500">
-                            {group.count} · {pct} %
-                          </span>
-                        </div>
-                        <div className="h-6 overflow-hidden rounded-lg bg-slate-100">
-                          <div
-                            className={`h-full ${EVAL_COLORS[i % EVAL_COLORS.length].bar}`}
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
+              {/* Beamer shows only the scale distribution (counts/bars) for
+                  AI-evaluated free text — never the individual answer texts;
+                  those stay in the presenter's results overview. */}
+              <div className="mx-auto mb-6 max-w-3xl space-y-3">
+                {state.evaluation.groups.map((group, i) => {
+                  const total = state.evaluation!.groups.reduce((s, g) => s + g.count, 0);
+                  const pct = total ? Math.round((group.count / total) * 100) : 0;
+                  return (
+                    <div key={group.verdict}>
+                      <div className="mb-1 flex items-center justify-between text-xl">
+                        <span className={EVAL_COLORS[i % EVAL_COLORS.length].title}>
+                          {evalLabel(group.verdict)}
+                        </span>
+                        <span className="tabular-nums text-slate-500">
+                          {group.count} · {pct} %
+                        </span>
                       </div>
-                    );
-                  })}
-                </div>
-              )}
-              <div
-                className="grid gap-4"
-                style={{
-                  gridTemplateColumns: `repeat(${Math.max(
-                    1,
-                    state.evaluation.groups.length,
-                  )}, minmax(0, 1fr))`,
-                }}
-              >
-                {state.evaluation.groups.map((group, i) => (
-                  <div
-                    key={group.verdict}
-                    className={`rounded-2xl border p-4 ${EVAL_COLORS[i % EVAL_COLORS.length].box}`}
-                  >
-                    <div
-                      className={`mb-2 text-lg font-semibold ${EVAL_COLORS[i % EVAL_COLORS.length].title}`}
-                    >
-                      {evalLabel(group.verdict)} · {group.count}
+                      <div className="h-6 overflow-hidden rounded-lg bg-slate-100">
+                        <div
+                          className={`h-full ${EVAL_COLORS[i % EVAL_COLORS.length].bar}`}
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
                     </div>
-                    <ul className="max-h-80 space-y-1.5 overflow-auto">
-                      {group.items.map((item) => (
-                        <li key={item.text} className="text-lg text-slate-800">
-                          {item.text}
-                          {item.count > 1 && (
-                            <span className="ml-2 text-sm text-slate-400">
-                              ×{item.count}
-                            </span>
-                          )}
-                        </li>
-                      ))}
-                      {group.items.length === 0 && (
-                        <li className="text-slate-300">—</li>
-                      )}
-                    </ul>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
