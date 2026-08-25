@@ -11,6 +11,7 @@ api_urlpatterns = [
     path("live/rooms/<str:code>/vote/", views.vote),
     path("live/rooms/<str:code>/retract/", views.retract),
     path("live/rooms/<str:code>/quiz/", views.quiz),
+    path("live/rooms/<str:code>/my-evaluation/", views.my_evaluation),
     path("live/rooms/<str:code>/stream/", views.stream),
     # Recording mode (#53): async viewer voting, keyed by the run's token.
     path("live/recording/<str:token>/", views.recording_questions),

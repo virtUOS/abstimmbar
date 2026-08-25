@@ -69,6 +69,10 @@ def question_payload(question, shuffle_seed):
         # Per-participant word-cloud cap (#76); the participant page stops input
         # at this many terms (0 = unlimited). Harmless for other kinds.
         "wordcloud_max_answers": question.wordcloud_max_answers,
+        # Live free-text AI feedback (participant-facing): tells the client
+        # whether to poll my-evaluation for this question. False for every
+        # non-open_text question.
+        "participant_feedback": question.participant_feedback,
         "options": [
             {
                 "id": o.pk,
