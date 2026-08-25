@@ -38,6 +38,12 @@ abstimmbar.example.org {
 	handle /p/* {
 		reverse_proxy app:8000
 	}
+	# Recording mode (#53): the per-question viewer page and its QR image
+	# live under /r/ and are server-rendered by Django — must be proxied, or
+	# the QR <img> and the scanned deep link fall through to the SPA.
+	handle /r/* {
+		reverse_proxy app:8000
+	}
 	handle /question-preview/* {
 		reverse_proxy app:8000
 	}
