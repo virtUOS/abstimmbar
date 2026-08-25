@@ -53,6 +53,17 @@ class RoomModelTests(TestCase):
         self.assertEqual(room.code, code)
 
 
+class QuestionModelTests(TestCase):
+    def test_model_solution_and_participant_feedback_defaults(self):
+        room = Room.objects.create(title="Bio 101")
+        question_set = QuestionSet.objects.create(room=room, title="Set")
+        question = Question.objects.create(
+            question_set=question_set, kind="open_text", text="Q"
+        )
+        self.assertEqual(question.model_solution, "")
+        self.assertFalse(question.participant_feedback)
+
+
 class ApiTestCase(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username="frank")

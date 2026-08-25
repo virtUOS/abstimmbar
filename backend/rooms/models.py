@@ -252,6 +252,12 @@ class Question(TimeStampedModel):
     # Optionally show the category distribution as a bar chart on the beamer /
     # results page (in addition to the grouped answer lists).
     evaluation_chart = models.BooleanField(default=False)
+    # open_text only: optional model solution (Musterlösung) fed to the AI as
+    # the reference the answers are scored against. Plain like evaluation_hint.
+    model_solution = models.TextField(blank=True)
+    # open_text only: also show each participant the AI verdict of THEIR OWN
+    # answer on their device (individuelle Auswertung für Teilnehmende).
+    participant_feedback = models.BooleanField(default=False)
     # v2 (#14): word clouds may let each participant submit several terms
     # (+ „Fertig"). Only meaningful for WORD_CLOUD; ignored otherwise.
     allow_multiple = models.BooleanField(default=False)
