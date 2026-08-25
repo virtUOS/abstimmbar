@@ -251,9 +251,19 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       autoClosedRef.current !== deadline
     ) {
       autoClosedRef.current = deadline;
-      void live.control(runId, { phase: "closed" });
+      if (activeKind === "word_cloud") {
+        // Keep the cloud on the beamer after the timer expires (and surface
+        // #30's deferred cloud) — the same "results" landing as the Stop
+        // button, instead of a bare closed slide that would hide it.
+        void (async () => {
+          await live.control(runId, { phase: "closed" });
+          await live.control(runId, { phase: "results" });
+        })();
+      } else {
+        void live.control(runId, { phase: "closed" });
+      }
     }
-  }, [remaining, phase, runId, state?.ends_at]);
+  }, [remaining, phase, runId, activeKind, state?.ends_at]);
 
   // Track dwell time: when a new question slide appears, and when its vote
   // opens (both feed the leave prompt).
@@ -457,7 +467,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       if (key === "arrowright") advanceNext();
       else if (key === "arrowleft") goPrev();
       else if (advance) {
-        if (phase === "open") void live.control(runId, { phase: "closed" });
+        if (phase === "open")
+          // Word clouds freeze onto the results view (cloud stays visible),
+          // matching the Stop button; other kinds just close.
+          activeKind === "word_cloud"
+            ? void showResults()
+            : void live.control(runId, { phase: "closed" });
         else if (phase === "preview" || phase === "closed" || phase === "results")
           void live.control(runId, { phase: "open" });
         else if (phase === "lobby") startFromLobby();
@@ -474,7 +489,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin],
   );
 
   useEffect(() => {
@@ -718,7 +733,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           onNext={advanceNext}
           onToggle={() =>
             phase === "open"
-              ? void live.control(runId!, { phase: "closed" })
+              ? // Word clouds jump straight to results on close so the cloud
+                // stays on screen (and #30's deferred cloud appears); "Frage"
+                // then hides it. Other kinds close first, reveal on demand.
+                activeKind === "word_cloud"
+                ? void showResults()
+                : void live.control(runId!, { phase: "closed" })
               : phase === "lobby"
                 ? startFromLobby()
                 : void live.control(runId!, { phase: "open" })
@@ -1158,34 +1178,25 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </p>
               </div>
             )}
+          {/* The cloud is the word-cloud "result": show it live while voting
+              (unless the presenter deferred it to close, #30), and once the
+              reveal pill is on "Ergebnis". On "Frage" it stays hidden so the
+              presenter can display just the question. The view (raw / AI
+              cleaned / AI grouped) is picked from the footer dropdown. */}
           {question.kind === "word_cloud" &&
-            !(phase === "open" && question.wordcloud_live === false) && (
-              <>
-                {aiCloud && (
-                  <p className="mt-2 text-center text-sm text-slate-400">
-                    {t(
-                      wcView === "raw"
-                        ? "All entries"
-                        : wcView === "consolidated"
-                          ? "AI · similar merged"
-                          : "AI · grouped",
-                    )}{" "}
-                    · <Kbd>A</Kbd> {t("View")}
-                  </p>
-                )}
-                {wcView === "raw" ? (
-                  (state.words ?? []).length === 0 ? (
-                    <p className="mt-8 text-center text-slate-400">
-                      {t("No terms yet …")}
-                    </p>
-                  ) : (
-                    <WordCloud words={state.words ?? []} />
-                  )
-                ) : (
-                  <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
-                )}
-              </>
-            )}
+            (phase === "results" ||
+              (phase === "open" && question.wordcloud_live !== false)) &&
+            (wcView === "raw" ? (
+              (state.words ?? []).length === 0 ? (
+                <p className="mt-8 text-center text-slate-400">
+                  {t("No terms yet …")}
+                </p>
+              ) : (
+                <WordCloud words={state.words ?? []} />
+              )
+            ) : (
+              <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
+            ))}
 
           <div className="mt-10 text-center text-slate-500">
             {phase === "preview" && (
@@ -1643,19 +1654,10 @@ function Footer(props: {
             )}
           </div>
         )}
-      </div>
-      {/* Always-present Beenden + navigation stay flush right; Starten sits
-       * on the left of this group so they never shift as it appears. */}
-      <div className="flex gap-2">
-        {/* Starting/results only make sense on a question, not a section. */}
-        {!isSection && props.onToggle && (
-          <button className={btn} onClick={props.onToggle}>
-            {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}
-            <Kbd>S</Kbd>
-          </button>
-        )}
-        {/* Word-cloud AI views (#75): a dropdown shows which views exist and
-            which is active; the "a" key still cycles them. */}
+        {/* Word-cloud view (#75): sits right beside the Frage/Ergebnis pill —
+            both steer what's on the beamer. A dropdown lists the available
+            views (raw / AI cleaned / AI grouped); the "a" key still cycles
+            them. */}
         {!isSection && props.views && props.onSelectView && (
           <label className={`${btn} gap-2`}>
             {t("View")}
@@ -1672,6 +1674,17 @@ function Footer(props: {
             </select>
             <Kbd>A</Kbd>
           </label>
+        )}
+      </div>
+      {/* Always-present Beenden + navigation stay flush right; Starten sits
+       * on the left of this group so they never shift as it appears. */}
+      <div className="flex gap-2">
+        {/* Starting/results only make sense on a question, not a section. */}
+        {!isSection && props.onToggle && (
+          <button className={btn} onClick={props.onToggle}>
+            {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}
+            <Kbd>S</Kbd>
+          </button>
         )}
         <button className={`${btn} text-red-700`} onClick={props.onFinish}>
           {t("End")} <Kbd>Esc</Kbd>
