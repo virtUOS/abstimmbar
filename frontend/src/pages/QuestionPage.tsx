@@ -167,6 +167,8 @@ export default function QuestionPage() {
   const [evalCategories, setEvalCategories] = useState<string[]>(["korrekt", "unklar", "falsch"]);
   const [evalScale, setEvalScale] = useState<string>("correctness");
   const [evalChart, setEvalChart] = useState(false);
+  const [modelSolution, setModelSolution] = useState("");
+  const [participantFeedback, setParticipantFeedback] = useState(false);
   const [allowMultiple, setAllowMultiple] = useState(false);
   const [wordcloudMaxAnswers, setWordcloudMaxAnswers] = useState(0);
   const [wordcloudLive, setWordcloudLive] = useState(true);
@@ -224,6 +226,8 @@ export default function QuestionPage() {
       setEvalCategories(cats);
       setEvalScale(detectEvalPreset(cats));
       setEvalChart(data.evaluation_chart);
+      setModelSolution(data.model_solution ?? "");
+      setParticipantFeedback(data.participant_feedback ?? false);
       setAllowMultiple(data.allow_multiple);
       setWordcloudMaxAnswers(data.wordcloud_max_answers ?? 0);
       setWordcloudLive(data.wordcloud_live);
@@ -324,6 +328,8 @@ export default function QuestionPage() {
             ? evalCategories.map((c) => c.trim()).filter(Boolean)
             : ["korrekt", "unklar", "falsch"],
         evaluation_chart: question.kind === "open_text" && evalChart,
+        model_solution: question.kind === "open_text" ? modelSolution : "",
+        participant_feedback: question.kind === "open_text" && participantFeedback,
         allow_multiple: question.kind === "word_cloud" && allowMultiple,
         wordcloud_max_answers:
           question.kind === "word_cloud" && allowMultiple ? wordcloudMaxAnswers : 0,
@@ -1069,6 +1075,19 @@ export default function QuestionPage() {
                   )}
                 </p>
 
+                <div className="mt-2">
+                  <textarea
+                    value={modelSolution}
+                    onChange={(event) => setModelSolution(event.target.value)}
+                    rows={2}
+                    placeholder={t("Model solution (optional)")}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  />
+                  <p className="mt-1 text-xs text-slate-400">
+                    {t("The AI scores answers against this reference.")}
+                  </p>
+                </div>
+
                 <label className="mt-3 grid gap-1 text-sm text-slate-700 dark:text-slate-300">
                   {t("Scale")}
                   <select
@@ -1146,6 +1165,16 @@ export default function QuestionPage() {
                     className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show distribution as bar chart")}
+                </label>
+
+                <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={participantFeedback}
+                    onChange={(event) => setParticipantFeedback(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show each participant the evaluation of their own answer")}
                 </label>
               </div>
             )}
