@@ -263,10 +263,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       autoClosedRef.current !== deadline
     ) {
       autoClosedRef.current = deadline;
-      void live.control(runId, { phase: "closed" });
-      // Reveal the cloud once the timer closes voting (surfaces #30's deferred
-      // cloud); the beamer display is local, so no phase change beyond closing.
-      if (activeKind === "word_cloud") setWcReveal("results");
+      if (activeKind === "word_cloud") {
+        // A real close (timer) advances to "results" so participant devices
+        // get the word list (#53, phase-gated in state.py) and voting stops;
+        // the beamer cloud is additionally revealed via the local wcReveal.
+        void (async () => {
+          await live.control(runId, { phase: "closed" });
+          await live.control(runId, { phase: "results" });
+        })();
+        setWcReveal("results");
+      } else {
+        void live.control(runId, { phase: "closed" });
+      }
     }
   }, [remaining, phase, runId, activeKind, state?.ends_at]);
 
@@ -473,10 +481,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       else if (key === "arrowleft") goPrev();
       else if (advance) {
         if (phase === "open") {
-          void live.control(runId, { phase: "closed" });
-          // Closing reveals the word cloud (incl. #30's deferred one); the
-          // beamer display is local, so voting just stops, nothing else.
-          if (activeKind === "word_cloud") setWcReveal("results");
+          // A real close advances word clouds to "results" (participant
+          // devices get the word list, #53; voting stops) and reveals the
+          // beamer cloud locally; other kinds just close.
+          if (activeKind === "word_cloud") {
+            void showResults();
+            setWcReveal("results");
+          } else void live.control(runId, { phase: "closed" });
         } else if (phase === "preview" || phase === "closed" || phase === "results")
           void live.control(runId, { phase: "open" });
         else if (phase === "lobby") startFromLobby();
@@ -741,11 +752,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           onNext={advanceNext}
           onToggle={() => {
             if (phase === "open") {
-              // Stop just closes voting; for a word cloud we also reveal the
-              // cloud (incl. #30's deferred one) on the beamer. Its
-              // "Frage"/"Ergebnis" toggle is local and never closes the vote.
-              void live.control(runId!, { phase: "closed" });
-              if (activeKind === "word_cloud") setWcReveal("results");
+              // Stop closes voting. Word clouds advance to "results" so
+              // participant devices get the word list (#53) and the beamer
+              // cloud is revealed locally; the pill's own "Frage"/"Ergebnis"
+              // toggle stays local and never closes the vote.
+              if (activeKind === "word_cloud") {
+                void showResults();
+                setWcReveal("results");
+              } else void live.control(runId!, { phase: "closed" });
             } else if (phase === "lobby") startFromLobby();
             else void live.control(runId!, { phase: "open" });
           }}
