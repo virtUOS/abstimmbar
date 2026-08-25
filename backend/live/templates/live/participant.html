@@ -80,6 +80,12 @@ multi-line note must use {% comment %} or it renders as text.)
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
   <p>{% trans "Your answer was received." %}</p>
   <p class="soft">{% trans "Waiting for the next question." %}</p>
+  {# Live AI feedback on the participant's own open_text answer: polled while this question opted into ai_evaluate + participant_feedback. #}
+  <div id="eval-feedback" hidden style="margin-top:18px;text-align:left;border-top:1px solid var(--line);padding-top:16px">
+    <p class="soft" style="margin:0 0 6px;font-weight:600">{% trans "Evaluation of your answer" %}</p>
+    <p class="eval-verdict"><strong id="eval-verdict"></strong></p>
+    <p class="soft" id="eval-note"></p>
+  </div>
 </section>
 
 <section id="closed" class="center" hidden>
@@ -312,6 +318,66 @@ multi-line note must use {% comment %} or it renders as text.)
   const voteMark = () =>
     state && state.question ? (state.run_id ?? "") + ":" + state.question.id : "";
   const votedFor = () => sessionStorage.getItem(VOTED_KEY);
+
+  // Live AI feedback on my OWN open_text answer (poll my-evaluation): started
+  // once the "done" screen is shown for a question with ai_evaluate +
+  // participant_feedback on, stopped when the run/question no longer matches
+  // (mirrors the run_id+question.id key used by voteMark()/wcKey/priKey
+  // above). setTimeout recursion, not setInterval, so a slow response never
+  // overlaps the next poll.
+  let evalTimer = null;
+  let evalKey = null; // run_id:question.id currently tracked (pending or resolved)
+
+  function resetEvalFeedback() {
+    window.clearTimeout(evalTimer);
+    evalTimer = null;
+    document.getElementById("eval-verdict").textContent = "";
+    document.getElementById("eval-note").textContent = "";
+    document.getElementById("eval-feedback").hidden = true;
+  }
+
+  function stopEvalPoll() {
+    evalKey = null;
+    resetEvalFeedback();
+  }
+
+  async function pollEvaluation(key, questionId) {
+    if (evalKey !== key) return; // superseded while this call was scheduled
+    let response;
+    try {
+      response = await fetch(`/api/live/rooms/${CODE}/my-evaluation/?token=` +
+        encodeURIComponent(token) + "&question=" + encodeURIComponent(questionId));
+    } catch {
+      if (evalKey === key) evalTimer = window.setTimeout(() => pollEvaluation(key, questionId), 2000);
+      return;
+    }
+    if (evalKey !== key || !response.ok) {
+      if (evalKey === key) evalTimer = window.setTimeout(() => pollEvaluation(key, questionId), 2000);
+      return;
+    }
+    const data = await response.json();
+    if (evalKey !== key) return; // question/run moved on while awaiting the response
+    if (data.status === "ready") {
+      document.getElementById("eval-verdict").textContent = data.verdict || "";
+      document.getElementById("eval-note").textContent = data.note || "";
+      document.getElementById("eval-feedback").hidden = false;
+      return; // resolved — evalKey stays set so a later render() won't re-poll
+    }
+    if (data.status === "off") return; // no feedback for this question — stay quiet
+    evalTimer = window.setTimeout(() => pollEvaluation(key, questionId), 2000); // "pending"
+  }
+
+  // Called from render() whenever the "done" screen is (re)shown for an
+  // open_text question with participant feedback on. A no-op if already
+  // tracking this exact run+question (whether still pending or resolved).
+  function maybeStartEvalPoll(question) {
+    if (!(question.kind === "open_text" && question.participant_feedback)) return;
+    const key = (state.run_id ?? "") + ":" + question.id;
+    if (evalKey === key) return;
+    resetEvalFeedback();
+    evalKey = key;
+    void pollEvaluation(key, question.id);
+  }
 
   function show(id) {
     for (const key of Object.keys(sections)) sections[key].hidden = key !== id;
@@ -1147,9 +1213,16 @@ multi-line note must use {% comment %} or it renders as text.)
     quiz = null;
     quizDone = false;
     const phase = state.phase;
+    // Stop tracking the AI-evaluation poll once the run/question it was
+    // started for is no longer the one shown on the "done" screen (a new
+    // question opened, the run changed, or the phase moved past "open").
+    const evalActiveKey = phase === "open" && state.question
+      ? (state.run_id ?? "") + ":" + state.question.id : null;
+    if (evalKey && evalKey !== evalActiveKey) stopEvalPoll();
     if (phase === "open" && state.question) {
       if (votedFor() === voteMark()) {
         show("done");
+        maybeStartEvalPoll(state.question);
       } else {
         renderQuestion();
         show("question");
