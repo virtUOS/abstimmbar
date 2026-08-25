@@ -1064,20 +1064,21 @@ export default function SetPage() {
                       />
                     ) : (
                       <>
-                        {!easyMode && (
-                          <Button
-                            variant="ghost"
-                            aria-label={t("Present this question")}
-                            onClick={() =>
-                              window.open(
-                                `/sets/${id}/present?question=${question.id}`,
-                                "_blank",
-                              )
-                            }
-                          >
-                            <Play aria-hidden className="h-4 w-4" />
-                          </Button>
-                        )}
+                        {/* Presenting a single question is a core action, kept
+                            in both modes; only the Pro "Copy link" below is
+                            hidden in easy mode. */}
+                        <Button
+                          variant="ghost"
+                          aria-label={t("Present this question")}
+                          onClick={() =>
+                            window.open(
+                              `/sets/${id}/present?question=${question.id}`,
+                              "_blank",
+                            )
+                          }
+                        >
+                          <Play aria-hidden className="h-4 w-4" />
+                        </Button>
                         <MoreMenu label={t("Question actions")}>
                           {!easyMode && (
                             <MenuItem onClick={() => void copyQuestionLink(question.id)}>
