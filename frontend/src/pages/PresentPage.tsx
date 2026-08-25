@@ -126,6 +126,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [showJoin, setShowJoin] = useState(false);
   // Word-cloud view cycle: raw → AI-consolidated → AI-grouped (#Wortwolke-KI).
   const [wcView, setWcView] = useState<"raw" | "consolidated" | "grouped">("raw");
+  // Word-cloud reveal is a beamer-only display state, deliberately decoupled
+  // from the run phase: switching to "Ergebnis" shows the interim cloud
+  // WITHOUT closing the vote, so participants keep answering (only Stop/timer
+  // closes it). "Frage" hides the cloud again. (This interim-results-without-
+  // closing behaviour should eventually apply to every question type, but is
+  // wired only for word clouds for now.)
+  const [wcReveal, setWcReveal] = useState<"question" | "results">("results");
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -190,9 +197,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const aiCloud =
     activeKind === "word_cloud" && state?.question?.wordcloud_ai_enabled === true;
 
-  // Each new question starts on the raw view.
+  // Each new question starts on the raw view. Word clouds start revealed when
+  // they build live, and hidden (question only) when deferred to close (#30).
   useEffect(() => {
     setWcView("raw");
+    setWcReveal(state?.question?.wordcloud_live === false ? "question" : "results");
+    // Only re-run when the active question changes; reading the fresh
+    // wordcloud_live off state is intentional (not a reactive dependency).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
 
   // Tell the backend to keep the live AI views fresh only while one is shown
@@ -251,17 +263,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       autoClosedRef.current !== deadline
     ) {
       autoClosedRef.current = deadline;
-      if (activeKind === "word_cloud") {
-        // Keep the cloud on the beamer after the timer expires (and surface
-        // #30's deferred cloud) — the same "results" landing as the Stop
-        // button, instead of a bare closed slide that would hide it.
-        void (async () => {
-          await live.control(runId, { phase: "closed" });
-          await live.control(runId, { phase: "results" });
-        })();
-      } else {
-        void live.control(runId, { phase: "closed" });
-      }
+      void live.control(runId, { phase: "closed" });
+      // Reveal the cloud once the timer closes voting (surfaces #30's deferred
+      // cloud); the beamer display is local, so no phase change beyond closing.
+      if (activeKind === "word_cloud") setWcReveal("results");
     }
   }, [remaining, phase, runId, activeKind, state?.ends_at]);
 
@@ -467,17 +472,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       if (key === "arrowright") advanceNext();
       else if (key === "arrowleft") goPrev();
       else if (advance) {
-        if (phase === "open")
-          // Word clouds freeze onto the results view (cloud stays visible),
-          // matching the Stop button; other kinds just close.
-          activeKind === "word_cloud"
-            ? void showResults()
-            : void live.control(runId, { phase: "closed" });
-        else if (phase === "preview" || phase === "closed" || phase === "results")
+        if (phase === "open") {
+          void live.control(runId, { phase: "closed" });
+          // Closing reveals the word cloud (incl. #30's deferred one); the
+          // beamer display is local, so voting just stops, nothing else.
+          if (activeKind === "word_cloud") setWcReveal("results");
+        } else if (phase === "preview" || phase === "closed" || phase === "results")
           void live.control(runId, { phase: "open" });
         else if (phase === "lobby") startFromLobby();
       } else if (key === "e" || key === "r") {
-        if (phase === "results") showQuestion();
+        // Word clouds toggle the beamer cloud locally without touching the
+        // vote phase (interim results stay open); other kinds reveal via phase.
+        if (activeKind === "word_cloud")
+          setWcReveal((v) => (v === "results" ? "question" : "results"));
+        else if (phase === "results") showQuestion();
         else showResults();
       } else if (key === "a" && aiCloud) {
         // Word clouds have no correct answer — "a" cycles the AI views.
@@ -731,22 +739,32 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           count={questions.length}
           onPrev={goPrev}
           onNext={advanceNext}
-          onToggle={() =>
-            phase === "open"
-              ? // Word clouds jump straight to results on close so the cloud
-                // stays on screen (and #30's deferred cloud appears); "Frage"
-                // then hides it. Other kinds close first, reveal on demand.
-                activeKind === "word_cloud"
-                ? void showResults()
-                : void live.control(runId!, { phase: "closed" })
-              : phase === "lobby"
-                ? startFromLobby()
-                : void live.control(runId!, { phase: "open" })
+          onToggle={() => {
+            if (phase === "open") {
+              // Stop just closes voting; for a word cloud we also reveal the
+              // cloud (incl. #30's deferred one) on the beamer. Its
+              // "Frage"/"Ergebnis" toggle is local and never closes the vote.
+              void live.control(runId!, { phase: "closed" });
+              if (activeKind === "word_cloud") setWcReveal("results");
+            } else if (phase === "lobby") startFromLobby();
+            else void live.control(runId!, { phase: "open" });
+          }}
+          revealLevel={
+            activeKind === "word_cloud"
+              ? wcReveal
+              : phase === "results"
+                ? revealed
+                  ? "solution"
+                  : "results"
+                : "question"
           }
-          revealLevel={phase === "results" ? (revealed ? "solution" : "results") : "question"}
           canReveal={canReveal}
-          onShowQuestion={showQuestion}
-          onShowResults={showResults}
+          onShowQuestion={
+            activeKind === "word_cloud" ? () => setWcReveal("question") : showQuestion
+          }
+          onShowResults={
+            activeKind === "word_cloud" ? () => setWcReveal("results") : showResults
+          }
           onShowSolution={showSolution}
           views={
             aiCloud
@@ -1167,9 +1185,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           )}
 
           {/* Word cloud kept off the beamer while open when the presenter
-              chose to reveal it only after closing (#30). */}
+              chose to reveal it only after closing (#30) and hasn't switched
+              to "Ergebnis" yet. */}
           {question.kind === "word_cloud" &&
             phase === "open" &&
+            wcReveal === "question" &&
             question.wordcloud_live === false && (
               <div className="mt-10 text-center text-slate-500">
                 <p className="text-2xl">{t("Collecting answers …")}</p>
@@ -1178,14 +1198,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </p>
               </div>
             )}
-          {/* The cloud is the word-cloud "result": show it live while voting
-              (unless the presenter deferred it to close, #30), and once the
-              reveal pill is on "Ergebnis". On "Frage" it stays hidden so the
-              presenter can display just the question. The view (raw / AI
+          {/* The cloud is the word-cloud "result", shown whenever the reveal
+              pill is on "Ergebnis" — including while the vote is still open, so
+              the presenter can show the interim standing without closing it. On
+              "Frage" it stays hidden (just the question). The view (raw / AI
               cleaned / AI grouped) is picked from the footer dropdown. */}
           {question.kind === "word_cloud" &&
-            (phase === "results" ||
-              (phase === "open" && question.wordcloud_live !== false)) &&
+            wcReveal === "results" &&
             (wcView === "raw" ? (
               (state.words ?? []).length === 0 ? (
                 <p className="mt-8 text-center text-slate-400">
