@@ -913,6 +913,12 @@ export const live = {
   streamUrl: (code: string) =>
     `${API_BASE_URL}/api/live/rooms/${code}/stream/?role=presenter`,
   participantUrl: (code: string) => `${API_BASE_URL}/p/${code}/`,
+  /** Just the server name participants type into their browser (no /p/<code>
+   *  path) — for the beamer join hint, where the room code is shown separately.
+   *  Resolved against the current page so it works same-origin (prod) and
+   *  cross-origin (dev). */
+  participantHost: (code: string) =>
+    new URL(live.participantUrl(code), window.location.href).host,
   qrUrl: (code: string) => `${API_BASE_URL}/p/${code}/qr.png`,
   /** Recording mode (#53): per-question deep-link QR for the beamer. */
   recordingQrUrl: (token: string, questionId: number) =>

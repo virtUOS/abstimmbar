@@ -626,7 +626,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               className="h-64 w-64 rounded-2xl border border-slate-200"
             />
             <p className="text-xl text-slate-600">
-              {live.participantUrl(state.room.code).replace(/^https?:\/\//, "")}
+              {live.participantHost(state.room.code)}
             </p>
             <p className="text-4xl font-extrabold tracking-widest text-brand-700">
               {state.room.code}
@@ -822,7 +822,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             className="h-72 w-72 rounded-2xl border border-slate-200"
           />
           <p className="text-2xl text-slate-600">
-            {live.participantUrl(state.room.code).replace(/^https?:\/\//, "")}
+            {live.participantHost(state.room.code)}
           </p>
           <p className="text-5xl font-extrabold tracking-widest text-brand-700">
             {state.room.code}
