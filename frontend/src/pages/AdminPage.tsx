@@ -5,12 +5,12 @@
  * footer page CMS (Impressum, Datenschutz, free pages). Guarded by is_staff;
  * every endpoint is additionally server-side gated (accounts.IsAdmin). */
 import { useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, FileText, Lock, Radio, Trash2 } from "lucide-react";
 import { api, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSite } from "../api";
 import { useApp } from "../App";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
+import HomeCrumb from "../components/HomeCrumb";
 import TranslatableField from "../components/TranslatableField";
 import { Button, ConfirmInline, EmptyState, Field, InfoHint, Select, TextInput } from "../components/ui";
 
@@ -38,9 +38,7 @@ export default function AdminPage() {
     <div className="space-y-12">
       <div>
         <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-          <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
-            {t("My rooms")}
-          </Link>
+          <HomeCrumb /> / {t("Manage website")}
         </nav>
         <h1 className="text-2xl font-bold">{t("Manage website")}</h1>
       </div>

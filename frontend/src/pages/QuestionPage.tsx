@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, Eye, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, X } from "lucide-react";
+import { Check, Eye, FolderInput, ImageOff, ImagePlus, Link2, Pencil, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -23,11 +23,12 @@ import {
   type LocalizedText,
 } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
+import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
 import { Button, Field, SegmentedControl, TextInput } from "../components/ui";
-import { REVEAL_LABEL } from "./SetPage";
+import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
   try {
@@ -547,9 +548,7 @@ export default function QuestionPage() {
 
   const breadcrumb = (leaf: string) => (
     <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-      <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
-        {t("My rooms")}
-      </Link>{" "}
+      <HomeCrumb />{" "}
       /{" "}
       {set && (
         <>
@@ -635,6 +634,10 @@ export default function QuestionPage() {
   return (
     <div className="max-w-2xl">
       {breadcrumb(t("Edit question"))}
+
+      <span className="mb-4 inline-block shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-950 dark:text-brand-300">
+        {t(KIND_LABEL[question.kind])}
+      </span>
 
       {question.after_question != null && (
         <div className="mb-4 flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400">
@@ -867,20 +870,15 @@ export default function QuestionPage() {
                     irrelevant) and for ordering (the server always shuffles —
                     that's the task), so hide the toggle for those kinds. */}
                 {!isPriorities && !isOrdering && (
-                  <button
-                    type="button"
-                    onClick={() => setShuffle((value) => !value)}
-                    aria-pressed={shuffle}
-                    title={t("Show answer options to participants in random order")}
-                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors ${
-                      shuffle
-                        ? "border-brand-600 bg-brand-50 text-brand-800 dark:border-brand-500 dark:bg-brand-950 dark:text-brand-200"
-                        : "border-slate-300 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                    }`}
-                  >
-                    <Shuffle aria-hidden className="h-4 w-4" />
-                    {shuffle ? t("Random order on") : t("Random order off")}
-                  </button>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={shuffle}
+                      onChange={(event) => setShuffle(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    />
+                    {t("Show answer options to participants in random order")}
+                  </label>
                 )}
               </div>
               {optionsMissing && (
@@ -1260,7 +1258,7 @@ export default function QuestionPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="flex gap-2">
+        <div className="mt-2 flex gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
           <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
             {saving ? t("Saving …") : t("Save")}
           </Button>

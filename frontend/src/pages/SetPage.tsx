@@ -17,6 +17,7 @@ import {
 } from "../api";
 import { useEasyMode } from "../App";
 import AiGeneratePanel from "../components/AiGeneratePanel";
+import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
@@ -36,7 +37,7 @@ import { LICENSE_OPTIONS, licenseNeedsHolder } from "../licenses";
 
 // Values are English source strings, translated with t() at each render site
 // (this Record lives at module scope, outside any component).
-const KIND_LABEL: Record<QuestionKind, string> = {
+export const KIND_LABEL: Record<QuestionKind, string> = {
   single_choice: "Single Choice",
   multiple_choice: "Multiple Choice",
   word_cloud: "Word cloud",
@@ -591,9 +592,7 @@ export default function SetPage() {
   return (
     <div>
       <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
-          {t("My rooms")}
-        </Link>{" "}
+        <HomeCrumb />{" "}
         /{" "}
         <Link to={`/rooms/${set.room}`} className="hover:text-brand-700 dark:hover:text-brand-300">
           {set.room_title}

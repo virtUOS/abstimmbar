@@ -19,6 +19,7 @@ import {
 import { useApp, useEasyMode } from "../App";
 import { localizedText } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
+import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
@@ -406,7 +407,7 @@ export default function ResultsPage() {
   return (
     <div>
       <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">{t("My rooms")}</Link> /{" "}
+        <HomeCrumb /> /{" "}
         <Link to={`/rooms/${set.room}`} className="hover:text-brand-700 dark:hover:text-brand-300">{set.room_title}</Link> /{" "}
         <Link to={`/sets/${set.id}`} className="hover:text-brand-700 dark:hover:text-brand-300">{localizedText(set.title)}</Link> /{" "}
         {t("Results")}
