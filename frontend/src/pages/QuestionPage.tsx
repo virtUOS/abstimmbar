@@ -1259,7 +1259,7 @@ export default function QuestionPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="mt-2 flex gap-2 border-t border-slate-200 pt-4 dark:border-slate-700">
+        <div className="mt-2 flex gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
           <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
             {saving ? t("Saving …") : t("Save")}
           </Button>

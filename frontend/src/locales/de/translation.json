@@ -342,8 +342,6 @@
   "Question text is required.": "Fragentext ist erforderlich.",
   "Add at least two answer options, each with text.": "Mindestens zwei Antwortoptionen mit Text (oder Bild) nötig.",
   "Show answer options to participants in random order": "Antwortmöglichkeiten den Teilnehmenden in zufälliger Reihenfolge zeigen",
-  "Random order on": "Zufällige Reihenfolge an",
-  "Random order off": "Zufällige Reihenfolge aus",
   "Reveal correct answer:": "Richtige Antwort aufdecken:",
   "As in the set": "Wie im Set",
   "Suggest distractors": "Distraktoren vorschlagen",
