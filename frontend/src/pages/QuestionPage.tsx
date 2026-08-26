@@ -19,6 +19,7 @@ import {
   localizedMap,
   localizedText,
   setLocalizedLang,
+  useTheme,
   type LocalizedText,
 } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
@@ -186,6 +187,17 @@ export default function QuestionPage() {
   const [moveError, setMoveError] = useState("");
   const { whoami } = useApp();
   const easyMode = useEasyMode();
+  // #73: the preview iframe is cross-origin in dev and can't read the app's
+  // localStorage, so pass the resolved theme explicitly via ?theme=.
+  const { appearance } = useTheme();
+  const previewTheme =
+    appearance === "dark"
+      ? "dark"
+      : appearance === "light"
+        ? "light"
+        : window.matchMedia?.("(prefers-color-scheme: dark)").matches
+          ? "dark"
+          : "light";
   const aiEnabled = !!whoami?.ai_enabled && !easyMode;
   const [aiBusy, setAiBusy] = useState<"" | "distractors" | "rephrase">("");
   const [aiError, setAiError] = useState("");
@@ -671,8 +683,8 @@ export default function QuestionPage() {
           <iframe
             key={previewNonce}
             title={t("Preview")}
-            src={`${API_BASE_URL}/question-preview/${question.id}/`}
-            className="h-[640px] w-full bg-white"
+            src={`${API_BASE_URL}/question-preview/${question.id}/?theme=${previewTheme}`}
+            className="h-[640px] w-full bg-white dark:bg-slate-950"
           />
         </div>
       )}

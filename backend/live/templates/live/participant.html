@@ -15,7 +15,7 @@ multi-line note must use {% comment %} or it renders as text.)
     <button id="lang-btn" type="button" aria-label="{% trans 'Language' %}" aria-haspopup="true" aria-expanded="false"
             style="width:auto;min-height:0;padding:6px 10px;margin:0;line-height:1;border-radius:10px"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/></svg></button>
     <div id="lang-pop" hidden
-         style="position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden;min-width:160px">
+         style="position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden;min-width:160px">
       <button id="lang-de" type="button"{% if LANGUAGE_CODE|slice:":2" == "de" %} aria-current="true"{% endif %}
               style="width:100%;margin:0;border:0;border-radius:0;min-height:0;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;gap:10px"><span>{% trans "Deutsch" %}</span>{% if LANGUAGE_CODE|slice:":2" == "de" %}<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--brand-strong)" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>{% endif %}</button>
       <button id="lang-en" type="button"{% if LANGUAGE_CODE|slice:":2" == "en" %} aria-current="true"{% endif %}
@@ -27,7 +27,7 @@ multi-line note must use {% comment %} or it renders as text.)
     <button id="menu-btn" aria-label="{% trans 'Menu' %}" aria-haspopup="true" aria-expanded="false"
             style="width:auto;min-height:0;padding:6px 11px;margin:0;line-height:1;border-radius:10px"><svg class="ic" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
     <div id="menu-pop" hidden
-         style="position:absolute;right:0;top:calc(100% + 4px);background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden;min-width:200px">
+         style="position:absolute;right:0;top:calc(100% + 4px);background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.10);overflow:hidden;min-width:200px">
       <button id="review-open"
               style="width:100%;margin:0;border:0;border-radius:0;min-height:0;padding:13px 15px">{% trans "My answers" %}</button>
     </div>
@@ -57,7 +57,7 @@ multi-line note must use {% comment %} or it renders as text.)
       Use × to withdraw an entry again.
       {% endblocktrans %}
     </p>
-    <p class="soft" id="wc-hint" style="margin-top:10px;color:#a33630" hidden></p>
+    <p class="soft" id="wc-hint" style="margin-top:10px;color:var(--danger-strong)" hidden></p>
     <p class="soft" id="wc-count" style="margin-top:6px" hidden></p>
     <div id="wc-mine" style="margin-top:12px"></div>
     <button type="button" id="wc-done" hidden>{% trans "Done" %}</button>
@@ -1135,7 +1135,7 @@ multi-line note must use {% comment %} or it renders as text.)
     }
     if (data.correct) {
       feedback.textContent = data.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
-      feedback.style.color = data.is_correct ? "var(--brand-strong)" : "#a33630";
+      feedback.style.color = data.is_correct ? "var(--brand-strong)" : "var(--danger-strong)";
     } else {
       feedback.textContent = I18N.answerSaved;
       feedback.style.color = "var(--ink-soft)";
@@ -1533,7 +1533,7 @@ multi-line note must use {% comment %} or it renders as text.)
     const feedback = document.getElementById("rec-feedback");
     if (entry.correct) {
       feedback.textContent = entry.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
-      feedback.style.color = entry.is_correct ? "var(--brand-strong)" : "#a33630";
+      feedback.style.color = entry.is_correct ? "var(--brand-strong)" : "var(--danger-strong)";
     } else {
       feedback.textContent = I18N.answerSaved;
       feedback.style.color = "var(--ink-soft)";
@@ -1600,7 +1600,7 @@ multi-line note must use {% comment %} or it renders as text.)
     document.getElementById("rec-textform").hidden = true;
     const feedback = document.getElementById("rec-feedback");
     feedback.textContent = I18N.timeUp;
-    feedback.style.color = "#a33630";
+    feedback.style.color = "var(--danger-strong)";
     feedback.hidden = false;
   }
 
