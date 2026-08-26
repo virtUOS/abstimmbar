@@ -883,104 +883,112 @@ def start_run(request, set_id):
     if mode not in {m.value for m in Run.Mode}:
         return Response({"detail": "Invalid mode."}, status=400)
 
-    # One active run per room: a room's participant page shows a single
-    # active run, so finish/drop any unfinished run of *other* sets first.
-    _finish_other_room_runs(question_set.room, question_set)
+    # Serialize concurrent starts (#66): two presenters opening the same set
+    # within milliseconds both read "no active run" and both try to create
+    # one, tripping the ``one_active_run_per_set`` constraint as an
+    # unhandled 500. Locking the room row makes the second request wait for
+    # the first to commit, then see (and reuse) the run it created.
+    with transaction.atomic():
+        Room.objects.select_for_update().get(pk=question_set.room_id)
 
-    # What to do with prior results of this set (start dialog, #17):
-    #   delete   — wipe all previous runs and start empty
-    #   continue — keep counting into the most recent run (same Durchführung)
-    #   archive  — leave previous runs as named archives, start a fresh one
-    # (legacy ``reset`` maps to delete / continue.)
-    existing = request.data.get("existing")
-    user = request.user
-    if (
-        existing is None
-        and not request.data.get("reset")
-        and getattr(user, "effective_easy_mode", False)
-    ):
-        # Easy mode (#52): no start dialog — auto-archive when the latest
-        # non-empty run is from another calendar day, else continue. Driven
-        # by ``effective_easy_mode`` (explicit choice, else Pro default for
-        # staff / Simple default for everyone else) so an admin who opted
-        # into Simple gets this too, not just non-staff users. Only kicks in
-        # when the request carries no explicit signal at all (no
-        # ``existing``, no legacy ``reset``) — an easy-mode UI never sends
-        # either, but pre-existing/legacy callers that do must be unaffected.
-        if _recently_started(question_set):
-            # An ongoing session (a question opened within the window) always
-            # continues, even across a calendar-day boundary.
-            existing = "continue"
-        else:
-            last = (
-                question_set.runs.filter(votes__isnull=False)
-                .order_by("-created_at")
-                .first()
-            )
-            if last is not None and timezone.localdate(last.created_at) != timezone.localdate():
-                existing = "archive"
-            else:
+        # One active run per room: a room's participant page shows a single
+        # active run, so finish/drop any unfinished run of *other* sets first.
+        _finish_other_room_runs(question_set.room, question_set)
+
+        # What to do with prior results of this set (start dialog, #17):
+        #   delete   — wipe all previous runs and start empty
+        #   continue — keep counting into the most recent run (same Durchführung)
+        #   archive  — leave previous runs as named archives, start a fresh one
+        # (legacy ``reset`` maps to delete / continue.)
+        existing = request.data.get("existing")
+        user = request.user
+        if (
+            existing is None
+            and not request.data.get("reset")
+            and getattr(user, "effective_easy_mode", False)
+        ):
+            # Easy mode (#52): no start dialog — auto-archive when the latest
+            # non-empty run is from another calendar day, else continue. Driven
+            # by ``effective_easy_mode`` (explicit choice, else Pro default for
+            # staff / Simple default for everyone else) so an admin who opted
+            # into Simple gets this too, not just non-staff users. Only kicks in
+            # when the request carries no explicit signal at all (no
+            # ``existing``, no legacy ``reset``) — an easy-mode UI never sends
+            # either, but pre-existing/legacy callers that do must be unaffected.
+            if _recently_started(question_set):
+                # An ongoing session (a question opened within the window) always
+                # continues, even across a calendar-day boundary.
                 existing = "continue"
-    if existing not in {"delete", "continue", "archive"}:
-        existing = "delete" if request.data.get("reset") else "continue"
+            else:
+                last = (
+                    question_set.runs.filter(votes__isnull=False)
+                    .order_by("-created_at")
+                    .first()
+                )
+                if last is not None and timezone.localdate(last.created_at) != timezone.localdate():
+                    existing = "archive"
+                else:
+                    existing = "continue"
+        if existing not in {"delete", "continue", "archive"}:
+            existing = "delete" if request.data.get("reset") else "continue"
 
-    if existing == "delete":
-        Run.objects.filter(question_set=question_set).delete()
-    elif existing == "archive":
-        # Keep the current Durchführung as an archive. This must also handle an
-        # UNFINISHED run that already carries answers (the presenter closed the
-        # tab without ending it) — otherwise the code below would reactivate it
-        # and new votes would land on the old run instead of a fresh one (#70).
-        # An empty unfinished run needs no archiving; it is reused below.
-        for stale in (
+        if existing == "delete":
+            Run.objects.filter(question_set=question_set).delete()
+        elif existing == "archive":
+            # Keep the current Durchführung as an archive. This must also handle an
+            # UNFINISHED run that already carries answers (the presenter closed the
+            # tab without ending it) — otherwise the code below would reactivate it
+            # and new votes would land on the old run instead of a fresh one (#70).
+            # An empty unfinished run needs no archiving; it is reused below.
+            for stale in (
+                Run.objects.filter(question_set=question_set)
+                .exclude(phase=Run.Phase.FINISHED)
+            ):
+                if stale.votes.exists():
+                    stale.phase = Run.Phase.FINISHED
+                    stale.ended_at = timezone.now()
+                    stale.save(update_fields=["phase", "ended_at", "updated_at"])
+
+        initial_phase = Run.Phase.OPEN if mode == Run.Mode.SELF_PACED else Run.Phase.LOBBY
+
+        # An unfinished run is always resumed (the start dialog only appears once
+        # every run is finished). Otherwise: continue reactivates the latest run;
+        # archive/delete begin a brand-new one alongside/without the old.
+        run = (
             Run.objects.filter(question_set=question_set)
             .exclude(phase=Run.Phase.FINISHED)
-        ):
-            if stale.votes.exists():
-                stale.phase = Run.Phase.FINISHED
-                stale.ended_at = timezone.now()
-                stale.save(update_fields=["phase", "ended_at", "updated_at"])
+            .first()
+        )
+        if run is None and existing == "continue":
+            run = Run.objects.filter(question_set=question_set).order_by("-created_at").first()
 
-    initial_phase = Run.Phase.OPEN if mode == Run.Mode.SELF_PACED else Run.Phase.LOBBY
-
-    # An unfinished run is always resumed (the start dialog only appears once
-    # every run is finished). Otherwise: continue reactivates the latest run;
-    # archive/delete begin a brand-new one alongside/without the old.
-    run = (
-        Run.objects.filter(question_set=question_set)
-        .exclude(phase=Run.Phase.FINISHED)
-        .first()
-    )
-    if run is None and existing == "continue":
-        run = Run.objects.filter(question_set=question_set).order_by("-created_at").first()
-
-    if run is None:
-        run = Run.objects.create(question_set=question_set, mode=mode, phase=initial_phase)
-        if mode == Run.Mode.SELF_PACED:
-            run.first_opened_at = timezone.now()
-            run.save(update_fields=["first_opened_at"])
-    else:
-        run.mode = mode
-        # Recent ongoing session (#recent-session): resume in place — keep the
-        # current phase / active question / reveal so the presenter lands back
-        # on the live question instead of the lobby. Otherwise start fresh.
-        if not _recently_started(question_set):
-            run.phase = initial_phase
-            run.active_question = None
-            run.answers_revealed = False
-        run.ended_at = None
-        if mode == Run.Mode.SELF_PACED and run.first_opened_at is None:
-            run.first_opened_at = timezone.now()
-        run.save()
-    # Recording mode (#53): opt-in per presentation, live only. Mints a
-    # recording token so viewers of the recording can vote later via
-    # /r/<token>/. Never for self-paced (already async). Pro feature — the
-    # easy-mode start flow never sends it.
-    if mode == Run.Mode.LIVE and request.data.get("recording"):
-        run.enable_recording()
-    else:
-        # Start without recording clears a stale token from a resumed run.
-        run.disable_recording()
+        if run is None:
+            run = Run.objects.create(question_set=question_set, mode=mode, phase=initial_phase)
+            if mode == Run.Mode.SELF_PACED:
+                run.first_opened_at = timezone.now()
+                run.save(update_fields=["first_opened_at"])
+        else:
+            run.mode = mode
+            # Recent ongoing session (#recent-session): resume in place — keep the
+            # current phase / active question / reveal so the presenter lands back
+            # on the live question instead of the lobby. Otherwise start fresh.
+            if not _recently_started(question_set):
+                run.phase = initial_phase
+                run.active_question = None
+                run.answers_revealed = False
+            run.ended_at = None
+            if mode == Run.Mode.SELF_PACED and run.first_opened_at is None:
+                run.first_opened_at = timezone.now()
+            run.save()
+        # Recording mode (#53): opt-in per presentation, live only. Mints a
+        # recording token so viewers of the recording can vote later via
+        # /r/<token>/. Never for self-paced (already async). Pro feature — the
+        # easy-mode start flow never sends it.
+        if mode == Run.Mode.LIVE and request.data.get("recording"):
+            run.enable_recording()
+        else:
+            # Start without recording clears a stale token from a resumed run.
+            run.disable_recording()
     broadcast(question_set.room)
     return Response(
         {
