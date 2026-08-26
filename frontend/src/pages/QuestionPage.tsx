@@ -1256,15 +1256,6 @@ export default function QuestionPage() {
           </div>
         </Field>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
-        <div className="flex gap-2">
-          <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
-            {saving ? t("Saving …") : t("Save")}
-          </Button>
-          <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>
-        </div>
-
         {!isNew && (
         <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
           {moveTargets === null ? (
@@ -1330,6 +1321,16 @@ export default function QuestionPage() {
           )}
         </div>
         )}
+
+        {error && <p className="text-sm text-red-600">{error}</p>}
+        {/* Sticky action bar: Save/Cancel stay pinned to the bottom of the
+            viewport so they never get lost at the end of a long question form. */}
+        <div className="sticky bottom-0 z-20 mt-2 flex gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+          <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
+            {saving ? t("Saving …") : t("Save")}
+          </Button>
+          <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>
+        </div>
       </div>
       )}
     </div>
