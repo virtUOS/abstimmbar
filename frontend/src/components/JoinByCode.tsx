@@ -7,11 +7,13 @@
  * Django at /p/<code>/) resolves them case-insensitively. */
 import { useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { useTheme } from "@basicbar/ui";
 import { live } from "../api";
 import { Button, TextInput } from "./ui";
 
 export default function JoinByCode({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation();
+  const { appearance } = useTheme();
   const [code, setCode] = useState("");
 
   function join(event: FormEvent) {
@@ -19,8 +21,19 @@ export default function JoinByCode({ compact = false }: { compact?: boolean }) {
     const trimmed = code.trim();
     if (trimmed) {
       // The participant page is a separate (framework-free) Django page, so
-      // this is a full navigation, not a client-side route.
-      window.location.href = live.participantUrl(trimmed);
+      // this is a full navigation, not a client-side route. Carry the app's
+      // resolved theme so the target page (incl. the "room not found" page,
+      // #56) matches the app even cross-origin, where it can't read the app's
+      // localStorage.
+      const theme =
+        appearance === "dark"
+          ? "dark"
+          : appearance === "light"
+            ? "light"
+            : window.matchMedia?.("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+      window.location.href = `${live.participantUrl(trimmed)}?theme=${theme}`;
     }
   }
 
