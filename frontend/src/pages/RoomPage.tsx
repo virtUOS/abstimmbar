@@ -802,7 +802,8 @@ export default function RoomPage() {
         </EmptyState>
       ) : (
         <>
-          <div className="mb-3 flex justify-end">
+          <div className="mb-3 flex items-center justify-between gap-4">
+            <h2 className="font-semibold">{t("Question sets")}</h2>
             <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
               {t("Sort by:")}
               <select

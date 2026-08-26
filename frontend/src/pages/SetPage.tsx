@@ -36,7 +36,7 @@ import { LICENSE_OPTIONS, licenseNeedsHolder } from "../licenses";
 
 // Values are English source strings, translated with t() at each render site
 // (this Record lives at module scope, outside any component).
-const KIND_LABEL: Record<QuestionKind, string> = {
+export const KIND_LABEL: Record<QuestionKind, string> = {
   single_choice: "Single Choice",
   multiple_choice: "Multiple Choice",
   word_cloud: "Word cloud",
