@@ -53,6 +53,7 @@ def generate_system():
         "anregen statt nur den Text nachzuerzählen. Bei Choice-Fragen sind "
         "die Antwortoptionen kurz und eindeutig; markiere die richtige(n) "
         "Antwort(en) korrekt (Single Choice: genau eine richtige). "
+        "Gib bei Freitextfragen zusätzlich eine kurze Musterlösung an. "
         "Wenn das Material nicht als zusammenhängender, auswertbarer "
         "Lehrinhalt taugt, erfinde keine Fragen, sondern gib eine leere "
         "Fragenliste und einen kurzen Grund zurück. "
@@ -85,7 +86,10 @@ def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
         '"options": [{"text": "Antwort", "is_correct": true}, '
         '{"text": "Antwort", "is_correct": false}]}], '
         '"unsuitable_reason": ""}\n'
-        'Bei "open_text" lasse "options" weg oder leer. Bei "true_false" ist '
+        'Bei "open_text" lasse "options" weg oder leer und gib zusätzlich '
+        '"model_solution": "..." an – eine knappe Musterlösung (Referenz- '
+        'bzw. Idealantwort) in derselben Sprache wie die Frage. Bei '
+        '"true_false" ist '
         '"text" die zu bewertende Aussage und "correct" ein Boolean (true, '
         'wenn die Aussage zutrifft); "options" entfällt. Setze '
         '"unsuitable_reason" nur, wenn sich aus dem Material keine sinnvollen '
@@ -105,7 +109,10 @@ def build_drafts(data, kinds, count):
         if kind not in allowed or not text:
             continue
         if kind == "open_text":
-            drafts.append({"kind": kind, "text": text, "options": []})
+            drafts.append({
+                "kind": kind, "text": text, "options": [],
+                "model_solution": str(item.get("model_solution", "")).strip()[:2000],
+            })
         elif kind == "true_false":
             # A statement + its truth value. Normalise into a plain
             # single_choice draft with the fixed options Wahr/Falsch so the
