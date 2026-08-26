@@ -27,7 +27,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
-import { Button, Field, SegmentedControl, TextInput } from "../components/ui";
+import { Button, Field, MenuItem, MoreMenu, SegmentedControl, TextInput } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
@@ -652,7 +652,7 @@ export default function QuestionPage() {
         </div>
       )}
 
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex items-center justify-end gap-2">
         <SegmentedControl
           ariaLabel={t("View")}
           value={tab}
@@ -679,6 +679,14 @@ export default function QuestionPage() {
             },
           ]}
         />
+        {!isNew && (
+          <MoreMenu label={t("Question actions")}>
+            <MenuItem onClick={() => void openMove()}>
+              <FolderInput aria-hidden className="h-4 w-4" />
+              {t("Move to another question set …")}
+            </MenuItem>
+          </MoreMenu>
+        )}
       </div>
 
       {tab === "preview" && (
@@ -1256,82 +1264,79 @@ export default function QuestionPage() {
           </div>
         </Field>
 
-        {!isNew && (
-        <div className="border-t border-slate-100 pt-4 dark:border-slate-800">
-          {moveTargets === null ? (
-            <button
-              type="button"
-              onClick={() => void openMove()}
-              className="inline-flex items-center gap-1.5 text-sm text-slate-500 hover:text-brand-700 dark:text-slate-400 dark:hover:text-brand-300"
-            >
-              <FolderInput aria-hidden className="h-4 w-4" /> {t("Move to another question set …")}
-            </button>
-          ) : moveTargets.length === 0 ? (
-            <p className="text-sm text-slate-400">
-              {t("There is no other question set to move this to.")}
-            </p>
-          ) : (
-            <div className="flex flex-wrap items-end gap-2">
-              <Field label={t("Room")}>
-                <select
-                  value={moveRoom ?? undefined}
-                  onChange={(event) => pickMoveRoom(Number(event.target.value))}
-                  className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  {moveRooms.map((room) => (
-                    <option key={room.id} value={room.id}>
-                      {room.title}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t("Question set")}>
-                <select
-                  value={moveTarget ?? undefined}
-                  onChange={(event) => setMoveTarget(Number(event.target.value))}
-                  className="w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                >
-                  {moveTargets
-                    .filter((entry) => entry.room === moveRoom)
-                    .map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {localizedText(entry.title)}
-                      </option>
-                    ))}
-                </select>
-              </Field>
-              <Button
-                disabled={moveTarget === null}
-                onClick={() => void handleMove()}
-              >
-                {t("Move")}
-              </Button>
-              <Button variant="ghost" onClick={() => setMoveTargets(null)}>
-                {t("Cancel")}
-              </Button>
-              {moveTarget === null && (
-                <p className="w-full text-sm text-slate-400">
-                  {t("There is no other question set in this room.")}
-                </p>
-              )}
-              {moveError && (
-                <p className="w-full text-sm text-red-600">{moveError}</p>
-              )}
-            </div>
-          )}
-        </div>
-        )}
-
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {/* Sticky action bar: Save/Cancel stay pinned to the bottom of the
-            viewport so they never get lost at the end of a long question form. */}
-        <div className="sticky bottom-0 z-20 mt-2 flex gap-2 border-t border-slate-200 bg-white/95 py-3 backdrop-blur dark:border-slate-800 dark:bg-slate-950/95">
+        <div className="mt-4 flex gap-2">
           <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
             {saving ? t("Saving …") : t("Save")}
           </Button>
           <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>
         </div>
       </div>
+      )}
+
+      {moveTargets !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setMoveTargets(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {t("Move to another question set …")}
+            </h2>
+            {moveTargets.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                {t("There is no other question set to move this to.")}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <Field label={t("Room")}>
+                  <select
+                    value={moveRoom ?? undefined}
+                    onChange={(event) => pickMoveRoom(Number(event.target.value))}
+                    className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    {moveRooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.title}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={t("Question set")}>
+                  <select
+                    value={moveTarget ?? undefined}
+                    onChange={(event) => setMoveTarget(Number(event.target.value))}
+                    className="w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    {moveTargets
+                      .filter((entry) => entry.room === moveRoom)
+                      .map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {localizedText(entry.title)}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+              </div>
+            )}
+            {moveError && <p className="mt-3 text-sm text-red-600">{moveError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setMoveTargets(null)}>
+                {t("Cancel")}
+              </Button>
+              {moveTargets.length > 0 && (
+                <Button disabled={moveTarget === null} onClick={() => void handleMove()}>
+                  {t("Move")}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
