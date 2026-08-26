@@ -66,6 +66,13 @@ def likert_summary(options):
     abstentions = sum(o["count"] for o in options if o["is_abstention"])
     if len(scale) < 2:
         return None
+    # Authored Likert options are stored positive-first ("Stimme voll zu" …
+    # "Stimme gar nicht zu", see LIKERT_PRESETS in the editor), but the
+    # diverging aggregation below — and the shared bar (disagreement red on the
+    # left, agreement green on the right) — expect disagreement→agreement. Flip
+    # to that order so the polarity and centre line match what's shown; without
+    # this, full agreement was coloured/counted as disagreement (#93).
+    scale = list(reversed(scale))
     scale_total = sum(o["count"] for o in scale)
     n = len(scale)
     mid = n // 2
