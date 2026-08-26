@@ -1925,6 +1925,18 @@ class AiGenerateDraftTests(TestCase):
             ["open_text"],
         )
 
+    def test_open_text_draft_carries_model_solution(self):
+        from .ai_generate import build_drafts
+
+        data = {"questions": [
+            {"kind": "open_text", "text": "Was ist Photosynthese?",
+             "model_solution": "  Umwandlung von Licht in chemische Energie.  "},
+            {"kind": "open_text", "text": "Nenne ein Beispiel."},
+        ]}
+        drafts = build_drafts(data, ["open_text"], 5)
+        self.assertEqual(drafts[0]["model_solution"], "Umwandlung von Licht in chemische Energie.")
+        self.assertEqual(drafts[1]["model_solution"], "")
+
 
 class AiGenerateEndpointTests(ApiTestCase):
     """The set-level ai-generate action (chat_json + extraction mocked)."""
@@ -1958,6 +1970,21 @@ class AiGenerateEndpointTests(ApiTestCase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["questions"][0]["text"], "Was ist X?")
         self.assertIn("open_text", chat.call_args.args[1])
+
+    def test_open_text_model_solution_passes_through(self):
+        reply = {"questions": [{
+            "kind": "open_text", "text": "Was ist X?",
+            "model_solution": "X ist Y.",
+        }]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ):
+            r = self.client.post(
+                self.url,
+                {"text": "Ein längerer Materialtext.", "count": 3, "kinds": "open_text"},
+            )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["questions"][0]["model_solution"], "X ist Y.")
 
     def test_guidance_is_passed_into_the_prompt(self):
         reply = {"questions": [{"kind": "open_text", "text": "Was ist X?"}]}
