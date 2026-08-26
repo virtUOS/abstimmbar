@@ -163,17 +163,19 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
           role="menu"
           className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
-          <p className="truncate px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
-            {t("Signed in as")}{" "}
-            <span className="font-medium text-slate-600 dark:text-slate-300">
-              {displayName}
-            </span>
+          <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
+            <p className="truncate">
+              {t("Signed in as")}{" "}
+              <span className="font-medium text-slate-600 dark:text-slate-300">
+                {displayName}
+              </span>
+            </p>
             {whoami.is_staff && (
-              <span className="ml-1 rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">
+              <span className="mt-1 inline-block rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">
                 {t("Admin")}
               </span>
             )}
-          </p>
+          </div>
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
           <p className="px-3 pb-0.5 pt-1 text-xs text-slate-400 dark:text-slate-500">
             {t("Language")}
