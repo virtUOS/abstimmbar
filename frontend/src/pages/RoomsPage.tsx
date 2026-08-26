@@ -112,12 +112,15 @@ function RoomCard({
               </span>
             )}
           </h2>
-          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
-            {t("Code")}{" "}
-            <span className="font-mono font-semibold text-brand-700 dark:text-brand-300">
-              {room.code}
-            </span>{" "}
-            · {room.question_set_count}{" "}
+          <span
+            title={t("Code")}
+            className="mt-2 inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2 py-1 font-mono text-sm font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
+          >
+            <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
+            {room.code}
+          </span>
+          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
+            {room.question_set_count}{" "}
             {t("question set", { count: room.question_set_count })}
           </p>
           {!room.is_owner && room.owner_name && (
