@@ -78,22 +78,28 @@ export default function LikertResult({
 
   return (
     <div className={present ? "mt-8" : ""}>
-      <div
-        className={`relative flex overflow-hidden ${present ? "h-11 rounded-xl text-base" : "h-6 rounded-md text-[11px]"}`}
-      >
-        {steps.map((step) => (
-          <div
-            key={step.id}
-            className="flex items-center justify-center tabular-nums"
-            style={{ flex: `0 0 ${step.pct}%`, background: step.fill, color: step.ink }}
-            title={`${localizedText(step.text)}: ${step.count} · ${step.pct} %`}
-          >
-            {step.pct >= labelThreshold && `${Math.round(step.pct)} %`}
-          </div>
-        ))}
+      <div className="relative">
         <div
-          className="absolute -top-1 -bottom-1 w-0.5 bg-slate-900 dark:bg-slate-100"
-          style={{ left: `${summary.divider}%`, opacity: 0.55 }}
+          className={`relative flex overflow-hidden ${present ? "h-11 rounded-xl text-base" : "h-6 rounded-md text-[11px]"}`}
+        >
+          {steps.map((step) => (
+            <div
+              key={step.id}
+              className="flex items-center justify-center tabular-nums"
+              style={{ flex: `0 0 ${step.pct}%`, background: step.fill, color: step.ink }}
+              title={`${localizedText(step.text)}: ${step.count} · ${step.pct} %`}
+            >
+              {step.pct >= labelThreshold && `${Math.round(step.pct)} %`}
+            </div>
+          ))}
+        </div>
+        {/* Centre line between disagreement and agreement. Lives in this
+            un-clipped wrapper (the bar itself is overflow-hidden to clip its
+            rounded segments) so it can stick out a little above and below the
+            bar; centred on the divider position. */}
+        <div
+          className={`pointer-events-none absolute w-0.5 -translate-x-1/2 rounded-full bg-slate-900 dark:bg-slate-100 ${present ? "-top-2 -bottom-2" : "-top-1.5 -bottom-1.5"}`}
+          style={{ left: `${summary.divider}%`, opacity: 0.8 }}
         />
       </div>
 
