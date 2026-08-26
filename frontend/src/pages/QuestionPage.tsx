@@ -1229,7 +1229,7 @@ export default function QuestionPage() {
                   onClick={() => setTimeLimit(preset.value)}
                   className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
                     active
-                      ? "border-brand-400 bg-brand-400 font-semibold text-slate-900"
+                      ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
                       : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
                   }`}
                 >
@@ -1258,7 +1258,7 @@ export default function QuestionPage() {
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
-        <div className="mt-2 flex gap-2 border-t border-slate-100 pt-4 dark:border-slate-800">
+        <div className="flex gap-2">
           <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
             {saving ? t("Saving …") : t("Save")}
           </Button>
