@@ -1265,7 +1265,7 @@ export default function QuestionPage() {
         </Field>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        <div className="mt-4 flex gap-2">
+        <div className="sticky bottom-0 z-20 mt-4 flex gap-2 bg-white/90 py-3 backdrop-blur shadow-[0_-6px_16px_-8px_rgba(15,23,42,0.18)] dark:bg-slate-950/90">
           <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
             {saving ? t("Saving …") : t("Save")}
           </Button>

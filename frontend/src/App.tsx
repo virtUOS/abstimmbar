@@ -325,7 +325,7 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex min-h-screen flex-col overflow-x-hidden bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex min-h-screen flex-col overflow-x-clip bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 dark:border-slate-800">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <Link to="/" className="flex items-center gap-3">
