@@ -28,6 +28,7 @@ import {
   Select,
   TextInput,
 } from "../components/ui";
+import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import TranslatableField from "../components/TranslatableField";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
@@ -565,10 +566,7 @@ export default function RoomPage() {
   return (
     <div>
       <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
-          {t("My rooms")}
-        </Link>{" "}
-        / {localizedText(room.title)}
+        <HomeCrumb /> / {localizedText(room.title)}
       </nav>
 
       <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
@@ -826,9 +824,12 @@ export default function RoomPage() {
             {pagedSets.map((set) => (
               <li
                 key={set.id}
-                className="relative min-w-0 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-brand-600"
+                className="relative min-w-0 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 hover:border-brand-600 dark:border-slate-800 dark:bg-slate-900/40"
               >
-                <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300">
+                    <Layers aria-hidden className="h-5 w-5" />
+                  </span>
                   <Link
                     to={`/sets/${set.id}`}
                     className="min-w-0 flex-1 after:absolute after:inset-0 after:rounded-2xl"
@@ -847,51 +848,51 @@ export default function RoomPage() {
                       )}
                     </p>
                   </Link>
-                  <div className="relative z-10 flex shrink-0 items-center gap-1">
-                    {set.has_results && (
-                      <Link
-                        to={`/sets/${set.id}/results`}
-                        aria-label={t("View results of {{title}}", { title: localizedText(set.title) })}
-                        title={t("View results")}
-                        className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
-                      >
-                        <ChartColumnDecreasing aria-hidden className="h-4 w-4" />
-                      </Link>
-                    )}
-                    {set.question_count > 0 && (
-                      <Link
-                        to={`/sets/${set.id}/present`}
-                        aria-label={t("Present {{title}}", { title: localizedText(set.title) })}
-                        title={t("Present")}
-                        className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
-                      >
-                        <Play aria-hidden className="h-4 w-4" />
-                      </Link>
-                    )}
-                    {/* Archive current results & prepare a fresh run (#27) —
-                        only when there is something to archive. Easy mode
-                        (#52) hides it; MR1's auto-archive replaces it. */}
-                    {!easyMode && set.has_results && (
-                      <Button
-                        variant="ghost"
-                        aria-label={t("Archive results of {{title}}", { title: localizedText(set.title) })}
-                        title={t("Archive results")}
-                        className="inline-flex items-center"
-                        onClick={() => setConfirmArchive(set.id)}
-                      >
-                        <Archive aria-hidden className="h-4 w-4" />
-                      </Button>
-                    )}
+                </div>
+                <div className="relative z-10 mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                  {set.has_results && (
+                    <Link
+                      to={`/sets/${set.id}/results`}
+                      aria-label={t("View results of {{title}}", { title: localizedText(set.title) })}
+                      title={t("View results")}
+                      className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
+                    >
+                      <ChartColumnDecreasing aria-hidden className="h-4 w-4" />
+                    </Link>
+                  )}
+                  {set.question_count > 0 && (
+                    <Link
+                      to={`/sets/${set.id}/present`}
+                      aria-label={t("Present {{title}}", { title: localizedText(set.title) })}
+                      title={t("Present")}
+                      className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 dark:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-950"
+                    >
+                      <Play aria-hidden className="h-4 w-4" />
+                    </Link>
+                  )}
+                  {/* Archive current results & prepare a fresh run (#27) —
+                      only when there is something to archive. Easy mode
+                      (#52) hides it; MR1's auto-archive replaces it. */}
+                  {!easyMode && set.has_results && (
                     <Button
                       variant="ghost"
-                      aria-label={t("Delete question set {{title}}", { title: localizedText(set.title) })}
-                      title={t("Delete")}
+                      aria-label={t("Archive results of {{title}}", { title: localizedText(set.title) })}
+                      title={t("Archive results")}
                       className="inline-flex items-center"
-                      onClick={() => setConfirmDelete(set.id)}
+                      onClick={() => setConfirmArchive(set.id)}
                     >
-                      <Trash2 aria-hidden className="h-4 w-4" />
+                      <Archive aria-hidden className="h-4 w-4" />
                     </Button>
-                  </div>
+                  )}
+                  <Button
+                    variant="ghost"
+                    aria-label={t("Delete question set {{title}}", { title: localizedText(set.title) })}
+                    title={t("Delete")}
+                    className="inline-flex items-center"
+                    onClick={() => setConfirmDelete(set.id)}
+                  >
+                    <Trash2 aria-hidden className="h-4 w-4" />
+                  </Button>
                 </div>
               </li>
             ))}

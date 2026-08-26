@@ -23,6 +23,7 @@ import {
   type LocalizedText,
 } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
+import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
@@ -547,9 +548,7 @@ export default function QuestionPage() {
 
   const breadcrumb = (leaf: string) => (
     <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-      <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
-        {t("My rooms")}
-      </Link>{" "}
+      <HomeCrumb />{" "}
       /{" "}
       {set && (
         <>

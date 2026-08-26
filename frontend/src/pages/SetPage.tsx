@@ -17,6 +17,7 @@ import {
 } from "../api";
 import { useEasyMode } from "../App";
 import AiGeneratePanel from "../components/AiGeneratePanel";
+import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
@@ -591,9 +592,7 @@ export default function SetPage() {
   return (
     <div>
       <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
-        <Link to="/" className="hover:text-brand-700 dark:hover:text-brand-300">
-          {t("My rooms")}
-        </Link>{" "}
+        <HomeCrumb />{" "}
         /{" "}
         <Link to={`/rooms/${set.room}`} className="hover:text-brand-700 dark:hover:text-brand-300">
           {set.room_title}
