@@ -212,8 +212,8 @@ msgstr "Zur Auswertung"
 
 #: live/templates/live/participant.html:209
 #, python-brace-format
-msgid "Done! {right} of {total} answered correctly."
-msgstr "Geschafft! {right} von {total} Fragen richtig beantwortet."
+msgid "Done! {right} of {total} auto-graded questions correct."
+msgstr "Geschafft! {right} von {total} automatisch bewerteten Fragen richtig."
 
 #: live/templates/live/participant.html:210
 #, python-brace-format
