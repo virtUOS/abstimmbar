@@ -86,8 +86,8 @@ function RoomCard({
           to={`/rooms/${room.id}`}
           className="min-w-0 flex-1 after:absolute after:inset-0 after:rounded-2xl"
         >
-          <h2 className="flex items-center gap-1.5 truncate font-semibold text-slate-900 dark:text-slate-100">
-            {localizedText(room.title)}
+          <h2 className="flex items-start gap-1.5 font-semibold text-slate-900 dark:text-slate-100">
+            <span className="line-clamp-2">{localizedText(room.title)}</span>
             {sharedByMe && (
               <span
                 title={t("Shared with {{count}} other people", {
