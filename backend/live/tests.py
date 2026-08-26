@@ -1376,13 +1376,16 @@ class LikertSummaryTests(TestCase):
     def test_odd_scale_has_neutral_and_centre_line(self):
         from .results import likert_summary
 
+        # Options are stored positive-first, exactly like LIKERT_PRESETS
+        # ("Stimme voll zu" … "Stimme gar nicht zu"); the diverging summary
+        # must still count the positive steps as agreement (#93).
         summary = likert_summary(
             self._opts(
-                ("gar nicht", 2, False),
-                ("eher nicht", 5, False),
-                ("neutral", 8, False),
-                ("eher", 20, False),
                 ("voll", 15, False),
+                ("eher", 20, False),
+                ("neutral", 8, False),
+                ("eher nicht", 5, False),
+                ("gar nicht", 2, False),
                 ("Enthaltung", 3, True),
             )
         )
@@ -1392,6 +1395,10 @@ class LikertSummaryTests(TestCase):
         self.assertEqual(summary["neutral"], 8)
         self.assertEqual(summary["agree"], 35)
         self.assertEqual(summary["agree_pct"], 70.0)
+        # The most-positive authored step is agreement, not disagreement (#93).
+        voll = next(s for s in summary["steps"] if s["text"] == "voll")
+        self.assertEqual(voll["polarity"], "agree")
+        # Steps render disagreement→agreement (red left, green right).
         polarities = [s["polarity"] for s in summary["steps"]]
         self.assertEqual(
             polarities, ["disagree", "disagree", "neutral", "agree", "agree"]
@@ -1402,19 +1409,20 @@ class LikertSummaryTests(TestCase):
     def test_even_scale_splits_between_middle_steps(self):
         from .results import likert_summary
 
+        # Positive-first, as stored (LIKERT_PRESETS): voll → gar nicht.
         summary = likert_summary(
             self._opts(
-                ("gar nicht", 3, False),
-                ("eher nicht", 3, False),
-                ("eher", 2, False),
                 ("voll", 2, False),
+                ("eher", 2, False),
+                ("eher nicht", 3, False),
+                ("gar nicht", 3, False),
             )
         )
         self.assertEqual(summary["neutral"], 0)
         self.assertEqual(summary["disagree"], 6)
         self.assertEqual(summary["agree"], 4)
         self.assertNotIn("neutral", [s["polarity"] for s in summary["steps"]])
-        # divider between the two halves = lower-half share = 60 %
+        # divider between the two halves = disagree (lower) share = 60 %
         self.assertEqual(summary["divider"], 60.0)
 
     def test_too_few_steps_returns_none(self):
@@ -1437,9 +1445,11 @@ class LikertResultsIntegrationTests(LiveTestCase):
             question_set=self.question_set, kind=Question.Kind.LIKERT,
             text="<p>Gut strukturiert?</p>", position=5,
         )
+        # Positive-first, exactly as the editor saves LIKERT_PRESETS
+        # ("Stimme voll zu" first). steps[0] = strongest agreement (#93).
         self.steps = [
             AnswerOption.objects.create(question=self.likert, text=t, position=i)
-            for i, t in enumerate(["gar nicht", "eher nicht", "neutral", "eher", "voll"])
+            for i, t in enumerate(["voll", "eher", "neutral", "eher nicht", "gar nicht"])
         ]
         self.abstain = AnswerOption.objects.create(
             question=self.likert, text="Enthaltung", position=5, is_abstention=True
@@ -1457,8 +1467,8 @@ class LikertResultsIntegrationTests(LiveTestCase):
         run = Run.objects.create(
             question_set=self.question_set, phase=Run.Phase.FINISHED
         )
-        self._cast(run, self.steps[3], 3)  # eher
-        self._cast(run, self.steps[4], 1)  # voll
+        self._cast(run, self.steps[1], 3)  # eher (agreement)
+        self._cast(run, self.steps[0], 1)  # voll (agreement)
         self._cast(run, self.abstain, 2)
         item = next(
             q for q in run_results(run)["questions"] if q["id"] == self.likert.pk
@@ -1471,7 +1481,7 @@ class LikertResultsIntegrationTests(LiveTestCase):
         run = Run.objects.create(
             question_set=self.question_set, phase=Run.Phase.FINISHED
         )
-        self._cast(run, self.steps[3], 3)
+        self._cast(run, self.steps[1], 3)  # eher (agreement)
         self._cast(run, self.abstain, 1)
         self.client.force_login(self.owner)
         body = self.client.get(
