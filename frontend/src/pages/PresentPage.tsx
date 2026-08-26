@@ -477,7 +477,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           void live.control(runId, { phase: "open" });
         else if (phase === "lobby") startFromLobby();
       } else if (key === "e" || key === "r") {
-        if (phase === "results") showQuestion();
+        // E/R steps toward the results view: from a revealed solution it
+        // returns to the results (un-reveal), not all the way to the question
+        // (#61); from plain results it toggles to the question; otherwise it
+        // reveals the results.
+        if (phase === "results" && revealed) showResults();
+        else if (phase === "results") showQuestion();
         else showResults();
       } else if (key === "a" && aiCloud) {
         // Word clouds have no correct answer — "a" cycles the AI views.
