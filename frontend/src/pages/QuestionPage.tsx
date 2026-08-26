@@ -248,6 +248,13 @@ export default function QuestionPage() {
     });
   }, [questionId]);
 
+  // Clear the stale error banner (validation guard or a prior save's server
+  // error) as soon as the user edits the text or the options — otherwise it
+  // lingers even after the field that triggered it is fixed (#90/#100).
+  useEffect(() => {
+    setError("");
+  }, [text, options]);
+
   function updateOption(clientId: number, patch: Partial<EditableOption>) {
     setOptions((current) =>
       current.map((option) => {
@@ -305,7 +312,11 @@ export default function QuestionPage() {
   async function save({ stay = false }: { stay?: boolean } = {}) {
     if (!question) return false;
     if (invalid) {
-      setError(t("Please fill in the question text and at least two answer options."));
+      setError(
+        textMissing
+          ? t("Question text is required.")
+          : t("Add at least two answer options, each with text."),
+      );
       return false;
     }
     setSaving(true);
@@ -342,7 +353,7 @@ export default function QuestionPage() {
             ? []
             : question.kind === "likert"
               ? likertOptions()
-              : options.map(({ clientId, id, ...option }) => ({
+              : filledOptions.map(({ clientId, id, ...option }) => ({
                   ...(id ? { id } : {}),
                   ...option,
                 })),
@@ -462,6 +473,10 @@ export default function QuestionPage() {
   }
 
   function applyDistractor(value: string) {
+    // Binary (Ja/Nein, Wahr/Falsch) must stay exactly two options — never add
+    // a third one here (#101; the AI panel is also hidden for binary above,
+    // this is defense-in-depth).
+    if (binaryChoice) return;
     setOptions((current) => {
       // Fill the first empty option before adding a new row (review feedback).
       const emptyIndex = current.findIndex(
@@ -499,12 +514,15 @@ export default function QuestionPage() {
   const canonicalLang = getDefaultContentLang() as "de" | "en";
   const canonicalHtml = localizedMap(text)[canonicalLang] ?? "";
   const textMissing = !stripHtml(canonicalHtml) && !/<img/i.test(canonicalHtml);
-  const optionsMissing =
-    isChoice &&
-    (options.length < 2 ||
-      !options.every(
-        (o) => (localizedMap(o.text)[canonicalLang] ?? "").trim() !== "" || !!o.image,
-      ));
+  // Ignore unfilled trailing options (e.g. a freshly-added blank row) rather
+  // than failing validation on their account — only options that actually
+  // carry text or an image count, and only those are sent to the backend
+  // (#90, #100; applies to single/multiple choice, priorities and ordering
+  // alike, since they all share this option list).
+  const filledOptions = options.filter(
+    (o) => (localizedMap(o.text)[canonicalLang] ?? "").trim() !== "" || !!o.image,
+  );
+  const optionsMissing = isChoice && filledOptions.length < 2;
   const invalid = textMissing || optionsMissing;
 
   const breadcrumb = (leaf: string) => (
@@ -565,7 +583,7 @@ export default function QuestionPage() {
           {(isChoice || isLikert) && (
             <div>
               <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-                {t("Answer options")}
+                {isLikert ? t("Scale") : t("Answer options")}
               </span>
               <ul className="grid gap-1.5">
                 {options.map((option) => (
@@ -874,7 +892,7 @@ export default function QuestionPage() {
                 </label>
               )}
 
-              {aiEnabled && !isNew && hasCorrect && (
+              {aiEnabled && !isNew && hasCorrect && !binaryChoice && (
                 <div className="mt-3">
                   <AiAssistPanel title={t("Suggest distractors")}>
                     <Button
