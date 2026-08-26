@@ -351,6 +351,7 @@ class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
             "wordcloud_grouping", "wordcloud_max_answers",
             "evaluation_categories", "evaluation_chart",
+            "model_solution", "participant_feedback",
             "reveal_answers", "before_question", "after_question", "is_after",
             "created_at", "updated_at",
         ]

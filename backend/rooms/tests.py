@@ -53,6 +53,37 @@ class RoomModelTests(TestCase):
         self.assertEqual(room.code, code)
 
 
+class QuestionModelTests(TestCase):
+    def test_model_solution_and_participant_feedback_defaults(self):
+        room = Room.objects.create(title="Bio 101")
+        question_set = QuestionSet.objects.create(room=room, title="Set")
+        question = Question.objects.create(
+            question_set=question_set, kind="open_text", text="Q"
+        )
+        self.assertEqual(question.model_solution, "")
+        self.assertFalse(question.participant_feedback)
+
+    def test_serializer_round_trips_model_solution_and_participant_feedback(self):
+        from rooms.serializers import QuestionSerializer
+
+        room = Room.objects.create(title="Bio 101")
+        question_set = QuestionSet.objects.create(room=room, title="Set")
+        open_text_question = Question.objects.create(
+            question_set=question_set,
+            kind="open_text",
+            text="Q",
+            model_solution="Photosynthese wandelt Licht in Energie um.",
+            participant_feedback=True,
+        )
+        data = QuestionSerializer(open_text_question).data
+        self.assertIn("model_solution", data)
+        self.assertIn("participant_feedback", data)
+        self.assertEqual(
+            data["model_solution"], "Photosynthese wandelt Licht in Energie um."
+        )
+        self.assertTrue(data["participant_feedback"])
+
+
 class ApiTestCase(TestCase):
     def setUp(self):
         self.owner = User.objects.create_user(username="frank")

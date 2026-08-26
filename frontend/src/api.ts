@@ -146,6 +146,12 @@ export interface Question {
   evaluation_categories: string[];
   /** open_text only: show the category counts as a bar chart. */
   evaluation_chart: boolean;
+  /** open_text only: optional model solution (Musterlösung) fed to the AI as
+   *  the reference the answers are scored against. */
+  model_solution: string;
+  /** open_text only: also show each participant the AI verdict of their own
+   *  answer on their device. */
+  participant_feedback: boolean;
   /** word_cloud only: let each participant submit several terms (#14). */
   allow_multiple: boolean;
   /** word_cloud only: show the cloud on the beamer while the vote is open (#30). */

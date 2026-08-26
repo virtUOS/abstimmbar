@@ -43,7 +43,7 @@ def _canonical_text(obj, base):
     )
 
 
-def classify(question_text, hint, answer, categories):
+def classify(question_text, hint, answer, categories, model_solution=""):
     """One model call for a single answer → (verdict, note). The verdict is
     coerced to one of ``categories``; any failure or unknown label degrades to
     the middle category so a run never stalls on the LLM."""
@@ -51,6 +51,8 @@ def classify(question_text, hint, answer, categories):
     valid = {c.casefold(): c for c in cats}
     fallback = middle_category(cats)
     lines = [f"Frage: {_plain(question_text) or '(ohne Fragentext)'}"]
+    if model_solution:
+        lines.append(f"Musterlösung: {model_solution}")
     if hint:
         lines.append(f"Erwartete Antwort / Kriterium: {hint}")
     lines.append(f"Antwort: {answer}")
@@ -90,6 +92,7 @@ def evaluate_vote(vote_id, room_id):
                 vote.question.evaluation_hint,
                 vote.text,
                 vote.question.evaluation_categories,
+                model_solution=vote.question.model_solution,
             )
         # One call labels every still-pending duplicate of this answer.
         siblings.filter(ai_verdict="").update(ai_verdict=verdict, ai_note=note)

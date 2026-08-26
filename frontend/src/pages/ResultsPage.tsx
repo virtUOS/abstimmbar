@@ -3,7 +3,7 @@
 
 /** Stored results per run (concept §7): the same bar charts as in the
  * presentation, viewable after the lecture; runs are deletable. */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { ChartColumnDecreasing, Check, Download, Trash2 } from "lucide-react";
@@ -11,6 +11,7 @@ import {
   api,
   results,
   type FreeTextEvaluation,
+  type Question,
   type QuestionSet,
   type RunResults,
   type WordCloudOptimization,
@@ -171,11 +172,15 @@ function FreeTextResult({
   questionId,
   words,
   aiEnabled,
+  modelSolution,
 }: {
   runId: number;
   questionId: number;
   words: { text: string; count: number }[];
   aiEnabled: boolean;
+  /** The question's stored Musterlösung (model_solution), used to prefill
+   *  the reference input below — never overwrites a teacher's own edit. */
+  modelSolution: string;
 }) {
   const { t } = useTranslation();
   const [reference, setReference] = useState("");
@@ -183,6 +188,15 @@ function FreeTextResult({
   const [showEvaluation, setShowEvaluation] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // Guards the prefill below against clobbering text the teacher already
+  // typed (e.g. once the question data arrives after a user edit).
+  const referenceEditedRef = useRef(false);
+
+  useEffect(() => {
+    if (!referenceEditedRef.current && modelSolution) {
+      setReference(modelSolution);
+    }
+  }, [modelSolution]);
 
   async function evaluate() {
     setBusy(true);
@@ -271,7 +285,10 @@ function FreeTextResult({
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               <TextInput
                 value={reference}
-                onChange={(event) => setReference(event.target.value)}
+                onChange={(event) => {
+                  referenceEditedRef.current = true;
+                  setReference(event.target.value);
+                }}
                 placeholder={t("Expected answer / criterion (optional)")}
                 className="sm:max-w-xs"
               />
@@ -351,24 +368,35 @@ export default function ResultsPage() {
   const aiEnabled = !!whoami?.ai_enabled && !easyMode;
   const [set, setSet] = useState<QuestionSet | null>(null);
   const [runs, setRuns] = useState<RunResults[] | null>(null);
+  // Full question objects (#Musterlösung): only fetched to read
+  // model_solution for the free-text re-evaluation prefill below; the
+  // results view itself keeps using the aggregated RunResults data.
+  const [questions, setQuestions] = useState<Question[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | "all" | null>(null);
   // Which Durchführung (archive) is shown, and whether export covers all (#17).
   const [selected, setSelected] = useState<number | null>(null);
   const [exportAll, setExportAll] = useState(false);
 
   const reload = () =>
-    Promise.all([api.getQuestionSet(id), results.list(id)]).then(
-      ([setData, payload]) => {
-        setSet(setData);
-        setRuns(payload.results);
-      },
-    );
+    Promise.all([
+      api.getQuestionSet(id),
+      results.list(id),
+      api.listQuestions(id),
+    ]).then(([setData, payload, questionPage]) => {
+      setSet(setData);
+      setRuns(payload.results);
+      setQuestions(questionPage.results);
+    });
   useEffect(() => {
     void reload();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  if (!set || !runs) return null;
+  if (!set || !runs || !questions) return null;
+
+  const modelSolutionByQuestion = new Map(
+    questions.map((q) => [q.id, q.model_solution]),
+  );
 
   // Runs come newest-first; the newest is the default selection.
   const current = runs.find((r) => r.run === selected) ?? runs[0] ?? null;
@@ -678,6 +706,7 @@ export default function ResultsPage() {
                               questionId={question.id}
                               words={question.words}
                               aiEnabled={aiEnabled}
+                              modelSolution={modelSolutionByQuestion.get(question.id) ?? ""}
                             />
                           )}
                         </>

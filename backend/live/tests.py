@@ -866,6 +866,19 @@ class StatePayloadTests(LiveTestCase):
         self.assertEqual(payloads["presenter"]["question"]["wordcloud_max_answers"], 3)
         self.assertEqual(payloads["participant"]["question"]["wordcloud_max_answers"], 3)
 
+    def test_question_payload_carries_participant_feedback(self):
+        # The participant client polls my-evaluation only when this is set;
+        # False for every non-open_text question (self.question is single-choice).
+        self.open_question()
+        payloads = build_payloads(self.room)
+        self.assertFalse(payloads["presenter"]["question"]["participant_feedback"])
+        self.assertFalse(payloads["participant"]["question"]["participant_feedback"])
+        self.question.participant_feedback = True
+        self.question.save(update_fields=["participant_feedback"])
+        payloads = build_payloads(self.room)
+        self.assertTrue(payloads["presenter"]["question"]["participant_feedback"])
+        self.assertTrue(payloads["participant"]["question"]["participant_feedback"])
+
 
 class ParticipantPageTests(LiveTestCase):
     def test_pages_render(self):
@@ -1785,6 +1798,80 @@ class AiLiveEvalTests(LiveTestCase):
         self.assertIn("evaluation", presenter)
         self.assertEqual(presenter["evaluation"]["groups"][0]["verdict"], "korrekt")
         self.assertEqual(presenter["evaluation"]["pending"], 0)
+
+
+class MyEvaluationTests(LiveTestCase):
+    """Token-scoped polling of the caller's own AI verdict (participant
+    free-text feedback): GET /api/live/rooms/<code>/my-evaluation/."""
+
+    def setUp(self):
+        super().setUp()
+        self.oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            text="<p>Hauptstadt von Frankreich?</p>", position=5,
+            ai_evaluate=True, participant_feedback=True,
+        )
+        self.run = self.open_question(self.oq)
+        self.token = self.join()
+        self.vote(self.token, text="Paris")
+        self.my_vote = Vote.objects.get(question=self.oq)
+
+    def _get(self, token, question=None):
+        params = {"token": token}
+        if question is not None:
+            params["question"] = question
+        return self.client.get(
+            f"/api/live/rooms/{self.room.code}/my-evaluation/", params
+        )
+
+    def test_pending_then_ready(self):
+        self.assertEqual(self._get(self.token).json(), {"status": "pending"})
+        self.my_vote.ai_verdict = "korrekt"
+        self.my_vote.ai_note = "gut"
+        self.my_vote.save()
+        self.assertEqual(
+            self._get(self.token).json(),
+            {"status": "ready", "verdict": "korrekt", "note": "gut"},
+        )
+
+    def test_off_when_participant_feedback_disabled(self):
+        self.oq.participant_feedback = False
+        self.oq.save(update_fields=["participant_feedback"])
+        self.assertEqual(self._get(self.token).json(), {"status": "off"})
+
+    def test_off_when_ai_evaluate_disabled(self):
+        self.oq.ai_evaluate = False
+        self.oq.save(update_fields=["ai_evaluate"])
+        self.assertEqual(self._get(self.token).json(), {"status": "off"})
+
+    def test_off_for_non_open_text_question(self):
+        self.run.active_question = self.question  # single_choice
+        self.run.save(update_fields=["active_question"])
+        self.assertEqual(self._get(self.token).json(), {"status": "off"})
+
+    def test_off_without_active_run(self):
+        self.run.delete()
+        self.assertEqual(self._get(self.token).json(), {"status": "off"})
+
+    def test_only_own_token_sees_the_verdict(self):
+        # Anonymity: a token with no vote of its own never sees this one's
+        # verdict, even once it is ready.
+        self.my_vote.ai_verdict = "korrekt"
+        self.my_vote.ai_note = "gut"
+        self.my_vote.save()
+        other = self.join()
+        self.assertEqual(self._get(other).json(), {"status": "off"})
+
+    def test_unknown_token_is_forbidden(self):
+        response = self._get("does-not-exist")
+        self.assertEqual(response.status_code, 403)
+
+    def test_self_paced_uses_question_param(self):
+        self.run.mode = Run.Mode.SELF_PACED
+        self.run.save(update_fields=["mode"])
+        self.assertEqual(
+            self._get(self.token, question=self.oq.pk).json(), {"status": "pending"}
+        )
 
 
 class AiLiveWordCloudTests(LiveTestCase):

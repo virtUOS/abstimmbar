@@ -504,6 +504,42 @@ def quiz(request, code):
     )
 
 
+@api_view(["GET"])
+def my_evaluation(request, code):
+    """The AI verdict of the CALLER'S OWN answer to the current open_text
+    question, for live participant feedback. Token-scoped; only when the
+    question opted into participant_feedback."""
+    room = _room_by_code(code)
+    token = ParticipantToken.objects.filter(
+        room=room, key=request.GET.get("token", "")
+    ).first()
+    if token is None:
+        return Response({"detail": "Unknown participant token."}, status=403)
+    run = active_run(room)
+    if run is None:
+        return Response({"status": "off"})
+    q_id = request.GET.get("question")
+    if run.mode == Run.Mode.SELF_PACED and q_id:
+        question = Question.objects.filter(
+            question_set=run.question_set, pk=q_id
+        ).first()
+    else:
+        question = run.active_question
+    if (
+        question is None
+        or question.kind != Question.Kind.OPEN_TEXT
+        or not question.ai_evaluate
+        or not question.participant_feedback
+    ):
+        return Response({"status": "off"})
+    vote = Vote.objects.filter(run=run, question=question, token=token).first()
+    if vote is None:
+        return Response({"status": "off"})
+    if not vote.ai_verdict:
+        return Response({"status": "pending"})
+    return Response({"status": "ready", "verdict": vote.ai_verdict, "note": vote.ai_note})
+
+
 # --- recording mode (#53): async viewer voting ------------------------------
 
 
