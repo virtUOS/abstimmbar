@@ -378,6 +378,7 @@
   "Hints for evaluation – e.g. the expected answer or a rating criterion (optional)": "Hinweise zur Auswertung – z. B. die erwartete Antwort oder ein Bewertungskriterium (optional)",
   "Each incoming answer is automatically assigned to a category during the run and grouped live in presentation mode.": "Jede eingehende Antwort wird während der Durchführung automatisch einer Kategorie zugeordnet und live im Präsentationsmodus gruppiert.",
   "Model solution (optional)": "Musterlösung (optional)",
+  "Model solution": "Musterlösung",
   "The AI scores answers against this reference.": "Die KI bewertet die Antworten anhand dieser Referenz.",
   "Category {{n}}": "Kategorie {{n}}",
   "Remove category {{n}}": "Kategorie {{n}} entfernen",

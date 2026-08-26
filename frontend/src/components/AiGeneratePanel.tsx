@@ -117,6 +117,8 @@ export default function AiGeneratePanel({
             text: option.text,
             is_correct: option.is_correct,
           })),
+          model_solution: draft.model_solution ?? "",
+          ai_evaluate: draft.kind === "open_text" && !!draft.model_solution,
         });
       }
       await onImported();
@@ -275,6 +277,12 @@ export default function AiGeneratePanel({
                             </li>
                           ))}
                         </ul>
+                      )}
+                      {draft.kind === "open_text" && draft.model_solution && (
+                        <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+                          <span className="text-slate-400">{t("Model solution")}: </span>
+                          {draft.model_solution}
+                        </div>
                       )}
                     </div>
                   </label>

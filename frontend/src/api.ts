@@ -180,6 +180,8 @@ export interface GeneratedQuestion {
   /** True/False drafts come back as single_choice + this flag (#79). */
   binary_choice?: boolean;
   options: { text: string; is_correct: boolean }[];
+  /** open_text only: AI-generated reference answer to score against. */
+  model_solution?: string;
 }
 
 /** Live free-text evaluation summary (presenter + stored results). The
