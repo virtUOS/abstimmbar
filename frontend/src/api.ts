@@ -632,6 +632,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text }),
     }),
+  /** Same as `aiDistractors`, but for a question still being created (no
+   * saved id yet) — scoped to the question set instead. */
+  aiDistractorsForSet: (
+    setId: number,
+    payload: { text: string; options: { text: string; is_correct: boolean }[]; count?: number },
+  ) =>
+    request<{ distractors: string[] }>(
+      `/api/question-sets/${setId}/ai-distractors/`,
+      { method: "POST", body: JSON.stringify(payload) },
+    ),
+  /** Same as `aiRephrase`, but for a question still being created (no saved
+   * id yet) — scoped to the question set instead. */
+  aiRephraseForSet: (setId: number, text: string) =>
+    request<{ variants: string[] }>(
+      `/api/question-sets/${setId}/ai-rephrase/`,
+      { method: "POST", body: JSON.stringify({ text }) },
+    ),
   /** All of the user's sets (move target picker) — no room filter. */
   listAllQuestionSets: () =>
     request<Paginated<QuestionSet>>("/api/question-sets/"),

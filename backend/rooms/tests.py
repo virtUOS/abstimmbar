@@ -1184,6 +1184,79 @@ class AiEditorTests(ApiTestCase):
         self.assertEqual(r.status_code, 502)
 
 
+class AiEditorSetScopedTests(ApiTestCase):
+    """Set-scoped AI distractor/rephrase actions for a question that hasn't
+    been saved yet (still being created in the editor, no question id)."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+
+        from django.test import override_settings
+        self.mock = mock
+        self.override_settings = override_settings
+        self.question_set = QuestionSet.objects.create(room=self.room, title="T")
+
+    def test_distractors_disabled_returns_503(self):
+        with self.override_settings(AI_PROVIDER="none", AI_BASE_URL="", AI_API_KEY="", AI_MODEL=""):
+            r = self.client.post(
+                f"/api/question-sets/{self.question_set.pk}/ai-distractors/"
+            )
+        self.assertEqual(r.status_code, 503)
+
+    def test_distractors_uses_draft_body(self):
+        reply = {"distractors": ["4", "6", "6", "sieben", ""]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ):
+            r = self.client.post(
+                f"/api/question-sets/{self.question_set.pk}/ai-distractors/",
+                {
+                    "count": 3,
+                    "text": "Was ist 2+2?",
+                    "options": [
+                        {"text": "4", "is_correct": True},
+                        {"text": "5", "is_correct": False},
+                    ],
+                },
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["distractors"], ["6", "sieben"])
+
+    def test_rephrase_uses_draft_body(self):
+        reply = {"variants": ["Wie viel ist 2+2?", "2 plus 2 ergibt?"]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ):
+            r = self.client.post(
+                f"/api/question-sets/{self.question_set.pk}/ai-rephrase/",
+                {"text": "Was ist 2+2?"},
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(len(r.json()["variants"]), 2)
+
+    def test_rephrase_without_text_returns_400(self):
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"/api/question-sets/{self.question_set.pk}/ai-rephrase/",
+                {"text": ""},
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 400)
+
+    def test_non_owner_cannot_use_set_scoped_actions(self):
+        self.client.force_login(self.other)
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"/api/question-sets/{self.question_set.pk}/ai-distractors/",
+                {"text": "Was ist 2+2?"},
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 404)
+
+
 class V21TransferTests(ApiTestCase):
     def test_export_import_keeps_v21_fields(self):
         question_set = QuestionSet.objects.create(
