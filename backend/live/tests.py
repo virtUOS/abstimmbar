@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import threading
 from unittest.mock import patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.db import connections
+from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone, translation
 
 from common.i18n_fields import resolve_translated_text
@@ -2880,3 +2882,62 @@ class QuestionPreviewTests(LiveTestCase):
         resp = self.client.get(f"/question-preview/{q.pk}/")
         self.assertIn("frame-ancestors", resp.headers.get("Content-Security-Policy", ""))
         self.assertNotIn("X-Frame-Options", resp.headers)
+
+
+class ConcurrentStartRunTests(TransactionTestCase):
+    """#66: two presenters opening the same set within milliseconds both
+    read "no active run" and both try to create one, tripping the
+    ``one_active_run_per_set`` constraint as an unhandled 500. Needs a
+    *real* TransactionTestCase (not the default TestCase, which wraps each
+    test in one transaction — no true concurrency, and ``select_for_update``
+    is a no-op there) so both threads can actually race against Postgres.
+    """
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="frank")
+        self.room = Room.objects.create(title="Bio 101")
+        self.room.owners.add(self.owner)
+        self.question_set = QuestionSet.objects.create(room=self.room, title="Termin 1")
+        self.question = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="<p>2+2?</p>",
+        )
+        AnswerOption.objects.create(question=self.question, text="4", is_correct=True, position=0)
+        AnswerOption.objects.create(question=self.question, text="5", position=1)
+
+    def test_simultaneous_start_run_does_not_500(self):
+        barrier = threading.Barrier(2)
+        results = [None, None]
+
+        def worker(index):
+            client = Client()
+            client.force_login(self.owner)
+            try:
+                barrier.wait(timeout=5)
+                response = client.post(
+                    f"/api/question-sets/{self.question_set.pk}/start-run/",
+                    {"mode": "self_paced", "existing": "continue"},
+                    content_type="application/json",
+                )
+                results[index] = response
+            finally:
+                connections.close_all()
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        for response in results:
+            self.assertIsNotNone(response, "worker thread did not complete")
+            self.assertEqual(response.status_code, 200, response.content)
+
+        run_ids = {response.json()["run"] for response in results}
+        self.assertEqual(len(run_ids), 1, "both requests must converge on the same run")
+
+        active = Run.objects.filter(question_set=self.question_set).exclude(
+            phase=Run.Phase.FINISHED
+        )
+        self.assertEqual(active.count(), 1)
+        self.assertEqual(active.first().pk, run_ids.pop())
