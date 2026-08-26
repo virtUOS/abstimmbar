@@ -5,3 +5,13 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* The shared @basicbar/ui "translate all" floating button is fixed at
+   bottom-6/right-6. On narrow screens it overlaps the question editor's
+   sticky Save/Cancel bar, so lift it clear of that bar there. The selector is
+   tied to that button's utility classes — revisit if the package changes them. */
+@media (max-width: 767px) {
+  .fixed.bottom-6.right-6.z-40 {
+    bottom: 5.5rem;
+  }
+}
