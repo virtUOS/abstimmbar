@@ -100,6 +100,80 @@ def _clamp_int(value, *, default, lo, hi):
         return default
 
 
+def _ai_distractors_response(request, fallback_question=None):
+    """Suggest plausible-but-wrong answer options (not saved). AI only.
+
+    Reads the draft from the request body first (the question may be
+    unsaved, e.g. still being created in the editor); falls back to a
+    stored ``fallback_question`` when the caller has one.
+    """
+    if not ai.is_enabled():
+        return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+    text = _plain(request.data.get("text") or "")
+    if not text and fallback_question is not None:
+        text = _plain(fallback_question.text)
+    body_options = request.data.get("options")
+    if isinstance(body_options, list):
+        existing = [str(o.get("text", "")).strip() for o in body_options]
+        existing = [t for t in existing if t]
+        correct = [
+            str(o.get("text", "")).strip()
+            for o in body_options
+            if o.get("is_correct") and str(o.get("text", "")).strip()
+        ]
+    elif fallback_question is not None:
+        options = list(fallback_question.options.all())
+        existing = [o.text for o in options if o.text]
+        correct = [o.text for o in options if o.is_correct and o.text]
+    else:
+        existing, correct = [], []
+    count = _clamp_int(request.data.get("count"), default=3, lo=1, hi=8)
+    try:
+        data = ai.chat_json(
+            ai_prompts.distractors_system(),
+            ai_prompts.build_distractors_prompt(text, correct, existing, count),
+        )
+    except ai.AIError as exc:
+        return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
+    # Re-validate: strings only, trimmed, deduped against existing + each
+    # other (case-insensitive), capped in length and count.
+    seen = {e.casefold() for e in existing}
+    result = []
+    for item in data.get("distractors", []) if isinstance(data, dict) else []:
+        text = str(item).strip()[:500]
+        if text and text.casefold() not in seen:
+            seen.add(text.casefold())
+            result.append(text)
+    return Response({"distractors": result[:count]})
+
+
+def _ai_rephrase_response(request, fallback_question=None):
+    """Suggest clearer rephrasings of the question text (not saved).
+
+    Reads the draft text from the request body first; falls back to a
+    stored ``fallback_question`` when the caller has one.
+    """
+    if not ai.is_enabled():
+        return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+    plain = _plain(request.data.get("text") or "")
+    if not plain and fallback_question is not None:
+        plain = _plain(fallback_question.text)
+    if not plain:
+        return Response({"detail": "Die Frage hat noch keinen Text."}, status=400)
+    try:
+        data = ai.chat_json(
+            ai_prompts.rephrase_system(), ai_prompts.build_rephrase_prompt(plain)
+        )
+    except ai.AIError as exc:
+        return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
+    variants = []
+    for item in data.get("variants", []) if isinstance(data, dict) else []:
+        text = str(item).strip()[:1000]
+        if text:
+            variants.append(text)
+    return Response({"variants": variants[:5]})
+
+
 class RoomViewSet(viewsets.ModelViewSet):
     serializer_class = RoomSerializer
     permission_classes: ClassVar = [IsAuthenticated]
@@ -462,6 +536,22 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         notice = ai_generate.unsuitable_reason(data) if not drafts else ""
         return Response({"questions": drafts, "notice": notice})
 
+    @action(detail=True, methods=["post"], url_path="ai-distractors")
+    def ai_distractors(self, request, pk=None):
+        """Set-scoped distractor suggestions for a question that has not
+        been saved yet (still being created in the editor) — same logic as
+        ``QuestionViewSet.ai_distractors``, just without a question id.
+        Ownership is enforced via ``get_object()`` on the set."""
+        self.get_object()  # ownership check
+        return _ai_distractors_response(request, fallback_question=None)
+
+    @action(detail=True, methods=["post"], url_path="ai-rephrase")
+    def ai_rephrase(self, request, pk=None):
+        """Set-scoped rephrase suggestions for a question that has not been
+        saved yet — see ``ai_distractors`` above."""
+        self.get_object()  # ownership check
+        return _ai_rephrase_response(request, fallback_question=None)
+
     @action(detail=True, methods=["post"])
     def reorder(self, request, pk=None):
         """Persist a new question order: ``{"question_ids": [3, 1, 2]}``."""
@@ -650,66 +740,14 @@ class QuestionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="ai-distractors")
     def ai_distractors(self, request, pk=None):
         """Suggest plausible-but-wrong answer options (not saved). AI only."""
-        if not ai.is_enabled():
-            return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
         question = self.get_object()
-        # Prefer the live editor state from the request (the question may be
-        # unsaved); fall back to the stored question.
-        text = _plain(request.data.get("text") or "") or _plain(question.text)
-        body_options = request.data.get("options")
-        if isinstance(body_options, list):
-            existing = [str(o.get("text", "")).strip() for o in body_options]
-            existing = [t for t in existing if t]
-            correct = [
-                str(o.get("text", "")).strip()
-                for o in body_options
-                if o.get("is_correct") and str(o.get("text", "")).strip()
-            ]
-        else:
-            options = list(question.options.all())
-            existing = [o.text for o in options if o.text]
-            correct = [o.text for o in options if o.is_correct and o.text]
-        count = _clamp_int(request.data.get("count"), default=3, lo=1, hi=8)
-        try:
-            data = ai.chat_json(
-                ai_prompts.distractors_system(),
-                ai_prompts.build_distractors_prompt(text, correct, existing, count),
-            )
-        except ai.AIError as exc:
-            return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
-        # Re-validate: strings only, trimmed, deduped against existing + each
-        # other (case-insensitive), capped in length and count.
-        seen = {e.casefold() for e in existing}
-        result = []
-        for item in data.get("distractors", []) if isinstance(data, dict) else []:
-            text = str(item).strip()[:500]
-            if text and text.casefold() not in seen:
-                seen.add(text.casefold())
-                result.append(text)
-        return Response({"distractors": result[:count]})
+        return _ai_distractors_response(request, fallback_question=question)
 
     @action(detail=True, methods=["post"], url_path="ai-rephrase")
     def ai_rephrase(self, request, pk=None):
         """Suggest clearer rephrasings of the question text (not saved)."""
-        if not ai.is_enabled():
-            return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
         question = self.get_object()
-        # Use the live editor text if sent (question may be unsaved).
-        plain = _plain(request.data.get("text") or "") or _plain(question.text)
-        if not plain:
-            return Response({"detail": "Die Frage hat noch keinen Text."}, status=400)
-        try:
-            data = ai.chat_json(
-                ai_prompts.rephrase_system(), ai_prompts.build_rephrase_prompt(plain)
-            )
-        except ai.AIError as exc:
-            return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
-        variants = []
-        for item in data.get("variants", []) if isinstance(data, dict) else []:
-            text = str(item).strip()[:1000]
-            if text:
-                variants.append(text)
-        return Response({"variants": variants[:5]})
+        return _ai_rephrase_response(request, fallback_question=question)
 
 
 class SectionViewSet(viewsets.ModelViewSet):

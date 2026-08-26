@@ -442,11 +442,16 @@ export default function QuestionPage() {
     setAiDistractorError("");
     setAiDistractors([]);
     try {
-      const { distractors } = await api.aiDistractors(question.id, {
+      const payload = {
         text: localizedText(text),
         options: options.map((o) => ({ text: localizedText(o.text), is_correct: o.is_correct })),
         count: 3,
-      });
+      };
+      // Not saved yet — no question id to scope the endpoint to, so use the
+      // set-scoped variant instead (same logic, reads the draft body).
+      const { distractors } = isNew
+        ? await api.aiDistractorsForSet(Number(setId), payload)
+        : await api.aiDistractors(question.id, payload);
       setAiDistractors(distractors);
       if (distractors.length === 0) setAiDistractorError(t("No suggestions received."));
     } catch (err) {
@@ -462,7 +467,10 @@ export default function QuestionPage() {
     setAiError("");
     setAiVariants([]);
     try {
-      const { variants } = await api.aiRephrase(question.id, localizedText(text));
+      // Not saved yet — use the set-scoped variant (see runDistractors above).
+      const { variants } = isNew
+        ? await api.aiRephraseForSet(Number(setId), localizedText(text))
+        : await api.aiRephrase(question.id, localizedText(text));
       setAiVariants(variants);
       if (variants.length === 0) setAiError(t("No suggestions received."));
     } catch (err) {
@@ -678,7 +686,7 @@ export default function QuestionPage() {
           </p>
         )}
 
-        {aiEnabled && !isNew && (
+        {aiEnabled && (
           <AiAssistPanel title={t("Rephrase question")}>
             <Button onClick={() => void runRephrase()} disabled={aiBusy === "rephrase"}>
               {aiBusy === "rephrase" ? t("Generating …") : t("Generate suggestions")}
@@ -892,7 +900,7 @@ export default function QuestionPage() {
                 </label>
               )}
 
-              {aiEnabled && !isNew && hasCorrect && !binaryChoice && (
+              {aiEnabled && hasCorrect && !binaryChoice && (
                 <div className="mt-3">
                   <AiAssistPanel title={t("Suggest distractors")}>
                     <Button
