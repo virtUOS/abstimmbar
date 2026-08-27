@@ -569,7 +569,10 @@ export default function RoomPage() {
         <HomeCrumb /> / {localizedText(room.title)}
       </nav>
 
-      <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+      {/* Stack on mobile so the (often long) room title gets the full width
+          instead of colliding with the favorite/actions (#81); side-by-side
+          from sm up. */}
+      <div className="mb-2 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <h1 className="flex items-center gap-1.5 text-2xl font-bold">
             {localizedText(room.title)}
@@ -593,7 +596,7 @@ export default function RoomPage() {
             <span>{t("— stays the same across all sessions.")}</span>
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
           <button
             type="button"
             aria-pressed={room.is_favorite}
