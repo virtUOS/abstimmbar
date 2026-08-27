@@ -15,6 +15,7 @@ import nh3
 from basicbar_integrations import ai
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.db import transaction
 from django.db.models import Count, Exists, Max, OuterRef, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
@@ -612,6 +613,44 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                     question.save(update_fields=["position", "section"])
         _touch(question_set)
         return Response({"status": "ok"})
+
+    @action(detail=True, methods=["post"], url_path="copy-questions")
+    def copy_questions(self, request, pk=None):
+        """Deep-copy questions (content + options, no results) from any of
+        the user's sets into this set: ``{"question_ids": [id, ...]}``.
+
+        Powers the per-question "copy to another set" menu and the
+        multi-select "add questions from another set" picker (#87). Copies
+        are appended at the end, in the caller's given order; the
+        before/after link (#54) is intentionally not carried over — copies
+        are standalone questions.
+        """
+        target = self.get_object()
+        ids = request.data.get("question_ids")
+        if not isinstance(ids, list) or not ids:
+            return Response(
+                {"detail": "question_ids must be a non-empty list."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        sources = Question.objects.filter(pk__in=ids)
+        if not request.user.is_staff:
+            sources = sources.filter(question_set__room__owners=request.user)
+        by_id = {q.pk: q for q in sources}
+        if any(question_id not in by_id for question_id in ids):
+            return Response(
+                {"detail": "One or more questions were not found."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        with transaction.atomic():
+            last = target.questions.order_by("-position").first()
+            position = (last.position + 1) if last else 0
+            for question_id in ids:
+                duplicate_question(
+                    by_id[question_id], question_set=target, section=None, position=position
+                )
+                position += 1
+            _touch(target)
+        return Response({"copied": len(ids)}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="reorder-sections")
     def reorder_sections(self, request, pk=None):
