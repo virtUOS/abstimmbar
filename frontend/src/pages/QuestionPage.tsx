@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, Eye, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, X } from "lucide-react";
+import { Check, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -182,6 +182,7 @@ export default function QuestionPage() {
   const [previewNonce, setPreviewNonce] = useState(0);
   const [error, setError] = useState("");
   const [moveTargets, setMoveTargets] = useState<QuestionSet[] | null>(null);
+  const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
   const [moveRooms, setMoveRooms] = useState<{ id: number; title: string }[]>([]);
   const [moveRoom, setMoveRoom] = useState<number | null>(null);
   const [moveTarget, setMoveTarget] = useState<number | null>(null);
@@ -406,7 +407,8 @@ export default function QuestionPage() {
     }
   }
 
-  async function openMove() {
+  async function openMove(mode: "move" | "copy" = "move") {
+    setMoveMode(mode);
     // Two-stage picker (review feedback): choose the room first, then one
     // of its sets. Defaults to the room the question currently lives in.
     const [page, currentSet] = await Promise.all([
@@ -438,7 +440,13 @@ export default function QuestionPage() {
     if (!question || moveTarget === null) return;
     setMoveError("");
     try {
-      await api.moveQuestion(question.id, moveTarget);
+      if (moveMode === "copy") {
+        await api.copyQuestions(moveTarget, [question.id]);
+      } else {
+        await api.moveQuestion(question.id, moveTarget);
+      }
+      // A copy leaves this question in place; go to the target either way so
+      // the result is visible.
       navigate(`/sets/${moveTarget}`);
     } catch (err) {
       try {
@@ -681,7 +689,11 @@ export default function QuestionPage() {
         />
         {!isNew && (
           <MoreMenu label={t("Question actions")}>
-            <MenuItem onClick={() => void openMove()}>
+            <MenuItem onClick={() => void openMove("copy")}>
+              <Files aria-hidden className="h-4 w-4" />
+              {t("Copy to another question set …")}
+            </MenuItem>
+            <MenuItem onClick={() => void openMove("move")}>
               <FolderInput aria-hidden className="h-4 w-4" />
               {t("Move to another question set …")}
             </MenuItem>

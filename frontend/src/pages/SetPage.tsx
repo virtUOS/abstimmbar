@@ -573,9 +573,11 @@ export default function SetPage() {
   /** Two-stage Room→Question-set picker, shared by the move/copy modal and
    * the pull picker: all of the user's sets minus the current one, grouped
    * by room, defaulting to the current set's room. */
-  async function loadTransferTargets() {
+  async function loadTransferTargets(filter?: (entry: QuestionSet) => boolean) {
     const page = await api.listAllQuestionSets();
-    const targets = page.results.filter((entry) => entry.id !== id);
+    const targets = page.results.filter(
+      (entry) => entry.id !== id && (filter ? filter(entry) : true),
+    );
     const rooms = [
       ...new Map(targets.map((entry) => [entry.room, entry.room_title])),
     ].map(([roomId, title]) => ({ id: roomId, title }));
@@ -625,7 +627,10 @@ export default function SetPage() {
   /** Open the pull picker: choose a source set, then check off questions to
    * copy into this one (#87). */
   async function openPull() {
-    const { targets, rooms, startRoom } = await loadTransferTargets();
+    // Only sets that actually have questions can be pulled from.
+    const { targets, rooms, startRoom } = await loadTransferTargets(
+      (entry) => entry.question_count > 0,
+    );
     const startSet = targets.find((entry) => entry.room === startRoom)?.id ?? null;
     setPullTargets(targets);
     setPullRooms(rooms);
