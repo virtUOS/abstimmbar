@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, GraduationCap, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, GraduationCap, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
 import {
   api,
   results,
@@ -366,6 +366,26 @@ export default function SetPage() {
   const [whoamiName, setWhoamiName] = useState("");
   const [aiEnabled, setAiEnabled] = useState(false);
   const [generateOpen, setGenerateOpen] = useState(false);
+  // Move/copy a single question to another set (#87) — shared target-set
+  // picker, ported from QuestionPage's move modal.
+  const [xfer, setXfer] = useState<{ id: number; mode: "move" | "copy" } | null>(null);
+  const [xferTargets, setXferTargets] = useState<QuestionSet[] | null>(null);
+  const [xferRooms, setXferRooms] = useState<{ id: number; title: string }[]>([]);
+  const [xferRoom, setXferRoom] = useState<number | null>(null);
+  const [xferTarget, setXferTarget] = useState<number | null>(null);
+  const [xferError, setXferError] = useState("");
+  // Pull picker (#87): copy several questions from a chosen source set into
+  // this one. `pullTargets` doubles as the dialog's open/closed gate.
+  const [pullTargets, setPullTargets] = useState<QuestionSet[] | null>(null);
+  const [pullRooms, setPullRooms] = useState<{ id: number; title: string }[]>([]);
+  const [pullRoom, setPullRoom] = useState<number | null>(null);
+  const [pullSourceSet, setPullSourceSet] = useState<number | null>(null);
+  const [pullQuestions, setPullQuestions] = useState<Question[] | null>(null);
+  const [pullSelected, setPullSelected] = useState<Set<number>>(new Set());
+  const [pullError, setPullError] = useState("");
+  const [pullBusy, setPullBusy] = useState(false);
+  // Small bottom toast, shared by "copy link" and the new copy actions.
+  const [toastMessage, setToastMessage] = useState("");
   const easyMode = useEasyMode();
   const aiVisible = aiEnabled && !easyMode;
   // Recording mode (#53): opt-in before presenting; carried to the beamer via
@@ -537,12 +557,152 @@ export default function SetPage() {
     window.setTimeout(() => setLinkCopied(false), 1500);
   }
 
-  const [questionLinkCopied, setQuestionLinkCopied] = useState(false);
+  const toastTimer = useRef<number | undefined>(undefined);
+  function showToast(message: string) {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
+    setToastMessage(message);
+    toastTimer.current = window.setTimeout(() => setToastMessage(""), 1500);
+  }
+
   async function copyQuestionLink(questionId: number) {
     const url = `${window.location.origin}/sets/${id}/present?question=${questionId}`;
     await navigator.clipboard.writeText(url);
-    setQuestionLinkCopied(true);
-    window.setTimeout(() => setQuestionLinkCopied(false), 1500);
+    showToast(t("Copied"));
+  }
+
+  /** Two-stage Room→Question-set picker, shared by the move/copy modal and
+   * the pull picker: all of the user's sets minus the current one, grouped
+   * by room, defaulting to the current set's room. */
+  async function loadTransferTargets(filter?: (entry: QuestionSet) => boolean) {
+    const page = await api.listAllQuestionSets();
+    const targets = page.results.filter(
+      (entry) => entry.id !== id && (filter ? filter(entry) : true),
+    );
+    const rooms = [
+      ...new Map(targets.map((entry) => [entry.room, entry.room_title])),
+    ].map(([roomId, title]) => ({ id: roomId, title }));
+    const startRoom = rooms.some((room) => room.id === set?.room)
+      ? (set?.room ?? null)
+      : (rooms[0]?.id ?? null);
+    return { targets, rooms, startRoom };
+  }
+
+  /** Open the shared move/copy picker for a single question (#87). */
+  async function openXfer(questionId: number, mode: "move" | "copy") {
+    const { targets, rooms, startRoom } = await loadTransferTargets();
+    setXferTargets(targets);
+    setXferRooms(rooms);
+    setXferRoom(startRoom);
+    setXferTarget(targets.find((entry) => entry.room === startRoom)?.id ?? null);
+    setXferError("");
+    setXfer({ id: questionId, mode });
+  }
+
+  function pickXferRoom(roomId: number) {
+    setXferRoom(roomId);
+    setXferTarget(xferTargets?.find((entry) => entry.room === roomId)?.id ?? null);
+  }
+
+  async function confirmXfer() {
+    if (!xfer || xferTarget === null) return;
+    setXferError("");
+    try {
+      if (xfer.mode === "move") {
+        await api.moveQuestion(xfer.id, xferTarget);
+      } else {
+        await api.copyQuestions(xferTarget, [xfer.id]);
+        showToast(t("Copied"));
+      }
+      setXfer(null);
+      await reloadQuestions();
+    } catch (err) {
+      try {
+        setXferError(JSON.parse((err as Error).message).detail ?? String(err));
+      } catch {
+        setXferError(String(err));
+      }
+    }
+  }
+
+  /** Open the pull picker: choose a source set, then check off questions to
+   * copy into this one (#87). */
+  async function openPull() {
+    // Only sets that actually have questions can be pulled from.
+    const { targets, rooms, startRoom } = await loadTransferTargets(
+      (entry) => entry.question_count > 0,
+    );
+    const startSet = targets.find((entry) => entry.room === startRoom)?.id ?? null;
+    setPullTargets(targets);
+    setPullRooms(rooms);
+    setPullRoom(startRoom);
+    setPullSourceSet(startSet);
+    setPullQuestions(null);
+    setPullSelected(new Set());
+    setPullError("");
+    if (startSet !== null) await loadPullQuestions(startSet);
+  }
+
+  async function loadPullQuestions(sourceSetId: number) {
+    const page = await api.listQuestions(sourceSetId);
+    setPullQuestions(page.results);
+    // Start with nothing selected: pulling in is deliberate cherry-picking,
+    // not "copy the whole set" (that's what Duplicate is for). "Select all"
+    // is one click away for the take-everything case.
+    setPullSelected(new Set());
+  }
+
+  function pickPullRoom(roomId: number) {
+    setPullRoom(roomId);
+    const nextSet = pullTargets?.find((entry) => entry.room === roomId)?.id ?? null;
+    setPullSourceSet(nextSet);
+    if (nextSet !== null) void loadPullQuestions(nextSet);
+    else {
+      setPullQuestions(null);
+      setPullSelected(new Set());
+    }
+  }
+
+  function pickPullSourceSet(sourceSetId: number) {
+    setPullSourceSet(sourceSetId);
+    void loadPullQuestions(sourceSetId);
+  }
+
+  function togglePullQuestion(questionId: number) {
+    setPullSelected((current) => {
+      const next = new Set(current);
+      if (next.has(questionId)) next.delete(questionId);
+      else next.add(questionId);
+      return next;
+    });
+  }
+
+  function toggleSelectAllPull() {
+    if (!pullQuestions) return;
+    setPullSelected((current) =>
+      current.size === pullQuestions.length
+        ? new Set()
+        : new Set(pullQuestions.map((q) => q.id)),
+    );
+  }
+
+  async function confirmPull() {
+    if (pullSelected.size === 0) return;
+    setPullBusy(true);
+    setPullError("");
+    try {
+      await api.copyQuestions(id, [...pullSelected]);
+      setPullTargets(null);
+      showToast(t("Copied"));
+      await reloadQuestions();
+    } catch (err) {
+      try {
+        setPullError(JSON.parse((err as Error).message).detail ?? String(err));
+      } catch {
+        setPullError(String(err));
+      }
+    } finally {
+      setPullBusy(false);
+    }
   }
 
   function doExport() {
@@ -624,6 +784,12 @@ export default function SetPage() {
             <h1 className="text-2xl font-bold">{localizedText(set.title)}</h1>
             <MoreMenu label={t("Set actions")}>
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>
+              {/* Pulling in questions is core authoring — available in both
+                  modes, unlike the Pro-only actions below (#87). */}
+              <MenuItem onClick={() => void openPull()}>
+                <CopyPlus aria-hidden className="h-4 w-4" />
+                {t("Add questions from another set …")}
+              </MenuItem>
               {/* Easy mode (#52): hide duplicate / export / share / archive. */}
               {!easyMode && (
                 <>
@@ -953,6 +1119,16 @@ export default function SetPage() {
           {t(
             "Create the first question above — Single Choice starts with three empty answer fields.",
           )}
+          <div className="mt-4">
+            <Button
+              variant="primary"
+              onClick={() => void openPull()}
+              className="inline-flex items-center gap-1.5"
+            >
+              <CopyPlus aria-hidden className="h-4 w-4" />
+              {t("Add questions from another set …")}
+            </Button>
+          </div>
         </EmptyState>
       ) : (
         <>
@@ -1084,6 +1260,14 @@ export default function SetPage() {
                               {t("Copy link")}
                             </MenuItem>
                           )}
+                          <MenuItem onClick={() => void openXfer(question.id, "move")}>
+                            <FolderInput aria-hidden className="h-4 w-4" />
+                            {t("Move to another set …")}
+                          </MenuItem>
+                          <MenuItem onClick={() => void openXfer(question.id, "copy")}>
+                            <Files aria-hidden className="h-4 w-4" />
+                            {t("Copy to another set …")}
+                          </MenuItem>
                           {canAddAfter && (
                             <MenuItem onClick={() => void handleAddAfter(question.id)}>
                               <CopyPlus aria-hidden className="h-4 w-4" />
@@ -1113,9 +1297,211 @@ export default function SetPage() {
           )}
         </>
       )}
-      {questionLinkCopied && (
+      {toastMessage && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900">
-          {t("Copied")}
+          {toastMessage}
+        </div>
+      )}
+
+      {/* Shared move/copy picker for a single question (#87), ported from
+          QuestionPage's move modal. */}
+      {xfer !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setXfer(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {xfer.mode === "move"
+                ? t("Move to another question set …")
+                : t("Copy to another question set …")}
+            </h2>
+            {xferTargets && xferTargets.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                {xfer.mode === "move"
+                  ? t("There is no other question set to move this to.")
+                  : t("There is no other question set to copy this to.")}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <Field label={t("Room")}>
+                  <select
+                    value={xferRoom ?? undefined}
+                    onChange={(event) => pickXferRoom(Number(event.target.value))}
+                    className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    {xferRooms.map((room) => (
+                      <option key={room.id} value={room.id}>
+                        {room.title}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label={t("Question set")}>
+                  <select
+                    value={xferTarget ?? undefined}
+                    onChange={(event) => setXferTarget(Number(event.target.value))}
+                    className="w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  >
+                    {xferTargets
+                      ?.filter((entry) => entry.room === xferRoom)
+                      .map((entry) => (
+                        <option key={entry.id} value={entry.id}>
+                          {localizedText(entry.title)}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+              </div>
+            )}
+            {xferError && <p className="mt-3 text-sm text-red-600">{xferError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setXfer(null)}>
+                {t("Cancel")}
+              </Button>
+              {xferTargets && xferTargets.length > 0 && (
+                <Button disabled={xferTarget === null} onClick={() => void confirmXfer()}>
+                  {xfer.mode === "move" ? t("Move") : t("Copy")}
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Pull picker (#87): copy several questions from a chosen source set
+          into this one. */}
+      {pullTargets !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPullTargets(null)}
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-lg flex-col rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-slate-100">
+              {t("Add questions from another set …")}
+            </h2>
+            {pullTargets.length === 0 ? (
+              <p className="text-sm text-slate-400">
+                {t("There is no other set to copy questions from.")}
+              </p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-3">
+                  <Field label={t("Room")}>
+                    <select
+                      value={pullRoom ?? undefined}
+                      onChange={(event) => pickPullRoom(Number(event.target.value))}
+                      className="w-56 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      {pullRooms.map((room) => (
+                        <option key={room.id} value={room.id}>
+                          {room.title}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label={t("Question set")}>
+                    <select
+                      value={pullSourceSet ?? undefined}
+                      onChange={(event) => pickPullSourceSet(Number(event.target.value))}
+                      className="w-64 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                    >
+                      {pullTargets
+                        .filter((entry) => entry.room === pullRoom)
+                        .map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {localizedText(entry.title)}
+                          </option>
+                        ))}
+                    </select>
+                  </Field>
+                </div>
+
+                {pullQuestions && (
+                  <div className="mt-4 flex min-h-0 flex-1 flex-col">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                        {t("Questions")}
+                      </span>
+                      {pullQuestions.length > 0 && (
+                        <button
+                          type="button"
+                          onClick={toggleSelectAllPull}
+                          className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300"
+                        >
+                          {pullSelected.size === pullQuestions.length
+                            ? t("Deselect all")
+                            : t("Select all")}
+                        </button>
+                      )}
+                    </div>
+                    <ul className="flex-1 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-800">
+                      {pullQuestions.length === 0 ? (
+                        <li className="px-3 py-4 text-sm text-slate-400">
+                          {t("No questions yet")}
+                        </li>
+                      ) : (
+                        pullQuestions.map((question) => (
+                          <li
+                            key={question.id}
+                            className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
+                          >
+                            <label className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                              <input
+                                type="checkbox"
+                                checked={pullSelected.has(question.id)}
+                                onChange={() => togglePullQuestion(question.id)}
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                              />
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
+                                  {stripHtml(localizedText(question.text)) || (
+                                    <span className="italic text-slate-400">
+                                      {t("No question text")}
+                                    </span>
+                                  )}
+                                </span>
+                                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                                  {t(KIND_LABEL[question.kind])}
+                                </span>
+                              </span>
+                            </label>
+                          </li>
+                        ))
+                      )}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+            {pullError && <p className="mt-3 text-sm text-red-600">{pullError}</p>}
+            <div className="mt-4 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setPullTargets(null)}>
+                {t("Cancel")}
+              </Button>
+              {pullTargets.length > 0 && (
+                <Button
+                  variant="primary"
+                  disabled={pullSelected.size === 0 || pullBusy}
+                  onClick={() => void confirmPull()}
+                >
+                  {pullBusy
+                    ? t("Saving …")
+                    : t("Copy {{count}} questions", { count: pullSelected.size })}
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

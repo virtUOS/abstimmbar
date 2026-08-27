@@ -12,5 +12,7 @@
   "abstention_one": "abstention",
   "abstention_other": "abstentions",
   "question_one": "question",
-  "question_other": "questions"
+  "question_other": "questions",
+  "Copy {{count}} questions_one": "Copy {{count}} question",
+  "Copy {{count}} questions_other": "Copy {{count}} questions"
 }

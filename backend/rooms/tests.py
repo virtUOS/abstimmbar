@@ -973,6 +973,109 @@ class TransferTests(ApiTestCase):
         self.assertEqual(response.status_code, 404)
 
 
+class CopyQuestionsTests(ApiTestCase):
+    """QuestionSetViewSet.copy_questions (#87): deep-copy questions from any
+    of the user's sets into a target set, no results, appended in order."""
+
+    def setUp(self):
+        super().setUp()
+        self.source = QuestionSet.objects.create(room=self.room, title="Quelle")
+        self.q1 = Question.objects.create(
+            question_set=self.source, kind="single_choice", text="Frage 1",
+        )
+        AnswerOption.objects.create(question=self.q1, text="A", is_correct=True)
+        AnswerOption.objects.create(question=self.q1, text="B", position=1)
+        self.q2 = Question.objects.create(
+            question_set=self.source, kind="word_cloud", text="Frage 2", position=1,
+        )
+        self.target = QuestionSet.objects.create(room=self.room, title="Ziel")
+        self.existing = Question.objects.create(
+            question_set=self.target, kind="open_text", text="Bestehende Frage",
+        )
+
+    def copy(self, question_ids, target=None):
+        return self.client.post(
+            f"/api/question-sets/{(target or self.target).pk}/copy-questions/",
+            {"question_ids": question_ids},
+            content_type="application/json",
+        )
+
+    def test_copy_two_questions_appends_in_order(self):
+        response = self.copy([self.q1.pk, self.q2.pk])
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"copied": 2})
+
+        self.target.refresh_from_db()
+        self.assertEqual(self.target.questions.count(), 3)
+        copies = list(self.target.questions.order_by("position"))
+        self.assertEqual(copies[0].pk, self.existing.pk)
+        self.assertEqual(copies[1].text, "Frage 1")
+        self.assertEqual(copies[1].position, 1)
+        self.assertEqual(copies[2].text, "Frage 2")
+        self.assertEqual(copies[2].position, 2)
+
+        # Originals in the source set are untouched.
+        self.assertEqual(self.source.questions.count(), 2)
+        self.assertEqual(Question.objects.get(pk=self.q1.pk).text, "Frage 1")
+
+        # Options were deep-copied: same texts/count, distinct objects.
+        copied_q1 = copies[1]
+        self.assertEqual(copied_q1.options.count(), 2)
+        self.assertNotEqual(
+            set(copied_q1.options.values_list("pk", flat=True)),
+            set(self.q1.options.values_list("pk", flat=True)),
+        )
+        self.assertEqual(
+            list(copied_q1.options.order_by("position").values_list("text", flat=True)),
+            ["A", "B"],
+        )
+
+    def test_copy_does_not_bring_votes(self):
+        from live.models import ParticipantToken, Run, Vote
+
+        run = Run.objects.create(question_set=self.source)
+        token = ParticipantToken.objects.create(room=self.room)
+        Vote.objects.create(run=run, question=self.q1, token=token, text="x")
+
+        response = self.copy([self.q1.pk])
+        self.assertEqual(response.status_code, 201)
+        copy = self.target.questions.order_by("position").last()
+        self.assertFalse(copy.votes.exists())
+        self.assertTrue(self.q1.votes.exists())
+
+    def test_cannot_copy_from_a_set_one_does_not_own(self):
+        foreign_room = Room.objects.create(title="Fremd")
+        foreign_room.owners.add(self.other)
+        foreign_set = QuestionSet.objects.create(room=foreign_room, title="Fremd")
+        foreign_question = Question.objects.create(
+            question_set=foreign_set, kind="open_text", text="Geheim",
+        )
+        response = self.copy([foreign_question.pk])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.target.questions.count(), 1)
+
+    def test_invalid_or_missing_ids_rejected(self):
+        response = self.copy([self.q1.pk, 999999])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.target.questions.count(), 1)
+
+    def test_empty_or_non_list_question_ids_rejected(self):
+        self.assertEqual(self.copy([]).status_code, 400)
+        response = self.client.post(
+            f"/api/question-sets/{self.target.pk}/copy-questions/",
+            {"question_ids": self.q1.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.target.questions.count(), 1)
+
+    def test_non_integer_ids_rejected(self):
+        # A stray string must yield a clean 400, not a 500 from pk__in.
+        response = self.copy(["abc"])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.target.questions.count(), 1)
+
+
 class SearchTests(ApiTestCase):
     def setUp(self):
         super().setUp()

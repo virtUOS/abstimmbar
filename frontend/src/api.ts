@@ -619,6 +619,13 @@ export const api = {
       `/api/questions/${id}/move/`,
       { method: "POST", body: JSON.stringify({ question_set: questionSet }) },
     ),
+  /** Copy questions (from any set the user owns) into set `setId`, appended
+   * at the end in the given order (#87). */
+  copyQuestions: (setId: number, questionIds: number[]) =>
+    request<{ copied: number }>(`/api/question-sets/${setId}/copy-questions/`, {
+      method: "POST",
+      body: JSON.stringify({ question_ids: questionIds }),
+    }),
   aiDistractors: (
     id: number,
     payload: { text: string; options: { text: string; is_correct: boolean }[]; count?: number },
