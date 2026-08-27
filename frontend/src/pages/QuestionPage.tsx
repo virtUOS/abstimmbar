@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, Eye, FolderInput, ImageOff, ImagePlus, Link2, Pencil, X } from "lucide-react";
+import { Check, Eye, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -27,7 +27,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
-import { Button, Field, MenuItem, MoreMenu, SegmentedControl, TextInput } from "../components/ui";
+import { Button, Field, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
@@ -874,19 +874,17 @@ export default function QuestionPage() {
                     + {t("Add answer")}
                   </Button>
                 )}
-                {/* Random order is meaningless for priorities (sliders, order
-                    irrelevant) and for ordering (the server always shuffles —
-                    that's the task), so hide the toggle for those kinds. */}
-                {!isPriorities && !isOrdering && (
-                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                    <input
-                      type="checkbox"
-                      checked={shuffle}
-                      onChange={(event) => setShuffle(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-                    />
-                    {t("Show answer options to participants in random order")}
-                  </label>
+                {/* Offer random order for choice and priorities questions —
+                    the listed order shouldn't nudge participants toward a
+                    ranking (#96). Ordering is excluded: the server always
+                    shuffles it (finding the right order is the task). */}
+                {!isOrdering && (
+                  <ToggleSwitch
+                    checked={shuffle}
+                    onChange={setShuffle}
+                    icon={Shuffle}
+                    label={t("Show answer options to participants in random order")}
+                  />
                 )}
               </div>
               {optionsMissing && (

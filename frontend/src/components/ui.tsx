@@ -426,3 +426,50 @@ export function SegmentedControl<T extends string>({
     </div>
   );
 }
+
+/**
+ * A sliding on/off switch — the unambiguous shape for a boolean whose two
+ * states carry equal weight (unlike a checkbox, whose "off" reads as "not
+ * yet done"). The thumb position and the brand fill both signal the state,
+ * so no "on/off" wording is needed (see #98). Pass an optional leading
+ * `icon` to keep a control recognizable (e.g. Shuffle for random order).
+ */
+export function ToggleSwitch({
+  checked,
+  onChange,
+  label,
+  icon: Icon,
+  disabled = false,
+}: {
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+  label: ReactNode;
+  icon?: LucideIcon;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className="group inline-flex items-center gap-2.5 rounded text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300"
+    >
+      <span
+        aria-hidden
+        className={`relative inline-flex h-5 w-9 flex-none items-center rounded-full transition-colors ${
+          checked ? "bg-brand-600" : "bg-slate-300 dark:bg-slate-600"
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+            checked ? "translate-x-[1.125rem]" : "translate-x-0.5"
+          }`}
+        />
+      </span>
+      {Icon && <Icon aria-hidden className="h-4 w-4 flex-none" />}
+      <span className="text-left">{label}</span>
+    </button>
+  );
+}
