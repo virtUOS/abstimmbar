@@ -874,10 +874,11 @@ export default function QuestionPage() {
                     + {t("Add answer")}
                   </Button>
                 )}
-                {/* Random order is meaningless for priorities (sliders, order
-                    irrelevant) and for ordering (the server always shuffles —
-                    that's the task), so hide the toggle for those kinds. */}
-                {!isPriorities && !isOrdering && (
+                {/* Offer random order for choice and priorities questions —
+                    the listed order shouldn't nudge participants toward a
+                    ranking (#96). Ordering is excluded: the server always
+                    shuffles it (finding the right order is the task). */}
+                {!isOrdering && (
                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                     <input
                       type="checkbox"
