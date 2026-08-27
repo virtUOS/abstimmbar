@@ -81,7 +81,9 @@ function RoomCard({
   const description = stripHtml(localizedText(room.description));
   return (
     <li className="relative min-w-0 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-brand-600">
-      <div className="flex items-start justify-between gap-2">
+      {/* On mobile the actions drop to their own row so the title/content gets
+          the full card width (#81); from sm they sit beside it as before. */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
         <Link
           to={`/rooms/${room.id}`}
           className="min-w-0 flex-1 after:absolute after:inset-0 after:rounded-2xl"
@@ -136,7 +138,7 @@ function RoomCard({
             </p>
           )}
         </Link>
-        <div className="relative z-10 flex shrink-0 items-center gap-1">
+        <div className="relative z-10 flex shrink-0 items-center gap-1 self-end sm:self-auto">
           {/* A foreign admin room (visible only via the staff "show all"
            * toggle) is view-only: no favorite/archive/leave/delete. */}
           {(room.is_owner || room.is_member) && (
