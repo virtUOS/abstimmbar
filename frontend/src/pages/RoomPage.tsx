@@ -37,9 +37,9 @@ import { SetSettingsForm, type SetSettings } from "./SetPage";
 const NEW_SET_DEFAULTS: SetSettings = {
   title: "",
   description: "",
-  reveal_answers: "after_close",
-  open_on_show: false,
-  show_results_to_participants: false,
+  reveal_answers: "immediately",
+  open_on_show: true,
+  show_results_to_participants: true,
 };
 
 type SortKey = "updated" | "created" | "title" | "questions";

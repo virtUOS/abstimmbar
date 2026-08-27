@@ -244,7 +244,7 @@ class QuestionSetApiTests(ApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(response.json()["reveal_answers"], "after_close")
+        self.assertEqual(response.json()["reveal_answers"], "immediately")
         listing = self.client.get(f"/api/question-sets/?room={self.room.pk}").json()
         self.assertEqual(listing["results"][0]["question_count"], 0)
         self.assertFalse(listing["results"][0]["has_results"])
