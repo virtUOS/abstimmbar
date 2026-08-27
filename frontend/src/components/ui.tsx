@@ -5,6 +5,7 @@
 import { EllipsisVertical, Info, type LucideIcon } from "lucide-react";
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ButtonHTMLAttributes,
@@ -82,8 +83,14 @@ export function Select({
  * (#51). Closes on outside click and on Escape, like MoreMenu.
  * Dependency-free, no tooltip framework. */
 export function InfoHint({ text }: { text: string }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const noteRef = useRef<HTMLDivElement>(null);
+  // Horizontal nudge (px) to keep the popover inside the viewport regardless
+  // of whether the trigger sits near the left or right edge (#14): centered
+  // under the icon, then shifted so neither edge is clipped.
+  const [shift, setShift] = useState(0);
   useEffect(() => {
     if (!open) return;
     function onPointerDown(event: PointerEvent) {
@@ -99,13 +106,25 @@ export function InfoHint({ text }: { text: string }) {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+  useLayoutEffect(() => {
+    if (!open || !noteRef.current) {
+      setShift(0);
+      return;
+    }
+    const rect = noteRef.current.getBoundingClientRect();
+    const margin = 8;
+    if (rect.left < margin) setShift(margin - rect.left);
+    else if (rect.right > window.innerWidth - margin)
+      setShift(window.innerWidth - margin - rect.right);
+    else setShift(0);
+  }, [open]);
   return (
     <div className="relative inline-flex" ref={ref}>
       <button
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={text}
+        aria-label={t("More information")}
         onClick={() => setOpen((value) => !value)}
         className="inline-flex rounded text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
       >
@@ -113,8 +132,10 @@ export function InfoHint({ text }: { text: string }) {
       </button>
       {open && (
         <div
+          ref={noteRef}
           role="note"
-          className="absolute right-0 top-full z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+          style={{ transform: `translateX(calc(-50% + ${shift}px))` }}
+          className="absolute left-1/2 top-full z-30 mt-2 w-64 max-w-[calc(100vw-1rem)] rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
         >
           {text}
         </div>
