@@ -137,14 +137,14 @@ class QuestionSet(TimeStampedModel):
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     reveal_answers = models.CharField(
-        max_length=20, choices=RevealAnswers.choices, default=RevealAnswers.AFTER_CLOSE
+        max_length=20, choices=RevealAnswers.choices, default=RevealAnswers.IMMEDIATELY
     )
     # Presenter flow option: calling up a question immediately opens it for
     # answering (skips the separate preview → S step).
-    open_on_show = models.BooleanField(default=False)
+    open_on_show = models.BooleanField(default=True)
     # v2: participants see the results of a closed question on their own
     # device (correct answers only once revealed, per reveal_answers).
-    show_results_to_participants = models.BooleanField(default=False)
+    show_results_to_participants = models.BooleanField(default=True)
     # v2 "Teilen & Zusammenarbeit": a non-guessable token makes the set
     # copyable by any logged-in colleague who has the link; null = not
     # shared. The optional license travels with copies and exports.

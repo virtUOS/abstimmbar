@@ -1212,13 +1212,21 @@ class ParticipantResultsTests(LiveTestCase):
         run.save()
         return run
 
-    def test_disabled_by_default(self):
+    def test_disabled_hides_results(self):
+        # Opt-out path: with participant results turned off the payload carries
+        # no "results" block. (The default is now ON — set explicitly here so
+        # the test exercises the off-path regardless of the model default.)
+        self.question_set.show_results_to_participants = False
+        self.question_set.save()
         self._run_in_results()
         payloads = build_payloads(self.room)
         self.assertNotIn("results", payloads["participant"])
 
     def test_enabled_shows_counts_without_correct_until_revealed(self):
         self.question_set.show_results_to_participants = True
+        # This test exercises the "after closing, on reveal" mode explicitly,
+        # so it no longer depends on the (now "immediately") set default.
+        self.question_set.reveal_answers = "after_close"
         self.question_set.save()
         run = self._run_in_results()
         payloads = build_payloads(self.room)
