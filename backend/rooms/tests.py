@@ -1069,6 +1069,12 @@ class CopyQuestionsTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.target.questions.count(), 1)
 
+    def test_non_integer_ids_rejected(self):
+        # A stray string must yield a clean 400, not a 500 from pk__in.
+        response = self.copy(["abc"])
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.target.questions.count(), 1)
+
 
 class SearchTests(ApiTestCase):
     def setUp(self):

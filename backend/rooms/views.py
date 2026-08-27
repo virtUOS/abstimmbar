@@ -632,6 +632,13 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 {"detail": "question_ids must be a non-empty list."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        # Reject non-integer ids up front: a stray string would otherwise make
+        # ``filter(pk__in=…)`` raise ValueError → 500. (bool is an int subclass.)
+        if not all(isinstance(qid, int) and not isinstance(qid, bool) for qid in ids):
+            return Response(
+                {"detail": "question_ids must be a list of integers."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         sources = Question.objects.filter(pk__in=ids)
         if not request.user.is_staff:
             sources = sources.filter(question_set__room__owners=request.user)

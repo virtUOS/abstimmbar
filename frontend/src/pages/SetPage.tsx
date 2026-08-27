@@ -557,9 +557,11 @@ export default function SetPage() {
     window.setTimeout(() => setLinkCopied(false), 1500);
   }
 
+  const toastTimer = useRef<number | undefined>(undefined);
   function showToast(message: string) {
+    if (toastTimer.current) window.clearTimeout(toastTimer.current);
     setToastMessage(message);
-    window.setTimeout(() => setToastMessage(""), 1500);
+    toastTimer.current = window.setTimeout(() => setToastMessage(""), 1500);
   }
 
   async function copyQuestionLink(questionId: number) {
@@ -638,7 +640,10 @@ export default function SetPage() {
   async function loadPullQuestions(sourceSetId: number) {
     const page = await api.listQuestions(sourceSetId);
     setPullQuestions(page.results);
-    setPullSelected(new Set(page.results.map((q) => q.id)));
+    // Start with nothing selected: pulling in is deliberate cherry-picking,
+    // not "copy the whole set" (that's what Duplicate is for). "Select all"
+    // is one click away for the take-everything case.
+    setPullSelected(new Set());
   }
 
   function pickPullRoom(roomId: number) {
