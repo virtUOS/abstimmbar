@@ -575,7 +575,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   if (ended) {
     return (
       <Shell logo={beamerLogo}>
-        <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
+        <div className="flex min-h-full flex-col items-center justify-center gap-6 text-center">
           <div className="text-7xl" aria-hidden>✅</div>
           <h1 className="text-5xl font-bold">{t("The survey has ended")}</h1>
           <p className="text-2xl text-slate-500">{t("Thanks for taking part!")}</p>
@@ -619,7 +619,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           </footer>
         }
       >
-        <div className="mx-auto flex h-full max-w-5xl flex-col justify-center gap-10 lg:flex-row lg:items-center">
+        <div className="mx-auto flex min-h-full max-w-5xl flex-col justify-center gap-10 lg:flex-row lg:items-center">
           <div className="flex flex-col items-center gap-4 text-center">
             <span className="rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">
               {t("Self-paced quiz")}
@@ -695,7 +695,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           />
         }
       >
-        <div className="flex h-full flex-col items-center justify-center text-center">
+        <div className="flex min-h-full flex-col items-center justify-center text-center">
           <h1 className="max-w-4xl text-6xl font-extrabold leading-tight">
             {interstitial.title}
           </h1>
@@ -819,7 +819,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         </div>
       )}
       {phase === "lobby" && (
-        <div className="flex h-full flex-col items-center justify-center gap-6 text-center">
+        <div className="flex min-h-full flex-col items-center justify-center gap-6 text-center">
           <h1 className="text-4xl font-bold">{localizedText(state.set_title)}</h1>
           <img
             src={live.qrUrl(state.room.code)}
@@ -848,7 +848,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       )}
 
       {question && phase !== "lobby" && (
-        <div className="mx-auto flex h-full max-w-4xl flex-col justify-center">
+        <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center">
           {phase === "open" && remaining !== null && (
             <div
               className={`fixed left-6 top-4 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${countdownColor(remaining)}`}
@@ -857,14 +857,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             </div>
           )}
           <RichText
-            className="text-3xl font-semibold leading-snug [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
+            className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
             html={localizedText(question.text)}
           />
 
           {question.kind !== "word_cloud" && question.kind !== "open_text" && phase !== "results" && (
             <ol className="mt-8 space-y-3">
               {question.options.map((option, i) => (
-                <li key={option.id} className="flex items-center gap-4 rounded-2xl border border-slate-200 px-5 py-3 text-2xl">
+                <li key={option.id} className="flex items-center gap-4 rounded-2xl border border-slate-200 px-5 py-3 text-lg sm:text-xl md:text-2xl">
                   <span className="font-bold text-brand-700">{LETTERS[i]}</span>
                   {option.image && (
                     <img
