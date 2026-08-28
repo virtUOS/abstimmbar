@@ -231,9 +231,11 @@ function PreferencesMenu() {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={t("Preferences")}
-        className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+        className="flex items-center rounded-full p-1 transition-colors duration-150 hover:bg-slate-100 dark:hover:bg-slate-800"
       >
-        <SlidersHorizontal aria-hidden className="h-5 w-5" />
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-400 text-slate-900">
+          <SlidersHorizontal aria-hidden className="h-4 w-4" />
+        </span>
       </button>
       {open && (
         <div
@@ -424,8 +426,7 @@ export default function App() {
               <UserMenu whoami={whoami} />
             </div>
           ) : (
-            <div className="flex items-center gap-1">
-              <PreferencesMenu />
+            <div className="flex items-center gap-2">
               <a
                 href={loginUrl}
                 onClick={() => rememberRedirect(currentPath())}
@@ -433,6 +434,7 @@ export default function App() {
               >
                 {t("Sign in")}
               </a>
+              <PreferencesMenu />
             </div>
           )}
         </div>
