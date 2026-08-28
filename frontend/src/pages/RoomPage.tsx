@@ -35,6 +35,7 @@ import { localizedText, type LocalizedText } from "@basicbar/ui";
 import { SetSettingsForm, type SetSettings } from "./SetPage";
 
 const NEW_SET_DEFAULTS: SetSettings = {
+  type: "live_poll",
   title: "",
   description: "",
   reveal_answers: "immediately",
@@ -761,6 +762,7 @@ export default function RoomPage() {
             draft={newSet}
             onChange={(patch) => setNewSet({ ...newSet, ...patch })}
             easyMode={easyMode}
+            isNew
           />
           <div className="mt-3 flex gap-2">
             <Button variant="primary" onClick={() => void handleCreate()}>

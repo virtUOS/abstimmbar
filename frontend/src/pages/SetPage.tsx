@@ -21,6 +21,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
+import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import {
   Button,
@@ -80,6 +81,7 @@ function formatDate(iso: string) {
 
 /** Editable settings while creating or editing a set. */
 export interface SetSettings {
+  type: SetType;
   title: LocalizedText;
   description: LocalizedText;
   reveal_answers: RevealAnswers;
@@ -93,16 +95,53 @@ export function SetSettingsForm({
   draft,
   onChange,
   easyMode = false,
+  isNew = false,
 }: {
   draft: SetSettings;
   onChange: (patch: Partial<SetSettings>) => void;
   /** Easy mode (#52): only title + description; hide reveal/answer-flow
    * options. Existing values stay stored. */
   easyMode?: boolean;
+  /** #75: the set type is picked once, at creation, and immutable after —
+   * shown as selectable cards only here; the edit form shows it read-only. */
+  isNew?: boolean;
 }) {
   const { t } = useTranslation();
   return (
     <div className="grid max-w-2xl gap-8">
+      {isNew ? (
+        <div>
+          <p className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+            {t("Set type")}
+          </p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {CREATABLE_SET_TYPES.map((st) => (
+              <button
+                key={st}
+                type="button"
+                onClick={() => onChange({ type: st })}
+                className={`rounded-xl border p-3 text-left text-sm ${
+                  draft.type === st
+                    ? "border-brand-500 bg-brand-50 dark:border-brand-500 dark:bg-brand-950/40"
+                    : "border-slate-200 hover:border-brand-400 dark:border-slate-700"
+                }`}
+              >
+                <span className="font-semibold text-slate-900 dark:text-slate-100">
+                  {t(SET_TYPES[st].label)}
+                </span>
+                <span className="mt-0.5 block text-xs text-slate-500 dark:text-slate-400">
+                  {t(SET_TYPES[st].description)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500 dark:text-slate-400">
+          {t("Set type")}:{" "}
+          <span className="font-medium">{t(SET_TYPES[draft.type].label)}</span>
+        </p>
+      )}
       <TranslatableField
         label={t("Title")}
         value={draft.title}
@@ -498,6 +537,7 @@ export default function SetPage() {
     if (!set) return;
     setMetaError("");
     setDraft({
+      type: set.type,
       title: set.title,
       description: set.description,
       reveal_answers: set.reveal_answers,
