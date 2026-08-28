@@ -21,7 +21,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
-import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
+import { allowedKindsFor, CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import {
   Button,
@@ -278,11 +278,14 @@ const QUESTION_TYPES: {
   },
 ];
 
-/** "+ Neue Frage" dropdown: question type with a one-line explanation. */
+/** "+ Neue Frage" dropdown: question type with a one-line explanation.
+ * `allowedKinds` gates the list to what the set's type permits (#75). */
 function NewQuestionMenu({
   onPick,
+  allowedKinds,
 }: {
   onPick: (kind: QuestionKind, template?: "binary") => void;
+  allowedKinds: QuestionKind[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -325,7 +328,7 @@ function NewQuestionMenu({
           role="menu"
           className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
-          {QUESTION_TYPES.map((type) => (
+          {QUESTION_TYPES.filter((type) => allowedKinds.includes(type.kind)).map((type) => (
             <button
               key={type.label}
               type="button"
@@ -821,7 +824,12 @@ export default function SetPage() {
       ) : (
         <div className="mb-8">
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-2xl font-bold">{localizedText(set.title)}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold">{localizedText(set.title)}</h1>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                {t(SET_TYPES[set.type].label)}
+              </span>
+            </div>
             <MoreMenu label={t("Set actions")}>
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>
               {/* Pulling in questions is core authoring — available in both
@@ -1067,17 +1075,20 @@ export default function SetPage() {
           <h2 className="text-lg font-semibold">{t("Questions")}</h2>
           {questions.length > 0 && (
             <>
-              <Button
-                variant="primary"
-                onClick={() =>
-                  navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
-                }
-                className="inline-flex items-center gap-1.5"
-              >
-                <Play aria-hidden className="h-4 w-4" />{t("Present")}
-              </Button>
+              {/* #75: only the run action matching the set's type is offered. */}
+              {SET_TYPES[set.type].runAction === "present" && (
+                <Button
+                  variant="primary"
+                  onClick={() =>
+                    navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
+                  }
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
+                </Button>
+              )}
               {/* Easy mode (#52): self-paced quiz is a Pro feature — always live. */}
-              {!easyMode && (
+              {!easyMode && SET_TYPES[set.type].runAction === "self_paced" && (
                 <Button
                   title={t(
                     "Participants answer all questions at their own pace, with immediate feedback",
@@ -1124,7 +1135,10 @@ export default function SetPage() {
               <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
             </Button>
           )}
-          <NewQuestionMenu onPick={(kind, template) => void addQuestion(kind, template)} />
+          <NewQuestionMenu
+            onPick={(kind, template) => void addQuestion(kind, template)}
+            allowedKinds={allowedKindsFor(set.type)}
+          />
         </div>
       </div>
 
