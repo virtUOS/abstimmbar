@@ -1224,17 +1224,6 @@ export default function SetPage() {
                             <span className="italic text-slate-400">{t("No question text")}</span>
                           )}
                         </span>
-                        {hasStaleTranslation && (
-                          <span
-                            title={t("translation may be outdated")}
-                            className="inline-flex shrink-0 text-amber-500"
-                          >
-                            <Languages
-                              aria-label={t("translation may be outdated")}
-                              className="h-4 w-4"
-                            />
-                          </span>
-                        )}
                       </span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">
                         {t(KIND_LABEL[question.kind])}
@@ -1256,6 +1245,19 @@ export default function SetPage() {
                       />
                     ) : (
                       <>
+                        {/* Pro only (#91): a persisted stale-translation flag,
+                            sitting with the row actions. */}
+                        {!easyMode && hasStaleTranslation && (
+                          <span
+                            title={t("translation may be outdated")}
+                            className="inline-flex shrink-0 px-1 text-amber-500"
+                          >
+                            <Languages
+                              aria-label={t("translation may be outdated")}
+                              className="h-4 w-4"
+                            />
+                          </span>
+                        )}
                         {!easyMode && (
                           <Button
                             variant="ghost"
