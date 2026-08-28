@@ -3,6 +3,7 @@
 
 """Session/identity endpoints for the SPA."""
 import json
+import logging
 
 from basicbar_auth.oidc import provider_logout_url
 from basicbar_integrations import ai, translation_service
@@ -18,6 +19,7 @@ from django.views.decorators.http import require_POST
 from rooms.onboarding import seed_example_room
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def whoami(request):
@@ -48,14 +50,19 @@ def whoami(request):
     # user (also catches pre-existing accounts, whose onboarded defaults to
     # False). select_for_update + a second read under the lock makes this
     # race-safe against concurrent first requests from the same user.
+    # whoami is the app's load-time check, so a seeding failure must never
+    # break it — log and carry on (onboarded stays False, so it retries).
     if not user.onboarded:
-        with transaction.atomic():
-            locked = User.objects.select_for_update().get(pk=user.pk)
-            if not locked.onboarded:
-                seed_example_room(locked)
-                locked.onboarded = True
-                locked.save(update_fields=["onboarded"])
-        user.refresh_from_db()
+        try:
+            with transaction.atomic():
+                locked = User.objects.select_for_update().get(pk=user.pk)
+                if not locked.onboarded:
+                    seed_example_room(locked)
+                    locked.onboarded = True
+                    locked.save(update_fields=["onboarded"])
+            user.refresh_from_db()
+        except Exception:
+            logger.exception("Onboarding seed failed for user %s", user.pk)
     return JsonResponse(
         {
             "authenticated": True,
