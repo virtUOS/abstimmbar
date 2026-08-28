@@ -11,6 +11,7 @@ import {
   Monitor,
   Moon,
   Settings,
+  SlidersHorizontal,
   Sun,
   Unplug,
   X,
@@ -20,7 +21,7 @@ import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami 
 import { localizedText, setDefaultContentLang, setTranslationEnabled } from "@basicbar/ui";
 import Footer from "./components/Footer";
 import JoinByCode from "./components/JoinByCode";
-import { LanguageMenu, LanguageOptions } from "./components/LanguageSwitcher";
+import { LanguageOptions } from "./components/LanguageSwitcher";
 import RichText from "./components/RichText";
 import { EmptyState, SegmentedControl } from "./components/ui";
 import RoomsPage from "./pages/RoomsPage";
@@ -192,6 +193,59 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
           >
             {t("Sign out")}
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Signed-out preferences (#60): language + appearance in one menu, so the
+ *  language switch no longer sits alone (and later gets replaced by an
+ *  unrelated button once signed in). Mirrors the signed-in user menu; the
+ *  gear stays reserved for the admin area. */
+function PreferencesMenu() {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const { appearance, setAppearance } = useTheme();
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("Preferences")}
+        className="flex h-10 w-10 items-center justify-center rounded-full text-slate-600 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+      >
+        <SlidersHorizontal aria-hidden className="h-5 w-5" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
+        >
+          <p className="px-3 pb-0.5 pt-1 text-xs text-slate-400 dark:text-slate-500">
+            {t("Language")}
+          </p>
+          <LanguageOptions onPicked={() => setOpen(false)} />
+          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+          <AppearanceControl theme={appearance} onChange={setAppearance} />
         </div>
       )}
     </div>
@@ -371,7 +425,7 @@ export default function App() {
             </div>
           ) : (
             <div className="flex items-center gap-1">
-              <LanguageMenu />
+              <PreferencesMenu />
               <a
                 href={loginUrl}
                 onClick={() => rememberRedirect(currentPath())}
@@ -422,20 +476,16 @@ export function Home() {
         <EmptyState icon={BarChart3} title={t("Live quizzes and polls for teaching")}>
           <p>
             {t(
-              "Sign in to create rooms and question sets. Participating is always possible later without signing in.",
+              "abstimmBAR runs anonymous live votes in your lectures — single and multiple choice, word clouds, Likert scales, free text and ranking — shown live in presentation mode or worked through as a self-paced quiz.",
+            )}
+          </p>
+          <p className="mt-2">
+            {t(
+              "Taking part never needs an account: join with a room code or QR code above. Sign in only to create your own rooms and question sets.",
             )}
           </p>
         </EmptyState>
       )}
-      <div className="mt-6">
-        <a
-          href={loginUrl}
-          onClick={() => rememberRedirect(currentPath())}
-          className="inline-block rounded-lg bg-brand-400 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-brand-500"
-        >
-          {t("Sign in")}
-        </a>
-      </div>
     </div>
   );
 }
