@@ -1049,6 +1049,52 @@ class TransferTests(ApiTestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_duplicate_preserves_set_type(self):
+        """#75 final review: duplicate_set() must carry the set's ``type``
+        onto the clone — before this fix it silently fell back to the
+        model's default (live_poll), turning a duplicated Quiz-Block into a
+        Live poll."""
+        from .transfer import duplicate_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.save(update_fields=["type"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertEqual(clone.type, QuestionSet.SetType.SELF_PACED)
+
+    def test_export_import_roundtrip_preserves_set_type(self):
+        """export_set() includes ``type``, and import_set() applies it —
+        a self_paced set survives an export/import round-trip as
+        self_paced, not the default live_poll."""
+        from .transfer import export_set, import_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.save(update_fields=["type"])
+        data = export_set(self.question_set)
+        self.assertEqual(data["type"], QuestionSet.SetType.SELF_PACED)
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertEqual(imported.type, QuestionSet.SetType.SELF_PACED)
+
+    def test_import_defaults_type_when_missing_or_invalid(self):
+        """A foreign/legacy file without a ``type`` key, or with an invalid
+        one, imports as live_poll rather than erroring out."""
+        from .transfer import import_set
+
+        base_payload = {
+            "format": "abstimmbar-set-v1",
+            "title": "x",
+            "questions": [],
+        }
+        imported = import_set(self.room, dict(base_payload))
+        self.assertEqual(imported.type, QuestionSet.SetType.LIVE_POLL)
+
+        imported_invalid = import_set(
+            self.room, {**base_payload, "title": "y", "type": "not-a-type"}
+        )
+        self.assertEqual(imported_invalid.type, QuestionSet.SetType.LIVE_POLL)
+
 
 class CopyQuestionsTests(ApiTestCase):
     """QuestionSetViewSet.copy_questions (#87): deep-copy questions from any

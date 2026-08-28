@@ -175,6 +175,7 @@ def duplicate_set(question_set, target_room, title=None):
         # Copies never collide: a taken title gets a numbered suffix.
         **title_cols,
         **_lang_columns(question_set, "description"),
+        type=question_set.type,
         reveal_answers=question_set.reveal_answers,
         open_on_show=question_set.open_on_show,
         show_results_to_participants=question_set.show_results_to_participants,
@@ -209,6 +210,7 @@ def export_set(question_set):
         "format": EXPORT_FORMAT,
         "title": translated_map(question_set, "title"),
         "description": translated_map(question_set, "description"),
+        "type": question_set.type,
         "reveal_answers": question_set.reveal_answers,
         "open_on_show": question_set.open_on_show,
         "show_results_to_participants": question_set.show_results_to_participants,
@@ -271,6 +273,9 @@ def import_set(room, data):
     reveal = data.get("reveal_answers", QuestionSet.RevealAnswers.AFTER_CLOSE)
     if reveal not in {r.value for r in QuestionSet.RevealAnswers}:
         raise serializers.ValidationError({"reveal_answers": "Invalid value."})
+    set_type = data.get("type", QuestionSet.SetType.LIVE_POLL)
+    if set_type not in QuestionSet.SetType.values:
+        set_type = QuestionSet.SetType.LIVE_POLL
 
     questions = data.get("questions") or []
     if not isinstance(questions, list):
@@ -290,6 +295,7 @@ def import_set(room, data):
         room=room,
         **{f"title_{lang}": (v or None) for lang, v in title_map.items()},
         **{f"description_{lang}": (v or None) for lang, v in description_map.items()},
+        type=set_type,
         reveal_answers=reveal,
         open_on_show=bool(data.get("open_on_show")),
         show_results_to_participants=bool(data.get("show_results_to_participants")),

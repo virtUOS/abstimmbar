@@ -115,7 +115,10 @@ export function SetSettingsForm({
             {t("Set type")}
           </p>
           <div className="grid gap-2 sm:grid-cols-2">
-            {CREATABLE_SET_TYPES.map((st) => (
+            {(easyMode
+              ? CREATABLE_SET_TYPES.filter((st) => st === "live_poll")
+              : CREATABLE_SET_TYPES
+            ).map((st) => (
               <button
                 key={st}
                 type="button"
@@ -1087,8 +1090,9 @@ export default function SetPage() {
                   <Play aria-hidden className="h-4 w-4" />{t("Present")}
                 </Button>
               )}
-              {/* Easy mode (#52): self-paced quiz is a Pro feature — always live. */}
-              {!easyMode && SET_TYPES[set.type].runAction === "self_paced" && (
+              {/* A self_paced-typed set has no other run action, so it is
+                  always offered regardless of easy mode (#75). */}
+              {SET_TYPES[set.type].runAction === "self_paced" && (
                 <Button
                   title={t(
                     "Participants answer all questions at their own pace, with immediate feedback",
