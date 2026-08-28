@@ -44,6 +44,34 @@ function stripHtml(html: string) {
   return div.textContent?.trim() ?? "";
 }
 
+/** Which languages of a translatable field look outdated, computed live in
+ * the editor (#91) so the amber marker appears the moment you edit one
+ * language — no save needed. A language is stale when it is unchanged since
+ * the field was loaded (its snapshot) and non-empty, while another language
+ * HAS changed. With no live edit yet, fall back to the server's persisted
+ * `translation_stale` (a stale state saved in an earlier session), unless the
+ * author already brought the field back in sync this session (`synced`). */
+function liveStaleLangs(
+  baseline: LocalizedText,
+  current: LocalizedText,
+  serverStale: readonly string[],
+  synced: boolean,
+): string[] {
+  const base = localizedMap(baseline);
+  const cur = localizedMap(current);
+  const langs = [...new Set([...Object.keys(base), ...Object.keys(cur)])];
+  const raw = (m: Partial<Record<string, string>>, l: string) => m[l] ?? "";
+  const anyChanged = langs.some((l) => raw(cur, l) !== raw(base, l));
+  const stale = new Set<string>();
+  for (const l of langs) {
+    if (raw(cur, l) !== raw(base, l)) continue; // this language was touched
+    if (!stripHtml(raw(cur, l))) continue; // empty → "not translated", not stale
+    if (anyChanged) stale.add(l);
+    else if (!synced && serverStale.includes(l)) stale.add(l);
+  }
+  return [...stale];
+}
+
 /** Options get a stable client-side id for drag-and-drop before they have a
  * server id (negative values never collide with real primary keys). Text is
  * kept as the full `{de, en}` map so each option can be edited bilingually
@@ -157,6 +185,9 @@ export default function QuestionPage() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [set, setSet] = useState<QuestionSet | null>(null);
   const [text, setText] = useState<LocalizedText>("");
+  // Snapshot of the question text per language as loaded (or last brought in
+  // sync), so staleness can be flagged live while editing — see liveStaleLangs.
+  const [textBaseline, setTextBaseline] = useState<LocalizedText>("");
   // Fields to report as back-in-sync on the next save (#91): a machine
   // translation pre-fill or an explicit "Mark as up to date" click both
   // flag the field here so `synced_fields` reaches the API.
@@ -226,6 +257,7 @@ export default function QuestionPage() {
       // render guard work; id 0 until the first save creates the real row.
       setQuestion({ id: 0, kind, is_after: false } as Question);
       setText("");
+      setTextBaseline("");
       setBinaryChoice(template === "binary");
       setOptions(defaultOptions(kind, template));
       return;
@@ -236,6 +268,7 @@ export default function QuestionPage() {
     void api.getQuestion(Number(questionId)).then((data) => {
       setQuestion(data);
       setText(data.text);
+      setTextBaseline(data.text);
       setShuffle(data.shuffle_options);
       setBinaryChoice(data.binary_choice ?? false);
       setReveal(data.reveal_answers);
@@ -391,6 +424,7 @@ export default function QuestionPage() {
           ...payload,
         });
         setQuestion(created);
+        setTextBaseline(created.text);
         setSyncedFields(new Set());
         if (stay) {
           // Adopt the real id so the editor leaves new mode; the effect
@@ -737,9 +771,21 @@ export default function QuestionPage() {
           label={t("Question text")}
           value={text}
           onChange={setText}
-          stale={question?.translation_stale?.text ?? []}
-          onTranslated={() => markSynced("text")}
+          stale={liveStaleLangs(
+            textBaseline,
+            text,
+            question?.translation_stale?.text ?? [],
+            syncedFields.has("text"),
+          )}
+          onTranslated={(lang, value) => {
+            // The translation just made both languages match again: move the
+            // baseline to the new state so it's no longer flagged live, and
+            // record the sync on the next save.
+            setTextBaseline(setLocalizedLang(text, lang, value));
+            markSynced("text");
+          }}
           onMarkSynced={() => {
+            setTextBaseline(text);
             markSynced("text");
             void save({ stay: true, extraSynced: ["text"] });
           }}
