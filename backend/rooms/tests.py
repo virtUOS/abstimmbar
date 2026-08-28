@@ -3212,3 +3212,29 @@ class QuestionKindGatingTests(ApiTestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(Question.objects.get(pk=qid).model_solution, "Paris")
+
+
+class SetTypeApiTests(ApiTestCase):
+    # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.
+
+    def test_create_with_type(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["type"], "self_paced")
+
+    def test_type_defaults_to_live_poll(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S",
+        }, content_type="application/json")
+        self.assertEqual(r.json()["type"], "live_poll")
+
+    def test_type_is_immutable_on_update(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "type": "self_paced",
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertEqual(qs.type, "live_poll")  # unchanged

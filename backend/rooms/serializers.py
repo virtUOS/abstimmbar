@@ -201,7 +201,7 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     class Meta:
         model = QuestionSet
         fields: ClassVar = [
-            "id", "room", "room_title", "title", "description", "reveal_answers",
+            "id", "room", "room_title", "title", "description", "type", "reveal_answers",
             "open_on_show", "show_results_to_participants",
             "share_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
@@ -261,6 +261,7 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return attrs
 
     def update(self, instance, validated_data):
+        validated_data.pop("type", None)  # set type is fixed after creation (#75)
         # A set stays in its room; moving between rooms is a copy (M3).
         validated_data.pop("room", None)
         return super().update(instance, validated_data)
