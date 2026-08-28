@@ -2,6 +2,7 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 import type { LocalizedText } from "@basicbar/ui";
+import type { SetType } from "./setTypes";
 
 /** Backend base URL. Defaults to "" (same-origin, relative URLs) — production
  * serves the SPA and API from one origin behind Caddy. Dev overrides this via
@@ -70,6 +71,7 @@ export interface QuestionSet {
   room_title: string;
   title: LocalizedText;
   description: LocalizedText;
+  type: SetType;
   reveal_answers: RevealAnswers;
   open_on_show: boolean;
   show_results_to_participants: boolean;
@@ -530,6 +532,7 @@ export const api = {
       room: number;
       title?: LocalizedText;
       description?: LocalizedText;
+      type?: SetType;
       reveal_answers?: RevealAnswers;
       open_on_show?: boolean;
       show_results_to_participants?: boolean;
