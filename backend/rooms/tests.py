@@ -12,7 +12,7 @@ from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin, resolve_translated_text
 
-from . import ai_generate
+from . import ai_generate, set_types
 from .images import InvalidImageError, normalize_image
 from .models import AnswerOption, Question, QuestionSet, Room, UploadedImage
 from .onboarding import seed_example_room
@@ -3087,3 +3087,73 @@ class SetTypeModelTests(TestCase):
         qs = QuestionSet.objects.create(room=room, title="S")
         self.assertEqual(qs.type, QuestionSet.SetType.LIVE_POLL)
         self.assertEqual(qs.type, "live_poll")
+
+
+class SetTypeRulesTests(TestCase):
+    def test_allowed_kinds_permissive_types(self):
+        allk = tuple(k for k, _ in Question.Kind.choices)
+        self.assertEqual(set(set_types.allowed_kinds("live_poll")), set(allk))
+        self.assertEqual(set(set_types.allowed_kinds("self_paced")), set(allk))
+
+    def test_allowed_kinds_self_check(self):
+        self.assertEqual(
+            set(set_types.allowed_kinds("self_check")),
+            {"single_choice", "multiple_choice", "ordering", "open_text"},
+        )
+        self.assertTrue(set_types.requires_solution("self_check"))
+        self.assertFalse(set_types.requires_solution("live_poll"))
+
+
+class QuestionKindGatingTests(ApiTestCase):
+    # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.
+
+    def _create_q(self, qs, kind, **extra):
+        return self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": kind,
+                "text": {"de": "F", "en": "Q"},
+                "options": [
+                    {"text": {"de": "A", "en": "A"}, "is_correct": True},
+                    {"text": {"de": "B", "en": "B"}},
+                ],
+                **extra,
+            },
+            content_type="application/json",
+        )
+
+    def test_disallowed_kind_for_self_check_rejected(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        r = self._create_q(qs, "likert")  # likert not allowed in self_check
+        self.assertEqual(r.status_code, 400)
+
+    def test_open_text_in_self_check_requires_solution(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        r = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)  # no model_solution
+        r2 = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(r2.status_code, 201)
+
+    def test_all_kinds_allowed_in_live_poll(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
+        self.assertEqual(self._create_q(qs, "single_choice").status_code, 201)

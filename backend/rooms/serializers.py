@@ -18,6 +18,7 @@ from rest_framework import serializers
 from common.i18n_fields import TranslatedMapMixin
 from common.serializers import TranslationSyncMixin
 
+from . import set_types
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import generate_default_titles
 from .sanitize import clean_html, clean_media_url
@@ -401,6 +402,29 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
 
     def validate(self, attrs):
         kind = attrs.get("kind", getattr(self.instance, "kind", None))
+        # Gate the question kind by the set's type (#75).
+        target_set = attrs.get("question_set") or getattr(
+            self.instance, "question_set", None
+        )
+        if target_set is not None and kind is not None:
+            if kind not in set_types.allowed_kinds(target_set.type):
+                raise serializers.ValidationError(
+                    {"kind": "This question type is not allowed in this set."}
+                )
+            if (
+                kind == Question.Kind.OPEN_TEXT
+                and set_types.requires_solution(target_set.type)
+                and not (
+                    attrs.get("model_solution")
+                    or getattr(self.instance, "model_solution", "")
+                ).strip()
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "model_solution": "A model solution is required for free-text "
+                        "questions in this set type."
+                    }
+                )
         if kind in Question.TEXT_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}
