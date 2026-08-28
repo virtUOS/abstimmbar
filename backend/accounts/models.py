@@ -27,6 +27,10 @@ class User(AbstractUser):
     # effective_easy_mode): non-staff start simple, staff start pro. An
     # explicit True/False (set via /api/whoami/mode/) overrides the default.
     easy_mode = models.BooleanField(null=True, blank=True, default=None)
+    # Onboarding (#78): has this user already received the seeded example
+    # room? default=False so existing users get it too, on their next
+    # whoami — see accounts.views.whoami and rooms.onboarding.
+    onboarded = models.BooleanField(default=False)
 
     def __str__(self):
         return self.get_username()

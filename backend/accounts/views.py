@@ -7,11 +7,17 @@ import json
 from basicbar_auth.oidc import provider_logout_url
 from basicbar_integrations import ai, translation_service
 from django.conf import settings
+from django.contrib.auth import get_user_model
 from django.contrib.auth import logout as django_logout
+from django.db import transaction
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect
 from django.views.decorators.http import require_POST
+
+from rooms.onboarding import seed_example_room
+
+User = get_user_model()
 
 
 def whoami(request):
@@ -38,6 +44,18 @@ def whoami(request):
                 "content_translation_enabled": content_translation_enabled,
             }
         )
+    # Onboarding (#78): seed a ready-made example room exactly once per
+    # user (also catches pre-existing accounts, whose onboarded defaults to
+    # False). select_for_update + a second read under the lock makes this
+    # race-safe against concurrent first requests from the same user.
+    if not user.onboarded:
+        with transaction.atomic():
+            locked = User.objects.select_for_update().get(pk=user.pk)
+            if not locked.onboarded:
+                seed_example_room(locked)
+                locked.onboarded = True
+                locked.save(update_fields=["onboarded"])
+        user.refresh_from_db()
     return JsonResponse(
         {
             "authenticated": True,

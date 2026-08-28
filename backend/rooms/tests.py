@@ -15,6 +15,7 @@ from common.i18n_fields import TranslatedMapMixin, resolve_translated_text
 from . import ai_generate
 from .images import InvalidImageError, normalize_image
 from .models import AnswerOption, Question, QuestionSet, Room, UploadedImage
+from .onboarding import seed_example_room
 from .sanitize import clean_html
 
 User = get_user_model()
@@ -2932,3 +2933,73 @@ class NormalizeImageTests(SimpleTestCase):
             InvalidImageError
         ):
             normalize_image(src)
+
+
+class OnboardingSeedTests(TestCase):
+    """Structural validity of the seeded example room (#78). The
+    whoami-triggered, once-per-user hook is covered in accounts.tests."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="new_user")
+        self.room = seed_example_room(self.user)
+
+    def test_room_owned_by_user_with_one_set(self):
+        self.assertIn(self.user, self.room.owners.all())
+        self.assertEqual(self.room.owner, self.user)
+        self.assertEqual(self.room.question_sets.count(), 1)
+
+    def test_one_question_of_every_kind(self):
+        question_set = self.room.question_sets.get()
+        kinds = list(question_set.questions.values_list("kind", flat=True))
+        self.assertEqual(sorted(kinds), sorted(Question.Kind.values))
+        self.assertEqual(len(kinds), len(set(kinds)))  # exactly one each
+
+    def test_every_question_has_bilingual_text(self):
+        question_set = self.room.question_sets.get()
+        for question in question_set.questions.all():
+            self.assertTrue(question.text_de.strip(), question.kind)
+            self.assertTrue(question.text_en.strip(), question.kind)
+
+    def test_every_option_has_bilingual_text(self):
+        question_set = self.room.question_sets.get()
+        options = AnswerOption.objects.filter(question__question_set=question_set)
+        self.assertGreater(options.count(), 0)
+        for option in options:
+            self.assertTrue(option.text_de.strip())
+            self.assertTrue(option.text_en.strip())
+
+    def test_single_choice_has_exactly_one_correct_option(self):
+        question = self._question(Question.Kind.SINGLE_CHOICE)
+        self.assertEqual(question.options.filter(is_correct=True).count(), 1)
+        self.assertEqual(question.options.count(), 3)
+
+    def test_multiple_choice_allows_multiple_with_at_least_two_correct(self):
+        question = self._question(Question.Kind.MULTIPLE_CHOICE)
+        self.assertTrue(question.allow_multiple)
+        self.assertGreaterEqual(question.options.filter(is_correct=True).count(), 2)
+
+    def test_likert_is_positive_first_with_trailing_abstention(self):
+        question = self._question(Question.Kind.LIKERT)
+        options = list(question.options.all())  # ordered by position
+        self.assertFalse(any(o.is_correct for o in options))
+        scale = [o for o in options if not o.is_abstention]
+        abstentions = [o for o in options if o.is_abstention]
+        self.assertEqual(len(scale), 5)
+        self.assertEqual(len(abstentions), 1)
+        # position 0 = strongest agreement; the abstention is last.
+        self.assertEqual(scale[0].text_de, "Stimme voll zu")
+        self.assertEqual(scale[0].position, 0)
+        self.assertEqual(abstentions[0].position, options[-1].position)
+
+    def test_word_cloud_and_open_text_have_no_options(self):
+        for kind in (Question.Kind.WORD_CLOUD, Question.Kind.OPEN_TEXT):
+            question = self._question(kind)
+            self.assertEqual(question.options.count(), 0)
+
+    def test_priorities_and_ordering_have_at_least_three_options(self):
+        for kind in (Question.Kind.PRIORITIES, Question.Kind.ORDERING):
+            question = self._question(kind)
+            self.assertGreaterEqual(question.options.count(), 3)
+
+    def _question(self, kind):
+        return self.room.question_sets.get().questions.get(kind=kind)

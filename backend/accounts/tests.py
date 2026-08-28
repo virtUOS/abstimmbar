@@ -8,6 +8,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
+from rooms.models import Question, Room
+
 User = get_user_model()
 
 
@@ -56,6 +58,67 @@ class WhoamiTests(TestCase):
     def test_content_translation_enabled_reflects_provider_config(self):
         payload = self.client.get("/api/whoami/").json()
         self.assertTrue(payload["content_translation_enabled"])
+
+
+class OnboardingSeedOnWhoamiTests(TestCase):
+    """First-login example room seeding (#78), guarded by User.onboarded."""
+
+    @override_settings(**LT_OFF)
+    def test_fresh_user_gets_seeded_exactly_once(self):
+        user = User.objects.create_user(username="fresh")
+        self.assertFalse(user.onboarded)
+        self.client.force_login(user)
+
+        self.client.get("/api/whoami/")
+
+        user.refresh_from_db()
+        self.assertTrue(user.onboarded)
+        rooms = Room.objects.filter(owners=user)
+        self.assertEqual(rooms.count(), 1)
+        room = rooms.get()
+        question_set = room.question_sets.get()
+        kinds = set(question_set.questions.values_list("kind", flat=True))
+        self.assertEqual(kinds, set(Question.Kind.values))
+
+    @override_settings(**LT_OFF)
+    def test_second_whoami_does_not_duplicate_the_room(self):
+        user = User.objects.create_user(username="fresh2")
+        self.client.force_login(user)
+
+        self.client.get("/api/whoami/")
+        self.client.get("/api/whoami/")
+
+        self.assertEqual(Room.objects.filter(owners=user).count(), 1)
+
+    @override_settings(**LT_OFF)
+    def test_existing_user_with_onboarded_false_is_seeded_too(self):
+        # Simulates an account created before #78: onboarded defaults to
+        # False, so it is seeded on its next whoami just like a new user.
+        existing = User.objects.create_user(username="veteran")
+        self.assertFalse(existing.onboarded)
+        self.client.force_login(existing)
+
+        self.client.get("/api/whoami/")
+
+        existing.refresh_from_db()
+        self.assertTrue(existing.onboarded)
+        self.assertEqual(Room.objects.filter(owners=existing).count(), 1)
+
+    @override_settings(**LT_OFF)
+    def test_already_onboarded_user_is_not_seeded_again(self):
+        user = User.objects.create_user(username="done", onboarded=True)
+        self.client.force_login(user)
+
+        self.client.get("/api/whoami/")
+
+        self.assertEqual(Room.objects.filter(owners=user).count(), 0)
+
+    @override_settings(**LT_OFF)
+    def test_anonymous_whoami_seeds_nothing(self):
+        before = Room.objects.count()
+        response = self.client.get("/api/whoami/")
+        self.assertFalse(response.json()["authenticated"])
+        self.assertEqual(Room.objects.count(), before)
 
 
 class SetLanguageTests(TestCase):
