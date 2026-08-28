@@ -157,6 +157,13 @@ export default function QuestionPage() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [set, setSet] = useState<QuestionSet | null>(null);
   const [text, setText] = useState<LocalizedText>("");
+  // Fields to report as back-in-sync on the next save (#91): a machine
+  // translation pre-fill or an explicit "Mark as up to date" click both
+  // flag the field here so `synced_fields` reaches the API.
+  const [syncedFields, setSyncedFields] = useState<Set<string>>(new Set());
+  function markSynced(field: string) {
+    setSyncedFields((prev) => new Set(prev).add(field));
+  }
   const [shuffle, setShuffle] = useState(false);
   const [binaryChoice, setBinaryChoice] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
@@ -323,7 +330,10 @@ export default function QuestionPage() {
     return result;
   }
 
-  async function save({ stay = false }: { stay?: boolean } = {}) {
+  async function save({
+    stay = false,
+    extraSynced = [],
+  }: { stay?: boolean; extraSynced?: string[] } = {}) {
     if (!question) return false;
     if (invalid) {
       setError(
@@ -362,6 +372,9 @@ export default function QuestionPage() {
         wordcloud_ai_enabled: question.kind === "word_cloud" && wordcloudAiEnabled,
         wordcloud_grouping: question.kind === "word_cloud" ? wordcloudGrouping : "",
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
+        // #91: report fields whose (non-canonical) translation now matches
+        // what's being saved, so the API re-baselines their sync state.
+        synced_fields: Array.from(new Set([...syncedFields, ...extraSynced])),
         options:
           question.kind === "word_cloud" || question.kind === "open_text"
             ? []
@@ -378,6 +391,7 @@ export default function QuestionPage() {
           ...payload,
         });
         setQuestion(created);
+        setSyncedFields(new Set());
         if (stay) {
           // Adopt the real id so the editor leaves new mode; the effect
           // re-runs once on the new questionId and reloads the saved data.
@@ -387,7 +401,11 @@ export default function QuestionPage() {
         }
         return true;
       }
-      await api.updateQuestion(question.id, payload);
+      const updated = await api.updateQuestion(question.id, payload);
+      // Refresh from the response (not just clear local edit state) so a
+      // freshly-stale `translation_stale` from the API shows up (#91).
+      setQuestion(updated);
+      setSyncedFields(new Set());
       if (!stay) navigate(`/sets/${setId}`);
       return true;
     } catch (err) {
@@ -714,7 +732,18 @@ export default function QuestionPage() {
 
       {tab === "edit" && (
       <div className="grid gap-5">
-        <TranslatableField variant="rich" label={t("Question text")} value={text} onChange={setText} />
+        <TranslatableField
+          variant="rich"
+          label={t("Question text")}
+          value={text}
+          onChange={setText}
+          stale={question?.translation_stale?.text ?? []}
+          onTranslated={() => markSynced("text")}
+          onMarkSynced={() => {
+            markSynced("text");
+            void save({ stay: true, extraSynced: ["text"] });
+          }}
+        />
         {textMissing && (
           <p className="mt-1 text-sm text-red-600 dark:text-red-400">
             {t("Question text is required.")}

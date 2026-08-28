@@ -40,6 +40,15 @@ interface TranslatableFieldProps {
   inputClassName?: string;
   onBlur?: () => void;
   onActiveLangChange?: (lang: "de" | "en") => void;
+  /** Language codes whose translation is outdated (#91): amber tab dot +
+   *  hint, and enables the per-field re-translate button even when the
+   *  field is non-empty. */
+  stale?: readonly string[];
+  /** Renders "Mark as up to date" on a stale tab. */
+  onMarkSynced?: () => void;
+  /** Fires right after a machine-translation pre-fill (languages now in
+   *  sync). */
+  onTranslated?: (lang: string, text: string) => void;
 }
 
 export default function TranslatableField({
