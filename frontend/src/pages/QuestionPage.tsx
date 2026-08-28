@@ -188,6 +188,12 @@ export default function QuestionPage() {
   // Snapshot of the question text per language as loaded (or last brought in
   // sync), so staleness can be flagged live while editing — see liveStaleLangs.
   const [textBaseline, setTextBaseline] = useState<LocalizedText>("");
+  // Per-option text snapshot (keyed by clientId) for the same live staleness
+  // check as the question text (#91). Answer options aren't tracked
+  // server-side, so this is purely the in-editor live marker.
+  const [optionBaseline, setOptionBaseline] = useState<Record<number, LocalizedText>>({});
+  const setOptionSynced = (clientId: number, value: LocalizedText) =>
+    setOptionBaseline((prev) => ({ ...prev, [clientId]: value }));
   // Fields to report as back-in-sync on the next save (#91): a machine
   // translation pre-fill or an explicit "Mark as up to date" click both
   // flag the field here so `synced_fields` reaches the API.
@@ -260,6 +266,7 @@ export default function QuestionPage() {
       setTextBaseline("");
       setBinaryChoice(template === "binary");
       setOptions(defaultOptions(kind, template));
+      setOptionBaseline({});
       return;
     }
     // Already have this question in state (e.g. just created via save →
@@ -299,6 +306,9 @@ export default function QuestionPage() {
         setAbstention(editableOptions.some((option) => option.is_abstention));
       }
       setOptions(editableOptions);
+      setOptionBaseline(
+        Object.fromEntries(editableOptions.map((o) => [o.clientId, o.text])),
+      );
     });
   }, [questionId]);
 
@@ -895,6 +905,16 @@ export default function QuestionPage() {
                       ariaLabel={t("Answer text")}
                       onChange={(text) => updateOption(item.id, { text })}
                       className="min-w-0 flex-1"
+                      stale={liveStaleLangs(
+                        optionBaseline[item.id] ?? "",
+                        item.text,
+                        [],
+                        false,
+                      )}
+                      onTranslated={(lang, value) =>
+                        setOptionSynced(item.id, setLocalizedLang(item.text, lang, value))
+                      }
+                      onMarkSynced={() => setOptionSynced(item.id, item.text)}
                     />
                     {!isLikert && (
                       <label
