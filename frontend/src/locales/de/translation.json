@@ -586,6 +586,8 @@
   "Mark as up to date": "Als aktuell markieren",
   "Translate from {{language}}": "Aus {{language}} übersetzen",
   "Translate all fields": "Alle Felder übersetzen",
+  "Show all fields in one language": "Alle Felder in einer Sprache anzeigen",
+  "Show all fields in {{language}}": "Alle Felder auf {{language}} umstellen",
   "Some fields could not be translated.": "Einige Felder konnten nicht übersetzt werden.",
   "Translating…": "Übersetze …",
   "Translation failed.": "Übersetzung fehlgeschlagen.",
