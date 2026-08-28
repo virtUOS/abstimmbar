@@ -3079,3 +3079,11 @@ class OnboardingSeedTests(TestCase):
 
     def _question(self, kind):
         return self.room.question_sets.get().questions.get(kind=kind)
+
+
+class SetTypeModelTests(TestCase):
+    def test_new_set_defaults_to_live_poll(self):
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertEqual(qs.type, QuestionSet.SetType.LIVE_POLL)
+        self.assertEqual(qs.type, "live_poll")

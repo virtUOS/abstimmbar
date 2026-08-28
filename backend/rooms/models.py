@@ -117,6 +117,18 @@ class Room(TimeStampedModel):
 class QuestionSet(TimeStampedModel):
     """An ordered series of questions inside a room (concept §3.1)."""
 
+    class SetType(models.TextChoices):
+        # The set's kind, chosen at creation and fixed afterwards (#75). It
+        # decides which question kinds are allowed and how the set is run —
+        # see rooms/set_types.py for the declarative rules.
+        LIVE_POLL = "live_poll", "Live poll"        # live, presenter-driven
+        SELF_PACED = "self_paced", "Self-paced quiz"  # teacher-started silent work
+        SELF_CHECK = "self_check", "Self-check"       # async link, immediate feedback
+
+    type = models.CharField(
+        max_length=20, choices=SetType.choices, default=SetType.LIVE_POLL
+    )
+
     class RevealAnswers(models.TextChoices):
         # When correct answers are highlighted (review decision: configurable).
         IMMEDIATELY = "immediately", "Immediately with the results"
