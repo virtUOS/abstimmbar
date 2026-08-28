@@ -16,6 +16,7 @@ from django.utils.html import strip_tags
 from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin
+from common.serializers import TranslationSyncMixin
 
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import generate_default_titles
@@ -328,10 +329,18 @@ class AnswerOptionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return clean_media_url(value)
 
 
-class QuestionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
+class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.ModelSerializer):
     # text is a {"de","en"} map (#33 MR2); validate_text (HTML sanitizing)
     # keeps running — the mixin invokes it per language.
     translated_fields = ("text",)
+
+    # Stale-translation detection (#91): translation_stale (read) reports
+    # which languages of `text` look out of date; synced_fields (write)
+    # lets the client re-baseline it (e.g. after a translation or an
+    # explicit "mark as up to date"). Both fields are injected by the mixin's
+    # get_fields() (NOT listed in Meta.fields below — see TranslationSyncMixin
+    # for why that would break ModelSerializer's field building).
+    translation_sync_fields = ("text",)
 
     options = AnswerOptionSerializer(many=True, required=False)
 

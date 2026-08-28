@@ -482,6 +482,82 @@ class QuestionApiTests(ApiTestCase):
         self.assertEqual(resp.status_code, 200)
 
 
+class TranslationStaleTests(ApiTestCase):
+    """Stale question-text translation reporting (#91,
+    basicbar_integrations.translation_sync / common.serializers.TranslationSyncMixin).
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.question_set = QuestionSet.objects.create(room=self.room, title="Termin 1")
+
+    def _create(self, **overrides):
+        payload = {
+            "question_set": self.question_set.pk,
+            "kind": "open_text",
+            "text": {"de": "<p>Frage?</p>", "en": "<p>Question?</p>"},
+        }
+        payload.update(overrides)
+        return self.client.post(
+            "/api/questions/", payload, content_type="application/json"
+        )
+
+    def test_synced_on_create_reports_no_stale(self):
+        response = self._create(synced_fields=["text"])
+        self.assertEqual(response.status_code, 201)
+        qid = response.json()["id"]
+        self.assertEqual(
+            self.client.get(f"/api/questions/{qid}/").json()["translation_stale"], {}
+        )
+
+    def test_editing_one_language_marks_the_other_stale(self):
+        qid = self._create(synced_fields=["text"]).json()["id"]
+        # Accepting an AI rephrase of the German text only (the realistic
+        # trigger, #91), leaving the still-correct-for-the-old-wording
+        # English untouched.
+        question = Question.objects.get(pk=qid)
+        question.text_de = "<p>Neue Frage?</p>"
+        question.save()
+        data = self.client.get(f"/api/questions/{qid}/").json()
+        self.assertEqual(data["translation_stale"], {"text": ["en"]})
+
+    def test_synced_fields_re_baselines(self):
+        qid = self._create(synced_fields=["text"]).json()["id"]
+        question = Question.objects.get(pk=qid)
+        question.text_de = "<p>Neue Frage?</p>"
+        question.save()
+        resp = self.client.patch(
+            f"/api/questions/{qid}/",
+            {"synced_fields": ["text"]},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        data = self.client.get(f"/api/questions/{qid}/").json()
+        self.assertEqual(data["translation_stale"], {})
+
+    def test_question_without_recorded_sync_is_never_stale(self):
+        qid = self._create().json()["id"]  # no synced_fields -> no baseline
+        data = self.client.get(f"/api/questions/{qid}/").json()
+        self.assertEqual(data["translation_stale"], {})
+
+    def test_synced_fields_is_write_only_and_ignores_unknown_names(self):
+        response = self._create(synced_fields=["text"])
+        self.assertNotIn("synced_fields", response.json())
+        qid = response.json()["id"]
+        self.assertNotIn(
+            "synced_fields", self.client.get(f"/api/questions/{qid}/").json()
+        )
+        resp = self.client.patch(
+            f"/api/questions/{qid}/",
+            {"synced_fields": ["not_a_real_field"]},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/api/questions/{qid}/").json()["translation_stale"], {}
+        )
+
+
 class BeforeAfterTests(ApiTestCase):
     """Vorher-Nachher-Fragen (#54)."""
 

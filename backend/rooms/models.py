@@ -310,6 +310,14 @@ class Question(TimeStampedModel):
         related_name="after_question",
     )
 
+    # Stale-translation tracking (#91, basicbar_integrations.translation_sync):
+    # per translatable field, a snapshot of content hashes as of the last time
+    # the languages were confirmed in sync (either an explicit "mark as
+    # up to date" or a machine pre-fill). Internal bookkeeping, not exposed
+    # directly — see TranslationSyncMixin (common/serializers.py), which
+    # derives the read-only ``translation_stale`` API field from it.
+    translation_sync = models.JSONField(default=dict, blank=True)
+
     class Meta:
         ordering: ClassVar = ["position", "id"]
 

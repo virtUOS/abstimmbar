@@ -44,6 +44,34 @@ function stripHtml(html: string) {
   return div.textContent?.trim() ?? "";
 }
 
+/** Which languages of a translatable field look outdated, computed live in
+ * the editor (#91) so the amber marker appears the moment you edit one
+ * language — no save needed. A language is stale when it is unchanged since
+ * the field was loaded (its snapshot) and non-empty, while another language
+ * HAS changed. With no live edit yet, fall back to the server's persisted
+ * `translation_stale` (a stale state saved in an earlier session), unless the
+ * author already brought the field back in sync this session (`synced`). */
+function liveStaleLangs(
+  baseline: LocalizedText,
+  current: LocalizedText,
+  serverStale: readonly string[],
+  synced: boolean,
+): string[] {
+  const base = localizedMap(baseline);
+  const cur = localizedMap(current);
+  const langs = [...new Set([...Object.keys(base), ...Object.keys(cur)])];
+  const raw = (m: Partial<Record<string, string>>, l: string) => m[l] ?? "";
+  const anyChanged = langs.some((l) => raw(cur, l) !== raw(base, l));
+  const stale = new Set<string>();
+  for (const l of langs) {
+    if (raw(cur, l) !== raw(base, l)) continue; // this language was touched
+    if (!stripHtml(raw(cur, l))) continue; // empty → "not translated", not stale
+    if (anyChanged) stale.add(l);
+    else if (!synced && serverStale.includes(l)) stale.add(l);
+  }
+  return [...stale];
+}
+
 /** Options get a stable client-side id for drag-and-drop before they have a
  * server id (negative values never collide with real primary keys). Text is
  * kept as the full `{de, en}` map so each option can be edited bilingually
@@ -157,6 +185,22 @@ export default function QuestionPage() {
   const [question, setQuestion] = useState<Question | null>(null);
   const [set, setSet] = useState<QuestionSet | null>(null);
   const [text, setText] = useState<LocalizedText>("");
+  // Snapshot of the question text per language as loaded (or last brought in
+  // sync), so staleness can be flagged live while editing — see liveStaleLangs.
+  const [textBaseline, setTextBaseline] = useState<LocalizedText>("");
+  // Per-option text snapshot (keyed by clientId) for the same live staleness
+  // check as the question text (#91). Answer options aren't tracked
+  // server-side, so this is purely the in-editor live marker.
+  const [optionBaseline, setOptionBaseline] = useState<Record<number, LocalizedText>>({});
+  const setOptionSynced = (clientId: number, value: LocalizedText) =>
+    setOptionBaseline((prev) => ({ ...prev, [clientId]: value }));
+  // Fields to report as back-in-sync on the next save (#91): a machine
+  // translation pre-fill or an explicit "Mark as up to date" click both
+  // flag the field here so `synced_fields` reaches the API.
+  const [syncedFields, setSyncedFields] = useState<Set<string>>(new Set());
+  function markSynced(field: string) {
+    setSyncedFields((prev) => new Set(prev).add(field));
+  }
   const [shuffle, setShuffle] = useState(false);
   const [binaryChoice, setBinaryChoice] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
@@ -219,8 +263,10 @@ export default function QuestionPage() {
       // render guard work; id 0 until the first save creates the real row.
       setQuestion({ id: 0, kind, is_after: false } as Question);
       setText("");
+      setTextBaseline("");
       setBinaryChoice(template === "binary");
       setOptions(defaultOptions(kind, template));
+      setOptionBaseline({});
       return;
     }
     // Already have this question in state (e.g. just created via save →
@@ -229,6 +275,7 @@ export default function QuestionPage() {
     void api.getQuestion(Number(questionId)).then((data) => {
       setQuestion(data);
       setText(data.text);
+      setTextBaseline(data.text);
       setShuffle(data.shuffle_options);
       setBinaryChoice(data.binary_choice ?? false);
       setReveal(data.reveal_answers);
@@ -259,6 +306,9 @@ export default function QuestionPage() {
         setAbstention(editableOptions.some((option) => option.is_abstention));
       }
       setOptions(editableOptions);
+      setOptionBaseline(
+        Object.fromEntries(editableOptions.map((o) => [o.clientId, o.text])),
+      );
     });
   }, [questionId]);
 
@@ -323,7 +373,10 @@ export default function QuestionPage() {
     return result;
   }
 
-  async function save({ stay = false }: { stay?: boolean } = {}) {
+  async function save({
+    stay = false,
+    extraSynced = [],
+  }: { stay?: boolean; extraSynced?: string[] } = {}) {
     if (!question) return false;
     if (invalid) {
       setError(
@@ -362,6 +415,9 @@ export default function QuestionPage() {
         wordcloud_ai_enabled: question.kind === "word_cloud" && wordcloudAiEnabled,
         wordcloud_grouping: question.kind === "word_cloud" ? wordcloudGrouping : "",
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
+        // #91: report fields whose (non-canonical) translation now matches
+        // what's being saved, so the API re-baselines their sync state.
+        synced_fields: Array.from(new Set([...syncedFields, ...extraSynced])),
         options:
           question.kind === "word_cloud" || question.kind === "open_text"
             ? []
@@ -378,6 +434,8 @@ export default function QuestionPage() {
           ...payload,
         });
         setQuestion(created);
+        setTextBaseline(created.text);
+        setSyncedFields(new Set());
         if (stay) {
           // Adopt the real id so the editor leaves new mode; the effect
           // re-runs once on the new questionId and reloads the saved data.
@@ -387,7 +445,11 @@ export default function QuestionPage() {
         }
         return true;
       }
-      await api.updateQuestion(question.id, payload);
+      const updated = await api.updateQuestion(question.id, payload);
+      // Refresh from the response (not just clear local edit state) so a
+      // freshly-stale `translation_stale` from the API shows up (#91).
+      setQuestion(updated);
+      setSyncedFields(new Set());
       if (!stay) navigate(`/sets/${setId}`);
       return true;
     } catch (err) {
@@ -714,7 +776,30 @@ export default function QuestionPage() {
 
       {tab === "edit" && (
       <div className="grid gap-5">
-        <TranslatableField variant="rich" label={t("Question text")} value={text} onChange={setText} />
+        <TranslatableField
+          variant="rich"
+          label={t("Question text")}
+          value={text}
+          onChange={setText}
+          stale={liveStaleLangs(
+            textBaseline,
+            text,
+            question?.translation_stale?.text ?? [],
+            syncedFields.has("text"),
+          )}
+          onTranslated={(lang, value) => {
+            // The translation just made both languages match again: move the
+            // baseline to the new state so it's no longer flagged live, and
+            // record the sync on the next save.
+            setTextBaseline(setLocalizedLang(text, lang, value));
+            markSynced("text");
+          }}
+          onMarkSynced={() => {
+            setTextBaseline(text);
+            markSynced("text");
+            void save({ stay: true, extraSynced: ["text"] });
+          }}
+        />
         {textMissing && (
           <p className="mt-1 text-sm text-red-600 dark:text-red-400">
             {t("Question text is required.")}
@@ -820,6 +905,16 @@ export default function QuestionPage() {
                       ariaLabel={t("Answer text")}
                       onChange={(text) => updateOption(item.id, { text })}
                       className="min-w-0 flex-1"
+                      stale={liveStaleLangs(
+                        optionBaseline[item.id] ?? "",
+                        item.text,
+                        [],
+                        false,
+                      )}
+                      onTranslated={(lang, value) =>
+                        setOptionSynced(item.id, setLocalizedLang(item.text, lang, value))
+                      }
+                      onMarkSynced={() => setOptionSynced(item.id, item.text)}
                     />
                     {!isLikert && (
                       <label

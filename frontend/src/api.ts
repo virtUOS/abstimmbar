@@ -171,6 +171,12 @@ export interface Question {
   is_after: boolean;
   created_at: string;
   updated_at: string;
+  /** Read-only: per-field language codes whose translation is outdated
+   *  relative to the canonical language (#91), e.g. `{"text": ["en"]}`. */
+  translation_stale?: Record<string, string[]>;
+  /** Write-only: field names to record as back-in-sync using the values
+   *  saved in this request (#91). */
+  synced_fields?: string[];
 }
 
 /** A draft question proposed by the AI from a document (not yet saved). */

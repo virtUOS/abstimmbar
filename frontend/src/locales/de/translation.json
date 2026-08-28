@@ -581,6 +581,9 @@
 
   "not translated": "nicht übersetzt",
   "translated": "übersetzt",
+  "translation may be outdated": "Übersetzung ist möglicherweise veraltet",
+  "The other language was changed since this translation.": "Die andere Sprache wurde seit dieser Übersetzung geändert.",
+  "Mark as up to date": "Als aktuell markieren",
   "Translate from {{language}}": "Aus {{language}} übersetzen",
   "Translate all fields": "Alle Felder übersetzen",
   "Some fields could not be translated.": "Einige Felder konnten nicht übersetzt werden.",
