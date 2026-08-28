@@ -411,20 +411,27 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                 raise serializers.ValidationError(
                     {"kind": "This question type is not allowed in this set."}
                 )
-            if (
-                kind == Question.Kind.OPEN_TEXT
-                and set_types.requires_solution(target_set.type)
-                and not (
-                    attrs.get("model_solution")
-                    or getattr(self.instance, "model_solution", "")
-                ).strip()
+            if kind == Question.Kind.OPEN_TEXT and set_types.requires_solution(
+                target_set.type
             ):
-                raise serializers.ValidationError(
-                    {
-                        "model_solution": "A model solution is required for free-text "
-                        "questions in this set type."
-                    }
-                )
+                # Distinguish "key absent" (a partial PATCH not touching
+                # model_solution at all -> fall back to the instance) from
+                # "key present with value ''" (client explicitly cleared it
+                # -> treat as empty, don't fall back). Same sentinel pattern
+                # as the canonical-text check below.
+                _missing = object()
+                submitted = attrs.get("model_solution", _missing)
+                if submitted is _missing:
+                    resolved_solution = getattr(self.instance, "model_solution", "") or ""
+                else:
+                    resolved_solution = submitted or ""
+                if not resolved_solution.strip():
+                    raise serializers.ValidationError(
+                        {
+                            "model_solution": "A model solution is required for free-text "
+                            "questions in this set type."
+                        }
+                    )
         if kind in Question.TEXT_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}

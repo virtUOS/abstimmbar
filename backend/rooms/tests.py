@@ -3157,3 +3157,58 @@ class QuestionKindGatingTests(ApiTestCase):
     def test_all_kinds_allowed_in_live_poll(self):
         qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
         self.assertEqual(self._create_q(qs, "single_choice").status_code, 201)
+
+    def test_patch_clearing_model_solution_rejected(self):
+        # A partial PATCH that explicitly sets model_solution to "" must not
+        # fall back to the old (non-empty) instance value and slip through.
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        create = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(create.status_code, 201)
+        qid = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/api/questions/{qid}/",
+            {"model_solution": ""},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("model_solution", resp.json())
+        self.assertEqual(
+            Question.objects.get(pk=qid).model_solution, "Paris"
+        )  # unchanged
+
+    def test_patch_untouched_model_solution_still_falls_back(self):
+        # A PATCH that doesn't mention model_solution at all should keep
+        # using the stored value (the "key absent" branch of the sentinel).
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        create = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(create.status_code, 201)
+        qid = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/api/questions/{qid}/",
+            {"text": {"de": "Neue Frage", "en": "New question"}},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Question.objects.get(pk=qid).model_solution, "Paris")
