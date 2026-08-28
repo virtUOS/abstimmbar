@@ -369,6 +369,10 @@ export default function RoomsPage() {
         <JoinByCode compact />
       </div>
 
+      {/* While the create form is open, hide the list controls (search + the
+          Active/Archived/All filter) — they don't belong to the "new room"
+          context and confusingly mention archived rooms (#72). */}
+      {!newRoom && (
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 sm:max-w-xs">
           <Search aria-hidden className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -398,7 +402,9 @@ export default function RoomsPage() {
           </Button>
         </div>
       </div>
+      )}
 
+      {!newRoom && (
       <SegmentedControl
         className="mb-6 w-full sm:w-max"
         ariaLabel={t("Show rooms")}
@@ -413,6 +419,7 @@ export default function RoomsPage() {
           { value: "all", label: t("All rooms") },
         ]}
       />
+      )}
 
       {/* Single-step create dialog: name, description and features (#2). */}
       {newRoom && (
