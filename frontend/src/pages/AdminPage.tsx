@@ -405,7 +405,7 @@ function LtiPlatformsSection() {
       ) : (
         <ul className="divide-y divide-slate-200 rounded-2xl border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
           {platforms.map((platform) => (
-            <li key={platform.id} className="flex items-center gap-3 px-4 py-3">
+            <li key={platform.id} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
               <div className="min-w-0 flex-1">
                 <span className="font-medium text-slate-900 dark:text-slate-100">
                   {platform.name}
@@ -418,25 +418,29 @@ function LtiPlatformsSection() {
                   )}
                 </div>
               </div>
-              <Button onClick={() => void toggleActive(platform)}>
-                {platform.is_active ? t("Deactivate") : t("Activate")}
-              </Button>
-              <Button onClick={() => setEditing(platform)}>{t("Edit")}</Button>
-              {confirmDelete === platform.id ? (
-                <ConfirmInline
-                  message={t("Delete platform?")}
-                  onConfirm={() => void handleDelete(platform.id)}
-                  onCancel={() => setConfirmDelete(null)}
-                />
-              ) : (
-                <Button
-                  variant="ghost"
-                  aria-label={t("Delete {{title}}", { title: platform.name })}
-                  onClick={() => setConfirmDelete(platform.id)}
-                >
-                  <Trash2 aria-hidden className="h-4 w-4" />
+              {/* Keep the actions on their own line on mobile and let them keep
+                  their natural width instead of being squeezed thin (#64). */}
+              <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                <Button className="whitespace-nowrap" onClick={() => void toggleActive(platform)}>
+                  {platform.is_active ? t("Deactivate") : t("Activate")}
                 </Button>
-              )}
+                <Button className="whitespace-nowrap" onClick={() => setEditing(platform)}>{t("Edit")}</Button>
+                {confirmDelete === platform.id ? (
+                  <ConfirmInline
+                    message={t("Delete platform?")}
+                    onConfirm={() => void handleDelete(platform.id)}
+                    onCancel={() => setConfirmDelete(null)}
+                  />
+                ) : (
+                  <Button
+                    variant="ghost"
+                    aria-label={t("Delete {{title}}", { title: platform.name })}
+                    onClick={() => setConfirmDelete(platform.id)}
+                  >
+                    <Trash2 aria-hidden className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
             </li>
           ))}
         </ul>
