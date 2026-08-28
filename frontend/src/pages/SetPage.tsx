@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, GraduationCap, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, GraduationCap, Languages, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
 import {
   api,
   results,
@@ -1188,6 +1188,12 @@ export default function SetPage() {
               // after-question" only for an eligible, unpaired choice/likert.
               const hasAfter = question.after_question != null;
               const paired = question.is_after || hasAfter;
+              // #91: a persisted stale translation (one language edited after
+              // the last sync) — surfaced here so it's visible without opening
+              // the question.
+              const hasStaleTranslation = Object.values(
+                question.translation_stale ?? {},
+              ).some((langs) => langs.length > 0);
               // Easy mode (#52): before/after is a Pro feature — hide the
               // action (existing pairs still render/work).
               const canAddAfter =
@@ -1218,6 +1224,17 @@ export default function SetPage() {
                             <span className="italic text-slate-400">{t("No question text")}</span>
                           )}
                         </span>
+                        {hasStaleTranslation && (
+                          <span
+                            title={t("translation may be outdated")}
+                            className="inline-flex shrink-0 text-amber-500"
+                          >
+                            <Languages
+                              aria-label={t("translation may be outdated")}
+                              className="h-4 w-4"
+                            />
+                          </span>
+                        )}
                       </span>
                       <span className="text-xs text-slate-500 dark:text-slate-400">
                         {t(KIND_LABEL[question.kind])}
