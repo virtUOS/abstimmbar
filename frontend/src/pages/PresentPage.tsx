@@ -1286,10 +1286,17 @@ function JoinCorner({ room }: { room: LiveState["room"] }) {
   const { t } = useTranslation();
   if (!room.show_qr && !room.show_code) return null;
   const url = live.participantUrl(room.code);
-  const position = CORNER_POSITION[room.corner ?? "bottom-right"];
+  const rawCorner = room.corner ?? "bottom-right";
+  // The live counter (LiveStats) is pinned bottom-left; when the join badge is
+  // configured for that same corner they used the identical position and the
+  // counter covered the QR (#79). Lift the badge above the counter there.
+  const position =
+    rawCorner === "bottom-left" ? "left-6 bottom-36" : CORNER_POSITION[rawCorner];
   return (
+    // Hidden on small windows (the counter/footer leave no room and the QR is
+    // still reachable via the footer QR button + room code); shown from md up.
     <div
-      className={`absolute z-20 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur ${position}`}
+      className={`absolute z-20 hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur md:flex ${position}`}
     >
       {room.show_qr && (
         <img
