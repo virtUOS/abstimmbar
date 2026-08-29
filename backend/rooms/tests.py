@@ -3295,3 +3295,62 @@ class SetTypeApiTests(ApiTestCase):
         self.assertEqual(r.status_code, 200)
         qs.refresh_from_db()
         self.assertEqual(qs.type, "live_poll")  # unchanged
+
+    def test_quiz_time_limit_on_self_paced_create(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+            "quiz_time_limit": 300,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["quiz_time_limit"], 300)
+
+    def test_quiz_time_limit_nulled_for_live_poll_create(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "live_poll",
+            "quiz_time_limit": 300,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        qs = QuestionSet.objects.get(pk=r.json()["id"])
+        self.assertIsNone(qs.quiz_time_limit)
+
+    def test_quiz_time_limit_patch_persists_on_self_paced(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_paced")
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": 600,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertEqual(qs.quiz_time_limit, 600)
+
+    def test_quiz_time_limit_rejects_non_positive(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_paced")
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": 0,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": -5,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_quiz_time_limit_patch_to_null_clears_it(self):
+        qs = QuestionSet.objects.create(
+            room=self.room, title="S", type="self_paced", quiz_time_limit=300,
+        )
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": None,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertIsNone(qs.quiz_time_limit)
+
+    def test_quiz_time_limit_unchanged_when_not_in_patch(self):
+        qs = QuestionSet.objects.create(
+            room=self.room, title="S", type="self_paced", quiz_time_limit=300,
+        )
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "title": "New title",
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertEqual(qs.quiz_time_limit, 300)
