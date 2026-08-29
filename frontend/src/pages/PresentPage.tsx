@@ -240,10 +240,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     phase === "results" && (reveal === "immediately" || (reveal === "after_close" && revealed));
 
   // Countdown (v2): tick locally, auto-close once per question when time is up.
-  const remaining = useCountdown(phase === "open" ? state?.ends_at : undefined);
+  // Live only — self-paced runs are also `phase === "open"` but use a
+  // separate overall-quiz countdown below (that one must never auto-close
+  // a question or fire this per-question effect).
+  const remaining = useCountdown(!selfPaced && phase === "open" ? state?.ends_at : undefined);
   useEffect(() => {
     const deadline = state?.ends_at ?? null;
     if (
+      !selfPaced &&
       runId &&
       phase === "open" &&
       remaining === 0 &&
@@ -263,7 +267,28 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void live.control(runId, { phase: "closed" });
       }
     }
-  }, [remaining, phase, runId, activeKind, state?.ends_at]);
+  }, [selfPaced, remaining, phase, runId, activeKind, state?.ends_at]);
+
+  // Self-paced overall countdown (#75, Quiz-Block): the deadline for the
+  // whole quiz lives in the same `state.ends_at` field the live per-question
+  // timer uses above, but here it drives a separate best-effort auto-finish
+  // instead of closing/advancing a question. Keyed by the deadline (like
+  // autoClosedRef) so a fresh run/deadline can finish again.
+  const quizRemaining = useCountdown(selfPaced ? state?.ends_at : undefined);
+  const autoFinishedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const deadline = state?.ends_at ?? null;
+    if (
+      selfPaced &&
+      runId &&
+      quizRemaining === 0 &&
+      deadline !== null &&
+      autoFinishedRef.current !== deadline
+    ) {
+      autoFinishedRef.current = deadline;
+      void finish();
+    }
+  }, [selfPaced, quizRemaining, runId, state?.ends_at]);
 
   // Track dwell time: when a new question slide appears, and when its vote
   // opens (both feed the leave prompt).
@@ -606,9 +631,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         logo={beamerLogo}
         footer={
           <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
-            <span>
-              <Users aria-hidden className="inline h-4 w-4" /> {state.participants ?? 0} · {state.votes_total ?? 0}{" "}
-              {t("answer", { count: state.votes_total ?? 0 })}
+            <span className="flex items-center gap-4">
+              <span>
+                <Users aria-hidden className="inline h-4 w-4" /> {state.participants ?? 0} · {state.votes_total ?? 0}{" "}
+                {t("answer", { count: state.votes_total ?? 0 })}
+              </span>
+              {quizRemaining !== null && (
+                <span className="flex items-center gap-1.5 font-semibold tabular-nums text-slate-600">
+                  <Timer aria-hidden className="h-4 w-4" />
+                  {String(Math.floor(quizRemaining / 60)).padStart(2, "0")}:
+                  {String(quizRemaining % 60).padStart(2, "0")}
+                </span>
+              )}
             </span>
             <button
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-slate-50"
