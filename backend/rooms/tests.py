@@ -3134,6 +3134,17 @@ class SetTypeModelTests(TestCase):
         self.assertEqual(qs.type, QuestionSet.SetType.LIVE_POLL)
         self.assertEqual(qs.type, "live_poll")
 
+    def test_quiz_time_limit_and_run_quiz_ends_at_default_to_none(self):
+        # #75: overall time limit for Quiz-Block runs is opt-in.
+        from live.models import Run
+
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertIsNone(qs.quiz_time_limit)
+
+        run = Run.objects.create(question_set=qs)
+        self.assertIsNone(run.quiz_ends_at)
+
 
 class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):

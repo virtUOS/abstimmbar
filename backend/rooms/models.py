@@ -154,6 +154,9 @@ class QuestionSet(TimeStampedModel):
     # Presenter flow option: calling up a question immediately opens it for
     # answering (skips the separate preview → S step).
     open_on_show = models.BooleanField(default=True)
+    # #75 (Quiz-Block): optional overall time limit for a self-paced run, in
+    # seconds; null = unlimited. Only used when type == self_paced.
+    quiz_time_limit = models.PositiveIntegerField(null=True, blank=True)
     # v2: participants see the results of a closed question on their own
     # device (correct answers only once revealed, per reveal_answers).
     show_results_to_participants = models.BooleanField(default=True)
