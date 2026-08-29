@@ -74,6 +74,7 @@ export interface QuestionSet {
   type: SetType;
   reveal_answers: RevealAnswers;
   open_on_show: boolean;
+  quiz_time_limit: number | null;
   show_results_to_participants: boolean;
   share_token: string | null;
   license: string;
@@ -535,6 +536,7 @@ export const api = {
       type?: SetType;
       reveal_answers?: RevealAnswers;
       open_on_show?: boolean;
+      quiz_time_limit?: number | null;
       show_results_to_participants?: boolean;
     },
   ) =>

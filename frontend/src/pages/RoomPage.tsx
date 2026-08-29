@@ -131,6 +131,7 @@ const NEW_SET_DEFAULTS: SetSettings = {
   description: "",
   reveal_answers: "immediately",
   open_on_show: true,
+  quiz_time_limit: null,
   show_results_to_participants: true,
 };
 

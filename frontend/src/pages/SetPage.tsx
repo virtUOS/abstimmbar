@@ -86,6 +86,7 @@ export interface SetSettings {
   description: LocalizedText;
   reveal_answers: RevealAnswers;
   open_on_show: boolean;
+  quiz_time_limit: number | null;
   show_results_to_participants: boolean;
 }
 
@@ -518,6 +519,7 @@ export default function SetPage() {
       description: set.description,
       reveal_answers: set.reveal_answers,
       open_on_show: set.open_on_show,
+      quiz_time_limit: set.quiz_time_limit,
       show_results_to_participants: set.show_results_to_participants,
     });
     setEditingMeta(true);
