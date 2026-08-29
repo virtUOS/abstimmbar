@@ -134,6 +134,7 @@ multi-line note must use {% comment %} or it renders as text.)
 {# Self-paced quiz (concept §6.3): own pace, instant feedback. #}
 <section id="quiz" hidden>
   <p class="soft" id="quiz-progress"></p>
+  <p class="soft" id="quiz-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="quiz-text"></div>
   <div id="quiz-options"></div>
   <form id="quiz-textform" hidden>
@@ -1010,6 +1011,10 @@ multi-line note must use {% comment %} or it renders as text.)
   // position, so render() hands off and returns early.
   let quiz = null, quizIndex = -1, quizLoading = false, quizDone = false;
   let quizSelected = new Set();
+  // Overall quiz countdown (#75): stamped once at first open (quiz.ends_at),
+  // ticked locally, and locks the UI at zero. The server independently
+  // rejects late votes (409) — this is only the client-side UX guard.
+  let quizCountdownTimer = null, quizExpired = false;
 
   async function loadQuiz() {
     quizLoading = true;
@@ -1020,7 +1025,40 @@ multi-line note must use {% comment %} or it renders as text.)
     quiz = await response.json();
     quizDone = false;
     quizIndex = -1;
+    quizExpired = false;
+    renderQuizCountdown();
     advanceQuiz();
+  }
+
+  function renderQuizCountdown() {
+    const box = document.getElementById("quiz-countdown");
+    window.clearInterval(quizCountdownTimer);
+    if (!quiz || !quiz.ends_at) { box.hidden = true; return; }
+    box.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((Date.parse(quiz.ends_at) - Date.now()) / 1000));
+      box.textContent = "⏱ " + I18N.countdownLeft.replace("{n}", String(left));
+      if (left <= 0) {
+        window.clearInterval(quizCountdownTimer);
+        lockQuizForTimeout();
+      }
+    };
+    tick();
+    quizCountdownTimer = window.setInterval(tick, 250);
+  }
+
+  function lockQuizForTimeout() {
+    quizExpired = true;
+    // Disable every answer input on the current question and stop navigation
+    // — the server already rejects late votes (409), this is the UX guard.
+    for (const el of document.querySelectorAll(
+      "#quiz-options button, #quiz-submit, #quiz-textform button, #quiz-word, #quiz-textarea")) {
+      el.disabled = true;
+    }
+    document.getElementById("quiz-next").hidden = true;
+    const box = document.getElementById("quiz-countdown");
+    box.hidden = false;
+    box.textContent = "⏱ " + I18N.timeUp;
   }
 
   function nextUnanswered(from) {
@@ -1104,6 +1142,7 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   async function submitQuizAnswer(q, payload) {
+    if (quizExpired) return;
     const response = await post(`/api/live/rooms/${CODE}/vote/`, {
       token, question: q.id, ...payload,
     });
@@ -1149,6 +1188,8 @@ multi-line note must use {% comment %} or it renders as text.)
 
   function renderQuizSummary() {
     quizDone = true;
+    window.clearInterval(quizCountdownTimer);
+    document.getElementById("quiz-countdown").hidden = true;
     const scored = Object.values(quiz.answered).filter((e) => e.is_correct !== null);
     const right = scored.filter((e) => e.is_correct).length;
     document.getElementById("quiz-summary").textContent = scored.length
@@ -1210,6 +1251,11 @@ multi-line note must use {% comment %} or it renders as text.)
     if (quizDone && (state.phase === "finished" || state.phase === "idle")) {
       return; // keep the summary on screen after the teacher ends the quiz
     }
+    // Leaving the quiz mid-way (e.g. the teacher force-ends the run before
+    // the participant finished): drop the countdown along with `quiz` itself
+    // — its tick closure reads `quiz.ends_at` and would throw once quiz is
+    // null.
+    window.clearInterval(quizCountdownTimer);
     quiz = null;
     quizDone = false;
     const phase = state.phase;
