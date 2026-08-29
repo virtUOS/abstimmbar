@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, ChartColumnDecreasing, Crown, DoorOpen, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
+import { Archive, ChartColumnDecreasing, ChevronDown, Crown, DoorOpen, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
 import { useEasyMode } from "../App";
 import {
   api,
@@ -33,6 +33,97 @@ import RichText from "../components/RichText";
 import TranslatableField from "../components/TranslatableField";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import { SetSettingsForm, type SetSettings } from "./SetPage";
+import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
+
+/** #75: pick the set type up front — like "+ New question" for questions.
+ * The menu lists the creatable types; picking one opens the create form with
+ * that type preset. In easy mode only Live poll is creatable, so there's
+ * nothing to pick and it collapses to a plain button. */
+function NewSetMenu({
+  easyMode,
+  onPick,
+}: {
+  easyMode: boolean;
+  onPick: (type: SetType) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const types = easyMode
+    ? CREATABLE_SET_TYPES.filter((st) => st === "live_poll")
+    : CREATABLE_SET_TYPES;
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // Only one creatable type: no menu to choose from — a plain button.
+  if (types.length < 2) {
+    const only = types[0] ?? "live_poll";
+    return (
+      <Button variant="primary" onClick={() => onPick(only)}>
+        + {t("New question set")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        variant="primary"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex items-center gap-2"
+      >
+        <span className="text-base leading-none">+</span>
+        {t("New question set")}
+        <ChevronDown
+          aria-hidden
+          className={`h-4 w-4 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
+        >
+          {types.map((st) => (
+            <button
+              key={st}
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onPick(st);
+              }}
+              className="block w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+            >
+              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
+                {t(SET_TYPES[st].label)}
+              </span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                {t(SET_TYPES[st].description)}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const NEW_SET_DEFAULTS: SetSettings = {
   type: "live_poll",
@@ -423,6 +514,9 @@ export default function RoomPage() {
   // places (⋮ menu top-right, "+ New question set" mid-page), so scroll the
   // warning into view and focus it — otherwise it can appear off-screen.
   const [pendingSwitch, setPendingSwitch] = useState<"settings" | "newSet" | null>(null);
+  // #75: which type the pending "new set" should be created as (chosen in the
+  // menu before the dirty-guard may defer opening the form).
+  const [pendingNewSetType, setPendingNewSetType] = useState<SetType>("live_poll");
   const pendingSwitchRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!pendingSwitch) return;
@@ -471,7 +565,9 @@ export default function RoomPage() {
   }
 
   const newSetDirty =
-    newSet !== null && JSON.stringify(newSet) !== JSON.stringify(NEW_SET_DEFAULTS);
+    newSet !== null &&
+    JSON.stringify(newSet) !==
+      JSON.stringify({ ...NEW_SET_DEFAULTS, type: newSet.type });
   const settingsDirty =
     settingsDraft !== null &&
     room !== null &&
@@ -495,14 +591,15 @@ export default function RoomPage() {
     setNewSet(null);
     openSettings();
   }
-  function requestOpenNewSet() {
+  function requestOpenNewSet(type: SetType) {
     if (pendingSwitch) return;
+    setPendingNewSetType(type);
     if (settingsDirty) {
       setPendingSwitch("newSet");
       return;
     }
     setSettingsDraft(null);
-    setNewSet(NEW_SET_DEFAULTS);
+    setNewSet({ ...NEW_SET_DEFAULTS, type });
   }
   function performSwitch() {
     if (pendingSwitch === "settings") {
@@ -510,7 +607,7 @@ export default function RoomPage() {
       openSettings();
     } else if (pendingSwitch === "newSet") {
       setSettingsDraft(null);
-      setNewSet(NEW_SET_DEFAULTS);
+      setNewSet({ ...NEW_SET_DEFAULTS, type: pendingNewSetType });
     }
     setPendingSwitch(null);
   }
@@ -748,9 +845,7 @@ export default function RoomPage() {
           <InfoHint
             text={t("A question set is a single quiz — e.g. for one lecture session.")}
           />
-          <Button variant="primary" onClick={requestOpenNewSet}>
-            + {t("New question set")}
-          </Button>
+          <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
         </div>
       </div>
       {importError && <p className="mb-4 text-sm text-red-600">{importError}</p>}
@@ -762,7 +857,6 @@ export default function RoomPage() {
             draft={newSet}
             onChange={(patch) => setNewSet({ ...newSet, ...patch })}
             easyMode={easyMode}
-            isNew
           />
           <div className="mt-3 flex gap-2">
             <Button variant="primary" onClick={() => void handleCreate()}>
