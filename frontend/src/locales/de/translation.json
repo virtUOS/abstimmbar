@@ -421,6 +421,13 @@
   "60 s": "60 s",
   "2 min": "2 min",
   "5 min": "5 min",
+  "10 min": "10 min",
+  "15 min": "15 min",
+  "Total time limit": "Gesamtdauer",
+  "Total time limit in minutes": "Gesamtdauer in Minuten",
+  "Unlimited": "Unbegrenzt",
+  "Minutes": "Minuten",
+  "e.g. 10": "z. B. 10",
 
   "No terms.": "Keine Begriffe.",
   "Merged: {{variants}}": "Zusammengefasst: {{variants}}",

@@ -65,6 +65,18 @@ export const REVEAL_LABEL: Record<RevealAnswers, string> = {
   never: "never",
 };
 
+// Self-paced quizzes can carry an overall time budget (#75); presets mirror
+// the per-question TIME_PRESETS in QuestionPage.tsx but work in minutes and
+// store seconds in `quiz_time_limit` (module scope like the other constants
+// above — used only by SetSettingsForm below).
+const QUIZ_TIME_PRESETS: { label: string; seconds: number | null }[] = [
+  { label: "Unlimited", seconds: null },
+  { label: "2 min", seconds: 120 },
+  { label: "5 min", seconds: 300 },
+  { label: "10 min", seconds: 600 },
+  { label: "15 min", seconds: 900 },
+];
+
 function stripHtml(html: string) {
   const div = document.createElement("div");
   div.innerHTML = html;
@@ -112,9 +124,71 @@ export function SetSettingsForm({
         <p className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
           {t("Set type")}
         </p>
-        <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-          {t(SET_TYPES[draft.type].label)}
-        </span>
+        {(() => {
+          const Icon = SET_TYPES[draft.type].icon;
+          return (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${SET_TYPES[draft.type].accent.badge}`}
+            >
+              <Icon aria-hidden className="h-3.5 w-3.5" />
+              {t(SET_TYPES[draft.type].label)}
+            </span>
+          );
+        })()}
+        {/* Self-paced quizzes can carry an overall time budget (#75); other
+            set types have no "total run time" concept. */}
+        {draft.type === "self_paced" && (
+          <div className="mt-3">
+            <Field label={t("Total time limit")}>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {QUIZ_TIME_PRESETS.map((preset) => {
+                  const active = draft.quiz_time_limit === preset.seconds;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => onChange({ quiz_time_limit: preset.seconds })}
+                      className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                        active
+                          ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
+                          : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                      }`}
+                    >
+                      {t(preset.label)}
+                    </button>
+                  );
+                })}
+                <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
+                  {t("or")}
+                </span>
+                <TextInput
+                  type="number"
+                  min={1}
+                  value={draft.quiz_time_limit == null ? "" : String(draft.quiz_time_limit / 60)}
+                  onChange={(event) => {
+                    const raw = event.target.value;
+                    if (raw.trim() === "") {
+                      onChange({ quiz_time_limit: null });
+                      return;
+                    }
+                    const minutes = Number(raw);
+                    onChange({
+                      quiz_time_limit:
+                        Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : null,
+                    });
+                  }}
+                  placeholder={t("e.g. 10")}
+                  aria-label={t("Total time limit in minutes")}
+                  className="!w-28"
+                />
+                <span className="text-sm text-slate-500 dark:text-slate-400">
+                  {t("Minutes")}
+                </span>
+              </div>
+            </Field>
+          </div>
+        )}
       </div>
       <TranslatableField
         label={t("Title")}
@@ -801,9 +875,17 @@ export default function SetPage() {
           <div className="flex items-start justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-bold">{localizedText(set.title)}</h1>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                {t(SET_TYPES[set.type].label)}
-              </span>
+              {(() => {
+                const Icon = SET_TYPES[set.type].icon;
+                return (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${SET_TYPES[set.type].accent.badge}`}
+                  >
+                    <Icon aria-hidden className="h-3.5 w-3.5" />
+                    {t(SET_TYPES[set.type].label)}
+                  </span>
+                );
+              })()}
             </div>
             <MoreMenu label={t("Set actions")}>
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>

@@ -100,25 +100,31 @@ function NewSetMenu({
           role="menu"
           className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
-          {types.map((st) => (
-            <button
-              key={st}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onPick(st);
-              }}
-              className="block w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {t(SET_TYPES[st].label)}
-              </span>
-              <span className="block text-xs text-slate-500 dark:text-slate-400">
-                {t(SET_TYPES[st].description)}
-              </span>
-            </button>
-          ))}
+          {types.map((st) => {
+            const Icon = SET_TYPES[st].icon;
+            return (
+              <button
+                key={st}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onPick(st);
+                }}
+                className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {t(SET_TYPES[st].label)}
+                  </span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">
+                    {t(SET_TYPES[st].description)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -930,9 +936,16 @@ export default function RoomPage() {
                 className="relative min-w-0 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 hover:border-brand-600 dark:border-slate-800 dark:bg-slate-900/40"
               >
                 <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300">
-                    <Layers aria-hidden className="h-5 w-5" />
-                  </span>
+                  {(() => {
+                    const Icon = SET_TYPES[set.type].icon;
+                    return (
+                      <span
+                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${SET_TYPES[set.type].accent.iconBox}`}
+                      >
+                        <Icon aria-hidden className="h-5 w-5" />
+                      </span>
+                    );
+                  })()}
                   <Link
                     to={`/sets/${set.id}`}
                     className="min-w-0 flex-1 after:absolute after:inset-0 after:rounded-2xl"
@@ -940,6 +953,9 @@ export default function RoomPage() {
                     <h3 className="truncate font-semibold text-slate-900 dark:text-slate-100">
                       {localizedText(set.title)}
                     </h3>
+                    <p className="mt-1 text-xs font-medium text-slate-400 dark:text-slate-500">
+                      {t(SET_TYPES[set.type].label)}
+                    </p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {set.question_count} {t("question", { count: set.question_count })}
                       {/* "Last edited" date is decluttered away in simple mode (#78). */}
