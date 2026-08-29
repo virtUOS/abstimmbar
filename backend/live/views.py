@@ -276,6 +276,13 @@ def vote(request, code):
         ).first()
         if question is None:
             return Response({"detail": "Unknown question."}, status=400)
+        # Overall quiz time limit (#75): reject late votes once the deadline
+        # (stamped at first open) has passed, 1 s network grace like the
+        # live per-question countdown below.
+        if run.quiz_ends_at:
+            deadline = run.quiz_ends_at + timezone.timedelta(seconds=1)
+            if timezone.now() > deadline:
+                return Response({"detail": "Time is up."}, status=status.HTTP_409_CONFLICT)
     else:
         question = run.active_question
         if question is None:
@@ -500,6 +507,7 @@ def quiz(request, code):
             "feedback": feedback,
             "questions": [question_payload(q, shuffle_seed=run.pk) for q in questions],
             "answered": answered,
+            "ends_at": run.quiz_ends_at.isoformat() if run.quiz_ends_at else None,
         }
     )
 
@@ -966,7 +974,13 @@ def start_run(request, set_id):
             run = Run.objects.create(question_set=question_set, mode=mode, phase=initial_phase)
             if mode == Run.Mode.SELF_PACED:
                 run.first_opened_at = timezone.now()
-                run.save(update_fields=["first_opened_at"])
+                update_fields = ["first_opened_at"]
+                if question_set.quiz_time_limit:
+                    run.quiz_ends_at = run.first_opened_at + timezone.timedelta(
+                        seconds=question_set.quiz_time_limit
+                    )
+                    update_fields.append("quiz_ends_at")
+                run.save(update_fields=update_fields)
         else:
             run.mode = mode
             # Recent ongoing session (#recent-session): resume in place — keep the
@@ -979,6 +993,10 @@ def start_run(request, set_id):
             run.ended_at = None
             if mode == Run.Mode.SELF_PACED and run.first_opened_at is None:
                 run.first_opened_at = timezone.now()
+                if question_set.quiz_time_limit:
+                    run.quiz_ends_at = run.first_opened_at + timezone.timedelta(
+                        seconds=question_set.quiz_time_limit
+                    )
             run.save()
         # Recording mode (#53): opt-in per presentation, live only. Mints a
         # recording token so viewers of the recording can vote later via

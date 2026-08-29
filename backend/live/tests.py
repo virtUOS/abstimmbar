@@ -1370,6 +1370,69 @@ class SelfPacedTests(LiveTestCase):
         self.assertEqual(progress["2+2?"], 1)
         self.assertEqual(presenter["votes_total"], 1)
 
+    def test_start_stamps_quiz_ends_at_from_limit(self):
+        self.question_set.quiz_time_limit = 120
+        self.question_set.save()
+        before = timezone.now()
+        self.start()
+        run = Run.objects.get()
+        self.assertIsNotNone(run.quiz_ends_at)
+        self.assertGreater(run.quiz_ends_at, before)
+        expected = run.first_opened_at + timezone.timedelta(seconds=120)
+        self.assertLess(abs((run.quiz_ends_at - expected).total_seconds()), 2)
+
+    def test_start_without_limit_leaves_quiz_ends_at_none(self):
+        self.start()
+        run = Run.objects.get()
+        self.assertIsNone(run.quiz_ends_at)
+
+    def test_resuming_open_run_does_not_move_quiz_ends_at(self):
+        self.question_set.quiz_time_limit = 120
+        self.question_set.save()
+        self.start()
+        run = Run.objects.get()
+        first_deadline = run.quiz_ends_at
+        self.assertIsNotNone(first_deadline)
+        # Starting again while the run is still open (unfinished) resumes it
+        # in place; the deadline stamped at first open must not move.
+        self.start()
+        run.refresh_from_db()
+        self.assertEqual(run.quiz_ends_at, first_deadline)
+
+    def test_quiz_endpoint_includes_ends_at(self):
+        self.question_set.quiz_time_limit = 120
+        self.question_set.save()
+        self.start()
+        payload = self.quiz().json()
+        self.assertIsNotNone(payload["ends_at"])
+        run = Run.objects.get()
+        self.assertEqual(payload["ends_at"], run.quiz_ends_at.isoformat())
+
+    def test_quiz_endpoint_ends_at_none_without_limit(self):
+        self.start()
+        payload = self.quiz().json()
+        self.assertIsNone(payload["ends_at"])
+
+    def test_vote_rejected_after_quiz_deadline(self):
+        self.question_set.quiz_time_limit = 120
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        # Before the deadline: succeeds.
+        response = self.vote(
+            token, question=self.question.pk, options=[self.correct.pk]
+        )
+        self.assertEqual(response.status_code, 201)
+        # Force the deadline into the past, then try the other question.
+        run = Run.objects.get()
+        run.quiz_ends_at = timezone.now() - timezone.timedelta(seconds=10)
+        run.save(update_fields=["quiz_ends_at"])
+        before_count = Vote.objects.count()
+        response = self.vote(token, question=self.cloud.pk, text="Osmose")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Time is up.")
+        self.assertEqual(Vote.objects.count(), before_count)
+
 
 class LikertSummaryTests(TestCase):
     """Diverging Likert aggregation (results.likert_summary)."""

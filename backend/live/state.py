@@ -218,10 +218,13 @@ def _self_paced_payloads(room, run, base):
     quiz endpoint, and vote broadcasts must not disturb quiz progress.
     Presenters get a per-question progress list for the dashboard."""
     base = dict(base, mode=run.mode)
+    ends_at = run.quiz_ends_at.isoformat() if run.quiz_ends_at else None
     participant = dict(base)
+    participant["ends_at"] = ends_at
 
     presenter = dict(base)
     presenter["run_id"] = run.pk
+    presenter["ends_at"] = ends_at
     presenter["participants"] = hub.participant_count(room.pk)
     counts = dict(
         run.votes.values_list("question").annotate(n=Count("id"))
