@@ -990,6 +990,16 @@ def start_run(request, set_id):
                 run.phase = initial_phase
                 run.active_question = None
                 run.answers_revealed = False
+                # #75: a fresh self-paced session gets a fresh overall deadline
+                # (or none); otherwise a re-run would inherit the previous run's
+                # already-passed clock.
+                if mode == Run.Mode.SELF_PACED:
+                    run.quiz_ends_at = (
+                        timezone.now()
+                        + timezone.timedelta(seconds=question_set.quiz_time_limit)
+                        if question_set.quiz_time_limit
+                        else None
+                    )
             run.ended_at = None
             if mode == Run.Mode.SELF_PACED and run.first_opened_at is None:
                 run.first_opened_at = timezone.now()

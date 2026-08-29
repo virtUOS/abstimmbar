@@ -176,6 +176,7 @@ def duplicate_set(question_set, target_room, title=None):
         **title_cols,
         **_lang_columns(question_set, "description"),
         type=question_set.type,
+        quiz_time_limit=question_set.quiz_time_limit,
         reveal_answers=question_set.reveal_answers,
         open_on_show=question_set.open_on_show,
         show_results_to_participants=question_set.show_results_to_participants,
@@ -211,6 +212,7 @@ def export_set(question_set):
         "title": translated_map(question_set, "title"),
         "description": translated_map(question_set, "description"),
         "type": question_set.type,
+        "quiz_time_limit": question_set.quiz_time_limit,
         "reveal_answers": question_set.reveal_answers,
         "open_on_show": question_set.open_on_show,
         "show_results_to_participants": question_set.show_results_to_participants,
@@ -277,6 +279,15 @@ def import_set(room, data):
     if set_type not in QuestionSet.SetType.values:
         set_type = QuestionSet.SetType.LIVE_POLL
 
+    # #75: quiz_time_limit travels with the export/import round-trip too —
+    # foreign input, so validate defensively (plausible range, and only
+    # meaningful for self_paced sets).
+    quiz_time_limit = data.get("quiz_time_limit")
+    if not (isinstance(quiz_time_limit, int) and 0 < quiz_time_limit <= 24 * 3600):
+        quiz_time_limit = None
+    if set_type != QuestionSet.SetType.SELF_PACED:
+        quiz_time_limit = None
+
     questions = data.get("questions") or []
     if not isinstance(questions, list):
         raise serializers.ValidationError({"questions": "Must be a list."})
@@ -296,6 +307,7 @@ def import_set(room, data):
         **{f"title_{lang}": (v or None) for lang, v in title_map.items()},
         **{f"description_{lang}": (v or None) for lang, v in description_map.items()},
         type=set_type,
+        quiz_time_limit=quiz_time_limit,
         reveal_answers=reveal,
         open_on_show=bool(data.get("open_on_show")),
         show_results_to_participants=bool(data.get("show_results_to_participants")),

@@ -1095,6 +1095,67 @@ class TransferTests(ApiTestCase):
         )
         self.assertEqual(imported_invalid.type, QuestionSet.SetType.LIVE_POLL)
 
+    def test_duplicate_preserves_quiz_time_limit(self):
+        """#75 final review: duplicate_set() must carry ``quiz_time_limit``
+        onto the clone, like it already does for ``type``."""
+        from .transfer import duplicate_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.quiz_time_limit = 300
+        self.question_set.save(update_fields=["type", "quiz_time_limit"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertEqual(clone.quiz_time_limit, 300)
+
+    def test_export_import_roundtrip_preserves_quiz_time_limit(self):
+        """export_set() includes ``quiz_time_limit``, and import_set()
+        applies it for a self_paced set."""
+        from .transfer import export_set, import_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.quiz_time_limit = 300
+        self.question_set.save(update_fields=["type", "quiz_time_limit"])
+        data = export_set(self.question_set)
+        self.assertEqual(data["quiz_time_limit"], 300)
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertEqual(imported.quiz_time_limit, 300)
+
+    def test_import_rejects_invalid_quiz_time_limit(self):
+        """A foreign/legacy file with an implausible ``quiz_time_limit``
+        (negative, non-int, or out of range) imports as None rather than
+        erroring out or storing garbage."""
+        from .transfer import import_set
+
+        base_payload = {
+            "format": "abstimmbar-set-v1",
+            "title": "x",
+            "type": QuestionSet.SetType.SELF_PACED,
+            "questions": [],
+        }
+        for bad in (-1, "x", 0, 24 * 3600 + 1):
+            imported = import_set(self.room, {**base_payload, "quiz_time_limit": bad})
+            self.assertIsNone(imported.quiz_time_limit)
+
+    def test_import_ignores_quiz_time_limit_for_non_self_paced_type(self):
+        """A ``quiz_time_limit`` carried on a non-self_paced payload (e.g. a
+        hand-edited or legacy file) is dropped — the field is only
+        meaningful for self_paced sets."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "x",
+                "type": QuestionSet.SetType.LIVE_POLL,
+                "quiz_time_limit": 300,
+                "questions": [],
+            },
+        )
+        self.assertIsNone(imported.quiz_time_limit)
+
 
 class CopyQuestionsTests(ApiTestCase):
     """QuestionSetViewSet.copy_questions (#87): deep-copy questions from any

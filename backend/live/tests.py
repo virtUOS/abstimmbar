@@ -1386,18 +1386,63 @@ class SelfPacedTests(LiveTestCase):
         run = Run.objects.get()
         self.assertIsNone(run.quiz_ends_at)
 
-    def test_resuming_open_run_does_not_move_quiz_ends_at(self):
+    def test_resuming_recent_open_run_does_not_move_quiz_ends_at(self):
+        # An ONGOING session (opened within RECENT_START_WINDOW,
+        # _recently_started() true): start-run resumes in place and must not
+        # touch the deadline stamped at first open (#75 final review).
         self.question_set.quiz_time_limit = 120
         self.question_set.save()
         self.start()
         run = Run.objects.get()
         first_deadline = run.quiz_ends_at
         self.assertIsNotNone(first_deadline)
-        # Starting again while the run is still open (unfinished) resumes it
-        # in place; the deadline stamped at first open must not move.
+        run.opened_at = timezone.now()
+        run.save(update_fields=["opened_at"])
         self.start()
         run.refresh_from_db()
         self.assertEqual(run.quiz_ends_at, first_deadline)
+
+    def test_rerunning_finished_self_paced_set_refreshes_quiz_ends_at(self):
+        # #75 final review: reactivating a FINISHED self-paced run (a fresh
+        # session, not a resume) must get a FRESH deadline — otherwise the
+        # re-run inherits the previous run's already-passed clock and every
+        # vote 409s immediately.
+        self.question_set.quiz_time_limit = 120
+        self.question_set.save()
+        self.start()
+        run = Run.objects.get()
+        old_deadline = run.quiz_ends_at
+        self.assertIsNotNone(old_deadline)
+        run.phase = Run.Phase.FINISHED
+        run.ended_at = timezone.now()
+        run.save(update_fields=["phase", "ended_at"])
+
+        before = timezone.now()
+        self.start(existing="continue")
+        run.refresh_from_db()
+        self.assertIsNotNone(run.quiz_ends_at)
+        self.assertNotEqual(run.quiz_ends_at, old_deadline)
+        self.assertGreater(run.quiz_ends_at, before)
+        expected = timezone.now() + timezone.timedelta(seconds=120)
+        self.assertLess(abs((run.quiz_ends_at - expected).total_seconds()), 2)
+
+    def test_rerunning_set_without_limit_clears_quiz_ends_at(self):
+        # A fresh session for a set whose limit was removed must clear a
+        # stale deadline rather than leaving the old run's value in place.
+        self.question_set.quiz_time_limit = 120
+        self.question_set.save()
+        self.start()
+        run = Run.objects.get()
+        self.assertIsNotNone(run.quiz_ends_at)
+        run.phase = Run.Phase.FINISHED
+        run.ended_at = timezone.now()
+        run.save(update_fields=["phase", "ended_at"])
+
+        self.question_set.quiz_time_limit = None
+        self.question_set.save(update_fields=["quiz_time_limit"])
+        self.start(existing="continue")
+        run.refresh_from_db()
+        self.assertIsNone(run.quiz_ends_at)
 
     def test_quiz_endpoint_includes_ends_at(self):
         self.question_set.quiz_time_limit = 120
