@@ -180,6 +180,7 @@ def duplicate_set(question_set, target_room, title=None):
         reveal_answers=question_set.reveal_answers,
         open_on_show=question_set.open_on_show,
         show_results_to_participants=question_set.show_results_to_participants,
+        present_results_after=question_set.present_results_after,
         # The license statement travels with the copy; the share link does not.
         license=question_set.license,
         license_holder=question_set.license_holder,
@@ -216,6 +217,7 @@ def export_set(question_set):
         "reveal_answers": question_set.reveal_answers,
         "open_on_show": question_set.open_on_show,
         "show_results_to_participants": question_set.show_results_to_participants,
+        "present_results_after": question_set.present_results_after,
         "license": question_set.license,
         "license_holder": question_set.license_holder,
         "sections": [
@@ -311,6 +313,7 @@ def import_set(room, data):
         reveal_answers=reveal,
         open_on_show=bool(data.get("open_on_show")),
         show_results_to_participants=bool(data.get("show_results_to_participants")),
+        present_results_after=bool(data.get("present_results_after", True)),
         license=(
             data.get("license")
             if data.get("license") in {c.value for c in QuestionSet.License}

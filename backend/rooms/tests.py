@@ -1156,6 +1156,48 @@ class TransferTests(ApiTestCase):
         )
         self.assertIsNone(imported.quiz_time_limit)
 
+    def test_duplicate_preserves_present_results_after(self):
+        # #75: duplicate_set() must carry present_results_after onto the
+        # clone, including a non-default (False) value.
+        from .transfer import duplicate_set
+
+        self.question_set.present_results_after = False
+        self.question_set.save(update_fields=["present_results_after"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertFalse(clone.present_results_after)
+
+    def test_export_import_roundtrip_preserves_present_results_after(self):
+        """export_set() includes ``present_results_after``, and
+        import_set() applies a False value rather than silently reverting
+        to the field's True default."""
+        from .transfer import export_set, import_set
+
+        self.question_set.present_results_after = False
+        self.question_set.save(update_fields=["present_results_after"])
+        data = export_set(self.question_set)
+        self.assertFalse(data["present_results_after"])
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertFalse(imported.present_results_after)
+
+    def test_import_defaults_present_results_after_when_missing(self):
+        """A foreign/legacy file without ``present_results_after`` imports
+        as True (the field's default), not False."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "y",
+                "type": QuestionSet.SetType.SELF_PACED,
+                "questions": [],
+            },
+        )
+        self.assertTrue(imported.present_results_after)
+
 
 class CopyQuestionsTests(ApiTestCase):
     """QuestionSetViewSet.copy_questions (#87): deep-copy questions from any
@@ -3206,6 +3248,12 @@ class SetTypeModelTests(TestCase):
         run = Run.objects.create(question_set=qs)
         self.assertIsNone(run.quiz_ends_at)
 
+    def test_present_results_after_defaults_to_true(self):
+        # #75: post-run results walkthrough is opt-out, not opt-in.
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertTrue(qs.present_results_after)
+
 
 class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):
@@ -3364,6 +3412,17 @@ class SetTypeApiTests(ApiTestCase):
         }, content_type="application/json")
         self.assertEqual(r.status_code, 201)
         self.assertEqual(r.json()["quiz_time_limit"], 300)
+
+    def test_present_results_after_create_false_stores_false(self):
+        # #75: serializer round-trips the opt-out explicitly.
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+            "present_results_after": False,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertFalse(r.json()["present_results_after"])
+        qs = QuestionSet.objects.get(pk=r.json()["id"])
+        self.assertFalse(qs.present_results_after)
 
     def test_quiz_time_limit_nulled_for_live_poll_create(self):
         r = self.client.post("/api/question-sets/", {

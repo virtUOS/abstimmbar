@@ -160,6 +160,9 @@ class QuestionSet(TimeStampedModel):
     # v2: participants see the results of a closed question on their own
     # device (correct answers only once revealed, per reveal_answers).
     show_results_to_participants = models.BooleanField(default=True)
+    # #75 (Quiz-Block): after a self-paced run ends, walk the results on the
+    # beamer (one slide per question). Default on. Only used for self_paced.
+    present_results_after = models.BooleanField(default=True)
     # v2 "Teilen & Zusammenarbeit": a non-guessable token makes the set
     # copyable by any logged-in colleague who has the link; null = not
     # shared. The optional license travels with copies and exports.
