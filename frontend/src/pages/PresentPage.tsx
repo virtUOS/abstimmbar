@@ -486,6 +486,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     setWalkIndex((i) => Math.max(0, i - 1));
   }, []);
 
+  // Memoized so the keydown effect (which lists it as a dependency) doesn't
+  // re-register the window listener on every render — including the live
+  // path's frequent SSE-driven re-renders (#75). Declared before onKey, which
+  // references it.
+  const leavePresentation = useCallback(() => {
+    navigate(`/sets/${id}`);
+  }, [navigate, id]);
+
   const onKey = useCallback(
     (event: KeyboardEvent) => {
       if (!runId) return;
@@ -590,9 +598,6 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     setEnded(true); // show the closing slide; leaving is a separate step (#32)
   }
 
-  function leavePresentation() {
-    navigate(`/sets/${id}`);
-  }
 
   // --- rendering --------------------------------------------------------------
   if (dialog) {
