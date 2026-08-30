@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, GraduationCap, Languages, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
 import {
   api,
   results,
@@ -154,45 +154,68 @@ export function SetSettingsForm({
             {t("Answers & results")}
           </legend>
           <div className="grid gap-2">
-            <Field label={t("Reveal correct answers")}>
-              <Select
-                value={draft.reveal_answers}
-                onChange={(event) =>
-                  onChange({ reveal_answers: event.target.value as RevealAnswers })
-                }
-              >
-                {REVEAL_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.label)}
-                  </option>
-                ))}
-              </Select>
-              <p className="mt-1 text-xs text-slate-400">
-                {t(
-                  "Default for all questions with correct answers; individual questions can deviate from this.",
-                )}
-              </p>
-            </Field>
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={draft.open_on_show}
-                onChange={(event) => onChange({ open_on_show: event.target.checked })}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-              />
-              {t("Questions can be answered immediately on open (no separate start)")}
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={draft.show_results_to_participants}
-                onChange={(event) =>
-                  onChange({ show_results_to_participants: event.target.checked })
-                }
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-              />
-              {t("Participants also see the results on their own device")}
-            </label>
+            {draft.type === "self_paced" ? (
+              // Quiz-Block (#75): no per-question start/stop, so "reveal timing"
+              // and "open on show" don't apply; the only choice is whether the
+              // correct answer is shown right after answering. Bound to
+              // reveal_answers (the field that drives self-paced feedback):
+              // on → "immediately", off → "never".
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={draft.reveal_answers !== "never"}
+                  onChange={(event) =>
+                    onChange({
+                      reveal_answers: event.target.checked ? "immediately" : "never",
+                    })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                />
+                {t("Show correct answers right after answering")}
+              </label>
+            ) : (
+              <>
+                <Field label={t("Reveal correct answers")}>
+                  <Select
+                    value={draft.reveal_answers}
+                    onChange={(event) =>
+                      onChange({ reveal_answers: event.target.value as RevealAnswers })
+                    }
+                  >
+                    {REVEAL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(option.label)}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {t(
+                      "Default for all questions with correct answers; individual questions can deviate from this.",
+                    )}
+                  </p>
+                </Field>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.open_on_show}
+                    onChange={(event) => onChange({ open_on_show: event.target.checked })}
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Questions can be answered immediately on open (no separate start)")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.show_results_to_participants}
+                    onChange={(event) =>
+                      onChange({ show_results_to_participants: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Participants also see the results on their own device")}
+                </label>
+              </>
+            )}
           </div>
         </fieldset>
       )}
@@ -1148,13 +1171,14 @@ export default function SetPage() {
                   always offered regardless of easy mode (#75). */}
               {SET_TYPES[set.type].runAction === "self_paced" && (
                 <Button
+                  variant="primary"
                   title={t(
                     "Participants answer all questions at their own pace, with immediate feedback",
                   )}
                   onClick={() => navigate(`/sets/${id}/quiz`)}
                   className="inline-flex items-center gap-1.5"
                 >
-                  <GraduationCap aria-hidden className="h-4 w-4" />{t("Self-paced quiz")}
+                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
                 </Button>
               )}
               <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">

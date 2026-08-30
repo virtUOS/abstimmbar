@@ -207,6 +207,7 @@ multi-line note must use {% comment %} or it renders as text.)
     answerSaved: "{% trans 'Answer saved.' %}",
     next: "{% trans 'Next' %}",
     toSummary: "{% trans 'See results' %}",
+    finish: "{% trans 'Finish' %}",
     quizScored: "{% trans 'Done! {right} of {total} auto-graded questions correct.' %}",
     quizUnscored: "{% trans 'Done! You answered all {total} questions.' %}",
     add: "{% trans 'Add' %}",
@@ -1180,8 +1181,12 @@ multi-line note must use {% comment %} or it renders as text.)
       feedback.style.color = "var(--ink-soft)";
     }
     feedback.hidden = false;
+    // "See results" only if there is an evaluation to see (feedback on);
+    // otherwise the final step is a neutral "Finish" (#75).
     nextBtn.textContent =
-      nextUnanswered(quizIndex + 1) === -1 ? I18N.toSummary : I18N.next;
+      nextUnanswered(quizIndex + 1) === -1
+        ? (quiz.feedback ? I18N.toSummary : I18N.finish)
+        : I18N.next;
     nextBtn.hidden = false;
     nextBtn.focus();
   }

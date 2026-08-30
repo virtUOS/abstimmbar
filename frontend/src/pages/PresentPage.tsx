@@ -655,7 +655,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       >
         <div className="mx-auto flex min-h-full max-w-5xl flex-col justify-center gap-10 lg:flex-row lg:items-center">
           <div className="flex flex-col items-center gap-4 text-center">
-            <span className="rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">
+            {/* Quiz-Block accent (#75): amber, matching the set-type badge
+                everywhere else — not the green brand color. */}
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
               {t("Self-paced quiz")}
             </span>
             <h1 className="text-3xl font-bold">{localizedText(state.set_title)}</h1>

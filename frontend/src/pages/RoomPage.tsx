@@ -25,6 +25,7 @@ import {
   InfoHint,
   MenuItem,
   MoreMenu,
+  SegmentedControl,
   Select,
   TextInput,
 } from "../components/ui";
@@ -504,6 +505,8 @@ export default function RoomPage() {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<number | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("updated");
+  // #75: filter the room's sets by type (like the archive filter on the rooms list).
+  const [typeFilter, setTypeFilter] = useState<"all" | SetType>("all");
   const [search, setSearch] = useState("");
   const [setsPage, setSetsPage] = useState(1);
   const [setsPageSize, setSetsPageSize] = useState(20);
@@ -661,9 +664,11 @@ export default function RoomPage() {
 
   if (!room || !sorted) return null;
 
-  const setsTotalPages = Math.max(1, Math.ceil(sorted.length / setsPageSize));
+  const filtered =
+    typeFilter === "all" ? sorted : sorted.filter((set) => set.type === typeFilter);
+  const setsTotalPages = Math.max(1, Math.ceil(filtered.length / setsPageSize));
   const setsCurrent = Math.min(setsPage, setsTotalPages);
-  const pagedSets = sorted.slice(
+  const pagedSets = filtered.slice(
     (setsCurrent - 1) * setsPageSize,
     setsCurrent * setsPageSize,
   );
@@ -929,6 +934,27 @@ export default function RoomPage() {
               </select>
             </label>
           </div>
+          {/* #75: filter the sets by type — same control as the rooms-list
+              archive filter. */}
+          <SegmentedControl
+            className="mb-4 w-full sm:w-max"
+            ariaLabel={t("Filter by set type")}
+            value={typeFilter}
+            onChange={(value) => {
+              setTypeFilter(value);
+              setSetsPage(1);
+            }}
+            options={[
+              { value: "all", label: t("All types") },
+              { value: "live_poll", label: t(SET_TYPES.live_poll.label) },
+              { value: "self_paced", label: t(SET_TYPES.self_paced.label) },
+            ]}
+          />
+          {filtered.length === 0 && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {t("No question set of this type.")}
+            </p>
+          )}
           <ul className="grid gap-3 sm:grid-cols-2">
             {pagedSets.map((set) => (
               <li
@@ -1022,7 +1048,7 @@ export default function RoomPage() {
         <Pager
           page={setsCurrent}
           pageSize={setsPageSize}
-          count={sorted.length}
+          count={filtered.length}
           onPage={setSetsPage}
           onPageSize={(size) => {
             setSetsPageSize(size);
