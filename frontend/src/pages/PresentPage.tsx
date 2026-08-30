@@ -475,13 +475,19 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // to the existing closing slide instead of a dedicated "done" state.
   const walkAdvance = useCallback(() => {
     if (!walk) return;
-    if (walkIndex >= walk.length - 1) {
-      setWalk(null);
-      setEnded(true);
-    } else {
-      setWalkIndex(walkIndex + 1);
-    }
-  }, [walk, walkIndex]);
+    // Functional updater (not a captured walkIndex) so rapid clicks/keypresses
+    // can't under-advance or overshoot; the index never exceeds the last slide,
+    // so the render's walk[walkIndex] is always defined. Past the last slide we
+    // hand off to the closing slide (#75).
+    setWalkIndex((i) => {
+      if (i >= walk.length - 1) {
+        setWalk(null);
+        setEnded(true);
+        return i;
+      }
+      return i + 1;
+    });
+  }, [walk]);
   const walkBack = useCallback(() => {
     setWalkIndex((i) => Math.max(0, i - 1));
   }, []);
