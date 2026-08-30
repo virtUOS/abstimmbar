@@ -100,6 +100,7 @@ export interface SetSettings {
   open_on_show: boolean;
   quiz_time_limit: number | null;
   show_results_to_participants: boolean;
+  present_results_after: boolean;
 }
 
 /** The settings form, shared by the create panel (RoomPage) and the edit
@@ -156,23 +157,37 @@ export function SetSettingsForm({
           <div className="grid gap-2">
             {draft.type === "self_paced" ? (
               // Quiz-Block (#75): no per-question start/stop, so "reveal timing"
-              // and "open on show" don't apply; the only choice is whether the
-              // correct answer is shown right after answering. Bound to
-              // reveal_answers (the field that drives self-paced feedback):
-              // on → "immediately", off → "never".
-              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={draft.reveal_answers !== "never"}
-                  onChange={(event) =>
-                    onChange({
-                      reveal_answers: event.target.checked ? "immediately" : "never",
-                    })
-                  }
-                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-                />
-                {t("Show correct answers right after answering")}
-              </label>
+              // and "open on show" don't apply; the choices are whether the
+              // correct answer is shown right after answering (bound to
+              // reveal_answers, the field that drives self-paced feedback:
+              // on → "immediately", off → "never") and whether the results are
+              // shown in the presentation afterwards.
+              <>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.reveal_answers !== "never"}
+                    onChange={(event) =>
+                      onChange({
+                        reveal_answers: event.target.checked ? "immediately" : "never",
+                      })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show correct answers right after answering")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.present_results_after}
+                    onChange={(event) =>
+                      onChange({ present_results_after: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show the results in the presentation afterwards")}
+                </label>
+              </>
             ) : (
               <>
                 <Field label={t("Reveal correct answers")}>
@@ -618,6 +633,7 @@ export default function SetPage() {
       open_on_show: set.open_on_show,
       quiz_time_limit: set.quiz_time_limit,
       show_results_to_participants: set.show_results_to_participants,
+      present_results_after: set.present_results_after,
     });
     setEditingMeta(true);
   }

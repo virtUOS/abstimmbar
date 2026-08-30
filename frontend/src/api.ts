@@ -76,6 +76,7 @@ export interface QuestionSet {
   open_on_show: boolean;
   quiz_time_limit: number | null;
   show_results_to_participants: boolean;
+  present_results_after: boolean;
   share_token: string | null;
   license: string;
   license_holder: string;
@@ -538,6 +539,7 @@ export const api = {
       open_on_show?: boolean;
       quiz_time_limit?: number | null;
       show_results_to_participants?: boolean;
+      present_results_after?: boolean;
     },
   ) =>
     request<QuestionSet>("/api/question-sets/", {
