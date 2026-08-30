@@ -135,60 +135,6 @@ export function SetSettingsForm({
             </span>
           );
         })()}
-        {/* Self-paced quizzes can carry an overall time budget (#75); other
-            set types have no "total run time" concept. */}
-        {draft.type === "self_paced" && (
-          <div className="mt-3">
-            <Field label={t("Total time limit")}>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {QUIZ_TIME_PRESETS.map((preset) => {
-                  const active = draft.quiz_time_limit === preset.seconds;
-                  return (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      aria-pressed={active}
-                      onClick={() => onChange({ quiz_time_limit: preset.seconds })}
-                      className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                        active
-                          ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
-                          : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
-                      }`}
-                    >
-                      {t(preset.label)}
-                    </button>
-                  );
-                })}
-                <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
-                  {t("or")}
-                </span>
-                <TextInput
-                  type="number"
-                  min={1}
-                  value={draft.quiz_time_limit == null ? "" : String(draft.quiz_time_limit / 60)}
-                  onChange={(event) => {
-                    const raw = event.target.value;
-                    if (raw.trim() === "") {
-                      onChange({ quiz_time_limit: null });
-                      return;
-                    }
-                    const minutes = Number(raw);
-                    onChange({
-                      quiz_time_limit:
-                        Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : null,
-                    });
-                  }}
-                  placeholder={t("e.g. 10")}
-                  aria-label={t("Total time limit in minutes")}
-                  className="!w-28"
-                />
-                <span className="text-sm text-slate-500 dark:text-slate-400">
-                  {t("Minutes")}
-                </span>
-              </div>
-            </Field>
-          </div>
-        )}
       </div>
       <TranslatableField
         label={t("Title")}
@@ -249,6 +195,60 @@ export function SetSettingsForm({
             </label>
           </div>
         </fieldset>
+      )}
+      {/* Self-paced quizzes can carry an overall time budget (#75). Shown last,
+          so it sits right above the Save button — like the question time limit.
+          Other set types have no "total run time" concept; visible in easy mode
+          too, since a Quiz-Block can be created there. */}
+      {draft.type === "self_paced" && (
+        <Field label={t("Total time limit")}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {QUIZ_TIME_PRESETS.map((preset) => {
+              const active = draft.quiz_time_limit === preset.seconds;
+              return (
+                <button
+                  key={preset.label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onChange({ quiz_time_limit: preset.seconds })}
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    active
+                      ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                  }`}
+                >
+                  {t(preset.label)}
+                </button>
+              );
+            })}
+            <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
+              {t("or")}
+            </span>
+            <TextInput
+              type="number"
+              min={1}
+              value={draft.quiz_time_limit == null ? "" : String(draft.quiz_time_limit / 60)}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (raw.trim() === "") {
+                  onChange({ quiz_time_limit: null });
+                  return;
+                }
+                const minutes = Number(raw);
+                onChange({
+                  quiz_time_limit:
+                    Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : null,
+                });
+              }}
+              placeholder={t("e.g. 10")}
+              aria-label={t("Total time limit in minutes")}
+              className="!w-28"
+            />
+            <span className="text-sm text-slate-500 dark:text-slate-400">
+              {t("Minutes")}
+            </span>
+          </div>
+        </Field>
       )}
     </div>
   );
