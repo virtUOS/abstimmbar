@@ -636,13 +636,6 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <Users aria-hidden className="inline h-4 w-4" /> {state.participants ?? 0} · {state.votes_total ?? 0}{" "}
                 {t("answer", { count: state.votes_total ?? 0 })}
               </span>
-              {quizRemaining !== null && (
-                <span className="flex items-center gap-1.5 font-semibold tabular-nums text-slate-600">
-                  <Timer aria-hidden className="h-4 w-4" />
-                  {String(Math.floor(quizRemaining / 60)).padStart(2, "0")}:
-                  {String(quizRemaining % 60).padStart(2, "0")}
-                </span>
-              )}
             </span>
             <button
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-slate-50"
@@ -660,6 +653,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
               {t("Self-paced quiz")}
             </span>
+            {quizRemaining !== null && (
+              <div className="flex flex-col items-center gap-1">
+                <span
+                  className={`flex items-center gap-3 text-5xl font-bold tabular-nums ${countdownColor(quizRemaining)}`}
+                >
+                  <Timer aria-hidden className="h-10 w-10" />
+                  {String(Math.floor(quizRemaining / 60)).padStart(2, "0")}:
+                  {String(quizRemaining % 60).padStart(2, "0")}
+                </span>
+                <span className="text-sm font-medium text-slate-500">{t("Time left")}</span>
+              </div>
+            )}
             <h1 className="text-3xl font-bold">{localizedText(state.set_title)}</h1>
             <img
               src={live.qrUrl(state.room.code)}
