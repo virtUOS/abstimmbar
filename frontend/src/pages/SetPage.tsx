@@ -1031,8 +1031,27 @@ export default function SetPage() {
             </div>
           )}
           {/* Answer-flow summary reflects pro-only settings, so it is hidden in
-              the decluttered simple mode (#78). */}
-          {!easyMode && (
+              the decluttered simple mode (#78). Quiz-Block (#75) has its own
+              settings, so it shows a self-paced-specific summary. */}
+          {!easyMode && set.type === "self_paced" && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {t("Show correct answers right after answering")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.reveal_answers !== "never" ? t("yes") : t("no")}
+              </strong>{" "}
+              · {t("Show the results in the presentation afterwards")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.present_results_after ? t("yes") : t("no")}
+              </strong>{" "}
+              · {t("Total time limit")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.quiz_time_limit == null
+                  ? t("Unlimited")
+                  : `${set.quiz_time_limit / 60} min`}
+              </strong>
+            </p>
+          )}
+          {!easyMode && set.type !== "self_paced" && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {t("Correct answers:")}{" "}
               <strong className="font-semibold text-slate-700 dark:text-slate-200">
