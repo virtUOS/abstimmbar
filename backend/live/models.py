@@ -71,6 +71,9 @@ class Run(TimeStampedModel):
     # When this run's *first* question was opened — names the result archive
     # ("Durchführung vom …", #17). Set once, never overwritten.
     first_opened_at = models.DateTimeField(null=True, blank=True)
+    # #75: when a self-paced run has an overall time limit, the moment it ends.
+    # Stamped once at first open; null = no overall limit.
+    quiz_ends_at = models.DateTimeField(null=True, blank=True)
     # Presenter pressed "reveal correct answers" (v2): server state, so
     # participant devices can highlight in sync with the beamer.
     answers_revealed = models.BooleanField(default=False)

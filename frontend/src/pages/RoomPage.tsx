@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, ChartColumnDecreasing, Crown, DoorOpen, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
+import { Archive, ChartColumnDecreasing, ChevronDown, Crown, DoorOpen, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
 import { useEasyMode } from "../App";
 import {
   api,
@@ -25,6 +25,7 @@ import {
   InfoHint,
   MenuItem,
   MoreMenu,
+  SegmentedControl,
   Select,
   TextInput,
 } from "../components/ui";
@@ -33,13 +34,113 @@ import RichText from "../components/RichText";
 import TranslatableField from "../components/TranslatableField";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import { SetSettingsForm, type SetSettings } from "./SetPage";
+import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
+
+/** #75: pick the set type up front — like "+ New question" for questions.
+ * The menu lists the creatable types; picking one opens the create form with
+ * that type preset. In easy mode only Live poll is creatable, so there's
+ * nothing to pick and it collapses to a plain button. */
+function NewSetMenu({
+  easyMode,
+  onPick,
+}: {
+  easyMode: boolean;
+  onPick: (type: SetType) => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const types = easyMode
+    ? CREATABLE_SET_TYPES.filter((st) => st === "live_poll")
+    : CREATABLE_SET_TYPES;
+
+  useEffect(() => {
+    if (!open) return;
+    function onPointerDown(event: PointerEvent) {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpen(false);
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  // Only one creatable type: no menu to choose from — a plain button.
+  if (types.length < 2) {
+    const only = types[0] ?? "live_poll";
+    return (
+      <Button variant="primary" onClick={() => onPick(only)}>
+        + {t("New question set")}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="relative" ref={ref}>
+      <Button
+        variant="primary"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex items-center gap-2"
+      >
+        <span className="text-base leading-none">+</span>
+        {t("New question set")}
+        <ChevronDown
+          aria-hidden
+          className={`h-4 w-4 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </Button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
+        >
+          {types.map((st) => {
+            const Icon = SET_TYPES[st].icon;
+            return (
+              <button
+                key={st}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false);
+                  onPick(st);
+                }}
+                className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+              >
+                <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-slate-400 dark:text-slate-500" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {t(SET_TYPES[st].label)}
+                  </span>
+                  <span className="block text-xs text-slate-500 dark:text-slate-400">
+                    {t(SET_TYPES[st].description)}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const NEW_SET_DEFAULTS: SetSettings = {
+  type: "live_poll",
   title: "",
   description: "",
   reveal_answers: "immediately",
   open_on_show: true,
+  quiz_time_limit: null,
   show_results_to_participants: true,
+  present_results_after: true,
 };
 
 type SortKey = "updated" | "created" | "title" | "questions";
@@ -405,6 +506,8 @@ export default function RoomPage() {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [confirmArchive, setConfirmArchive] = useState<number | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("updated");
+  // #75: filter the room's sets by type (like the archive filter on the rooms list).
+  const [typeFilter, setTypeFilter] = useState<"all" | SetType>("all");
   const [search, setSearch] = useState("");
   const [setsPage, setSetsPage] = useState(1);
   const [setsPageSize, setSetsPageSize] = useState(20);
@@ -422,6 +525,9 @@ export default function RoomPage() {
   // places (⋮ menu top-right, "+ New question set" mid-page), so scroll the
   // warning into view and focus it — otherwise it can appear off-screen.
   const [pendingSwitch, setPendingSwitch] = useState<"settings" | "newSet" | null>(null);
+  // #75: which type the pending "new set" should be created as (chosen in the
+  // menu before the dirty-guard may defer opening the form).
+  const [pendingNewSetType, setPendingNewSetType] = useState<SetType>("live_poll");
   const pendingSwitchRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!pendingSwitch) return;
@@ -470,7 +576,9 @@ export default function RoomPage() {
   }
 
   const newSetDirty =
-    newSet !== null && JSON.stringify(newSet) !== JSON.stringify(NEW_SET_DEFAULTS);
+    newSet !== null &&
+    JSON.stringify(newSet) !==
+      JSON.stringify({ ...NEW_SET_DEFAULTS, type: newSet.type });
   const settingsDirty =
     settingsDraft !== null &&
     room !== null &&
@@ -494,14 +602,15 @@ export default function RoomPage() {
     setNewSet(null);
     openSettings();
   }
-  function requestOpenNewSet() {
+  function requestOpenNewSet(type: SetType) {
     if (pendingSwitch) return;
+    setPendingNewSetType(type);
     if (settingsDirty) {
       setPendingSwitch("newSet");
       return;
     }
     setSettingsDraft(null);
-    setNewSet(NEW_SET_DEFAULTS);
+    setNewSet({ ...NEW_SET_DEFAULTS, type });
   }
   function performSwitch() {
     if (pendingSwitch === "settings") {
@@ -509,7 +618,7 @@ export default function RoomPage() {
       openSettings();
     } else if (pendingSwitch === "newSet") {
       setSettingsDraft(null);
-      setNewSet(NEW_SET_DEFAULTS);
+      setNewSet({ ...NEW_SET_DEFAULTS, type: pendingNewSetType });
     }
     setPendingSwitch(null);
   }
@@ -556,9 +665,11 @@ export default function RoomPage() {
 
   if (!room || !sorted) return null;
 
-  const setsTotalPages = Math.max(1, Math.ceil(sorted.length / setsPageSize));
+  const filtered =
+    typeFilter === "all" ? sorted : sorted.filter((set) => set.type === typeFilter);
+  const setsTotalPages = Math.max(1, Math.ceil(filtered.length / setsPageSize));
   const setsCurrent = Math.min(setsPage, setsTotalPages);
-  const pagedSets = sorted.slice(
+  const pagedSets = filtered.slice(
     (setsCurrent - 1) * setsPageSize,
     setsCurrent * setsPageSize,
   );
@@ -747,9 +858,7 @@ export default function RoomPage() {
           <InfoHint
             text={t("A question set is a single quiz — e.g. for one lecture session.")}
           />
-          <Button variant="primary" onClick={requestOpenNewSet}>
-            + {t("New question set")}
-          </Button>
+          <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
         </div>
       </div>
       {importError && <p className="mb-4 text-sm text-red-600">{importError}</p>}
@@ -826,6 +935,27 @@ export default function RoomPage() {
               </select>
             </label>
           </div>
+          {/* #75: filter the sets by type — same control as the rooms-list
+              archive filter. */}
+          <SegmentedControl
+            className="mb-4 w-full sm:w-max"
+            ariaLabel={t("Filter by set type")}
+            value={typeFilter}
+            onChange={(value) => {
+              setTypeFilter(value);
+              setSetsPage(1);
+            }}
+            options={[
+              { value: "all", label: t("All types") },
+              { value: "live_poll", label: t(SET_TYPES.live_poll.label) },
+              { value: "self_paced", label: t(SET_TYPES.self_paced.label) },
+            ]}
+          />
+          {filtered.length === 0 && (
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+              {t("No question set of this type.")}
+            </p>
+          )}
           <ul className="grid gap-3 sm:grid-cols-2">
             {pagedSets.map((set) => (
               <li
@@ -833,9 +963,16 @@ export default function RoomPage() {
                 className="relative min-w-0 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 hover:border-brand-600 dark:border-slate-800 dark:bg-slate-900/40"
               >
                 <div className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-100 text-brand-700 dark:bg-brand-900 dark:text-brand-300">
-                    <Layers aria-hidden className="h-5 w-5" />
-                  </span>
+                  {(() => {
+                    const Icon = SET_TYPES[set.type].icon;
+                    return (
+                      <span
+                        className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${SET_TYPES[set.type].accent.iconBox}`}
+                      >
+                        <Icon aria-hidden className="h-5 w-5" />
+                      </span>
+                    );
+                  })()}
                   <Link
                     to={`/sets/${set.id}`}
                     className="min-w-0 flex-1 after:absolute after:inset-0 after:rounded-2xl"
@@ -843,6 +980,9 @@ export default function RoomPage() {
                     <h3 className="truncate font-semibold text-slate-900 dark:text-slate-100">
                       {localizedText(set.title)}
                     </h3>
+                    <p className="mt-1 text-xs font-medium text-slate-400 dark:text-slate-500">
+                      {t(SET_TYPES[set.type].label)}
+                    </p>
                     <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
                       {set.question_count} {t("question", { count: set.question_count })}
                       {/* "Last edited" date is decluttered away in simple mode (#78). */}
@@ -909,7 +1049,7 @@ export default function RoomPage() {
         <Pager
           page={setsCurrent}
           pageSize={setsPageSize}
-          count={sorted.length}
+          count={filtered.length}
           onPage={setSetsPage}
           onPageSize={(size) => {
             setSetsPageSize(size);

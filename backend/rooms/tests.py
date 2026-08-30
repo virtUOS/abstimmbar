@@ -12,7 +12,7 @@ from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin, resolve_translated_text
 
-from . import ai_generate
+from . import ai_generate, set_types
 from .images import InvalidImageError, normalize_image
 from .models import AnswerOption, Question, QuestionSet, Room, UploadedImage
 from .onboarding import seed_example_room
@@ -1048,6 +1048,155 @@ class TransferTests(ApiTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 404)
+
+    def test_duplicate_preserves_set_type(self):
+        """#75 final review: duplicate_set() must carry the set's ``type``
+        onto the clone — before this fix it silently fell back to the
+        model's default (live_poll), turning a duplicated Quiz-Block into a
+        Live poll."""
+        from .transfer import duplicate_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.save(update_fields=["type"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertEqual(clone.type, QuestionSet.SetType.SELF_PACED)
+
+    def test_export_import_roundtrip_preserves_set_type(self):
+        """export_set() includes ``type``, and import_set() applies it —
+        a self_paced set survives an export/import round-trip as
+        self_paced, not the default live_poll."""
+        from .transfer import export_set, import_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.save(update_fields=["type"])
+        data = export_set(self.question_set)
+        self.assertEqual(data["type"], QuestionSet.SetType.SELF_PACED)
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertEqual(imported.type, QuestionSet.SetType.SELF_PACED)
+
+    def test_import_defaults_type_when_missing_or_invalid(self):
+        """A foreign/legacy file without a ``type`` key, or with an invalid
+        one, imports as live_poll rather than erroring out."""
+        from .transfer import import_set
+
+        base_payload = {
+            "format": "abstimmbar-set-v1",
+            "title": "x",
+            "questions": [],
+        }
+        imported = import_set(self.room, dict(base_payload))
+        self.assertEqual(imported.type, QuestionSet.SetType.LIVE_POLL)
+
+        imported_invalid = import_set(
+            self.room, {**base_payload, "title": "y", "type": "not-a-type"}
+        )
+        self.assertEqual(imported_invalid.type, QuestionSet.SetType.LIVE_POLL)
+
+    def test_duplicate_preserves_quiz_time_limit(self):
+        """#75 final review: duplicate_set() must carry ``quiz_time_limit``
+        onto the clone, like it already does for ``type``."""
+        from .transfer import duplicate_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.quiz_time_limit = 300
+        self.question_set.save(update_fields=["type", "quiz_time_limit"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertEqual(clone.quiz_time_limit, 300)
+
+    def test_export_import_roundtrip_preserves_quiz_time_limit(self):
+        """export_set() includes ``quiz_time_limit``, and import_set()
+        applies it for a self_paced set."""
+        from .transfer import export_set, import_set
+
+        self.question_set.type = QuestionSet.SetType.SELF_PACED
+        self.question_set.quiz_time_limit = 300
+        self.question_set.save(update_fields=["type", "quiz_time_limit"])
+        data = export_set(self.question_set)
+        self.assertEqual(data["quiz_time_limit"], 300)
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertEqual(imported.quiz_time_limit, 300)
+
+    def test_import_rejects_invalid_quiz_time_limit(self):
+        """A foreign/legacy file with an implausible ``quiz_time_limit``
+        (negative, non-int, or out of range) imports as None rather than
+        erroring out or storing garbage."""
+        from .transfer import import_set
+
+        base_payload = {
+            "format": "abstimmbar-set-v1",
+            "title": "x",
+            "type": QuestionSet.SetType.SELF_PACED,
+            "questions": [],
+        }
+        for bad in (-1, "x", 0, 24 * 3600 + 1):
+            imported = import_set(self.room, {**base_payload, "quiz_time_limit": bad})
+            self.assertIsNone(imported.quiz_time_limit)
+
+    def test_import_ignores_quiz_time_limit_for_non_self_paced_type(self):
+        """A ``quiz_time_limit`` carried on a non-self_paced payload (e.g. a
+        hand-edited or legacy file) is dropped — the field is only
+        meaningful for self_paced sets."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "x",
+                "type": QuestionSet.SetType.LIVE_POLL,
+                "quiz_time_limit": 300,
+                "questions": [],
+            },
+        )
+        self.assertIsNone(imported.quiz_time_limit)
+
+    def test_duplicate_preserves_present_results_after(self):
+        # #75: duplicate_set() must carry present_results_after onto the
+        # clone, including a non-default (False) value.
+        from .transfer import duplicate_set
+
+        self.question_set.present_results_after = False
+        self.question_set.save(update_fields=["present_results_after"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertFalse(clone.present_results_after)
+
+    def test_export_import_roundtrip_preserves_present_results_after(self):
+        """export_set() includes ``present_results_after``, and
+        import_set() applies a False value rather than silently reverting
+        to the field's True default."""
+        from .transfer import export_set, import_set
+
+        self.question_set.present_results_after = False
+        self.question_set.save(update_fields=["present_results_after"])
+        data = export_set(self.question_set)
+        self.assertFalse(data["present_results_after"])
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertFalse(imported.present_results_after)
+
+    def test_import_defaults_present_results_after_when_missing(self):
+        """A foreign/legacy file without ``present_results_after`` imports
+        as True (the field's default), not False."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "y",
+                "type": QuestionSet.SetType.SELF_PACED,
+                "questions": [],
+            },
+        )
+        self.assertTrue(imported.present_results_after)
 
 
 class CopyQuestionsTests(ApiTestCase):
@@ -3079,3 +3228,249 @@ class OnboardingSeedTests(TestCase):
 
     def _question(self, kind):
         return self.room.question_sets.get().questions.get(kind=kind)
+
+
+class SetTypeModelTests(TestCase):
+    def test_new_set_defaults_to_live_poll(self):
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertEqual(qs.type, QuestionSet.SetType.LIVE_POLL)
+        self.assertEqual(qs.type, "live_poll")
+
+    def test_quiz_time_limit_and_run_quiz_ends_at_default_to_none(self):
+        # #75: overall time limit for Quiz-Block runs is opt-in.
+        from live.models import Run
+
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertIsNone(qs.quiz_time_limit)
+
+        run = Run.objects.create(question_set=qs)
+        self.assertIsNone(run.quiz_ends_at)
+
+    def test_present_results_after_defaults_to_true(self):
+        # #75: post-run results walkthrough is opt-out, not opt-in.
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertTrue(qs.present_results_after)
+
+
+class SetTypeRulesTests(TestCase):
+    def test_allowed_kinds_permissive_types(self):
+        allk = tuple(k for k, _ in Question.Kind.choices)
+        self.assertEqual(set(set_types.allowed_kinds("live_poll")), set(allk))
+        self.assertEqual(set(set_types.allowed_kinds("self_paced")), set(allk))
+
+    def test_allowed_kinds_self_check(self):
+        self.assertEqual(
+            set(set_types.allowed_kinds("self_check")),
+            {"single_choice", "multiple_choice", "ordering", "open_text"},
+        )
+        self.assertTrue(set_types.requires_solution("self_check"))
+        self.assertFalse(set_types.requires_solution("live_poll"))
+
+
+class QuestionKindGatingTests(ApiTestCase):
+    # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.
+
+    def _create_q(self, qs, kind, **extra):
+        return self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": kind,
+                "text": {"de": "F", "en": "Q"},
+                "options": [
+                    {"text": {"de": "A", "en": "A"}, "is_correct": True},
+                    {"text": {"de": "B", "en": "B"}},
+                ],
+                **extra,
+            },
+            content_type="application/json",
+        )
+
+    def test_disallowed_kind_for_self_check_rejected(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        r = self._create_q(qs, "likert")  # likert not allowed in self_check
+        self.assertEqual(r.status_code, 400)
+
+    def test_open_text_in_self_check_requires_solution(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        r = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 400)  # no model_solution
+        r2 = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(r2.status_code, 201)
+
+    def test_all_kinds_allowed_in_live_poll(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
+        self.assertEqual(self._create_q(qs, "single_choice").status_code, 201)
+
+    def test_patch_clearing_model_solution_rejected(self):
+        # A partial PATCH that explicitly sets model_solution to "" must not
+        # fall back to the old (non-empty) instance value and slip through.
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        create = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(create.status_code, 201)
+        qid = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/api/questions/{qid}/",
+            {"model_solution": ""},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("model_solution", resp.json())
+        self.assertEqual(
+            Question.objects.get(pk=qid).model_solution, "Paris"
+        )  # unchanged
+
+    def test_patch_untouched_model_solution_still_falls_back(self):
+        # A PATCH that doesn't mention model_solution at all should keep
+        # using the stored value (the "key absent" branch of the sentinel).
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        create = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(create.status_code, 201)
+        qid = create.json()["id"]
+
+        resp = self.client.patch(
+            f"/api/questions/{qid}/",
+            {"text": {"de": "Neue Frage", "en": "New question"}},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(Question.objects.get(pk=qid).model_solution, "Paris")
+
+
+class SetTypeApiTests(ApiTestCase):
+    # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.
+
+    def test_create_with_type(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["type"], "self_paced")
+
+    def test_type_defaults_to_live_poll(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S",
+        }, content_type="application/json")
+        self.assertEqual(r.json()["type"], "live_poll")
+
+    def test_type_is_immutable_on_update(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "type": "self_paced",
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertEqual(qs.type, "live_poll")  # unchanged
+
+    def test_quiz_time_limit_on_self_paced_create(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+            "quiz_time_limit": 300,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(r.json()["quiz_time_limit"], 300)
+
+    def test_present_results_after_create_false_stores_false(self):
+        # #75: serializer round-trips the opt-out explicitly.
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+            "present_results_after": False,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertFalse(r.json()["present_results_after"])
+        qs = QuestionSet.objects.get(pk=r.json()["id"])
+        self.assertFalse(qs.present_results_after)
+
+    def test_quiz_time_limit_nulled_for_live_poll_create(self):
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "live_poll",
+            "quiz_time_limit": 300,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        qs = QuestionSet.objects.get(pk=r.json()["id"])
+        self.assertIsNone(qs.quiz_time_limit)
+
+    def test_quiz_time_limit_patch_persists_on_self_paced(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_paced")
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": 600,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertEqual(qs.quiz_time_limit, 600)
+
+    def test_quiz_time_limit_rejects_non_positive(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_paced")
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": 0,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": -5,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_quiz_time_limit_patch_to_null_clears_it(self):
+        qs = QuestionSet.objects.create(
+            room=self.room, title="S", type="self_paced", quiz_time_limit=300,
+        )
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "quiz_time_limit": None,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertIsNone(qs.quiz_time_limit)
+
+    def test_quiz_time_limit_unchanged_when_not_in_patch(self):
+        qs = QuestionSet.objects.create(
+            room=self.room, title="S", type="self_paced", quiz_time_limit=300,
+        )
+        r = self.client.patch(f"/api/question-sets/{qs.pk}/", {
+            "title": "New title",
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 200)
+        qs.refresh_from_db()
+        self.assertEqual(qs.quiz_time_limit, 300)

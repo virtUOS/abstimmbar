@@ -8,7 +8,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { Check, ChevronLeft, ChevronRight, QrCode, Timer, Users, Vote, X } from "lucide-react";
-import { API_BASE_URL, api, live, type LiveState, type Question, type WordCloudAI } from "../api";
+import {
+  API_BASE_URL,
+  api,
+  live,
+  results,
+  type LiveState,
+  type Question,
+  type RunResults,
+  type WordCloudAI,
+} from "../api";
 import { localizedText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
 import RichText from "../components/RichText";
@@ -77,6 +86,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   const [questions, setQuestions] = useState<Question[]>([]);
   const [openOnShow, setOpenOnShow] = useState(false);
+  // Quiz-Block post-run walkthrough (#75): the set's opt-in for stepping
+  // through per-question results on the beamer once the teacher ends a
+  // self-paced run, and the walkthrough data/position while it is shown.
+  const [presentResultsAfter, setPresentResultsAfter] = useState(true);
+  const [walk, setWalk] = useState<RunResults["questions"] | null>(null);
+  const [walkIndex, setWalkIndex] = useState(0);
   const [runId, setRunId] = useState<number | null>(null);
   // Recording mode (#53): opted in on the set page (checkbox), carried here as
   // ?recording=1; live only (self-paced is already async).
@@ -147,6 +162,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         new Map(sectionPage.results.map((s) => [s.id, localizedText(s.title)])),
       );
       setOpenOnShow(setData.open_on_show);
+      setPresentResultsAfter(setData.present_results_after);
       // Offer the start dialog whenever we'd otherwise touch stored answers:
       // either there are results and no run is active, OR the run we'd resume
       // already carries answers (presenter left it unfinished) — so archiving
@@ -240,10 +256,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     phase === "results" && (reveal === "immediately" || (reveal === "after_close" && revealed));
 
   // Countdown (v2): tick locally, auto-close once per question when time is up.
-  const remaining = useCountdown(phase === "open" ? state?.ends_at : undefined);
+  // Live only — self-paced runs are also `phase === "open"` but use a
+  // separate overall-quiz countdown below (that one must never auto-close
+  // a question or fire this per-question effect).
+  const remaining = useCountdown(!selfPaced && phase === "open" ? state?.ends_at : undefined);
   useEffect(() => {
     const deadline = state?.ends_at ?? null;
     if (
+      !selfPaced &&
       runId &&
       phase === "open" &&
       remaining === 0 &&
@@ -263,7 +283,28 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void live.control(runId, { phase: "closed" });
       }
     }
-  }, [remaining, phase, runId, activeKind, state?.ends_at]);
+  }, [selfPaced, remaining, phase, runId, activeKind, state?.ends_at]);
+
+  // Self-paced overall countdown (#75, Quiz-Block): the deadline for the
+  // whole quiz lives in the same `state.ends_at` field the live per-question
+  // timer uses above, but here it drives a separate best-effort auto-finish
+  // instead of closing/advancing a question. Keyed by the deadline (like
+  // autoClosedRef) so a fresh run/deadline can finish again.
+  const quizRemaining = useCountdown(selfPaced ? state?.ends_at : undefined);
+  const autoFinishedRef = useRef<string | null>(null);
+  useEffect(() => {
+    const deadline = state?.ends_at ?? null;
+    if (
+      selfPaced &&
+      runId &&
+      quizRemaining === 0 &&
+      deadline !== null &&
+      autoFinishedRef.current !== deadline
+    ) {
+      autoFinishedRef.current = deadline;
+      void finish();
+    }
+  }, [selfPaced, quizRemaining, runId, state?.ends_at]);
 
   // Track dwell time: when a new question slide appears, and when its vote
   // opens (both feed the leave prompt).
@@ -430,6 +471,35 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     await live.control(runId, { reveal: true });
   }, [runId, phase]);
 
+  // Walkthrough navigation (#75): advancing past the last question hands off
+  // to the existing closing slide instead of a dedicated "done" state.
+  const walkAdvance = useCallback(() => {
+    if (!walk) return;
+    // Functional updater (not a captured walkIndex) so rapid clicks/keypresses
+    // can't under-advance or overshoot; the index never exceeds the last slide,
+    // so the render's walk[walkIndex] is always defined. Past the last slide we
+    // hand off to the closing slide (#75).
+    setWalkIndex((i) => {
+      if (i >= walk.length - 1) {
+        setWalk(null);
+        setEnded(true);
+        return i;
+      }
+      return i + 1;
+    });
+  }, [walk]);
+  const walkBack = useCallback(() => {
+    setWalkIndex((i) => Math.max(0, i - 1));
+  }, []);
+
+  // Memoized so the keydown effect (which lists it as a dependency) doesn't
+  // re-register the window listener on every render — including the live
+  // path's frequent SSE-driven re-renders (#75). Declared before onKey, which
+  // references it.
+  const leavePresentation = useCallback(() => {
+    navigate(`/sets/${id}`);
+  }, [navigate, id]);
+
   const onKey = useCallback(
     (event: KeyboardEvent) => {
       if (!runId) return;
@@ -438,6 +508,15 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       // presenter can page through with a clicker. Space must not scroll.
       if (key === " ") event.preventDefault();
       const advance = key === "s" || key === "enter" || key === " ";
+      // Post-run results walkthrough (#75): its own tiny key scheme, kept
+      // separate from the live/self-paced handling below so it can't
+      // interfere with it (walk is only ever set once selfPaced+finished).
+      if (walk !== null) {
+        if (key === "escape") leavePresentation();
+        else if (advance || key === "arrowright") walkAdvance();
+        else if (key === "arrowleft") walkBack();
+        return;
+      }
       // On the closing slide (#32) any advance/Esc leaves to management.
       if (ended) {
         if (key === "escape" || advance) leavePresentation();
@@ -494,7 +573,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, walk, walkAdvance, walkBack, leavePresentation],
   );
 
   useEffect(() => {
@@ -504,12 +583,27 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   async function finish() {
     if (runId) await live.control(runId, { phase: "finished" });
+    // Quiz-Block post-run walkthrough (#75): when the set opts in, step
+    // through the just-finished run's per-question results instead of
+    // jumping straight to the closing slide. Falls back to the closing
+    // slide when the option is off, there's no run/results, or the fetch
+    // fails.
+    if (selfPaced && presentResultsAfter && runId) {
+      try {
+        const payload = await results.list(id);
+        const run = payload.results.find((r) => r.run === runId) ?? payload.results[0];
+        if (run && run.questions.length > 0) {
+          setWalk(run.questions);
+          setWalkIndex(0);
+          return;
+        }
+      } catch {
+        // fall through to the closing slide below
+      }
+    }
     setEnded(true); // show the closing slide; leaving is a separate step (#32)
   }
 
-  function leavePresentation() {
-    navigate(`/sets/${id}`);
-  }
 
   // --- rendering --------------------------------------------------------------
   if (dialog) {
@@ -570,6 +664,55 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     );
   }
 
+  // Post-run results walkthrough (#75, Quiz-Block): one slide per question,
+  // teacher-driven, correct answers always revealed. Rendered independently
+  // of the live phase/results block above — it feeds from the stored
+  // RunResults item for `walkIndex`, not from `state`.
+  if (walk !== null) {
+    const item = walk[walkIndex];
+    const btn =
+      "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50";
+    return (
+      <Shell
+        logo={beamerLogo}
+        footer={
+          <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
+            <span>
+              {t("Question {{current}}/{{total}}", {
+                current: walkIndex + 1,
+                total: walk.length,
+              })}
+            </span>
+            <div className="flex gap-2">
+              <button className={`${btn} text-red-700`} onClick={leavePresentation}>
+                {t("Back to overview")} <Kbd>Esc</Kbd>
+              </button>
+              <button
+                className={btn}
+                onClick={walkBack}
+                disabled={walkIndex === 0}
+                aria-label={t("Back (←)")}
+              >
+                <ChevronLeft aria-hidden className="h-5 w-5" />
+              </button>
+              <button className={btn} onClick={walkAdvance} aria-label={t("Next (→)")}>
+                <ChevronRight aria-hidden className="h-5 w-5" />
+              </button>
+            </div>
+          </footer>
+        }
+      >
+        <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center">
+          <RichText
+            className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
+            html={localizedText(item.text)}
+          />
+          <WalkthroughResultBody item={item} />
+        </div>
+      </Shell>
+    );
+  }
+
   // Closing slide (#32): the run is finished — dwell here until the presenter
   // actively leaves, rather than snapping back to the management screen.
   if (ended) {
@@ -606,9 +749,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         logo={beamerLogo}
         footer={
           <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
-            <span>
-              <Users aria-hidden className="inline h-4 w-4" /> {state.participants ?? 0} · {state.votes_total ?? 0}{" "}
-              {t("answer", { count: state.votes_total ?? 0 })}
+            <span className="flex items-center gap-4">
+              <span>
+                <Users aria-hidden className="inline h-4 w-4" /> {state.participants ?? 0} · {state.votes_total ?? 0}{" "}
+                {t("answer", { count: state.votes_total ?? 0 })}
+              </span>
             </span>
             <button
               className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-slate-50"
@@ -621,9 +766,23 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       >
         <div className="mx-auto flex min-h-full max-w-5xl flex-col justify-center gap-10 lg:flex-row lg:items-center">
           <div className="flex flex-col items-center gap-4 text-center">
-            <span className="rounded-full bg-brand-50 px-3 py-1 text-sm font-semibold text-brand-700">
+            {/* Quiz-Block accent (#75): amber, matching the set-type badge
+                everywhere else — not the green brand color. */}
+            <span className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
               {t("Self-paced quiz")}
             </span>
+            {quizRemaining !== null && (
+              <div className="flex flex-col items-center gap-1">
+                <span
+                  className={`flex items-center gap-3 text-5xl font-bold tabular-nums ${countdownColor(quizRemaining)}`}
+                >
+                  <Timer aria-hidden className="h-10 w-10" />
+                  {String(Math.floor(quizRemaining / 60)).padStart(2, "0")}:
+                  {String(quizRemaining % 60).padStart(2, "0")}
+                </span>
+                <span className="text-sm font-medium text-slate-500">{t("Time left")}</span>
+              </div>
+            )}
             <h1 className="text-3xl font-bold">{localizedText(state.set_title)}</h1>
             <img
               src={live.qrUrl(state.room.code)}
@@ -1186,6 +1345,212 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         </div>
       )}
     </Shell>
+  );
+}
+
+/** Post-run results walkthrough (#75, Quiz-Block): the aggregated-result body
+ * for one `RunResults` question, mirroring the live `phase === "results"`
+ * rendering above kind-for-kind but fed from stored results instead of
+ * `state`, and with correct answers always revealed (no reveal-level gate —
+ * self-paced has no live audience to hide them from once the quiz is over). */
+function WalkthroughResultBody({ item }: { item: RunResults["questions"][number] }) {
+  const { t } = useTranslation();
+  const total = item.votes ?? 0;
+
+  if (item.kind === "likert" && item.likert) {
+    return <LikertResult summary={item.likert} variant="present" />;
+  }
+
+  if (item.kind === "priorities" && item.priorities) {
+    return (
+      <div className="mt-8 space-y-3">
+        {item.priorities.map((opt) => (
+          <div key={opt.id}>
+            <div className="mb-1 flex items-center justify-between text-xl">
+              <span>{localizedText(opt.text)}</span>
+              <span className="tabular-nums text-slate-500">
+                Ø {opt.avg} · {opt.min}–{opt.max}
+              </span>
+            </div>
+            <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
+              <div
+                className="absolute inset-y-0 left-0 rounded bg-brand-500"
+                style={{ width: `${opt.avg}%` }}
+              />
+              <div
+                className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-700 dark:bg-slate-200"
+                style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
+              />
+              <div
+                className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
+                style={{ left: `${opt.min}%` }}
+              />
+              <div
+                className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
+                style={{ left: `${opt.max}%` }}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (item.kind === "ordering" && item.ordering) {
+    const ordering = item.ordering;
+    return (
+      <div className="mt-8">
+        <p className="mb-4 text-xl font-semibold">
+          {t("{{pct}}% got the full order correct", { pct: ordering.full_correct_rate })}
+        </p>
+        <div className="inline-grid gap-x-3" style={{ gridTemplateColumns: "max-content auto" }}>
+          {ordering.items.flatMap((it, i) => {
+            const link = ordering.links?.[i];
+            const rows = [
+              <div
+                key={`item-${it.id}`}
+                className="col-start-1 flex items-center gap-3 text-xl"
+                style={{ gridRow: 2 * i + 1 }}
+              >
+                <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
+                <span>{localizedText(it.text)}</span>
+              </div>,
+            ];
+            if (link) {
+              rows.push(
+                <div
+                  key={`link-${it.id}`}
+                  className="col-start-1 flex items-center justify-center py-1"
+                  style={{ gridRow: 2 * i + 2 }}
+                >
+                  <span
+                    className="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                    style={{ opacity: 0.4 + 0.6 * (link.rate / 100) }}
+                  >
+                    {t("{{pct}}% in a row", { pct: link.rate })}
+                  </span>
+                </div>,
+              );
+            }
+            return rows;
+          })}
+          {ordering.chains.map((c, idx) => (
+            <div
+              key={`chain-${idx}`}
+              className="col-start-2 flex items-center gap-2 pl-1"
+              style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
+            >
+              <div className="h-full w-2 rounded-r-lg border-y-2 border-r-2 border-brand-400" />
+              <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
+                {c.rate}%
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (item.kind === "open_text" && item.evaluation) {
+    const evaluation = item.evaluation;
+    const evalTotal = evaluation.groups.reduce((s, g) => s + g.count, 0);
+    return (
+      <div className="mt-8">
+        {evaluation.pending > 0 && (
+          <p className="mb-4 text-lg text-slate-500">
+            {evaluation.pending} {t("answer being evaluated", { count: evaluation.pending })}
+          </p>
+        )}
+        <div className="mx-auto mb-6 max-w-3xl space-y-3">
+          {evaluation.groups.map((group, i) => {
+            const pct = evalTotal ? Math.round((group.count / evalTotal) * 100) : 0;
+            return (
+              <div key={group.verdict}>
+                <div className="mb-1 flex items-center justify-between text-xl">
+                  <span className={EVAL_COLORS[i % EVAL_COLORS.length].title}>
+                    {evalLabel(group.verdict)}
+                  </span>
+                  <span className="tabular-nums text-slate-500">
+                    {group.count} · {pct} %
+                  </span>
+                </div>
+                <div className="h-6 overflow-hidden rounded-lg bg-slate-100">
+                  <div
+                    className={`h-full ${EVAL_COLORS[i % EVAL_COLORS.length].bar}`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  if (item.kind === "open_text") {
+    return (
+      <ul className="mt-8 max-h-96 space-y-2 overflow-auto">
+        {(item.words ?? []).map((entry) => (
+          <li key={entry.text} className="rounded-xl border border-slate-200 px-4 py-2 text-xl">
+            {entry.text}
+            {entry.count > 1 && (
+              <span className="ml-2 text-sm text-slate-400">×{entry.count}</span>
+            )}
+          </li>
+        ))}
+        {(item.words ?? []).length === 0 && (
+          <p className="text-slate-400">{t("No answers yet …")}</p>
+        )}
+      </ul>
+    );
+  }
+
+  if (item.kind === "word_cloud") {
+    return (item.words ?? []).length === 0 ? (
+      <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>
+    ) : (
+      <WordCloud words={item.words ?? []} />
+    );
+  }
+
+  // single_choice / multiple_choice (and any kind without its own aggregate
+  // above, mirroring the live fallback): a bar per option, correct always
+  // marked since the walkthrough has no audience left to hide it from.
+  return (
+    <div className="mt-8 space-y-3">
+      {(item.options ?? []).map((option, i) => {
+        const count = option.count ?? 0;
+        const percent = total ? Math.round((count / total) * 100) : 0;
+        const correct = !!option.is_correct;
+        return (
+          <div key={option.id}>
+            <div className="mb-1 flex items-center justify-between text-xl">
+              <span className={`flex items-center gap-2 ${correct ? "font-bold text-brand-700" : ""}`}>
+                {LETTERS[i]} ·{" "}
+                {option.image && (
+                  <img
+                    src={`${API_BASE_URL}${option.image}`}
+                    alt=""
+                    className="max-h-12 rounded-lg"
+                  />
+                )}
+                {localizedText(option.text)} {correct && <Check aria-hidden className="inline h-4 w-4" />}
+              </span>
+              <span className="tabular-nums text-slate-500">
+                {count} · {percent} %
+              </span>
+            </div>
+            <div className="h-6 rounded-lg bg-slate-100">
+              <div
+                className={`h-6 rounded-lg ${correct ? "bg-brand-400" : "bg-slate-300"}`}
+                style={{ width: `${percent}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

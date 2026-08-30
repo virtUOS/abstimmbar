@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, GraduationCap, Languages, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
 import {
   api,
   results,
@@ -21,6 +21,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
+import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import {
   Button,
@@ -64,6 +65,18 @@ export const REVEAL_LABEL: Record<RevealAnswers, string> = {
   never: "never",
 };
 
+// Self-paced quizzes can carry an overall time budget (#75); presets mirror
+// the per-question TIME_PRESETS in QuestionPage.tsx but work in minutes and
+// store seconds in `quiz_time_limit` (module scope like the other constants
+// above — used only by SetSettingsForm below).
+const QUIZ_TIME_PRESETS: { label: string; seconds: number | null }[] = [
+  { label: "Unlimited", seconds: null },
+  { label: "2 min", seconds: 120 },
+  { label: "5 min", seconds: 300 },
+  { label: "10 min", seconds: 600 },
+  { label: "15 min", seconds: 900 },
+];
+
 function stripHtml(html: string) {
   const div = document.createElement("div");
   div.innerHTML = html;
@@ -80,11 +93,14 @@ function formatDate(iso: string) {
 
 /** Editable settings while creating or editing a set. */
 export interface SetSettings {
+  type: SetType;
   title: LocalizedText;
   description: LocalizedText;
   reveal_answers: RevealAnswers;
   open_on_show: boolean;
+  quiz_time_limit: number | null;
   show_results_to_participants: boolean;
+  present_results_after: boolean;
 }
 
 /** The settings form, shared by the create panel (RoomPage) and the edit
@@ -103,6 +119,24 @@ export function SetSettingsForm({
   const { t } = useTranslation();
   return (
     <div className="grid max-w-2xl gap-8">
+      {/* #75: the set type is picked once (at creation, via the "New question
+       * set" menu) and immutable after — shown here read-only as a badge. */}
+      <div>
+        <p className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+          {t("Set type")}
+        </p>
+        {(() => {
+          const Icon = SET_TYPES[draft.type].icon;
+          return (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${SET_TYPES[draft.type].accent.badge}`}
+            >
+              <Icon aria-hidden className="h-3.5 w-3.5" />
+              {t(SET_TYPES[draft.type].label)}
+            </span>
+          );
+        })()}
+      </div>
       <TranslatableField
         label={t("Title")}
         value={draft.title}
@@ -121,47 +155,138 @@ export function SetSettingsForm({
             {t("Answers & results")}
           </legend>
           <div className="grid gap-2">
-            <Field label={t("Reveal correct answers")}>
-              <Select
-                value={draft.reveal_answers}
-                onChange={(event) =>
-                  onChange({ reveal_answers: event.target.value as RevealAnswers })
-                }
-              >
-                {REVEAL_OPTIONS.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {t(option.label)}
-                  </option>
-                ))}
-              </Select>
-              <p className="mt-1 text-xs text-slate-400">
-                {t(
-                  "Default for all questions with correct answers; individual questions can deviate from this.",
-                )}
-              </p>
-            </Field>
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={draft.open_on_show}
-                onChange={(event) => onChange({ open_on_show: event.target.checked })}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-              />
-              {t("Questions can be answered immediately on open (no separate start)")}
-            </label>
-            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              <input
-                type="checkbox"
-                checked={draft.show_results_to_participants}
-                onChange={(event) =>
-                  onChange({ show_results_to_participants: event.target.checked })
-                }
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-              />
-              {t("Participants also see the results on their own device")}
-            </label>
+            {draft.type === "self_paced" ? (
+              // Quiz-Block (#75): no per-question start/stop, so "reveal timing"
+              // and "open on show" don't apply; the choices are whether the
+              // correct answer is shown right after answering (bound to
+              // reveal_answers, the field that drives self-paced feedback:
+              // on → "immediately", off → "never") and whether the results are
+              // shown in the presentation afterwards.
+              <>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.reveal_answers !== "never"}
+                    onChange={(event) =>
+                      onChange({
+                        reveal_answers: event.target.checked ? "immediately" : "never",
+                      })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show correct answers right after answering")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.present_results_after}
+                    onChange={(event) =>
+                      onChange({ present_results_after: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show the results in the presentation afterwards")}
+                </label>
+              </>
+            ) : (
+              <>
+                <Field label={t("Reveal correct answers")}>
+                  <Select
+                    value={draft.reveal_answers}
+                    onChange={(event) =>
+                      onChange({ reveal_answers: event.target.value as RevealAnswers })
+                    }
+                  >
+                    {REVEAL_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {t(option.label)}
+                      </option>
+                    ))}
+                  </Select>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {t(
+                      "Default for all questions with correct answers; individual questions can deviate from this.",
+                    )}
+                  </p>
+                </Field>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.open_on_show}
+                    onChange={(event) => onChange({ open_on_show: event.target.checked })}
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Questions can be answered immediately on open (no separate start)")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.show_results_to_participants}
+                    onChange={(event) =>
+                      onChange({ show_results_to_participants: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Participants also see the results on their own device")}
+                </label>
+              </>
+            )}
           </div>
         </fieldset>
+      )}
+      {/* Self-paced quizzes can carry an overall time budget (#75). Shown last,
+          so it sits right above the Save button — like the question time limit.
+          Other set types have no "total run time" concept; visible in easy mode
+          too, since a Quiz-Block can be created there. */}
+      {draft.type === "self_paced" && (
+        <Field label={t("Total time limit")}>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {QUIZ_TIME_PRESETS.map((preset) => {
+              const active = draft.quiz_time_limit === preset.seconds;
+              return (
+                <button
+                  key={preset.label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onChange({ quiz_time_limit: preset.seconds })}
+                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                    active
+                      ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
+                      : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                  }`}
+                >
+                  {t(preset.label)}
+                </button>
+              );
+            })}
+            <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
+              {t("or")}
+            </span>
+            <TextInput
+              type="number"
+              min={1}
+              value={draft.quiz_time_limit == null ? "" : String(draft.quiz_time_limit / 60)}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (raw.trim() === "") {
+                  onChange({ quiz_time_limit: null });
+                  return;
+                }
+                const minutes = Number(raw);
+                onChange({
+                  quiz_time_limit:
+                    Number.isFinite(minutes) && minutes > 0 ? Math.round(minutes * 60) : null,
+                });
+              }}
+              placeholder={t("e.g. 10")}
+              aria-label={t("Total time limit in minutes")}
+              className="!w-28"
+            />
+            <span className="text-sm text-slate-500 dark:text-slate-400">
+              {t("Minutes")}
+            </span>
+          </div>
+        </Field>
       )}
     </div>
   );
@@ -239,11 +364,14 @@ const QUESTION_TYPES: {
   },
 ];
 
-/** "+ Neue Frage" dropdown: question type with a one-line explanation. */
+/** "+ Neue Frage" dropdown: question type with a one-line explanation.
+ * `allowedKinds` gates the list to what the set's type permits (#75). */
 function NewQuestionMenu({
   onPick,
+  allowedKinds,
 }: {
   onPick: (kind: QuestionKind, template?: "binary") => void;
+  allowedKinds: QuestionKind[];
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -286,7 +414,7 @@ function NewQuestionMenu({
           role="menu"
           className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
-          {QUESTION_TYPES.map((type) => (
+          {QUESTION_TYPES.filter((type) => allowedKinds.includes(type.kind)).map((type) => (
             <button
               key={type.label}
               type="button"
@@ -498,11 +626,14 @@ export default function SetPage() {
     if (!set) return;
     setMetaError("");
     setDraft({
+      type: set.type,
       title: set.title,
       description: set.description,
       reveal_answers: set.reveal_answers,
       open_on_show: set.open_on_show,
+      quiz_time_limit: set.quiz_time_limit,
       show_results_to_participants: set.show_results_to_participants,
+      present_results_after: set.present_results_after,
     });
     setEditingMeta(true);
   }
@@ -781,7 +912,20 @@ export default function SetPage() {
       ) : (
         <div className="mb-8">
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-2xl font-bold">{localizedText(set.title)}</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-2xl font-bold">{localizedText(set.title)}</h1>
+              {(() => {
+                const Icon = SET_TYPES[set.type].icon;
+                return (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${SET_TYPES[set.type].accent.badge}`}
+                  >
+                    <Icon aria-hidden className="h-3.5 w-3.5" />
+                    {t(SET_TYPES[set.type].label)}
+                  </span>
+                );
+              })()}
+            </div>
             <MoreMenu label={t("Set actions")}>
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>
               {/* Pulling in questions is core authoring — available in both
@@ -887,8 +1031,27 @@ export default function SetPage() {
             </div>
           )}
           {/* Answer-flow summary reflects pro-only settings, so it is hidden in
-              the decluttered simple mode (#78). */}
-          {!easyMode && (
+              the decluttered simple mode (#78). Quiz-Block (#75) has its own
+              settings, so it shows a self-paced-specific summary. */}
+          {!easyMode && set.type === "self_paced" && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {t("Show correct answers right after answering")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.reveal_answers !== "never" ? t("yes") : t("no")}
+              </strong>{" "}
+              · {t("Show the results in the presentation afterwards")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.present_results_after ? t("yes") : t("no")}
+              </strong>{" "}
+              · {t("Total time limit")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.quiz_time_limit == null
+                  ? t("Unlimited")
+                  : `${set.quiz_time_limit / 60} min`}
+              </strong>
+            </p>
+          )}
+          {!easyMode && set.type !== "self_paced" && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {t("Correct answers:")}{" "}
               <strong className="font-semibold text-slate-700 dark:text-slate-200">
@@ -1027,25 +1190,30 @@ export default function SetPage() {
           <h2 className="text-lg font-semibold">{t("Questions")}</h2>
           {questions.length > 0 && (
             <>
-              <Button
-                variant="primary"
-                onClick={() =>
-                  navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
-                }
-                className="inline-flex items-center gap-1.5"
-              >
-                <Play aria-hidden className="h-4 w-4" />{t("Present")}
-              </Button>
-              {/* Easy mode (#52): self-paced quiz is a Pro feature — always live. */}
-              {!easyMode && (
+              {/* #75: only the run action matching the set's type is offered. */}
+              {SET_TYPES[set.type].runAction === "present" && (
                 <Button
+                  variant="primary"
+                  onClick={() =>
+                    navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
+                  }
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
+                </Button>
+              )}
+              {/* A self_paced-typed set has no other run action, so it is
+                  always offered regardless of easy mode (#75). */}
+              {SET_TYPES[set.type].runAction === "self_paced" && (
+                <Button
+                  variant="primary"
                   title={t(
                     "Participants answer all questions at their own pace, with immediate feedback",
                   )}
                   onClick={() => navigate(`/sets/${id}/quiz`)}
                   className="inline-flex items-center gap-1.5"
                 >
-                  <GraduationCap aria-hidden className="h-4 w-4" />{t("Self-paced quiz")}
+                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
                 </Button>
               )}
               <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
@@ -1084,7 +1252,10 @@ export default function SetPage() {
               <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
             </Button>
           )}
-          <NewQuestionMenu onPick={(kind, template) => void addQuestion(kind, template)} />
+          <NewQuestionMenu
+            onPick={(kind, template) => void addQuestion(kind, template)}
+            allowedKinds={allowedKindsFor(set.type)}
+          />
         </div>
       </div>
 

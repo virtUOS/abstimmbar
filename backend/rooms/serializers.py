@@ -18,6 +18,7 @@ from rest_framework import serializers
 from common.i18n_fields import TranslatedMapMixin
 from common.serializers import TranslationSyncMixin
 
+from . import set_types
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import generate_default_titles
 from .sanitize import clean_html, clean_media_url
@@ -200,8 +201,8 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     class Meta:
         model = QuestionSet
         fields: ClassVar = [
-            "id", "room", "room_title", "title", "description", "reveal_answers",
-            "open_on_show", "show_results_to_participants",
+            "id", "room", "room_title", "title", "description", "type", "reveal_answers",
+            "open_on_show", "show_results_to_participants", "present_results_after", "quiz_time_limit",
             "share_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
         ]
@@ -222,7 +223,25 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     def validate_description(self, value):
         return clean_html(value)
 
+    def validate_quiz_time_limit(self, value):
+        if value is None:
+            return value
+        if value <= 0 or value > 24 * 3600:
+            raise serializers.ValidationError("Must be between 1 and 86400 seconds.")
+        return value
+
     def validate(self, attrs):
+        # A time limit only applies to self-paced sets; null it here for
+        # any other effective type, but only when the field is actually
+        # being written so an unrelated PATCH can't wipe an existing value.
+        if "quiz_time_limit" in attrs:
+            effective_type = (
+                self.instance.type if self.instance is not None
+                else attrs.get("type", QuestionSet.SetType.LIVE_POLL)
+            )
+            if effective_type != QuestionSet.SetType.SELF_PACED:
+                attrs["quiz_time_limit"] = None
+
         # See RoomSerializer.validate: canonical value is title_<default>;
         # the bare "title" key is deliberately never written (update-order
         # clobber risk documented there).
@@ -260,6 +279,7 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return attrs
 
     def update(self, instance, validated_data):
+        validated_data.pop("type", None)  # set type is fixed after creation (#75)
         # A set stays in its room; moving between rooms is a copy (M3).
         validated_data.pop("room", None)
         return super().update(instance, validated_data)
@@ -401,6 +421,36 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
 
     def validate(self, attrs):
         kind = attrs.get("kind", getattr(self.instance, "kind", None))
+        # Gate the question kind by the set's type (#75).
+        target_set = attrs.get("question_set") or getattr(
+            self.instance, "question_set", None
+        )
+        if target_set is not None and kind is not None:
+            if kind not in set_types.allowed_kinds(target_set.type):
+                raise serializers.ValidationError(
+                    {"kind": "This question type is not allowed in this set."}
+                )
+            if kind == Question.Kind.OPEN_TEXT and set_types.requires_solution(
+                target_set.type
+            ):
+                # Distinguish "key absent" (a partial PATCH not touching
+                # model_solution at all -> fall back to the instance) from
+                # "key present with value ''" (client explicitly cleared it
+                # -> treat as empty, don't fall back). Same sentinel pattern
+                # as the canonical-text check below.
+                _missing = object()
+                submitted = attrs.get("model_solution", _missing)
+                if submitted is _missing:
+                    resolved_solution = getattr(self.instance, "model_solution", "") or ""
+                else:
+                    resolved_solution = submitted or ""
+                if not resolved_solution.strip():
+                    raise serializers.ValidationError(
+                        {
+                            "model_solution": "A model solution is required for free-text "
+                            "questions in this set type."
+                        }
+                    )
         if kind in Question.TEXT_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}

@@ -117,6 +117,18 @@ class Room(TimeStampedModel):
 class QuestionSet(TimeStampedModel):
     """An ordered series of questions inside a room (concept §3.1)."""
 
+    class SetType(models.TextChoices):
+        # The set's kind, chosen at creation and fixed afterwards (#75). It
+        # decides which question kinds are allowed and how the set is run —
+        # see rooms/set_types.py for the declarative rules.
+        LIVE_POLL = "live_poll", "Live poll"        # live, presenter-driven
+        SELF_PACED = "self_paced", "Self-paced quiz"  # teacher-started silent work
+        SELF_CHECK = "self_check", "Self-check"       # async link, immediate feedback
+
+    type = models.CharField(
+        max_length=20, choices=SetType.choices, default=SetType.LIVE_POLL
+    )
+
     class RevealAnswers(models.TextChoices):
         # When correct answers are highlighted (review decision: configurable).
         IMMEDIATELY = "immediately", "Immediately with the results"
@@ -142,9 +154,15 @@ class QuestionSet(TimeStampedModel):
     # Presenter flow option: calling up a question immediately opens it for
     # answering (skips the separate preview → S step).
     open_on_show = models.BooleanField(default=True)
+    # #75 (Quiz-Block): optional overall time limit for a self-paced run, in
+    # seconds; null = unlimited. Only used when type == self_paced.
+    quiz_time_limit = models.PositiveIntegerField(null=True, blank=True)
     # v2: participants see the results of a closed question on their own
     # device (correct answers only once revealed, per reveal_answers).
     show_results_to_participants = models.BooleanField(default=True)
+    # #75 (Quiz-Block): after a self-paced run ends, walk the results on the
+    # beamer (one slide per question). Default on. Only used for self_paced.
+    present_results_after = models.BooleanField(default=True)
     # v2 "Teilen & Zusammenarbeit": a non-guessable token makes the set
     # copyable by any logged-in colleague who has the link; null = not
     # shared. The optional license travels with copies and exports.

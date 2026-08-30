@@ -302,3 +302,7 @@ msgstr "Frage {i} von {n}"
 #: live/templates/live/participant.html:231
 msgid "Time is up."
 msgstr "Die Zeit ist abgelaufen."
+
+#: live/templates/live/participant.html:210
+msgid "Finish"
+msgstr "Fertig"
