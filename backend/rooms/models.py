@@ -163,6 +163,11 @@ class QuestionSet(TimeStampedModel):
     # #75 (Quiz-Block): after a self-paced run ends, walk the results on the
     # beamer (one slide per question). Default on. Only used for self_paced.
     present_results_after = models.BooleanField(default=True)
+    # #75 (Quiz-Block Phase 2): let participants go back to earlier questions
+    # (and, without instant feedback, correct their answer). Only self_paced.
+    allow_back_navigation = models.BooleanField(default=True)
+    # #75: deliver the questions in a per-participant random order. Only self_paced.
+    shuffle_questions = models.BooleanField(default=False)
     # v2 "Teilen & Zusammenarbeit": a non-guessable token makes the set
     # copyable by any logged-in colleague who has the link; null = not
     # shared. The optional license travels with copies and exports.

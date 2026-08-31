@@ -202,7 +202,8 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         model = QuestionSet
         fields: ClassVar = [
             "id", "room", "room_title", "title", "description", "type", "reveal_answers",
-            "open_on_show", "show_results_to_participants", "present_results_after", "quiz_time_limit",
+            "open_on_show", "show_results_to_participants", "present_results_after",
+            "allow_back_navigation", "shuffle_questions", "quiz_time_limit",
             "share_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
         ]
