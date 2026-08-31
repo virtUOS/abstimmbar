@@ -77,6 +77,8 @@ export interface QuestionSet {
   quiz_time_limit: number | null;
   show_results_to_participants: boolean;
   present_results_after: boolean;
+  allow_back_navigation: boolean;
+  shuffle_questions: boolean;
   share_token: string | null;
   license: string;
   license_holder: string;
@@ -540,6 +542,8 @@ export const api = {
       quiz_time_limit?: number | null;
       show_results_to_participants?: boolean;
       present_results_after?: boolean;
+      allow_back_navigation?: boolean;
+      shuffle_questions?: boolean;
     },
   ) =>
     request<QuestionSet>("/api/question-sets/", {
