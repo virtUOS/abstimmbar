@@ -9,6 +9,7 @@ require an owner of the room. The stream is the only async view (ADR-0003).
 import asyncio
 import csv
 import io
+import random
 
 import nh3
 import qrcode
@@ -481,22 +482,56 @@ def quiz(request, code):
     questions = list(run.question_set.questions.prefetch_related("options"))
     feedback = run.question_set.reveal_answers != "never"
 
-    answered = {}
     token = ParticipantToken.objects.filter(
         room=room, key=request.GET.get("token", "")
     ).first()
+
+    if run.question_set.shuffle_questions and token is not None:
+        # Stable per-participant order: same token always sees the same
+        # shuffle across reloads/back-navigation, different tokens generally
+        # see different orders. The canonical (position) order is used when
+        # shuffling is off, and `answered` is keyed by question id so the
+        # order here never affects resume (#75).
+        random.Random(f"{run.pk}:{token.key}").shuffle(questions)
+
+    answered = {}
     if token is not None:
-        votes = run.votes.filter(token=token).prefetch_related("options")
+        votes = run.votes.filter(token=token).prefetch_related(
+            "options", "priority_scores", "ordering_responses"
+        )
         for vote_obj in votes:
             question = next(
                 (q for q in questions if q.pk == vote_obj.question_id), None
             )
-            entry = {"is_correct": None}
-            if feedback and question and question.kind in Question.CHOICE_KINDS:
-                correct_ids = {o.pk for o in question.options.all() if o.is_correct}
-                if correct_ids:
-                    chosen_ids = {o.pk for o in vote_obj.options.all()}
-                    entry["is_correct"] = chosen_ids == correct_ids
+            entry = {"is_correct": None, "chosen": {}, "correct": None}
+            kind = question.kind if question else None
+            if kind in Question.CHOICE_KINDS:
+                entry["chosen"] = {"options": [o.pk for o in vote_obj.options.all()]}
+                if feedback:
+                    correct_ids = {o.pk for o in question.options.all() if o.is_correct}
+                    if correct_ids:
+                        entry["correct"] = sorted(correct_ids)
+                        chosen_ids = {o.pk for o in vote_obj.options.all()}
+                        entry["is_correct"] = chosen_ids == correct_ids
+            elif kind in Question.TEXT_KINDS:
+                entry["chosen"] = {"text": vote_obj.text or ""}
+            elif kind == Question.Kind.PRIORITIES:
+                entry["chosen"] = {
+                    "points": {
+                        str(ps.option_id): ps.points
+                        for ps in vote_obj.priority_scores.all()
+                    }
+                }
+            elif kind == Question.Kind.ORDERING:
+                entry["chosen"] = {
+                    "order": [
+                        r.option_id
+                        for r in sorted(
+                            vote_obj.ordering_responses.all(),
+                            key=lambda r: r.position,
+                        )
+                    ]
+                }
             answered[str(vote_obj.question_id)] = entry
 
     return Response(
@@ -505,6 +540,7 @@ def quiz(request, code):
             # this payload (via question_payload) and the live SSE snapshot.
             "set_title": translated_map(run.question_set, "title"),
             "feedback": feedback,
+            "allow_back": run.question_set.allow_back_navigation,
             "questions": [question_payload(q, shuffle_seed=run.pk) for q in questions],
             "answered": answered,
             "ends_at": run.quiz_ends_at.isoformat() if run.quiz_ends_at else None,

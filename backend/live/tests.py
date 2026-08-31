@@ -1345,13 +1345,134 @@ class SelfPacedTests(LiveTestCase):
         # Options never leak is_correct.
         self.assertNotIn("is_correct", payload["questions"][0]["options"][0])
         self.assertEqual(
-            payload["answered"], {str(self.question.pk): {"is_correct": True}}
+            payload["answered"],
+            {
+                str(self.question.pk): {
+                    "is_correct": True,
+                    "chosen": {"options": [self.correct.pk]},
+                    "correct": [self.correct.pk],
+                }
+            },
         )
 
     def test_quiz_conflict_without_open_quiz(self):
         self.assertEqual(self.quiz().status_code, 409)
         self.open_question()  # live run, not self-paced
         self.assertEqual(self.quiz().status_code, 409)
+
+    def test_quiz_answered_without_feedback_omits_correct(self):
+        # reveal_answers "never" (#75): the participant still gets their own
+        # chosen options back (for review/resume), but never the answer key.
+        self.question_set.reveal_answers = "never"
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        payload = self.quiz(token).json()
+        entry = payload["answered"][str(self.question.pk)]
+        self.assertEqual(entry["chosen"], {"options": [self.correct.pk]})
+        self.assertIsNone(entry["correct"])
+        self.assertIsNone(entry["is_correct"])
+
+    def test_quiz_answered_word_cloud_carries_own_text(self):
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.cloud.pk, text="Osmose")
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            payload["answered"][str(self.cloud.pk)],
+            {"is_correct": None, "chosen": {"text": "Osmose"}, "correct": None},
+        )
+
+    def test_quiz_answered_priorities_carries_own_points(self):
+        pq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.PRIORITIES,
+            text="<p>Verteile 100 Punkte</p>", position=2,
+        )
+        oa = AnswerOption.objects.create(question=pq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=pq, text="B", position=1)
+        self.start()
+        token = self.join()
+        response = self.client.post(
+            f"/api/live/rooms/{self.room.code}/vote/",
+            {
+                "token": token,
+                "question": pq.pk,
+                "points": {str(oa.pk): 70, str(ob.pk): 30},
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            payload["answered"][str(pq.pk)]["chosen"],
+            {"points": {str(oa.pk): 70, str(ob.pk): 30}},
+        )
+
+    def test_quiz_answered_ordering_carries_own_order(self):
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        self.start()
+        token = self.join()
+        response = self.client.post(
+            f"/api/live/rooms/{self.room.code}/vote/",
+            {"token": token, "question": oq.pk, "order": [o2.pk, o1.pk]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            payload["answered"][str(oq.pk)]["chosen"],
+            {"order": [o2.pk, o1.pk]},
+        )
+
+    def test_quiz_includes_allow_back(self):
+        # Default is True (model default); explicit False must round-trip.
+        self.start()
+        self.assertTrue(self.quiz().json()["allow_back"])
+        self.question_set.allow_back_navigation = False
+        self.question_set.save()
+        self.assertFalse(self.quiz().json()["allow_back"])
+
+    def test_quiz_canonical_order_when_shuffle_off(self):
+        self.start()
+        token = self.join()
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            [q["id"] for q in payload["questions"]],
+            [self.question.pk, self.cloud.pk],
+        )
+
+    def test_quiz_shuffle_questions_is_stable_and_per_token(self):
+        import random as random_module
+
+        self.question_set.shuffle_questions = True
+        self.question_set.save()
+        self.start()
+        run = Run.objects.get()
+        canonical_ids = [self.question.pk, self.cloud.pk]
+        token_a = self.join()
+        token_b = self.join()
+
+        order_a_first = [q["id"] for q in self.quiz(token_a).json()["questions"]]
+        order_a_second = [q["id"] for q in self.quiz(token_a).json()["questions"]]
+        # Same token, same call twice -> identical order (stable seed).
+        self.assertEqual(order_a_first, order_a_second)
+        self.assertEqual(sorted(order_a_first), sorted(canonical_ids))
+
+        # The order matches the documented per-(run, token) seed exactly.
+        expected_a = list(canonical_ids)
+        random_module.Random(f"{run.pk}:{token_a}").shuffle(expected_a)
+        self.assertEqual(order_a_first, expected_a)
+
+        order_b = [q["id"] for q in self.quiz(token_b).json()["questions"]]
+        expected_b = list(canonical_ids)
+        random_module.Random(f"{run.pk}:{token_b}").shuffle(expected_b)
+        self.assertEqual(order_b, expected_b)
 
     def test_payloads_signal_mode_and_progress(self):
         self.start()
