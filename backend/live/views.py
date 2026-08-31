@@ -308,12 +308,16 @@ def vote(request, code):
         and question.allow_multiple
     )
     existing = Vote.objects.filter(run=run, question=question, token=token)
+    replace = False
     if existing.exists():
         # Answer correction (#75): a self-paced participant may replace their
         # existing vote for this question — but only while the set allows
         # going back (``allow_back_navigation``), reveals no feedback yet
         # (``reveal_answers == "never"``, so nothing was shown to "correct"
         # towards) and the overall quiz deadline (if any) has not passed.
+        # Nothing is deleted here: the old vote must survive any validation
+        # failure below, so the actual delete happens only once the new
+        # submission is known to be well-formed, atomically with its create.
         qs = run.question_set
         can_replace = (
             run.mode == Run.Mode.SELF_PACED
@@ -326,8 +330,7 @@ def vote(request, code):
         )
         if not (allow_multiple or can_replace):
             return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
-        if can_replace:
-            existing.delete()  # cascade: PriorityScore / OrderingResponse / M2M options
+        replace = can_replace
 
     # Per-participant cap for allow_multiple word clouds (#76): reject once the
     # token has contributed the author's maximum (0 = unlimited). Enforced here
@@ -346,6 +349,11 @@ def vote(request, code):
         options = {o.pk: o for o in question.options.all()}
         try:
             with transaction.atomic():
+                if replace:
+                    # Serialize concurrent replaces for this participant,
+                    # then drop the old (now validated-superseded) answer.
+                    ParticipantToken.objects.select_for_update().filter(pk=token.pk).first()
+                    Vote.objects.filter(run=run, question=question, token=token).delete()
                 vote_obj = Vote.objects.create(run=run, question=question, token=token)
                 PriorityScore.objects.bulk_create(
                     [
@@ -367,6 +375,9 @@ def vote(request, code):
         options = {o.pk: o for o in question.options.all()}
         try:
             with transaction.atomic():
+                if replace:
+                    ParticipantToken.objects.select_for_update().filter(pk=token.pk).first()
+                    Vote.objects.filter(run=run, question=question, token=token).delete()
                 vote_obj = Vote.objects.create(run=run, question=question, token=token)
                 OrderingResponse.objects.bulk_create(
                     [
@@ -411,6 +422,9 @@ def vote(request, code):
 
     try:
         with transaction.atomic():
+            if replace:
+                ParticipantToken.objects.select_for_update().filter(pk=token.pk).first()
+                Vote.objects.filter(run=run, question=question, token=token).delete()
             vote_obj = Vote.objects.create(
                 run=run, question=question, token=token, text=text
             )

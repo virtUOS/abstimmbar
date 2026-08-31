@@ -1759,6 +1759,83 @@ class AnswerCorrectionTests(LiveTestCase):
         self.assertEqual(order, [o2.pk, o1.pk])
         self.assertEqual(OrderingResponse.objects.count(), 2)
 
+    def test_malformed_priorities_replace_leaves_original_answer_intact(self):
+        # A rejected (400) replacement must never delete the still-valid old
+        # answer — validation happens before any delete.
+        from .models import PriorityScore
+
+        pq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.PRIORITIES,
+            text="<p>Verteile 100 Punkte</p>", position=2,
+        )
+        oa = AnswerOption.objects.create(question=pq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=pq, text="B", position=1)
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+
+        def submit(points):
+            return self.client.post(
+                f"/api/live/rooms/{self.room.code}/vote/",
+                {"token": token, "question": pq.pk, "points": points},
+                content_type="application/json",
+            )
+
+        self.assertEqual(submit({str(oa.pk): 70, str(ob.pk): 30}).status_code, 201)
+        # Invalid: total exceeds 100.
+        response = submit({str(oa.pk): 90, str(ob.pk): 90})
+        self.assertEqual(response.status_code, 400)
+
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=pq, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        scores = {
+            s.option_id: s.points
+            for s in PriorityScore.objects.filter(vote=votes.get())
+        }
+        self.assertEqual(scores, {oa.pk: 70, ob.pk: 30})
+
+    def test_malformed_ordering_replace_leaves_original_answer_intact(self):
+        from .models import OrderingResponse
+
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+
+        def submit(order):
+            return self.client.post(
+                f"/api/live/rooms/{self.room.code}/vote/",
+                {"token": token, "question": oq.pk, "order": order},
+                content_type="application/json",
+            )
+
+        self.assertEqual(submit([o1.pk, o2.pk]).status_code, 201)
+        # Invalid: not a permutation (missing o2, duplicate o1).
+        response = submit([o1.pk, o1.pk])
+        self.assertEqual(response.status_code, 400)
+
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=oq, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        order = list(
+            OrderingResponse.objects.filter(vote=votes.get())
+            .order_by("position")
+            .values_list("option_id", flat=True)
+        )
+        self.assertEqual(order, [o1.pk, o2.pk])
+
     def test_live_mode_double_vote_still_conflicts(self):
         # Regression: the replace path is self-paced only; a LIVE run must
         # keep rejecting a second vote outright.
