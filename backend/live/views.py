@@ -307,10 +307,27 @@ def vote(request, code):
         and question.kind == Question.Kind.WORD_CLOUD
         and question.allow_multiple
     )
-    if not allow_multiple and Vote.objects.filter(
-        run=run, question=question, token=token
-    ).exists():
-        return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
+    existing = Vote.objects.filter(run=run, question=question, token=token)
+    if existing.exists():
+        # Answer correction (#75): a self-paced participant may replace their
+        # existing vote for this question — but only while the set allows
+        # going back (``allow_back_navigation``), reveals no feedback yet
+        # (``reveal_answers == "never"``, so nothing was shown to "correct"
+        # towards) and the overall quiz deadline (if any) has not passed.
+        qs = run.question_set
+        can_replace = (
+            run.mode == Run.Mode.SELF_PACED
+            and qs.allow_back_navigation
+            and qs.reveal_answers == "never"
+            and not (
+                run.quiz_ends_at
+                and timezone.now() > run.quiz_ends_at + timezone.timedelta(seconds=1)
+            )
+        )
+        if not (allow_multiple or can_replace):
+            return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
+        if can_replace:
+            existing.delete()  # cascade: PriorityScore / OrderingResponse / M2M options
 
     # Per-participant cap for allow_multiple word clouds (#76): reject once the
     # token has contributed the author's maximum (0 = unlimited). Enforced here
