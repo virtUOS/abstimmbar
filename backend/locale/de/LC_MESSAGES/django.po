@@ -245,6 +245,10 @@ msgstr "Deine Antwort: "
 msgid "Not answered."
 msgstr "Nicht beantwortet."
 
+#: live/templates/live/participant.html:220
+msgid "You already answered this question."
+msgstr "Du hast diese Frage bereits beantwortet."
+
 #: live/templates/live/participant.html:218
 msgid "your choice"
 msgstr "deine Wahl"

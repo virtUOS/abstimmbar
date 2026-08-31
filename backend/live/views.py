@@ -9,6 +9,7 @@ require an owner of the room. The stream is the only async view (ADR-0003).
 import asyncio
 import csv
 import io
+import random
 
 import nh3
 import qrcode
@@ -306,10 +307,30 @@ def vote(request, code):
         and question.kind == Question.Kind.WORD_CLOUD
         and question.allow_multiple
     )
-    if not allow_multiple and Vote.objects.filter(
-        run=run, question=question, token=token
-    ).exists():
-        return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
+    existing = Vote.objects.filter(run=run, question=question, token=token)
+    replace = False
+    if existing.exists():
+        # Answer correction (#75): a self-paced participant may replace their
+        # existing vote for this question — but only while the set allows
+        # going back (``allow_back_navigation``), reveals no feedback yet
+        # (``reveal_answers == "never"``, so nothing was shown to "correct"
+        # towards) and the overall quiz deadline (if any) has not passed.
+        # Nothing is deleted here: the old vote must survive any validation
+        # failure below, so the actual delete happens only once the new
+        # submission is known to be well-formed, atomically with its create.
+        qs = run.question_set
+        can_replace = (
+            run.mode == Run.Mode.SELF_PACED
+            and qs.allow_back_navigation
+            and qs.reveal_answers == "never"
+            and not (
+                run.quiz_ends_at
+                and timezone.now() > run.quiz_ends_at + timezone.timedelta(seconds=1)
+            )
+        )
+        if not (allow_multiple or can_replace):
+            return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
+        replace = can_replace
 
     # Per-participant cap for allow_multiple word clouds (#76): reject once the
     # token has contributed the author's maximum (0 = unlimited). Enforced here
@@ -328,6 +349,11 @@ def vote(request, code):
         options = {o.pk: o for o in question.options.all()}
         try:
             with transaction.atomic():
+                if replace:
+                    # Serialize concurrent replaces for this participant,
+                    # then drop the old (now validated-superseded) answer.
+                    ParticipantToken.objects.select_for_update().filter(pk=token.pk).first()
+                    Vote.objects.filter(run=run, question=question, token=token).delete()
                 vote_obj = Vote.objects.create(run=run, question=question, token=token)
                 PriorityScore.objects.bulk_create(
                     [
@@ -349,6 +375,9 @@ def vote(request, code):
         options = {o.pk: o for o in question.options.all()}
         try:
             with transaction.atomic():
+                if replace:
+                    ParticipantToken.objects.select_for_update().filter(pk=token.pk).first()
+                    Vote.objects.filter(run=run, question=question, token=token).delete()
                 vote_obj = Vote.objects.create(run=run, question=question, token=token)
                 OrderingResponse.objects.bulk_create(
                     [
@@ -393,6 +422,9 @@ def vote(request, code):
 
     try:
         with transaction.atomic():
+            if replace:
+                ParticipantToken.objects.select_for_update().filter(pk=token.pk).first()
+                Vote.objects.filter(run=run, question=question, token=token).delete()
             vote_obj = Vote.objects.create(
                 run=run, question=question, token=token, text=text
             )
@@ -481,22 +513,56 @@ def quiz(request, code):
     questions = list(run.question_set.questions.prefetch_related("options"))
     feedback = run.question_set.reveal_answers != "never"
 
-    answered = {}
     token = ParticipantToken.objects.filter(
         room=room, key=request.GET.get("token", "")
     ).first()
+
+    if run.question_set.shuffle_questions and token is not None:
+        # Stable per-participant order: same token always sees the same
+        # shuffle across reloads/back-navigation, different tokens generally
+        # see different orders. The canonical (position) order is used when
+        # shuffling is off, and `answered` is keyed by question id so the
+        # order here never affects resume (#75).
+        random.Random(f"{run.pk}:{token.key}").shuffle(questions)
+
+    answered = {}
     if token is not None:
-        votes = run.votes.filter(token=token).prefetch_related("options")
+        votes = run.votes.filter(token=token).prefetch_related(
+            "options", "priority_scores", "ordering_responses"
+        )
         for vote_obj in votes:
             question = next(
                 (q for q in questions if q.pk == vote_obj.question_id), None
             )
-            entry = {"is_correct": None}
-            if feedback and question and question.kind in Question.CHOICE_KINDS:
-                correct_ids = {o.pk for o in question.options.all() if o.is_correct}
-                if correct_ids:
-                    chosen_ids = {o.pk for o in vote_obj.options.all()}
-                    entry["is_correct"] = chosen_ids == correct_ids
+            entry = {"is_correct": None, "chosen": {}, "correct": None}
+            kind = question.kind if question else None
+            if kind in Question.CHOICE_KINDS:
+                entry["chosen"] = {"options": [o.pk for o in vote_obj.options.all()]}
+                if feedback:
+                    correct_ids = {o.pk for o in question.options.all() if o.is_correct}
+                    if correct_ids:
+                        entry["correct"] = sorted(correct_ids)
+                        chosen_ids = {o.pk for o in vote_obj.options.all()}
+                        entry["is_correct"] = chosen_ids == correct_ids
+            elif kind in Question.TEXT_KINDS:
+                entry["chosen"] = {"text": vote_obj.text or ""}
+            elif kind == Question.Kind.PRIORITIES:
+                entry["chosen"] = {
+                    "points": {
+                        str(ps.option_id): ps.points
+                        for ps in vote_obj.priority_scores.all()
+                    }
+                }
+            elif kind == Question.Kind.ORDERING:
+                entry["chosen"] = {
+                    "order": [
+                        r.option_id
+                        for r in sorted(
+                            vote_obj.ordering_responses.all(),
+                            key=lambda r: r.position,
+                        )
+                    ]
+                }
             answered[str(vote_obj.question_id)] = entry
 
     return Response(
@@ -505,6 +571,7 @@ def quiz(request, code):
             # this payload (via question_payload) and the live SSE snapshot.
             "set_title": translated_map(run.question_set, "title"),
             "feedback": feedback,
+            "allow_back": run.question_set.allow_back_navigation,
             "questions": [question_payload(q, shuffle_seed=run.pk) for q in questions],
             "answered": answered,
             "ends_at": run.quiz_ends_at.isoformat() if run.quiz_ends_at else None,

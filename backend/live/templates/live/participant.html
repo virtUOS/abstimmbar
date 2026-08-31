@@ -147,6 +147,7 @@ multi-line note must use {% comment %} or it renders as text.)
   </form>
   <button class="primary" id="quiz-submit" hidden>{% trans "Submit answer" %}</button>
   <p id="quiz-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
+  <button class="primary" id="quiz-back" hidden>{% trans "Back" %}</button>
   <button class="primary" id="quiz-next" hidden>{% trans "Next" %}</button>
 </section>
 
@@ -217,6 +218,7 @@ multi-line note must use {% comment %} or it renders as text.)
     removeTerm: "{% trans 'Remove term “{word}”' %}",
     yourAnswer: "{% trans 'Your answer: ' %}",
     notAnswered: "{% trans 'Not answered.' %}",
+    alreadyAnswered: "{% trans 'You already answered this question.' %}",
     yourChoice: "{% trans 'your choice' %}",
     pointsSpent: "{% trans '{used} of {total} points allocated' %}",
     pointsRedistribute: "{% trans 'lower a value to reallocate points' %}",
@@ -1017,6 +1019,14 @@ multi-line note must use {% comment %} or it renders as text.)
   // rejects late votes (409) — this is only the client-side UX guard.
   let quizCountdownTimer = null, quizExpired = false;
 
+  // Correcting an own answer (#75) is only offered while the set allows
+  // going back AND nothing has been revealed yet — identical to the
+  // server-side gate in views.vote (``can_replace``), so a client that
+  // renders "editable" never actually gets refused by a 409.
+  function quizCanChange() {
+    return !!(quiz && quiz.allow_back && !quiz.feedback);
+  }
+
   async function loadQuiz() {
     quizLoading = true;
     const response = await fetch(
@@ -1027,7 +1037,9 @@ multi-line note must use {% comment %} or it renders as text.)
     quizDone = false;
     quizIndex = -1;
     quizExpired = false;
-    advanceQuiz();
+    const start = nextUnanswered(0);
+    if (start === -1) renderQuizSummary();
+    else goQuiz(start);
     renderQuizCountdown();
   }
 
@@ -1048,18 +1060,26 @@ multi-line note must use {% comment %} or it renders as text.)
     quizCountdownTimer = window.setInterval(tick, 250);
   }
 
-  function lockQuizForTimeout() {
-    quizExpired = true;
-    // Disable every answer input on the current question and stop navigation
-    // — the server already rejects late votes (409), this is the UX guard.
+  // Disable every LIVE answer input on the current question — the server
+  // already rejects late votes/replacements (409), this is only the UX
+  // guard. Navigation (Back/Weiter) is intentionally left alone: once the
+  // deadline passes, changing answers is off but browsing them is not (#75).
+  function applyQuizLock() {
     for (const el of document.querySelectorAll(
       "#quiz-options button, #quiz-submit, #quiz-textform button, #quiz-word, #quiz-textarea")) {
       el.disabled = true;
     }
-    document.getElementById("quiz-next").hidden = true;
+  }
+
+  function lockQuizForTimeout() {
+    quizExpired = true;
+    applyQuizLock();
     const box = document.getElementById("quiz-countdown");
     box.hidden = false;
     box.textContent = "⏱ " + I18N.timeUp;
+    // Re-apply nav visibility: Weiter must now appear even on an unanswered
+    // question (there is nothing left to submit), Back is unaffected.
+    if (quiz && quizIndex >= 0 && !quizDone) updateQuizNav();
   }
 
   function nextUnanswered(from) {
@@ -1071,18 +1091,57 @@ multi-line note must use {% comment %} or it renders as text.)
     return -1;
   }
 
+  // Free index navigation (#75) — replaces the old "advance to the next
+  // unanswered question only" flow now that an answered question can be
+  // revisited via Back.
+  function goQuiz(i) {
+    quizIndex = i;
+    renderQuizQuestion();
+  }
+
+  // Weiter: step forward one question; from the last question, finish only
+  // once EVERY question is answered (not merely "none left from here") —
+  // otherwise jump to the first gap so nothing gets skipped. Once the
+  // overall deadline has passed, remaining gaps can never be filled, so the
+  // deadline also unlocks finishing — otherwise a participant who ran out
+  // of time with unanswered questions left would loop forever (#75).
   function advanceQuiz() {
-    const next = nextUnanswered(quizIndex + 1);
-    if (next === -1) {
-      renderQuizSummary();
+    if (quizIndex + 1 < quiz.questions.length) {
+      goQuiz(quizIndex + 1);
       return;
     }
-    quizIndex = next;
-    renderQuizQuestion();
+    const allAnswered = quiz.questions.every((qq) => String(qq.id) in quiz.answered);
+    if (allAnswered || quizExpired) renderQuizSummary();
+    else goQuiz(nextUnanswered(0));
+  }
+
+  // Back/Weiter visibility + the Weiter label, shared by renderQuizQuestion
+  // and showQuizFeedback (both may leave the current question in "answered"
+  // state). Returns the Weiter button for convenience (e.g. to focus it).
+  function updateQuizNav() {
+    const q = quiz.questions[quizIndex];
+    const ans = quiz.answered[String(q.id)];
+    document.getElementById("quiz-back").hidden = !(quiz.allow_back && quizIndex > 0);
+    const nextBtn = document.getElementById("quiz-next");
+    const showNext = !!ans || quizExpired;
+    nextBtn.hidden = !showNext;
+    if (showNext) {
+      const isLast = quizIndex === quiz.questions.length - 1;
+      const allAnswered = quiz.questions.every((qq) => String(qq.id) in quiz.answered);
+      // "See results" only if there is an evaluation to see (feedback on);
+      // otherwise the final step is a neutral "Finish" (#75). The deadline
+      // also counts as "done" (see advanceQuiz) so the label matches what
+      // clicking Weiter actually does here.
+      nextBtn.textContent = isLast && (allAnswered || quizExpired)
+        ? (quiz.feedback ? I18N.toSummary : I18N.finish)
+        : I18N.next;
+    }
+    return nextBtn;
   }
 
   function renderQuizQuestion() {
     const q = quiz.questions[quizIndex];
+    const ans = quiz.answered[String(q.id)];
     document.getElementById("quiz-progress").textContent = I18N.questionProgress
       .replace("{i}", String(quizIndex + 1)).replace("{n}", String(quiz.questions.length));
     document.getElementById("quiz-text").innerHTML = locText(q.text);
@@ -1092,23 +1151,34 @@ multi-line note must use {% comment %} or it renders as text.)
     const area = document.getElementById("quiz-textarea");
     const submit = document.getElementById("quiz-submit");
     document.getElementById("quiz-feedback").hidden = true;
-    document.getElementById("quiz-next").hidden = true;
+    form.hidden = true;
+    submit.hidden = true;
     optionsBox.replaceChildren();
     clearPriBudget(optionsBox.parentNode);
     clearOrderingUi(optionsBox.parentNode);
     quizSelected = new Set();
+
+    if (!ans) {
+      renderQuizUnanswered(q, optionsBox, form, word, area, submit);
+    } else if (quizCanChange()) {
+      renderQuizEditable(q, ans, optionsBox, form, word, area, submit);
+    } else {
+      renderQuizReview(q, ans, optionsBox);
+    }
+
+    if (quizExpired) applyQuizLock();
+    updateQuizNav();
+    show("quiz");
+  }
+
+  // Not answered yet: the plain answer form (unchanged from before #75).
+  function renderQuizUnanswered(q, optionsBox, form, word, area, submit) {
     if (q.kind === "priorities") {
-      form.hidden = true;
-      submit.hidden = true;
       renderPrioritiesSlider(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
-      show("quiz");
       return;
     }
     if (q.kind === "ordering") {
-      form.hidden = true;
-      submit.hidden = true;
       renderOrderingSorter(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
-      show("quiz");
       return;
     }
     const isText = q.kind === "word_cloud" || q.kind === "open_text";
@@ -1139,7 +1209,99 @@ multi-line note must use {% comment %} or it renders as text.)
       submit.disabled = true;
       submit.onclick = () => submitQuizAnswer(q, { options: [...quizSelected] });
     }
-    show("quiz");
+  }
+
+  // Answered, and correcting is allowed (#75, ``quizCanChange``): the same
+  // controls, PRE-FILLED from the stored answer; submitting calls
+  // submitQuizAnswer again, which REPLACES the vote server-side. Priorities
+  // and ordering deliberately render a FRESH slider/sorter — reconstructing
+  // their in-progress widget state from ``ans.chosen`` is out of scope for
+  // this pass (re-answering from scratch still works and still replaces).
+  function renderQuizEditable(q, ans, optionsBox, form, word, area, submit) {
+    if (q.kind === "priorities") {
+      renderPrioritiesSlider(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
+      return;
+    }
+    if (q.kind === "ordering") {
+      renderOrderingSorter(optionsBox, q, (payload) => submitQuizAnswer(q, payload));
+      return;
+    }
+    const isText = q.kind === "word_cloud" || q.kind === "open_text";
+    form.hidden = !isText;
+    word.hidden = q.kind !== "word_cloud";
+    area.hidden = q.kind !== "open_text";
+    const text = (ans.chosen && ans.chosen.text) || "";
+    word.value = q.kind === "word_cloud" ? text : "";
+    area.value = q.kind === "open_text" ? text : "";
+    submit.hidden = !q.multiple;
+    if (!isText) {
+      const chosenIds = (ans.chosen && ans.chosen.options) || [];
+      for (const option of q.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        fillOptionButton(button, option);
+        button.dataset.id = String(option.id);
+        if (chosenIds.includes(option.id)) {
+          quizSelected.add(option.id);
+          button.classList.add("selected");
+        }
+        button.addEventListener("click", () => {
+          if (q.multiple) {
+            quizSelected.has(option.id)
+              ? quizSelected.delete(option.id) : quizSelected.add(option.id);
+            button.classList.toggle("selected", quizSelected.has(option.id));
+            submit.disabled = quizSelected.size === 0;
+          } else {
+            submitQuizAnswer(q, { options: [option.id] });
+          }
+        });
+        optionsBox.appendChild(button);
+      }
+      submit.disabled = quizSelected.size === 0;
+      submit.onclick = () => submitQuizAnswer(q, { options: [...quizSelected] });
+    }
+  }
+
+  // Answered and locked against changes (feedback on, or back-nav off):
+  // read-only review. Choice kinds get the same correct/wrong visual as
+  // showQuizFeedback; text kinds show the given text; priorities/ordering
+  // (no stored ``correct``) just confirm they were answered.
+  function renderQuizReview(q, ans, optionsBox) {
+    const chosen = (ans.chosen && ans.chosen.options) || [];
+    if (q.kind === "priorities" || q.kind === "ordering") {
+      const note = document.createElement("p");
+      note.className = "soft";
+      note.textContent = I18N.alreadyAnswered;
+      optionsBox.appendChild(note);
+    } else if (q.kind === "word_cloud" || q.kind === "open_text") {
+      const p = document.createElement("p");
+      p.append(I18N.yourAnswer);
+      const strong = document.createElement("strong");
+      strong.style.color = "var(--ink)";
+      strong.textContent = (ans.chosen && ans.chosen.text) || "";
+      p.appendChild(strong);
+      optionsBox.appendChild(p);
+    } else {
+      for (const option of q.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        fillOptionButton(button, option);
+        button.dataset.id = String(option.id);
+        button.disabled = true;
+        if (ans.correct && ans.correct.includes(option.id)) button.classList.add("correct");
+        else if (ans.correct && chosen.includes(option.id)) button.classList.add("wrong");
+        else if (chosen.includes(option.id)) button.classList.add("selected");
+        optionsBox.appendChild(button);
+      }
+    }
+    const feedback = document.getElementById("quiz-feedback");
+    feedback.textContent = ans.correct
+      ? (ans.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect)
+      : I18N.answerSaved;
+    feedback.style.color = ans.correct
+      ? (ans.is_correct ? "var(--brand-strong)" : "var(--danger-strong)")
+      : "var(--ink-soft)";
+    feedback.hidden = false;
   }
 
   async function submitQuizAnswer(q, payload) {
@@ -1148,46 +1310,48 @@ multi-line note must use {% comment %} or it renders as text.)
       token, question: q.id, ...payload,
     });
     if (response.status === 409) {
-      // Already answered (second tab) or the run just finished — resync.
-      quiz.answered[String(q.id)] = { is_correct: null };
-      advanceQuiz();
+      // Deadline just passed, replace no longer allowed, or a second tab
+      // beat us to it — resync from the server's view rather than trusting
+      // what this tab tried to submit.
+      void loadQuiz();
       return;
     }
     if (response.status !== 201) return;
     const data = await response.json();
+    // Store the FULL answer (same shape the GET /quiz/ endpoint uses to
+    // resume — #75 Task 2), so back-navigation and review render
+    // consistently whether the answer came from this submit or a reload.
     quiz.answered[String(q.id)] = {
       is_correct: data.correct ? data.is_correct : null,
+      chosen: payload,
+      correct: data.correct || null,
     };
-    showQuizFeedback(q, payload.options || [], data);
+    if (data.correct) {
+      // Fresh choice answer with feedback on: the familiar inline reveal.
+      showQuizFeedback(q, payload.options || [], data);
+    } else {
+      // No reveal (feedback off, or a non-choice kind) — re-render the
+      // question so it shows as editable (canChange) or read-only review,
+      // with Back/Weiter now available.
+      renderQuizQuestion();
+    }
   }
 
   function showQuizFeedback(q, chosen, data) {
     const feedback = document.getElementById("quiz-feedback");
-    const nextBtn = document.getElementById("quiz-next");
     document.getElementById("quiz-submit").hidden = true;
     document.getElementById("quiz-textform").hidden = true;
     for (const button of document.getElementById("quiz-options").children) {
       button.disabled = true;
       const id = Number(button.dataset.id);
-      if (data.correct && data.correct.includes(id)) button.classList.add("correct");
-      else if (data.correct && chosen.includes(id)) button.classList.add("wrong");
+      if (data.correct.includes(id)) button.classList.add("correct");
+      else if (chosen.includes(id)) button.classList.add("wrong");
       button.classList.remove("selected");
     }
-    if (data.correct) {
-      feedback.textContent = data.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
-      feedback.style.color = data.is_correct ? "var(--brand-strong)" : "var(--danger-strong)";
-    } else {
-      feedback.textContent = I18N.answerSaved;
-      feedback.style.color = "var(--ink-soft)";
-    }
+    feedback.textContent = data.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
+    feedback.style.color = data.is_correct ? "var(--brand-strong)" : "var(--danger-strong)";
     feedback.hidden = false;
-    // "See results" only if there is an evaluation to see (feedback on);
-    // otherwise the final step is a neutral "Finish" (#75).
-    nextBtn.textContent =
-      nextUnanswered(quizIndex + 1) === -1
-        ? (quiz.feedback ? I18N.toSummary : I18N.finish)
-        : I18N.next;
-    nextBtn.hidden = false;
+    const nextBtn = updateQuizNav();
     nextBtn.focus();
   }
 
@@ -1204,6 +1368,9 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   document.getElementById("quiz-next").addEventListener("click", advanceQuiz);
+  document.getElementById("quiz-back").addEventListener("click", () => {
+    if (quiz && quiz.allow_back && quizIndex > 0) goQuiz(quizIndex - 1);
+  });
   document.getElementById("quiz-textform").addEventListener("submit", (e) => {
     e.preventDefault();
     const q = quiz.questions[quizIndex];

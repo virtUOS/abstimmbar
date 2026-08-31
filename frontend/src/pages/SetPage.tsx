@@ -101,6 +101,8 @@ export interface SetSettings {
   quiz_time_limit: number | null;
   show_results_to_participants: boolean;
   present_results_after: boolean;
+  allow_back_navigation: boolean;
+  shuffle_questions: boolean;
 }
 
 /** The settings form, shared by the create panel (RoomPage) and the edit
@@ -186,6 +188,31 @@ export function SetSettingsForm({
                     className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show the results in the presentation afterwards")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.allow_back_navigation}
+                    onChange={(event) =>
+                      onChange({ allow_back_navigation: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Allow going back to previous questions")}
+                </label>
+                <p className="ml-6 text-xs text-slate-400">
+                  {t("Answers can only be changed while instant feedback is off.")}
+                </p>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.shuffle_questions}
+                    onChange={(event) =>
+                      onChange({ shuffle_questions: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show questions in a random order")}
                 </label>
               </>
             ) : (
@@ -634,6 +661,8 @@ export default function SetPage() {
       quiz_time_limit: set.quiz_time_limit,
       show_results_to_participants: set.show_results_to_participants,
       present_results_after: set.present_results_after,
+      allow_back_navigation: set.allow_back_navigation,
+      shuffle_questions: set.shuffle_questions,
     });
     setEditingMeta(true);
   }
