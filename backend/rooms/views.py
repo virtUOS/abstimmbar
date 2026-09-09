@@ -29,7 +29,7 @@ from rest_framework.views import APIView
 
 from common import documents
 
-from . import ai_generate, ai_prompts
+from . import ai_generate, ai_prompts, set_types
 from .images import InvalidImageError, normalize_image
 from .models import Question, QuestionSet, Room, Section
 from .serializers import (
@@ -689,6 +689,21 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 {"detail": "One or more questions were not found."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        allowed = set_types.allowed_kinds(target.type)
+        for question_id in ids:
+            source = by_id[question_id]
+            if source.kind not in allowed:
+                return Response(
+                    {"detail": "Question type not allowed in this set type."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if (set_types.requires_solution(target.type)
+                    and source.kind == Question.Kind.OPEN_TEXT
+                    and not (source.model_solution or "").strip()):
+                return Response(
+                    {"detail": "Free-text questions need a model solution in this set type."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         with transaction.atomic():
             last = target.questions.order_by("-position").first()
             position = (last.position + 1) if last else 0

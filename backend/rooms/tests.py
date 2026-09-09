@@ -1366,6 +1366,51 @@ class CopyQuestionsTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.target.questions.count(), 1)
 
+    def test_copy_into_live_poll_set_allows_any_kind(self):
+        # Regression: a live_poll target (the default type) is unrestricted.
+        likert = Question.objects.create(
+            question_set=self.source, kind="likert", text="Wie zufrieden?",
+        )
+        response = self.copy([likert.pk])
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(self.target.questions.filter(text="Wie zufrieden?").exists())
+
+    def test_copy_kind_not_allowed_in_self_check_set(self):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        likert = Question.objects.create(
+            question_set=self.source, kind="likert", text="Wie zufrieden?",
+        )
+        response = self.copy([likert.pk], target=check_set)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not allowed", response.json()["detail"])
+        self.assertEqual(check_set.questions.count(), 0)
+
+    def test_copy_open_text_without_model_solution_into_self_check_set(self):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        open_text = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Erkläre X.",
+        )
+        response = self.copy([open_text.pk], target=check_set)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("model solution", response.json()["detail"])
+        self.assertEqual(check_set.questions.count(), 0)
+
+    def test_copy_open_text_with_model_solution_into_self_check_set(self):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        open_text = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Erkläre X.",
+            model_solution="Weil Y.",
+        )
+        response = self.copy([open_text.pk], target=check_set)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(check_set.questions.filter(text="Erkläre X.").exists())
+
 
 class SearchTests(ApiTestCase):
     def setUp(self):
