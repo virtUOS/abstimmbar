@@ -3630,6 +3630,23 @@ class CheckApiTests(LiveTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp["Content-Type"], "image/png")
 
+    def test_check_page_never_renders_the_live_join_flow(self):
+        # #75 Phase 3 review carry-forward: before the participant template
+        # grew a CHECK_TOKEN branch, /c/<token>/ fell into the live "else"
+        # branch and would join the room / open SSE — a real leak for a
+        # page that is meant to be anonymous, stateless and permanent. The
+        # room's join code is the one piece of real, per-room templated data
+        # that only a live/recording render would need (CODE is blanked for
+        # the check page precisely so it never needs it) — its absence here
+        # is a stable proxy for "this render took the check branch".
+        from django.utils.html import escapejs
+
+        resp = self.client.get(f"/c/{self.token}/")
+        html = resp.content.decode()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(escapejs(self.token), html)  # CHECK_TOKEN, JS-escaped like room.code below
+        self.assertNotIn(escapejs(self.room.code), html)
+
 
 class SelfCheckRegressionTests(LiveTestCase):
     """#75 Phase 3: solutions must stay exclusive to the check endpoints —

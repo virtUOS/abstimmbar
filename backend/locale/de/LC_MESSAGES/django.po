@@ -314,3 +314,33 @@ msgstr "Die Zeit ist abgelaufen."
 #: live/templates/live/participant.html:210
 msgid "Finish"
 msgstr "Fertig"
+
+#: live/templates/live/participant.html
+msgid "Model solution"
+msgstr "Musterlösung"
+
+#: live/templates/live/participant.html
+msgid "Try again"
+msgstr "Nochmal"
+
+#: live/templates/live/participant.html
+msgid "Start over"
+msgstr "Nochmal von vorne"
+
+#: live/templates/live/participant.html
+msgid "All questions of this self-check"
+msgstr "Alle Fragen dieser Lernkontrolle"
+
+#: live/templates/live/participant.html
+#, python-brace-format
+msgid "{right} of {total} correct."
+msgstr "{right} von {total} richtig."
+
+#: live/templates/live/participant.html
+#, python-brace-format
+msgid "You worked through all {total} questions."
+msgstr "Du hast alle {total} Fragen bearbeitet."
+
+#: live/templates/live/participant.html
+msgid "This self-check is not available."
+msgstr "Diese Lernkontrolle ist nicht verfügbar."
