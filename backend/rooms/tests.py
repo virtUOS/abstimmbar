@@ -1198,6 +1198,54 @@ class TransferTests(ApiTestCase):
         )
         self.assertTrue(imported.present_results_after)
 
+    def test_duplicate_preserves_allow_back_navigation_and_shuffle_questions(self):
+        # #75 (Quiz-Block Phase 2): duplicate_set() must carry both new
+        # fields onto the clone, including non-default values.
+        from .transfer import duplicate_set
+
+        self.question_set.allow_back_navigation = False
+        self.question_set.shuffle_questions = True
+        self.question_set.save(update_fields=["allow_back_navigation", "shuffle_questions"])
+        clone = duplicate_set(self.question_set, self.room)
+        self.assertFalse(clone.allow_back_navigation)
+        self.assertTrue(clone.shuffle_questions)
+
+    def test_export_import_roundtrip_preserves_allow_back_navigation_and_shuffle_questions(self):
+        """export_set() includes both fields, and import_set() applies
+        non-default values rather than silently reverting to the field
+        defaults."""
+        from .transfer import export_set, import_set
+
+        self.question_set.allow_back_navigation = False
+        self.question_set.shuffle_questions = True
+        self.question_set.save(update_fields=["allow_back_navigation", "shuffle_questions"])
+        data = export_set(self.question_set)
+        self.assertFalse(data["allow_back_navigation"])
+        self.assertTrue(data["shuffle_questions"])
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        self.assertFalse(imported.allow_back_navigation)
+        self.assertTrue(imported.shuffle_questions)
+
+    def test_import_defaults_allow_back_navigation_and_shuffle_questions_when_missing(self):
+        """A foreign/legacy file without these keys imports with the
+        field defaults (True / False), not their opposite."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "z",
+                "type": QuestionSet.SetType.SELF_PACED,
+                "questions": [],
+            },
+        )
+        self.assertTrue(imported.allow_back_navigation)
+        self.assertFalse(imported.shuffle_questions)
+
 
 class CopyQuestionsTests(ApiTestCase):
     """QuestionSetViewSet.copy_questions (#87): deep-copy questions from any
@@ -3254,6 +3302,13 @@ class SetTypeModelTests(TestCase):
         qs = QuestionSet.objects.create(room=room, title="S")
         self.assertTrue(qs.present_results_after)
 
+    def test_allow_back_navigation_and_shuffle_questions_defaults(self):
+        # #75 (Quiz-Block Phase 2): back-nav is opt-out, shuffling is opt-in.
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertTrue(qs.allow_back_navigation)
+        self.assertFalse(qs.shuffle_questions)
+
 
 class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):
@@ -3423,6 +3478,20 @@ class SetTypeApiTests(ApiTestCase):
         self.assertFalse(r.json()["present_results_after"])
         qs = QuestionSet.objects.get(pk=r.json()["id"])
         self.assertFalse(qs.present_results_after)
+
+    def test_allow_back_navigation_and_shuffle_questions_create_non_default(self):
+        # #75 (Quiz-Block Phase 2): serializer round-trips both opt-outs/opt-ins.
+        r = self.client.post("/api/question-sets/", {
+            "room": self.room.pk, "title": "S", "type": "self_paced",
+            "allow_back_navigation": False,
+            "shuffle_questions": True,
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201)
+        self.assertFalse(r.json()["allow_back_navigation"])
+        self.assertTrue(r.json()["shuffle_questions"])
+        qs = QuestionSet.objects.get(pk=r.json()["id"])
+        self.assertFalse(qs.allow_back_navigation)
+        self.assertTrue(qs.shuffle_questions)
 
     def test_quiz_time_limit_nulled_for_live_poll_create(self):
         r = self.client.post("/api/question-sets/", {

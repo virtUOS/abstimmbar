@@ -141,6 +141,8 @@ const NEW_SET_DEFAULTS: SetSettings = {
   quiz_time_limit: null,
   show_results_to_participants: true,
   present_results_after: true,
+  allow_back_navigation: true,
+  shuffle_questions: false,
 };
 
 type SortKey = "updated" | "created" | "title" | "questions";

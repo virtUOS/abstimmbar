@@ -181,6 +181,8 @@ def duplicate_set(question_set, target_room, title=None):
         open_on_show=question_set.open_on_show,
         show_results_to_participants=question_set.show_results_to_participants,
         present_results_after=question_set.present_results_after,
+        allow_back_navigation=question_set.allow_back_navigation,
+        shuffle_questions=question_set.shuffle_questions,
         # The license statement travels with the copy; the share link does not.
         license=question_set.license,
         license_holder=question_set.license_holder,
@@ -218,6 +220,8 @@ def export_set(question_set):
         "open_on_show": question_set.open_on_show,
         "show_results_to_participants": question_set.show_results_to_participants,
         "present_results_after": question_set.present_results_after,
+        "allow_back_navigation": question_set.allow_back_navigation,
+        "shuffle_questions": question_set.shuffle_questions,
         "license": question_set.license,
         "license_holder": question_set.license_holder,
         "sections": [
@@ -314,6 +318,8 @@ def import_set(room, data):
         open_on_show=bool(data.get("open_on_show")),
         show_results_to_participants=bool(data.get("show_results_to_participants")),
         present_results_after=bool(data.get("present_results_after", True)),
+        allow_back_navigation=bool(data.get("allow_back_navigation", True)),
+        shuffle_questions=bool(data.get("shuffle_questions", False)),
         license=(
             data.get("license")
             if data.get("license") in {c.value for c in QuestionSet.License}

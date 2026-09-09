@@ -1345,13 +1345,134 @@ class SelfPacedTests(LiveTestCase):
         # Options never leak is_correct.
         self.assertNotIn("is_correct", payload["questions"][0]["options"][0])
         self.assertEqual(
-            payload["answered"], {str(self.question.pk): {"is_correct": True}}
+            payload["answered"],
+            {
+                str(self.question.pk): {
+                    "is_correct": True,
+                    "chosen": {"options": [self.correct.pk]},
+                    "correct": [self.correct.pk],
+                }
+            },
         )
 
     def test_quiz_conflict_without_open_quiz(self):
         self.assertEqual(self.quiz().status_code, 409)
         self.open_question()  # live run, not self-paced
         self.assertEqual(self.quiz().status_code, 409)
+
+    def test_quiz_answered_without_feedback_omits_correct(self):
+        # reveal_answers "never" (#75): the participant still gets their own
+        # chosen options back (for review/resume), but never the answer key.
+        self.question_set.reveal_answers = "never"
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        payload = self.quiz(token).json()
+        entry = payload["answered"][str(self.question.pk)]
+        self.assertEqual(entry["chosen"], {"options": [self.correct.pk]})
+        self.assertIsNone(entry["correct"])
+        self.assertIsNone(entry["is_correct"])
+
+    def test_quiz_answered_word_cloud_carries_own_text(self):
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.cloud.pk, text="Osmose")
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            payload["answered"][str(self.cloud.pk)],
+            {"is_correct": None, "chosen": {"text": "Osmose"}, "correct": None},
+        )
+
+    def test_quiz_answered_priorities_carries_own_points(self):
+        pq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.PRIORITIES,
+            text="<p>Verteile 100 Punkte</p>", position=2,
+        )
+        oa = AnswerOption.objects.create(question=pq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=pq, text="B", position=1)
+        self.start()
+        token = self.join()
+        response = self.client.post(
+            f"/api/live/rooms/{self.room.code}/vote/",
+            {
+                "token": token,
+                "question": pq.pk,
+                "points": {str(oa.pk): 70, str(ob.pk): 30},
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            payload["answered"][str(pq.pk)]["chosen"],
+            {"points": {str(oa.pk): 70, str(ob.pk): 30}},
+        )
+
+    def test_quiz_answered_ordering_carries_own_order(self):
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        self.start()
+        token = self.join()
+        response = self.client.post(
+            f"/api/live/rooms/{self.room.code}/vote/",
+            {"token": token, "question": oq.pk, "order": [o2.pk, o1.pk]},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            payload["answered"][str(oq.pk)]["chosen"],
+            {"order": [o2.pk, o1.pk]},
+        )
+
+    def test_quiz_includes_allow_back(self):
+        # Default is True (model default); explicit False must round-trip.
+        self.start()
+        self.assertTrue(self.quiz().json()["allow_back"])
+        self.question_set.allow_back_navigation = False
+        self.question_set.save()
+        self.assertFalse(self.quiz().json()["allow_back"])
+
+    def test_quiz_canonical_order_when_shuffle_off(self):
+        self.start()
+        token = self.join()
+        payload = self.quiz(token).json()
+        self.assertEqual(
+            [q["id"] for q in payload["questions"]],
+            [self.question.pk, self.cloud.pk],
+        )
+
+    def test_quiz_shuffle_questions_is_stable_and_per_token(self):
+        import random as random_module
+
+        self.question_set.shuffle_questions = True
+        self.question_set.save()
+        self.start()
+        run = Run.objects.get()
+        canonical_ids = [self.question.pk, self.cloud.pk]
+        token_a = self.join()
+        token_b = self.join()
+
+        order_a_first = [q["id"] for q in self.quiz(token_a).json()["questions"]]
+        order_a_second = [q["id"] for q in self.quiz(token_a).json()["questions"]]
+        # Same token, same call twice -> identical order (stable seed).
+        self.assertEqual(order_a_first, order_a_second)
+        self.assertEqual(sorted(order_a_first), sorted(canonical_ids))
+
+        # The order matches the documented per-(run, token) seed exactly.
+        expected_a = list(canonical_ids)
+        random_module.Random(f"{run.pk}:{token_a}").shuffle(expected_a)
+        self.assertEqual(order_a_first, expected_a)
+
+        order_b = [q["id"] for q in self.quiz(token_b).json()["questions"]]
+        expected_b = list(canonical_ids)
+        random_module.Random(f"{run.pk}:{token_b}").shuffle(expected_b)
+        self.assertEqual(order_b, expected_b)
 
     def test_payloads_signal_mode_and_progress(self):
         self.start()
@@ -1477,6 +1598,257 @@ class SelfPacedTests(LiveTestCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["detail"], "Time is up.")
         self.assertEqual(Vote.objects.count(), before_count)
+
+
+class AnswerCorrectionTests(LiveTestCase):
+    """Self-paced answer correction (#75 Phase 2): a participant may replace
+    an existing vote for a question, but only while back-navigation is on,
+    no feedback has been shown (``reveal_answers == "never"``) and the quiz
+    deadline (if any) has not passed."""
+
+    def start(self, **body):
+        # Mirrors SelfPacedTests.start() (kept local to avoid re-running that
+        # class's whole suite under this one via inheritance).
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"mode": "self_paced", **body},
+            content_type="application/json",
+        )
+        self.client.logout()
+        return response
+
+    def test_replace_allowed_with_back_nav_and_no_feedback(self):
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        response = self.vote(token, question=self.question.pk, options=[self.wrong.pk])
+        self.assertEqual(response.status_code, 201)
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=self.question, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        self.assertEqual(list(votes.get().options.all()), [self.wrong])
+
+    def test_replace_rejected_with_feedback_on(self):
+        self.question_set.reveal_answers = "immediately"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        response = self.vote(token, question=self.question.pk, options=[self.wrong.pk])
+        self.assertEqual(response.status_code, 409)
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=self.question, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        self.assertEqual(list(votes.get().options.all()), [self.correct])
+
+    def test_replace_rejected_without_back_nav(self):
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = False
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        response = self.vote(token, question=self.question.pk, options=[self.wrong.pk])
+        self.assertEqual(response.status_code, 409)
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=self.question, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        self.assertEqual(list(votes.get().options.all()), [self.correct])
+
+    def test_replace_rejected_after_deadline(self):
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        run = Run.objects.get()
+        run.quiz_ends_at = timezone.now() - timezone.timedelta(seconds=10)
+        run.save(update_fields=["quiz_ends_at"])
+        response = self.vote(token, question=self.question.pk, options=[self.wrong.pk])
+        self.assertEqual(response.status_code, 409)
+        votes = Vote.objects.filter(
+            run=run, question=self.question, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        self.assertEqual(list(votes.get().options.all()), [self.correct])
+
+    def test_replace_priorities_leaves_one_vote_with_new_scores(self):
+        from .models import PriorityScore
+
+        pq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.PRIORITIES,
+            text="<p>Verteile 100 Punkte</p>", position=2,
+        )
+        oa = AnswerOption.objects.create(question=pq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=pq, text="B", position=1)
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+
+        def submit(a, b):
+            return self.client.post(
+                f"/api/live/rooms/{self.room.code}/vote/",
+                {
+                    "token": token,
+                    "question": pq.pk,
+                    "points": {str(oa.pk): a, str(ob.pk): b},
+                },
+                content_type="application/json",
+            )
+
+        self.assertEqual(submit(70, 30).status_code, 201)
+        response = submit(20, 80)
+        self.assertEqual(response.status_code, 201)
+
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=pq, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        vote = votes.get()
+        scores = {s.option_id: s.points for s in PriorityScore.objects.filter(vote=vote)}
+        self.assertEqual(scores, {oa.pk: 20, ob.pk: 80})
+        self.assertEqual(PriorityScore.objects.count(), 2)
+
+    def test_replace_ordering_leaves_one_vote_with_new_order(self):
+        from .models import OrderingResponse
+
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+
+        def submit(order):
+            return self.client.post(
+                f"/api/live/rooms/{self.room.code}/vote/",
+                {"token": token, "question": oq.pk, "order": order},
+                content_type="application/json",
+            )
+
+        self.assertEqual(submit([o1.pk, o2.pk]).status_code, 201)
+        response = submit([o2.pk, o1.pk])
+        self.assertEqual(response.status_code, 201)
+
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=oq, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        vote = votes.get()
+        order = list(
+            OrderingResponse.objects.filter(vote=vote)
+            .order_by("position")
+            .values_list("option_id", flat=True)
+        )
+        self.assertEqual(order, [o2.pk, o1.pk])
+        self.assertEqual(OrderingResponse.objects.count(), 2)
+
+    def test_malformed_priorities_replace_leaves_original_answer_intact(self):
+        # A rejected (400) replacement must never delete the still-valid old
+        # answer — validation happens before any delete.
+        from .models import PriorityScore
+
+        pq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.PRIORITIES,
+            text="<p>Verteile 100 Punkte</p>", position=2,
+        )
+        oa = AnswerOption.objects.create(question=pq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=pq, text="B", position=1)
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+
+        def submit(points):
+            return self.client.post(
+                f"/api/live/rooms/{self.room.code}/vote/",
+                {"token": token, "question": pq.pk, "points": points},
+                content_type="application/json",
+            )
+
+        self.assertEqual(submit({str(oa.pk): 70, str(ob.pk): 30}).status_code, 201)
+        # Invalid: total exceeds 100.
+        response = submit({str(oa.pk): 90, str(ob.pk): 90})
+        self.assertEqual(response.status_code, 400)
+
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=pq, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        scores = {
+            s.option_id: s.points
+            for s in PriorityScore.objects.filter(vote=votes.get())
+        }
+        self.assertEqual(scores, {oa.pk: 70, ob.pk: 30})
+
+    def test_malformed_ordering_replace_leaves_original_answer_intact(self):
+        from .models import OrderingResponse
+
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        self.start()
+        token = self.join()
+
+        def submit(order):
+            return self.client.post(
+                f"/api/live/rooms/{self.room.code}/vote/",
+                {"token": token, "question": oq.pk, "order": order},
+                content_type="application/json",
+            )
+
+        self.assertEqual(submit([o1.pk, o2.pk]).status_code, 201)
+        # Invalid: not a permutation (missing o2, duplicate o1).
+        response = submit([o1.pk, o1.pk])
+        self.assertEqual(response.status_code, 400)
+
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=oq, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        order = list(
+            OrderingResponse.objects.filter(vote=votes.get())
+            .order_by("position")
+            .values_list("option_id", flat=True)
+        )
+        self.assertEqual(order, [o1.pk, o2.pk])
+
+    def test_live_mode_double_vote_still_conflicts(self):
+        # Regression: the replace path is self-paced only; a LIVE run must
+        # keep rejecting a second vote outright.
+        self.open_question()
+        token = self.join()
+        self.vote(token, options=[self.correct.pk])
+        response = self.vote(token, options=[self.wrong.pk])
+        self.assertEqual(response.status_code, 409)
+        votes = Vote.objects.filter(
+            run=Run.objects.get(), question=self.question, token__key=token
+        )
+        self.assertEqual(votes.count(), 1)
+        self.assertEqual(list(votes.get().options.all()), [self.correct])
 
 
 class LikertSummaryTests(TestCase):
