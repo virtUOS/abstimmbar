@@ -133,7 +133,14 @@ multi-line note must use {% comment %} or it renders as text.)
 
 {# Self-paced quiz (concept §6.3): own pace, instant feedback. #}
 <section id="quiz" hidden>
-  <p class="soft" id="quiz-progress"></p>
+  {# #75: discreet prev/next arrows for back/forward nav; "Weiter" below stays the primary save/advance action. #}
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
+    <button id="quiz-prev" type="button" aria-label="{% trans 'Previous question' %}" hidden
+            style="width:auto;min-height:0;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;font-size:18px">←</button>
+    <p class="soft" id="quiz-progress" style="margin:0;flex:1;text-align:center"></p>
+    <button id="quiz-next-nav" type="button" aria-label="{% trans 'Next question' %}" hidden
+            style="width:auto;min-height:0;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;font-size:18px">→</button>
+  </div>
   <p class="soft" id="quiz-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="quiz-text"></div>
   <div id="quiz-options"></div>
@@ -147,13 +154,15 @@ multi-line note must use {% comment %} or it renders as text.)
   </form>
   <button class="primary" id="quiz-submit" hidden>{% trans "Submit answer" %}</button>
   <p id="quiz-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
-  <button class="primary" id="quiz-back" hidden>{% trans "Back" %}</button>
   <button class="primary" id="quiz-next" hidden>{% trans "Next" %}</button>
 </section>
 
 <section id="quiz-done" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/></svg></div>
   <p id="quiz-summary"></p>
+  {# #75: after finishing, allow going back into the questions to review or correct. #}
+  <button id="quiz-done-back" type="button" hidden
+          style="width:auto;min-height:0;margin:12px auto 0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent">← {% trans "Back to the questions" %}</button>
   <p class="soft">{% trans "You can close this page now." %}</p>
 </section>
 
@@ -1121,7 +1130,20 @@ multi-line note must use {% comment %} or it renders as text.)
   function updateQuizNav() {
     const q = quiz.questions[quizIndex];
     const ans = quiz.answered[String(q.id)];
-    document.getElementById("quiz-back").hidden = !(quiz.allow_back && quizIndex > 0);
+    const last = quiz.questions.length - 1;
+    // Discreet prev/next arrows at the top — only when the set allows
+    // navigation; greyed (disabled) at the first/last question (#75).
+    const prev = document.getElementById("quiz-prev");
+    const nextNav = document.getElementById("quiz-next-nav");
+    prev.hidden = !quiz.allow_back;
+    nextNav.hidden = !quiz.allow_back;
+    if (quiz.allow_back) {
+      for (const [btn, atEnd] of [[prev, quizIndex === 0], [nextNav, quizIndex === last]]) {
+        btn.disabled = atEnd;
+        btn.style.opacity = atEnd ? "0.35" : "";
+        btn.style.cursor = atEnd ? "default" : "";
+      }
+    }
     const nextBtn = document.getElementById("quiz-next");
     const showNext = !!ans || quizExpired;
     nextBtn.hidden = !showNext;
@@ -1364,12 +1386,23 @@ multi-line note must use {% comment %} or it renders as text.)
     document.getElementById("quiz-summary").textContent = scored.length
       ? I18N.quizScored.replace("{right}", String(right)).replace("{total}", String(scored.length))
       : I18N.quizUnscored.replace("{total}", String(quiz.questions.length));
+    document.getElementById("quiz-done-back").hidden = !quiz.allow_back;
     show("quiz-done");
   }
 
   document.getElementById("quiz-next").addEventListener("click", advanceQuiz);
-  document.getElementById("quiz-back").addEventListener("click", () => {
+  document.getElementById("quiz-prev").addEventListener("click", () => {
     if (quiz && quiz.allow_back && quizIndex > 0) goQuiz(quizIndex - 1);
+  });
+  document.getElementById("quiz-next-nav").addEventListener("click", () => {
+    if (quiz && quiz.allow_back && quizIndex < quiz.questions.length - 1) goQuiz(quizIndex + 1);
+  });
+  document.getElementById("quiz-done-back").addEventListener("click", () => {
+    if (!quiz || !quiz.allow_back) return;
+    // Re-enter the quiz from the summary to review/correct (#75).
+    quizDone = false;
+    renderQuizCountdown();
+    goQuiz(quiz.questions.length - 1);
   });
   document.getElementById("quiz-textform").addEventListener("submit", (e) => {
     e.preventDefault();

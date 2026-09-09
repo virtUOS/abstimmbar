@@ -198,7 +198,7 @@ export function SetSettingsForm({
                     }
                     className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
-                  {t("Allow going back to previous questions")}
+                  {t("Let participants navigate between questions and change answers")}
                 </label>
                 <p className="ml-6 text-xs text-slate-400">
                   {t("Answers can only be changed while instant feedback is off.")}

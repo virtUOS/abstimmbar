@@ -181,6 +181,10 @@ msgstr "Du kannst diese Seite jetzt schließen."
 msgid "Previous question"
 msgstr "Vorherige Frage"
 
+#: live/templates/live/participant.html
+msgid "Back to the questions"
+msgstr "Zurück zu den Fragen"
+
 #: live/templates/live/participant.html:164
 msgid "Next question"
 msgstr "Nächste Frage"

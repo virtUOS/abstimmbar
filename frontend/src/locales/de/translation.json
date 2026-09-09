@@ -427,7 +427,7 @@
   "Total time limit in minutes": "Gesamtdauer in Minuten",
   "Show correct answers right after answering": "Richtige Antworten schon nach dem Beantworten anzeigen",
   "Show the results in the presentation afterwards": "Im Anschluss die Ergebnisse in der Präsentation anzeigen",
-  "Allow going back to previous questions": "Zurückgehen zu vorherigen Fragen erlauben",
+  "Let participants navigate between questions and change answers": "Vor- und Zurückblättern zwischen Fragen (und Antworten ändern) erlauben",
   "Answers can only be changed while instant feedback is off.": "Antworten lassen sich nur ändern, solange kein Sofort-Feedback aktiv ist.",
   "Show questions in a random order": "Fragen in zufälliger Reihenfolge zeigen",
   "Filter by set type": "Nach Set-Art filtern",
