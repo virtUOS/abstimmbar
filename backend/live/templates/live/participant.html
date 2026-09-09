@@ -2124,8 +2124,11 @@ multi-line note must use {% comment %} or it renders as text.)
         button.type = "button";
         fillOptionButton(button, option);
         button.disabled = true;
-        if (q.correct.includes(option.id)) button.classList.add("correct");
-        else if (chosen.includes(option.id)) button.classList.add("wrong");
+        // Unscored choice question (no option marked correct): keep the
+        // chosen option neutral instead of painting it red (#75 Phase 3).
+        if (q.correct.length && q.correct.includes(option.id)) button.classList.add("correct");
+        else if (q.correct.length && chosen.includes(option.id)) button.classList.add("wrong");
+        else if (chosen.includes(option.id)) button.classList.add("selected");
         optionsBox.appendChild(button);
       }
       feedback.textContent = ans.isCorrect === null
