@@ -214,14 +214,17 @@ multi-line note must use {% comment %} or it renders as text.)
   <p id="check-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
   <div id="check-solution" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:12px 16px" hidden></div>
   <button class="primary" id="check-next" hidden>{% trans "Next" %}</button>
+  {# Single-question mode only (#75 Phase 3 fix round 1): grading stays inline (highlights + solution box) instead of jumping to a compact done screen; these two controls replace "Weiter" since there is no next question. #}
+  <div id="check-single-actions" hidden style="margin-top:14px">
+    <button class="primary" type="button" id="check-single-again">{% trans "Try again" %}</button>
+    <a id="check-single-all" href="" style="display:block;margin-top:14px;color:var(--brand-strong)">{% trans "All questions of this self-check" %}</a>
+  </div>
 </section>
 
 <section id="check-done" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
   <p id="check-summary"></p>
   <button class="primary" id="check-restart" style="margin-top:6px">{% trans "Start over" %}</button>
-  {# Single-question mode only (#75 Phase 3): an escape hatch back to the full Lernkontrolle, since a per-question link never shows the others. #}
-  <a id="check-all" href="" hidden style="display:block;margin-top:14px;color:var(--brand-strong)">{% trans "All questions of this self-check" %}</a>
 </section>
 
 <section id="check-unavailable" class="center" hidden>
@@ -286,7 +289,6 @@ multi-line note must use {% comment %} or it renders as text.)
     timeUp: "{% trans 'Time is up.' %}",
     // Lernkontrolle / self-check mode (#75 Phase 3).
     modelSolution: "{% trans 'Model solution' %}",
-    tryAgain: "{% trans 'Try again' %}",
     startOver: "{% trans 'Start over' %}",
     checkScored: "{% trans '{right} of {total} correct.' %}",
     checkUnscored: "{% trans 'You worked through all {total} questions.' %}",
@@ -1977,7 +1979,7 @@ multi-line note must use {% comment %} or it renders as text.)
     if (!response.ok) { showCheckUnavailable(); return; }
     const data = await response.json();
     subtitle.textContent = locText(data.set_title);
-    check = { questions: data.questions, single: data.single, answered: {} };
+    check = { questions: data.questions, single: data.single, answered: {}, summaryPosted: false };
     if (!check.questions.length) { renderCheckSummary(); return; }
     renderCheck();
   }
@@ -1987,11 +1989,14 @@ multi-line note must use {% comment %} or it renders as text.)
     show("check-unavailable");
   }
 
-  // Local grading (no POST — the check API already handed us the solutions).
-  // Choice kinds compare the chosen option ids against `q.correct` (empty =
-  // no correct answer was marked = unscored, `isCorrect` stays null); ordering
-  // compares the submitted order against `q.correct_order`; open_text is
-  // always unscored (the model solution is shown, never auto-graded).
+  // Local grading (no POST for the grading itself — the check API already
+  // handed us the solutions). Choice kinds compare the chosen option ids
+  // against `q.correct` (empty = no correct answer was marked = unscored,
+  // `isCorrect` stays null); ordering compares the submitted order against
+  // `q.correct_order`; open_text is always unscored (the model solution is
+  // shown, never auto-graded). Single-question mode posts the attempt right
+  // here — exactly once per grading, regardless of how often the graded
+  // view is re-rendered afterwards (fix round 1, must-fix 2).
   function gradeCheck(q, payload) {
     let isCorrect = null;
     if (CHOICE_KINDS.includes(q.kind)) {
@@ -2000,7 +2005,10 @@ multi-line note must use {% comment %} or it renders as text.)
       isCorrect = arraysEqual(payload.order, q.correct_order);
     }
     check.answered[String(q.id)] = { chosen: payload, isCorrect };
-    renderCheck();
+    if (check.single) {
+      postCheckAttempt({ question: q.id, correct: isCorrect ? 1 : 0, scored: isCorrect === null ? 0 : 1 });
+    }
+    renderCheck(true);
   }
 
   function sameSet(a, b) {
@@ -2009,10 +2017,14 @@ multi-line note must use {% comment %} or it renders as text.)
     return a.every((v) => sb.has(v)) && new Set(a).size === sb.size;
   }
 
-  function renderCheck() {
+  // `justGraded` is true only for the render immediately after `gradeCheck`
+  // stored a fresh answer; every other render of an answered question (the
+  // arrows, or landing back on it) is a revisit — passed through to
+  // `renderCheckAnswered` so ordering's "already answered" note only shows
+  // on a revisit, matching choice/text (fix round 1, minor finding).
+  function renderCheck(justGraded) {
     const q = check.questions[checkIndex];
     const ans = check.answered[String(q.id)];
-    if (ans && check.single) { renderCheckSingleDone(q, ans); return; }
 
     const nav = document.getElementById("check-nav");
     nav.hidden = check.single;
@@ -2037,6 +2049,7 @@ multi-line note must use {% comment %} or it renders as text.)
     const feedback = document.getElementById("check-feedback");
     const solution = document.getElementById("check-solution");
     const nextBtn = document.getElementById("check-next");
+    const singleActions = document.getElementById("check-single-actions");
     optionsBox.replaceChildren();
     form.hidden = true;
     submit.hidden = true;
@@ -2044,13 +2057,19 @@ multi-line note must use {% comment %} or it renders as text.)
     solution.hidden = true;
     solution.replaceChildren();
     nextBtn.hidden = true;
+    singleActions.hidden = true;
     clearPriBudget(optionsBox.parentNode);
     clearOrderingUi(optionsBox.parentNode);
     checkSelected = new Set();
 
     if (ans) {
-      renderCheckAnswered(q, ans, optionsBox, feedback, solution);
-      nextBtn.hidden = false;
+      renderCheckAnswered(q, ans, optionsBox, feedback, solution, !justGraded);
+      // Set mode advances via "Weiter"; single mode has no next question,
+      // so it shows "Nochmal" / "Alle Fragen" beneath the graded view
+      // instead (must-fix 1 — single mode used to jump to a separate,
+      // compact "done" screen that skipped this feedback entirely).
+      if (check.single) singleActions.hidden = false;
+      else nextBtn.hidden = false;
     } else {
       renderCheckForm(q, optionsBox, form, word, area, submit);
     }
@@ -2094,8 +2113,10 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   // Answered — whether just graded or revisited via the arrows: read-only
-  // replay of the same feedback from `check.answered` (no inputs).
-  function renderCheckAnswered(q, ans, optionsBox, feedback, solution) {
+  // replay of the same feedback from `check.answered` (no inputs). `revisit`
+  // is false right after grading and true on every later re-render of the
+  // same answer (arrows, single-mode reload of a stale render).
+  function renderCheckAnswered(q, ans, optionsBox, feedback, solution, revisit) {
     const chosen = (ans.chosen && ans.chosen.options) || [];
     if (CHOICE_KINDS.includes(q.kind)) {
       for (const option of q.options) {
@@ -2125,10 +2146,12 @@ multi-line note must use {% comment %} or it renders as text.)
       feedback.style.color = "var(--ink-soft)";
       renderModelSolution(solution, q);
     } else if (q.kind === "ordering") {
-      const note = document.createElement("p");
-      note.className = "soft";
-      note.textContent = I18N.alreadyAnswered;
-      optionsBox.appendChild(note);
+      if (revisit) {
+        const note = document.createElement("p");
+        note.className = "soft";
+        note.textContent = I18N.alreadyAnswered;
+        optionsBox.appendChild(note);
+      }
       feedback.textContent = ans.isCorrect ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
       feedback.style.color = ans.isCorrect ? "var(--brand-strong)" : "var(--danger-strong)";
       renderCorrectOrder(solution, q);
@@ -2172,7 +2195,9 @@ multi-line note must use {% comment %} or it renders as text.)
   // Set mode, after the LAST question: "X of Y correct" over the scored
   // answers (open_text is never scored); if nothing was scored (e.g. an
   // all-open_text/ordering-less set with no marked correct options), a
-  // neutral "you worked through all N questions" instead.
+  // neutral "you worked through all N questions" instead. `check.summaryPosted`
+  // guards against a double-click on the final "Weiter" firing two attempt
+  // POSTs (fix round 1, must-fix 2).
   function renderCheckSummary() {
     const scored = Object.values(check.answered).filter((a) => a.isCorrect !== null);
     const right = scored.filter((a) => a.isCorrect).length;
@@ -2182,32 +2207,10 @@ multi-line note must use {% comment %} or it renders as text.)
     const restart = document.getElementById("check-restart");
     restart.textContent = I18N.startOver;
     restart.onclick = () => void loadCheck();
-    document.getElementById("check-all").hidden = true;
-    postCheckAttempt({ correct: right, scored: scored.length });
-    show("check-done");
-  }
-
-  // Single-question mode: no "Weiter" — grading is immediately followed by
-  // "try again" (reloads the same question, fresh shuffle) and a discreet
-  // link to the full Lernkontrolle.
-  function renderCheckSingleDone(q, ans) {
-    const summary = document.getElementById("check-summary");
-    if (CHOICE_KINDS.includes(q.kind) || q.kind === "ordering") {
-      summary.textContent = ans.isCorrect === null
-        ? I18N.answerSaved
-        : (ans.isCorrect ? "✓ " + I18N.correct : "✗ " + I18N.incorrect);
-    } else {
-      summary.textContent = I18N.answerSaved;
+    if (!check.summaryPosted) {
+      check.summaryPosted = true;
+      postCheckAttempt({ correct: right, scored: scored.length });
     }
-    const restart = document.getElementById("check-restart");
-    restart.textContent = I18N.tryAgain;
-    restart.onclick = () => void loadCheck();
-    const allLink = document.getElementById("check-all");
-    allLink.href = `/c/${CHECK_TOKEN}/`;
-    allLink.hidden = false;
-    postCheckAttempt({
-      question: q.id, correct: ans.isCorrect ? 1 : 0, scored: ans.isCorrect === null ? 0 : 1,
-    });
     show("check-done");
   }
 
@@ -2218,10 +2221,16 @@ multi-line note must use {% comment %} or it renders as text.)
     if (check && !check.single && checkIndex < check.questions.length - 1) { checkIndex++; renderCheck(); }
   });
   document.getElementById("check-next").addEventListener("click", () => {
-    if (!check) return;
+    if (!check || check.single) return;
     if (checkIndex + 1 < check.questions.length) { checkIndex++; renderCheck(); }
     else renderCheckSummary();
   });
+  // Single-question mode's own "ending" controls (fix round 1, must-fix 1):
+  // "Nochmal" reloads the same question fresh (new option shuffle), the
+  // link falls back to the full Lernkontrolle since a per-question deep
+  // link never shows the others.
+  document.getElementById("check-single-again").addEventListener("click", () => void loadCheck());
+  document.getElementById("check-single-all").href = `/c/${CHECK_TOKEN}/`;
   document.getElementById("check-textform").addEventListener("submit", (event) => {
     event.preventDefault();
     if (!check) return;

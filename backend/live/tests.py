@@ -3641,6 +3641,9 @@ class CheckApiTests(LiveTestCase):
         # is a stable proxy for "this render took the check branch".
         from django.utils.html import escapejs
 
+        # Proxy only: no browser/JS harness runs here, so this checks the
+        # rendered template string, not that the check-mode JS itself never
+        # calls join()/connect() at runtime.
         resp = self.client.get(f"/c/{self.token}/")
         html = resp.content.decode()
         self.assertEqual(resp.status_code, 200)
