@@ -281,6 +281,23 @@ class QuestionSetApiTests(ApiTestCase):
             self.client.get(f"/api/question-sets/{foreign_set.pk}/").status_code, 404
         )
 
+    def test_self_check_token_is_null_by_default_and_read_only(self):
+        # #75 Phase 3: self_check_token is only ever set via the (not yet
+        # built) publish action, never by a plain write.
+        qs = QuestionSet.objects.create(room=self.room, title="Termin 1")
+        response = self.client.get(f"/api/question-sets/{qs.pk}/")
+        self.assertIsNone(response.json()["self_check_token"])
+
+        response = self.client.patch(
+            f"/api/question-sets/{qs.pk}/",
+            {"self_check_token": "abc"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["self_check_token"])
+        qs.refresh_from_db()
+        self.assertIsNone(qs.self_check_token)
+
 
 class QuestionApiTests(ApiTestCase):
     def setUp(self):
@@ -3308,6 +3325,36 @@ class SetTypeModelTests(TestCase):
         qs = QuestionSet.objects.create(room=room, title="S")
         self.assertTrue(qs.allow_back_navigation)
         self.assertFalse(qs.shuffle_questions)
+
+
+class SelfCheckTokenModelTests(TestCase):
+    """#75 Phase 3 (Lernkontrolle): permanent publish link, mirroring
+    share_token/enable_sharing/disable_sharing."""
+
+    def test_enable_self_check_sets_token_and_is_idempotent(self):
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertIsNone(qs.self_check_token)
+
+        qs.enable_self_check()
+        self.assertIsNotNone(qs.self_check_token)
+        # secrets.token_urlsafe(16)[:32] -> 22 chars, well under max_length=32,
+        # same as share_token.
+        self.assertLessEqual(len(qs.self_check_token), 32)
+        self.assertGreater(len(qs.self_check_token), 0)
+
+        token = qs.self_check_token
+        qs.enable_self_check()
+        self.assertEqual(qs.self_check_token, token)
+
+    def test_disable_self_check_clears_token(self):
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        qs.enable_self_check()
+        self.assertIsNotNone(qs.self_check_token)
+
+        qs.disable_self_check()
+        self.assertIsNone(qs.self_check_token)
 
 
 class SetTypeRulesTests(TestCase):

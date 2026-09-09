@@ -204,10 +204,10 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "id", "room", "room_title", "title", "description", "type", "reveal_answers",
             "open_on_show", "show_results_to_participants", "present_results_after",
             "allow_back_navigation", "shuffle_questions", "quiz_time_limit",
-            "share_token", "license", "license_holder",
+            "share_token", "self_check_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
         ]
-        read_only_fields: ClassVar = ["share_token"]
+        read_only_fields: ClassVar = ["share_token", "self_check_token"]
 
     def get_has_results(self, obj):
         annotated = getattr(obj, "vote_count", None)

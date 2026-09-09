@@ -216,3 +216,28 @@ class OrderingResponse(models.Model):
 
     def __str__(self):
         return f"pos {self.position} (vote {self.vote_id}, option {self.option_id})"
+
+
+class SelfCheckAttempt(models.Model):
+    """Anonymous counter row for a Lernkontrolle (#75 Phase 3): one row per
+    completed attempt (or per single-question answer, then ``question`` is
+    set). Deliberately carries no token/user/IP."""
+
+    question_set = models.ForeignKey(
+        "rooms.QuestionSet",
+        on_delete=models.CASCADE,
+        related_name="self_check_attempts",
+    )
+    question = models.ForeignKey(
+        "rooms.Question",
+        null=True,
+        blank=True,
+        on_delete=models.CASCADE,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    correct = models.PositiveIntegerField(default=0)
+    scored = models.PositiveIntegerField(default=0)
+
+    def __str__(self):
+        return f"attempt on set {self.question_set_id} ({self.correct}/{self.scored})"

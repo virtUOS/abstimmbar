@@ -3439,3 +3439,27 @@ class ConcurrentStartRunTests(TransactionTestCase):
         )
         self.assertEqual(active.count(), 1)
         self.assertEqual(active.first().pk, run_ids.pop())
+
+
+class SelfCheckAttemptModelTests(LiveTestCase):
+    """#75 Phase 3 (Lernkontrolle): anonymous attempt counter."""
+
+    def test_defaults_to_zero_correct_and_scored(self):
+        from .models import SelfCheckAttempt
+
+        attempt = SelfCheckAttempt.objects.create(question_set=self.question_set)
+        self.assertEqual(attempt.correct, 0)
+        self.assertEqual(attempt.scored, 0)
+        self.assertIsNone(attempt.question)
+        self.assertIsNotNone(attempt.created_at)
+        self.assertEqual(self.question_set.self_check_attempts.get(), attempt)
+
+    def test_accepts_per_question_row(self):
+        from .models import SelfCheckAttempt
+
+        attempt = SelfCheckAttempt.objects.create(
+            question_set=self.question_set, question=self.question, correct=1, scored=1
+        )
+        self.assertEqual(attempt.question, self.question)
+        self.assertEqual(attempt.correct, 1)
+        self.assertEqual(attempt.scored, 1)

@@ -181,6 +181,11 @@ class QuestionSet(TimeStampedModel):
     # attribution); prefilled with the author's name in the UI. Travels
     # with copies/exports like the license itself.
     license_holder = models.CharField(max_length=200, blank=True, default="")
+    # #75 Phase 3 (Lernkontrolle): permanent participant link; null = not
+    # published. Only meaningful for type == self_check.
+    self_check_token = models.CharField(
+        max_length=32, unique=True, null=True, blank=True, editable=False
+    )
 
     class Meta:
         ordering: ClassVar = ["-updated_at"]
@@ -194,6 +199,16 @@ class QuestionSet(TimeStampedModel):
         if self.share_token:
             self.share_token = None
             self.save(update_fields=["share_token", "updated_at"])
+
+    def enable_self_check(self):
+        if not self.self_check_token:
+            self.self_check_token = secrets.token_urlsafe(16)[:32]
+            self.save(update_fields=["self_check_token", "updated_at"])
+
+    def disable_self_check(self):
+        if self.self_check_token:
+            self.self_check_token = None
+            self.save(update_fields=["self_check_token", "updated_at"])
 
     def __str__(self):
         return self.title
