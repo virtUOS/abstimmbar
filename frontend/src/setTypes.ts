@@ -4,7 +4,7 @@
 /** Frontend mirror of backend rooms/set_types.py (#75): per set type, its
  *  labels, the question kinds it allows, and which run action the set offers.
  *  Keep in sync with the backend registry. */
-import { GraduationCap, Presentation, type LucideIcon } from "lucide-react";
+import { ClipboardCheck, GraduationCap, Presentation, type LucideIcon } from "lucide-react";
 import type { QuestionKind } from "./api";
 
 export type SetType = "live_poll" | "self_paced" | "self_check";
@@ -54,16 +54,16 @@ export const SET_TYPES: Record<SetType, SetTypeInfo> = {
     description: "Learners practice on their own via a link, with instant feedback.",
     allowedKinds: ["single_choice", "multiple_choice", "ordering", "open_text"],
     runAction: "self_check",
-    icon: GraduationCap,
+    icon: ClipboardCheck,
     accent: {
-      badge: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
-      iconBox: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+      badge: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
+      iconBox: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
     },
   },
 };
 
-/** Types a user can pick when creating a set (self_check comes in Phase 3). */
-export const CREATABLE_SET_TYPES: SetType[] = ["live_poll", "self_paced"];
+/** Types a user can pick when creating a set. */
+export const CREATABLE_SET_TYPES: SetType[] = ["live_poll", "self_paced", "self_check"];
 
 export function allowedKindsFor(type: SetType): QuestionKind[] {
   return SET_TYPES[type].allowedKinds;

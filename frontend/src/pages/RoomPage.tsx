@@ -951,6 +951,7 @@ export default function RoomPage() {
               { value: "all", label: t("All types") },
               { value: "live_poll", label: t(SET_TYPES.live_poll.label) },
               { value: "self_paced", label: t(SET_TYPES.self_paced.label) },
+              { value: "self_check", label: t(SET_TYPES.self_check.label) },
             ]}
           />
           {filtered.length === 0 && (
@@ -1008,7 +1009,7 @@ export default function RoomPage() {
                       <ChartColumnDecreasing aria-hidden className="h-4 w-4" />
                     </Link>
                   )}
-                  {set.question_count > 0 && (
+                  {set.question_count > 0 && SET_TYPES[set.type].runAction !== "self_check" && (
                     <Link
                       to={`/sets/${set.id}/present`}
                       aria-label={t("Present {{title}}", { title: localizedText(set.title) })}

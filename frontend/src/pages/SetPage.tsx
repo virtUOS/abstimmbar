@@ -157,7 +157,21 @@ export function SetSettingsForm({
             {t("Answers & results")}
           </legend>
           <div className="grid gap-2">
-            {draft.type === "self_paced" ? (
+            {draft.type === "self_check" ? (
+              // Self-check (#75): a standing practice link with per-question
+              // instant feedback, no timing/reveal/results controls apply.
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={draft.shuffle_questions}
+                  onChange={(event) =>
+                    onChange({ shuffle_questions: event.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                />
+                {t("Show questions in a random order")}
+              </label>
+            ) : draft.type === "self_paced" ? (
               // Quiz-Block (#75): no per-question start/stop, so "reveal timing"
               // and "open on show" don't apply; the choices are whether the
               // correct answer is shown right after answering (bound to
@@ -1080,7 +1094,15 @@ export default function SetPage() {
               </strong>
             </p>
           )}
-          {!easyMode && set.type !== "self_paced" && (
+          {!easyMode && set.type === "self_check" && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {t("Show questions in a random order")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.shuffle_questions ? t("yes") : t("no")}
+              </strong>
+            </p>
+          )}
+          {!easyMode && set.type !== "self_paced" && set.type !== "self_check" && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {t("Correct answers:")}{" "}
               <strong className="font-semibold text-slate-700 dark:text-slate-200">
