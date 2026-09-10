@@ -208,7 +208,7 @@ multi-line note must use {% comment %} or it renders as text.)
     <textarea id="check-textarea" maxlength="500" rows="4"
               placeholder="{% trans 'Your answer …' %}" aria-label="{% trans 'Answer' %}" hidden
               style="font:inherit;width:100%;padding:14px 16px;margin-top:10px;border:1px solid var(--line);border-radius:14px"></textarea>
-    <button class="primary" type="submit">{% trans "Submit" %}</button>
+    <button class="primary" type="submit" id="check-textsubmit">{% trans "Submit" %}</button>
   </form>
   <button class="primary" id="check-submit" hidden>{% trans "Submit answer" %}</button>
   <p id="check-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
@@ -292,6 +292,9 @@ multi-line note must use {% comment %} or it renders as text.)
     startOver: "{% trans 'Start over' %}",
     checkScored: "{% trans '{right} of {total} correct.' %}",
     checkUnscored: "{% trans 'You worked through all {total} questions.' %}",
+    aiChecking: "{% trans 'Checking …' %}",
+    aiAssessment: "{% trans 'AI assessment' %}",
+    aiUnavailable: "{% trans 'AI assessment is not available right now — only the model solution is shown.' %}",
   };
   // Authored content (question/option text, set title, results labels) now
   // arrives as a {de, en} map — the SSE hub broadcasts one payload to every
@@ -1990,13 +1993,14 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   // Local grading (no POST for the grading itself — the check API already
-  // handed us the solutions). Choice kinds compare the chosen option ids
-  // against `q.correct` (empty = no correct answer was marked = unscored,
-  // `isCorrect` stays null); ordering compares the submitted order against
-  // `q.correct_order`; open_text is always unscored (the model solution is
-  // shown, never auto-graded). Single-question mode posts the attempt right
-  // here — exactly once per grading, regardless of how often the graded
-  // view is re-rendered afterwards (fix round 1, must-fix 2).
+  // handed us the solutions). Handles choice and ordering kinds only: choice
+  // kinds compare the chosen option ids against `q.correct` (empty = no
+  // correct answer was marked = unscored, `isCorrect` stays null); ordering
+  // compares the submitted order against `q.correct_order`. open_text is
+  // graded separately in `gradeCheckText`, which calls the AI endpoint
+  // (`/grade/`) when `q.ai_evaluate` is set. Single-question mode posts the
+  // attempt right here — exactly once per grading, regardless of how often
+  // the graded view is re-rendered afterwards (fix round 1, must-fix 2).
   function gradeCheck(q, payload) {
     let isCorrect = null;
     if (CHOICE_KINDS.includes(q.kind)) {
@@ -2005,6 +2009,41 @@ multi-line note must use {% comment %} or it renders as text.)
       isCorrect = arraysEqual(payload.order, q.correct_order);
     }
     check.answered[String(q.id)] = { chosen: payload, isCorrect };
+    if (check.single) {
+      postCheckAttempt({ question: q.id, correct: isCorrect ? 1 : 0, scored: isCorrect === null ? 0 : 1 });
+    }
+    renderCheck(true);
+  }
+
+  // Free-text in a Lernkontrolle: ask the server for an AI assessment before
+  // showing feedback. Falls back to an unscored "answer saved" + model
+  // solution when AI is off (409), rate-limited (429) or the call fails.
+  async function gradeCheckText(q, text) {
+    if (!q.ai_evaluate) {
+      check.answered[String(q.id)] = { chosen: { text }, isCorrect: null, ai: null };
+      if (check.single) postCheckAttempt({ question: q.id, correct: 0, scored: 0 });
+      renderCheck(true);
+      return;
+    }
+    const submit = document.getElementById("check-submit");
+    const textBtn = document.getElementById("check-textsubmit");
+    const busyOn = (el) => { if (el) { el.disabled = true; el.dataset.label = el.textContent; el.textContent = I18N.aiChecking; } };
+    const busyOff = (el) => { if (el && el.dataset.label) { el.disabled = false; el.textContent = el.dataset.label; } };
+    busyOn(textBtn); busyOn(submit);
+    let ai = null, isCorrect = null, unavailable = false;
+    try {
+      const resp = await post(`/api/live/check/${CHECK_TOKEN}/grade/`, { question: q.id, answer: text });
+      if (resp.ok) {
+        ai = await resp.json();
+        isCorrect = ai.correct;
+      } else {
+        unavailable = true;
+      }
+    } catch {
+      unavailable = true;
+    }
+    busyOff(textBtn); busyOff(submit);
+    check.answered[String(q.id)] = { chosen: { text }, isCorrect, ai, aiUnavailable: unavailable };
     if (check.single) {
       postCheckAttempt({ question: q.id, correct: isCorrect ? 1 : 0, scored: isCorrect === null ? 0 : 1 });
     }
@@ -2145,8 +2184,18 @@ multi-line note must use {% comment %} or it renders as text.)
       strong.textContent = (ans.chosen && ans.chosen.text) || "";
       p.appendChild(strong);
       optionsBox.appendChild(p);
-      feedback.textContent = I18N.answerSaved;
-      feedback.style.color = "var(--ink-soft)";
+      if (ans.ai) {
+        feedback.textContent = ans.isCorrect === null
+          ? I18N.answerSaved
+          : (ans.isCorrect ? "✓ " + I18N.correct : "✗ " + I18N.incorrect);
+        feedback.style.color = ans.isCorrect === null
+          ? "var(--ink-soft)"
+          : (ans.isCorrect ? "var(--brand-strong)" : "var(--danger-strong)");
+        renderScaleRow(solution, ans.ai);
+      } else {
+        feedback.textContent = ans.aiUnavailable ? I18N.aiUnavailable : I18N.answerSaved;
+        feedback.style.color = "var(--ink-soft)";
+      }
       renderModelSolution(solution, q);
     } else if (q.kind === "ordering") {
       if (revisit) {
@@ -2171,6 +2220,44 @@ multi-line note must use {% comment %} or it renders as text.)
     const text = document.createElement("div");
     text.textContent = q.model_solution;
     container.append(label, text);
+    container.hidden = false;
+  }
+
+  // The chosen scale as a row of pills, the AI's category highlighted, plus
+  // the short note. Prepended above the model solution in the same box.
+  function renderScaleRow(container, ai) {
+    const label = document.createElement("p");
+    label.className = "soft";
+    label.style.cssText = "margin:0 0 6px;font-weight:600";
+    label.textContent = I18N.aiAssessment;
+    const row = document.createElement("div");
+    row.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px";
+    (ai.categories || []).forEach((cat, i) => {
+      const pill = document.createElement("span");
+      const on = i === ai.index;
+      // index 0 = top category (green, brand-strong); any other highlighted
+      // category is a middle/lower bucket ("unklar" etc.), shown in amber —
+      // not the same red as a fully-wrong answer, so it doesn't read as an
+      // outright failure. There is no shared amber/warning CSS token in this
+      // template, so a literal amber is used here (reads fine in both
+      // light/dark since it's a solid fill, not a theme-dependent tint).
+      const highlightColor = ai.index === 0 ? "var(--brand-strong)" : "#b45309";
+      pill.textContent = cat;
+      pill.style.cssText =
+        "padding:3px 10px;border-radius:999px;font-size:14px;border:1px solid " +
+        (on ? highlightColor : "var(--line)") +
+        ";" + (on
+          ? "color:#fff;background:" + highlightColor + ";font-weight:600"
+          : "color:var(--ink-soft)");
+      row.appendChild(pill);
+    });
+    container.append(label, row);
+    if (ai.note) {
+      const note = document.createElement("div");
+      note.style.cssText = "margin-bottom:10px;color:var(--ink)";
+      note.textContent = ai.note;
+      container.appendChild(note);
+    }
     container.hidden = false;
   }
 
@@ -2238,7 +2325,9 @@ multi-line note must use {% comment %} or it renders as text.)
     event.preventDefault();
     if (!check) return;
     const value = document.getElementById("check-textarea").value.trim();
-    if (value) gradeCheck(check.questions[checkIndex], { text: value });
+    if (!value) return;
+    const q = check.questions[checkIndex];
+    void gradeCheckText(q, value);
   });
 
   if (PREVIEW) {

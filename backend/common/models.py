@@ -46,6 +46,10 @@ class SiteConfig(models.Model):
         "Page", null=True, blank=True, on_delete=models.SET_NULL, related_name="+",
     )
     ai_notice_url = models.URLField(blank=True, default="")
+    # #75 Phase 3: max AI free-text gradings per minute per Lernkontrolle
+    # (sliding window, in-process). 0 = unlimited — the normal case is a
+    # local model without per-call cost.
+    self_check_ai_per_minute = models.PositiveIntegerField(default=30)
     updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):

@@ -34,6 +34,7 @@ from common.models import SiteConfig
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import ai_evaluation, ai_freetext, ai_report, ai_wordcloud, ai_wordcloud_live
+from .ai_freetext import clean_categories
 from .hub import hub, sse_frame
 from .models import (
     OrderingResponse,
@@ -949,6 +950,7 @@ def check_questions(request, token):
                 {
                     **question_payload(q, shuffle_seed=random.randrange(1 << 30)),
                     **_self_check_solution(q),
+                    "ai_evaluate": q.kind == Question.Kind.OPEN_TEXT and q.ai_evaluate,
                 }
                 for q in questions
             ],
@@ -991,6 +993,50 @@ def check_attempt(request, token):
         question_set=qs, question=question, correct=correct, scored=scored
     )
     return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+
+
+@api_view(["POST"])
+def check_grade(request, token):
+    """AI-assess one free-text answer in a Lernkontrolle (#75 Phase 3).
+
+    Anonymous like the other check endpoints, but synchronous: the stateless
+    viewer has no SSE to poll. Guarded by a per-set rate limit and a dedup
+    cache (live/self_check_ai). Returns the verdict on the question's scale;
+    the client marks the answer correct iff it is the first category."""
+    from . import self_check_ai
+
+    qs = _self_check_set(token)
+    try:
+        question_id = int(request.data.get("question"))
+    except (TypeError, ValueError):
+        return Response({"detail": "Not gradable."}, status=400)
+    question = Question.objects.filter(question_set=qs, pk=question_id).first()
+    if (
+        question is None
+        or question.kind != Question.Kind.OPEN_TEXT
+        or not question.ai_evaluate
+    ):
+        return Response({"detail": "Not gradable."}, status=400)
+    answer = str(request.data.get("answer", "")).strip()
+    if not answer:
+        return Response({"detail": "Empty answer."}, status=400)
+    if not ai.is_enabled():
+        return Response({"detail": "ai-unavailable"}, status=409)
+    if not self_check_ai.allow(qs.pk):
+        return Response({"detail": "rate-limited"}, status=429)
+
+    verdict, note = self_check_ai.grade(question, answer)
+    categories = clean_categories(question.evaluation_categories)
+    index = categories.index(verdict) if verdict in categories else len(categories) // 2
+    return Response(
+        {
+            "verdict": verdict,
+            "note": note,
+            "categories": categories,
+            "index": index,
+            "correct": index == 0,
+        }
+    )
 
 
 def check_qr(request, token):

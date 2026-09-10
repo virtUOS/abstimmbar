@@ -145,6 +145,7 @@ class SiteConfigSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         fields: ClassVar = [
             "landing_text", "closing_info", "logo",
             "ai_notice", "ai_notice_page", "ai_notice_url",
+            "self_check_ai_per_minute",
         ]
 
     def validate_landing_text(self, value):

@@ -431,6 +431,13 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                 raise serializers.ValidationError(
                     {"kind": "This question type is not allowed in this set."}
                 )
+            # #75 Phase 3: in a Lernkontrolle a free-text question always shows
+            # the learner their own evaluation — the setting is not offered.
+            if (
+                target_set.type == QuestionSet.SetType.SELF_CHECK
+                and kind == Question.Kind.OPEN_TEXT
+            ):
+                attrs["participant_feedback"] = True
         if kind in Question.TEXT_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}

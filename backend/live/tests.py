@@ -11,6 +11,7 @@ from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone, translation
 
 from common.i18n_fields import resolve_translated_text, translated_map
+from common.models import SiteConfig
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import ai_evaluation, ai_wordcloud, ai_wordcloud_live
@@ -3649,6 +3650,96 @@ class CheckApiTests(LiveTestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertIn(escapejs(self.token), html)  # CHECK_TOKEN, JS-escaped like room.code below
         self.assertNotIn(escapejs(self.room.code), html)
+
+
+@override_settings(**AI_ON)
+class SelfCheckGradeTests(TestCase):
+    """#75 Phase 3: synchronous AI grading of Lernkontrolle free-text answers."""
+
+    def setUp(self):
+        # Reuse the same construction as test_payload_carries_solutions_per_kind.
+        self.owner = User.objects.create_user(username="o", password="p")
+        self.room = Room.objects.create(title="R")
+        self.room.owners.add(self.owner)
+        self.qs = QuestionSet.objects.create(
+            room=self.room, title="S", type=QuestionSet.SetType.SELF_CHECK,
+        )
+        self.qs.enable_self_check()
+        self.qs.refresh_from_db()
+        self.token = self.qs.self_check_token
+        self.q = Question.objects.create(
+            question_set=self.qs, kind="open_text", text_de="Frage", text_en="Q",
+            ai_evaluate=True, model_solution="Paris",
+            evaluation_categories=["korrekt", "unklar", "falsch"],
+        )
+        from live import self_check_ai
+        self_check_ai._reset_for_tests()
+
+    def _grade(self, answer, question=None):
+        return self.client.post(
+            f"/api/live/check/{self.token}/grade/",
+            {"question": question or self.q.pk, "answer": answer},
+            content_type="application/json",
+        )
+
+    @patch("basicbar_integrations.ai.chat_json", return_value={"verdict": "korrekt", "note": "gut"})
+    def test_grade_returns_verdict_index_correct(self, _m):
+        resp = self._grade("Frankreichs Hauptstadt ist Paris")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["verdict"], "korrekt")
+        self.assertEqual(data["note"], "gut")
+        self.assertEqual(data["categories"], ["korrekt", "unklar", "falsch"])
+        self.assertEqual(data["index"], 0)
+        self.assertTrue(data["correct"])
+
+    @patch("basicbar_integrations.ai.chat_json", return_value={"verdict": "falsch", "note": ""})
+    def test_grade_wrong_is_not_correct(self, _m):
+        data = self._grade("nonsense").json()
+        self.assertEqual(data["index"], 2)
+        self.assertFalse(data["correct"])
+
+    def test_grade_rejects_non_open_text(self):
+        mc = Question.objects.create(
+            question_set=self.qs, kind="single_choice", text_de="x", text_en="x",
+        )
+        self.assertEqual(self._grade("a", question=mc.pk).status_code, 400)
+
+    def test_grade_rejects_non_numeric_question(self):
+        resp = self.client.post(
+            f"/api/live/check/{self.token}/grade/",
+            {"question": "abc", "answer": "x"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_grade_rejects_ai_evaluate_off(self):
+        self.q.ai_evaluate = False
+        self.q.save(update_fields=["ai_evaluate"])
+        self.assertEqual(self._grade("a").status_code, 400)
+
+    def test_grade_rejects_foreign_question(self):
+        other = QuestionSet.objects.create(room=self.room, title="O", type="self_check")
+        fq = Question.objects.create(question_set=other, kind="open_text",
+                                     text_de="x", text_en="x", ai_evaluate=True)
+        self.assertEqual(self._grade("a", question=fq.pk).status_code, 400)
+
+    @override_settings(AI_PROVIDER="none")
+    def test_grade_409_when_ai_disabled(self):
+        self.assertEqual(self._grade("a").status_code, 409)
+
+    @patch("basicbar_integrations.ai.chat_json", return_value={"verdict": "korrekt", "note": ""})
+    def test_grade_429_when_over_limit(self, _m):
+        SiteConfig.objects.update_or_create(pk=1, defaults={"self_check_ai_per_minute": 1})
+        self.assertEqual(self._grade("a").status_code, 200)
+        self.assertEqual(self._grade("b").status_code, 429)
+
+    def test_check_questions_payload_has_ai_evaluate(self):
+        resp = self.client.get(f"/api/live/check/{self.token}/")
+        self.assertEqual(resp.status_code, 200)
+        q = resp.json()["questions"][0]
+        self.assertIn("ai_evaluate", q)
+        self.assertTrue(q["ai_evaluate"])
 
 
 class SelfCheckRegressionTests(LiveTestCase):

@@ -19,6 +19,7 @@ api_urlpatterns = [
     # Self-check / Lernkontrolle (#75 Phase 3): permanent async link.
     path("live/check/<str:token>/", views.check_questions),
     path("live/check/<str:token>/attempt/", views.check_attempt),
+    path("live/check/<str:token>/grade/", views.check_grade),
     path("question-sets/<int:set_id>/live-status/", views.live_status),
     path("question-sets/<int:set_id>/start-run/", views.start_run),
     path("question-sets/<int:set_id>/results/", views.set_results),
