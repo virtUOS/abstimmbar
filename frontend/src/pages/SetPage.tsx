@@ -921,11 +921,15 @@ export default function SetPage() {
   }
 
   function toggleSelectAllPull() {
-    if (!pullQuestions) return;
+    if (!pullQuestions || !set) return;
+    // Only kinds this set's type allows can be selected (#75) — "select all"
+    // never picks a disallowed question.
+    const allowed = allowedKindsFor(set.type);
+    const selectable = pullQuestions.filter((q) => allowed.includes(q.kind));
     setPullSelected((current) =>
-      current.size === pullQuestions.length
+      selectable.length > 0 && current.size >= selectable.length
         ? new Set()
-        : new Set(pullQuestions.map((q) => q.id)),
+        : new Set(selectable.map((q) => q.id)),
     );
   }
 
@@ -1871,19 +1875,27 @@ export default function SetPage() {
                   </Field>
                 </div>
 
-                {pullQuestions && (
+                {pullQuestions && (() => {
+                  // #75: the target set's type limits which question kinds may
+                  // be copied in. Disallowed kinds stay visible but are shown
+                  // disabled, so it's clear why they can't be picked.
+                  const allowed = allowedKindsFor(set.type);
+                  const selectableCount = pullQuestions.filter((q) =>
+                    allowed.includes(q.kind),
+                  ).length;
+                  return (
                   <div className="mt-4 flex min-h-0 flex-1 flex-col">
                     <div className="mb-2 flex items-center justify-between">
                       <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
                         {t("Questions")}
                       </span>
-                      {pullQuestions.length > 0 && (
+                      {selectableCount > 0 && (
                         <button
                           type="button"
                           onClick={toggleSelectAllPull}
                           className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-300"
                         >
-                          {pullSelected.size === pullQuestions.length
+                          {pullSelected.size >= selectableCount
                             ? t("Deselect all")
                             : t("Select all")}
                         </button>
@@ -1895,17 +1907,26 @@ export default function SetPage() {
                           {t("No questions yet")}
                         </li>
                       ) : (
-                        pullQuestions.map((question) => (
+                        pullQuestions.map((question) => {
+                          const disallowed = !allowed.includes(question.kind);
+                          return (
                           <li
                             key={question.id}
                             className="border-b border-slate-100 last:border-b-0 dark:border-slate-800"
                           >
-                            <label className="flex cursor-pointer items-start gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800/60">
+                            <label
+                              className={`flex items-start gap-2 px-3 py-2 ${
+                                disallowed
+                                  ? "cursor-not-allowed opacity-60"
+                                  : "cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                              }`}
+                            >
                               <input
                                 type="checkbox"
-                                checked={pullSelected.has(question.id)}
+                                disabled={disallowed}
+                                checked={!disallowed && pullSelected.has(question.id)}
                                 onChange={() => togglePullQuestion(question.id)}
-                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-slate-700 accent-brand-600 disabled:cursor-not-allowed"
                               />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm text-slate-900 dark:text-slate-100">
@@ -1917,15 +1938,23 @@ export default function SetPage() {
                                 </span>
                                 <span className="block text-xs text-slate-500 dark:text-slate-400">
                                   {t(KIND_LABEL[question.kind])}
+                                  {disallowed && (
+                                    <span className="text-amber-600 dark:text-amber-400">
+                                      {" · "}
+                                      {t("not allowed in this set type")}
+                                    </span>
+                                  )}
                                 </span>
                               </span>
                             </label>
                           </li>
-                        ))
+                          );
+                        })
                       )}
                     </ul>
                   </div>
-                )}
+                  );
+                })()}
               </>
             )}
             {pullError && <p className="mt-3 text-sm text-red-600">{pullError}</p>}
