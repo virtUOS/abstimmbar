@@ -372,3 +372,7 @@ msgstr "Alle abschicken"
 #: live/templates/live/participant.html
 msgid "Remove field"
 msgstr "Feld entfernen"
+
+#: live/templates/live/participant.html
+msgid "Clear field"
+msgstr "Feld leeren"
