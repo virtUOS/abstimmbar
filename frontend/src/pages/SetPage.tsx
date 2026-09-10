@@ -148,6 +148,7 @@ export function SetSettingsForm({
           const Icon = SET_TYPES[draft.type].icon;
           return (
             <span
+              title={t(SET_TYPES[draft.type].description)}
               className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${SET_TYPES[draft.type].accent.badge}`}
             >
               <Icon aria-hidden className="h-3.5 w-3.5" />
@@ -1034,6 +1035,7 @@ export default function SetPage() {
                 const Icon = SET_TYPES[set.type].icon;
                 return (
                   <span
+                    title={t(SET_TYPES[set.type].description)}
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold ${SET_TYPES[set.type].accent.badge}`}
                   >
                     <Icon aria-hidden className="h-3.5 w-3.5" />
