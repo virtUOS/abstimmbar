@@ -7,6 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
 import { useApp, useEasyMode } from "../App";
 import { api, type Room, type SearchResults } from "../api";
+import { SET_TYPES, CREATABLE_SET_TYPES } from "../setTypes";
 import { localizedText } from "@basicbar/ui";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
@@ -51,6 +52,41 @@ function Heart({ filled }: { filled: boolean }) {
       fill={filled ? "currentColor" : "none"}
       className="h-4 w-4"
     />
+  );
+}
+
+/** Per-type set counts on a room card (#75): one colored icon badge per set
+ *  type present, in the canonical order. An empty room says so quietly. */
+function RoomSetTypeBreakdown({ room }: { room: Room }) {
+  const { t } = useTranslation();
+  const counts = room.set_type_counts;
+  const present = CREATABLE_SET_TYPES.filter((type) => (counts?.[type] ?? 0) > 0);
+  if (!present.length) {
+    return (
+      <p className="mt-1.5 text-sm text-slate-400 dark:text-slate-500">
+        {t("No question sets yet")}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {present.map((type) => {
+        const info = SET_TYPES[type];
+        const Icon = info.icon;
+        const count = counts[type];
+        return (
+          <span
+            key={type}
+            title={t(info.label)}
+            aria-label={`${count} ${t(info.label)}`}
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${info.accent.badge}`}
+          >
+            <Icon aria-hidden className="h-3.5 w-3.5" />
+            {count}
+          </span>
+        );
+      })}
+    </div>
   );
 }
 
@@ -121,10 +157,8 @@ function RoomCard({
             <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
             {room.code}
           </span>
-          <p className="mt-1.5 text-sm text-slate-500 dark:text-slate-400">
-            {room.question_set_count}{" "}
-            {t("question set", { count: room.question_set_count })}
-          </p>
+          <RoomSetTypeBreakdown room={room} />
+
           {!room.is_owner && room.owner_name && (
             <p className="mt-0.5 text-xs text-slate-400">
               {room.is_member

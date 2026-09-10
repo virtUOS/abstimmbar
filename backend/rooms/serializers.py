@@ -11,7 +11,7 @@ Option order follows array order.
 from typing import ClassVar
 
 from django.conf import settings
-from django.db.models import Max
+from django.db.models import Count, Max
 from django.utils.html import strip_tags
 from rest_framework import serializers
 
@@ -56,6 +56,7 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     translated_optional_fields = ("title",)
 
     question_set_count = serializers.IntegerField(read_only=True)
+    set_type_counts = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
     updated_by_name = serializers.SerializerMethodField()
     owner_name = serializers.SerializerMethodField()
@@ -73,7 +74,7 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "id", "code", "title", "description", "show_logo_in_presentation",
             "show_qr_in_presentation", "show_code_in_presentation",
             "presentation_corner", "closing_info",
-            "question_set_count", "created_at", "updated_at",
+            "question_set_count", "set_type_counts", "created_at", "updated_at",
             "created_by_name", "updated_by_name",
             "owner_name", "is_owner", "is_member", "owner_count",
             "is_favorite", "is_archived",
@@ -108,6 +109,19 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         if annotated is not None:
             return annotated
         return obj.owners.count()
+
+    def get_set_type_counts(self, obj):
+        """Per-type set counts for the room-card breakdown (#75), keyed by set
+        type value. Prefers the `set_count_<value>` annotations from the list
+        queryset; falls back to a grouped count for a bare instance (e.g. the
+        create response, which isn't annotated)."""
+        types = [value for value, _ in QuestionSet.SetType.choices]
+        if hasattr(obj, f"set_count_{types[0]}"):
+            return {value: getattr(obj, f"set_count_{value}", 0) or 0 for value in types}
+        counts = {value: 0 for value in types}
+        for row in obj.question_sets.values("type").annotate(n=Count("id")):
+            counts[row["type"]] = row["n"]
+        return counts
 
     def get_updated_by_name(self, obj):
         return _user_name(obj.updated_by)
