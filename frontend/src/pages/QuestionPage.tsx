@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, TriangleAlert, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -254,6 +254,11 @@ export default function QuestionPage() {
   const [aiDistractorError, setAiDistractorError] = useState("");
   const [aiDistractors, setAiDistractors] = useState<string[]>([]);
   const [aiVariants, setAiVariants] = useState<string[]>([]);
+  // #92: page between the set's questions from the editor. siblingIds is the
+  // set's questions in order; a baseline snapshot detects unsaved edits.
+  const [siblingIds, setSiblingIds] = useState<number[]>([]);
+  const [pendingNav, setPendingNav] = useState<number | null>(null);
+  const baselineRef = useRef<string>("");
 
   useEffect(() => {
     void api.getQuestionSet(Number(setId)).then(setSet);
@@ -315,6 +320,24 @@ export default function QuestionPage() {
       );
     });
   }, [questionId]);
+
+  // #92: the set's question order, for the previous/next arrows.
+  useEffect(() => {
+    if (isNew) {
+      setSiblingIds([]);
+      return;
+    }
+    void api
+      .listQuestions(Number(setId))
+      .then((page) => setSiblingIds(page.results.map((q) => q.id)));
+  }, [setId, isNew]);
+
+  // Baseline of the editable fields, recaptured whenever a question loads or is
+  // saved (setQuestion replaces the object), so isDirty() is false right after.
+  useEffect(() => {
+    if (question) baselineRef.current = editSnapshot();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question]);
 
   // Clear the stale error banner (validation guard or a prior save's server
   // error) as soon as the user edits the text or the options — otherwise it
@@ -649,6 +672,42 @@ export default function QuestionPage() {
   const optionsMissing = isChoice && filledOptions.length < 2;
   const invalid = textMissing || optionsMissing;
 
+  // Serialized editable state — compared against the baseline to know whether
+  // there are unsaved changes before paging to another question (#92).
+  function editSnapshot() {
+    return JSON.stringify({
+      text, shuffle, binaryChoice, reveal, options,
+      timeLimit, likertPreset, abstention,
+      aiEvaluate, evaluationHint, evalCategories, evalScale, evalChart,
+      modelSolution, participantFeedback,
+      wordcloudMaxAnswers, wordcloudBatchSubmit, wordcloudLive,
+      wordcloudAiEnabled, wordcloudGrouping,
+    });
+  }
+
+  const currentIdx = siblingIds.indexOf(Number(questionId));
+  const prevId = currentIdx > 0 ? siblingIds[currentIdx - 1] : null;
+  const nextId =
+    currentIdx >= 0 && currentIdx < siblingIds.length - 1
+      ? siblingIds[currentIdx + 1]
+      : null;
+
+  function goToQuestion(id: number | null) {
+    if (id == null) return;
+    if (!isNew && editSnapshot() !== baselineRef.current) setPendingNav(id);
+    else navigate(`/sets/${setId}/questions/${id}`);
+  }
+
+  async function saveAndGo() {
+    if (pendingNav == null) return;
+    const target = pendingNav;
+    const ok = await save({ stay: true });
+    if (ok) {
+      setPendingNav(null);
+      navigate(`/sets/${setId}/questions/${target}`);
+    }
+  }
+
   const breadcrumb = (leaf: string) => (
     <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
       <HomeCrumb />{" "}
@@ -755,7 +814,31 @@ export default function QuestionPage() {
         </div>
       )}
 
-      <div className="mb-4 flex items-center justify-end gap-2">
+      <div className="mb-4 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          {!isNew && (
+            <>
+              <Button
+                variant="ghost"
+                aria-label={t("Previous question")}
+                title={t("Previous question")}
+                disabled={prevId == null || saving}
+                onClick={() => goToQuestion(prevId)}
+              >
+                <ChevronLeft aria-hidden className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                aria-label={t("Next question")}
+                title={t("Next question")}
+                disabled={nextId == null || saving}
+                onClick={() => goToQuestion(nextId)}
+              >
+                <ChevronRight aria-hidden className="h-4 w-4" />
+              </Button>
+            </>
+          )}
+        </div>
         <SegmentedControl
           ariaLabel={t("View")}
           value={tab}
@@ -1465,6 +1548,42 @@ export default function QuestionPage() {
           <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>
         </div>
       </div>
+      )}
+
+      {pendingNav !== null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPendingNav(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <p className="mb-4 text-sm text-slate-700 dark:text-slate-200">
+              {t("You have unsaved changes. Save before switching questions?")}
+            </p>
+            <div className="flex flex-wrap justify-end gap-2">
+              <Button variant="primary" disabled={saving} onClick={() => void saveAndGo()}>
+                {t("Save & continue")}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  const target = pendingNav;
+                  setPendingNav(null);
+                  navigate(`/sets/${setId}/questions/${target}`);
+                }}
+              >
+                {t("Discard & continue")}
+              </Button>
+              <Button variant="ghost" onClick={() => setPendingNav(null)}>
+                {t("Cancel")}
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {moveTargets !== null && (
