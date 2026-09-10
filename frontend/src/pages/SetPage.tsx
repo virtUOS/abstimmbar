@@ -832,19 +832,37 @@ export default function SetPage() {
   }
 
   /** Open the shared move/copy picker for a single question (#87). */
+  // #75: a target set whose type forbids this question's kind can't receive
+  // it — pick the first eligible set in a room as the default selection.
+  function firstXferTarget(
+    targets: QuestionSet[],
+    roomId: number | null,
+    kind: QuestionKind | undefined,
+  ) {
+    return (
+      targets.find(
+        (entry) =>
+          entry.room === roomId &&
+          (!kind || allowedKindsFor(entry.type).includes(kind)),
+      )?.id ?? null
+    );
+  }
+
   async function openXfer(questionId: number, mode: "move" | "copy") {
     const { targets, rooms, startRoom } = await loadTransferTargets();
+    const kind = questions?.find((q) => q.id === questionId)?.kind;
     setXferTargets(targets);
     setXferRooms(rooms);
     setXferRoom(startRoom);
-    setXferTarget(targets.find((entry) => entry.room === startRoom)?.id ?? null);
+    setXferTarget(firstXferTarget(targets, startRoom, kind));
     setXferError("");
     setXfer({ id: questionId, mode });
   }
 
   function pickXferRoom(roomId: number) {
     setXferRoom(roomId);
-    setXferTarget(xferTargets?.find((entry) => entry.room === roomId)?.id ?? null);
+    const kind = xfer ? questions?.find((q) => q.id === xfer.id)?.kind : undefined;
+    setXferTarget(firstXferTarget(xferTargets ?? [], roomId, kind));
   }
 
   async function confirmXfer() {
@@ -1791,19 +1809,52 @@ export default function SetPage() {
                   </select>
                 </Field>
                 <Field label={t("Question set")}>
-                  <select
-                    value={xferTarget ?? undefined}
-                    onChange={(event) => setXferTarget(Number(event.target.value))}
-                    className="w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
-                  >
-                    {xferTargets
-                      ?.filter((entry) => entry.room === xferRoom)
-                      .map((entry) => (
-                        <option key={entry.id} value={entry.id}>
-                          {localizedText(entry.title)}
-                        </option>
-                      ))}
-                  </select>
+                  {(() => {
+                    // #75: disable target sets whose type forbids this
+                    // question's kind — shown, but not selectable.
+                    const xferKind = xfer
+                      ? questions?.find((q) => q.id === xfer.id)?.kind
+                      : undefined;
+                    const roomTargets =
+                      xferTargets?.filter((entry) => entry.room === xferRoom) ?? [];
+                    const noneEligible =
+                      roomTargets.length > 0 &&
+                      !roomTargets.some(
+                        (entry) =>
+                          !xferKind || allowedKindsFor(entry.type).includes(xferKind),
+                      );
+                    return (
+                      <>
+                        <select
+                          value={xferTarget ?? ""}
+                          onChange={(event) => setXferTarget(Number(event.target.value))}
+                          className="w-72 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                        >
+                          {xferTarget === null && (
+                            <option value="" disabled>
+                              {t("No eligible set")}
+                            </option>
+                          )}
+                          {roomTargets.map((entry) => {
+                            const disallowed =
+                              !!xferKind &&
+                              !allowedKindsFor(entry.type).includes(xferKind);
+                            return (
+                              <option key={entry.id} value={entry.id} disabled={disallowed}>
+                                {localizedText(entry.title)}
+                                {disallowed && ` — ${t("not allowed for this question type")}`}
+                              </option>
+                            );
+                          })}
+                        </select>
+                        {noneEligible && (
+                          <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                            {t("No set in this room allows this question type.")}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
                 </Field>
               </div>
             )}
