@@ -697,13 +697,6 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                     {"detail": "Question type not allowed in this set type."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-            if (set_types.requires_solution(target.type)
-                    and source.kind == Question.Kind.OPEN_TEXT
-                    and not (source.model_solution or "").strip()):
-                return Response(
-                    {"detail": "Free-text questions need a model solution in this set type."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
         with transaction.atomic():
             last = target.questions.order_by("-position").first()
             position = (last.position + 1) if last else 0

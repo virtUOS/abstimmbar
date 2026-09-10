@@ -1474,8 +1474,9 @@ export default function SetPage() {
         </div>
       </div>
 
-      {/* Recording mode (#53): opt-in before presenting (Pro only). */}
-      {!easyMode && questions.length > 0 && (
+      {/* Recording mode (#53): opt-in before presenting (Pro only). A
+          Lernkontrolle is never presented, so it has no recording mode. */}
+      {!easyMode && set.type !== "self_check" && questions.length > 0 && (
         <label className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
           <input
             type="checkbox"
@@ -1658,10 +1659,11 @@ export default function SetPage() {
                             />
                           </span>
                         )}
-                        {!easyMode && (
+                        {!easyMode && set.type !== "self_check" && (
                           <Button
                             variant="ghost"
                             aria-label={t("Present this question")}
+                            title={t("Present this question")}
                             onClick={() =>
                               window.open(
                                 `/sets/${id}/present?question=${question.id}`,

@@ -1388,6 +1388,7 @@ class CopyQuestionsTests(ApiTestCase):
         self.assertEqual(check_set.questions.count(), 0)
 
     def test_copy_open_text_without_model_solution_into_self_check_set(self):
+        # Allowed — the editor warns, it does not block (#75).
         check_set = QuestionSet.objects.create(
             room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
         )
@@ -1395,9 +1396,8 @@ class CopyQuestionsTests(ApiTestCase):
             question_set=self.source, kind="open_text", text="Erkläre X.",
         )
         response = self.copy([open_text.pk], target=check_set)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn("model solution", response.json()["detail"])
-        self.assertEqual(check_set.questions.count(), 0)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(check_set.questions.count(), 1)
 
     def test_copy_open_text_with_model_solution_into_self_check_set(self):
         check_set = QuestionSet.objects.create(
@@ -3413,8 +3413,6 @@ class SetTypeRulesTests(TestCase):
             set(set_types.allowed_kinds("self_check")),
             {"single_choice", "multiple_choice", "ordering", "open_text"},
         )
-        self.assertTrue(set_types.requires_solution("self_check"))
-        self.assertFalse(set_types.requires_solution("live_poll"))
 
 
 class QuestionKindGatingTests(ApiTestCase):
@@ -3441,7 +3439,8 @@ class QuestionKindGatingTests(ApiTestCase):
         r = self._create_q(qs, "likert")  # likert not allowed in self_check
         self.assertEqual(r.status_code, 400)
 
-    def test_open_text_in_self_check_requires_solution(self):
+    def test_open_text_in_self_check_without_solution_is_allowed(self):
+        # No hard requirement: the editor shows a bypassable warning (#75).
         qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
         r = self.client.post(
             "/api/questions/",
@@ -3453,7 +3452,7 @@ class QuestionKindGatingTests(ApiTestCase):
             },
             content_type="application/json",
         )
-        self.assertEqual(r.status_code, 400)  # no model_solution
+        self.assertEqual(r.status_code, 201)
         r2 = self.client.post(
             "/api/questions/",
             {
@@ -3470,62 +3469,6 @@ class QuestionKindGatingTests(ApiTestCase):
     def test_all_kinds_allowed_in_live_poll(self):
         qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
         self.assertEqual(self._create_q(qs, "single_choice").status_code, 201)
-
-    def test_patch_clearing_model_solution_rejected(self):
-        # A partial PATCH that explicitly sets model_solution to "" must not
-        # fall back to the old (non-empty) instance value and slip through.
-        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
-        create = self.client.post(
-            "/api/questions/",
-            {
-                "question_set": qs.pk,
-                "kind": "open_text",
-                "text": {"de": "F", "en": "Q"},
-                "options": [],
-                "model_solution": "Paris",
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(create.status_code, 201)
-        qid = create.json()["id"]
-
-        resp = self.client.patch(
-            f"/api/questions/{qid}/",
-            {"model_solution": ""},
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("model_solution", resp.json())
-        self.assertEqual(
-            Question.objects.get(pk=qid).model_solution, "Paris"
-        )  # unchanged
-
-    def test_patch_untouched_model_solution_still_falls_back(self):
-        # A PATCH that doesn't mention model_solution at all should keep
-        # using the stored value (the "key absent" branch of the sentinel).
-        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
-        create = self.client.post(
-            "/api/questions/",
-            {
-                "question_set": qs.pk,
-                "kind": "open_text",
-                "text": {"de": "F", "en": "Q"},
-                "options": [],
-                "model_solution": "Paris",
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(create.status_code, 201)
-        qid = create.json()["id"]
-
-        resp = self.client.patch(
-            f"/api/questions/{qid}/",
-            {"text": {"de": "Neue Frage", "en": "New question"}},
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(Question.objects.get(pk=qid).model_solution, "Paris")
-
 
 class SetTypeApiTests(ApiTestCase):
     # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.

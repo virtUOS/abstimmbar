@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, X } from "lucide-react";
+import { Check, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, TriangleAlert, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -377,11 +377,18 @@ export default function QuestionPage() {
     return result;
   }
 
-  const noCorrectForSelfCheck =
+  // #75 Phase 3: a self-check question without a solution gives the learner
+  // no feedback. Warn on save (bypassable), never block.
+  const missingSolutionForSelfCheck =
     set?.type === "self_check" &&
     !!question &&
-    (question.kind === "single_choice" || question.kind === "multiple_choice") &&
-    !options.some((o) => o.is_correct && !o.is_abstention);
+    (((question.kind === "single_choice" || question.kind === "multiple_choice") &&
+      !options.some((o) => o.is_correct && !o.is_abstention)) ||
+      (question.kind === "open_text" && !modelSolution.trim()));
+  const missingSolutionMessage =
+    question?.kind === "open_text"
+      ? "No model solution entered. Learners then get no feedback on this question in the self-check. Save anyway?"
+      : "No correct answer is marked. Learners then get no feedback on this question in the self-check. Save anyway?";
 
   async function save({
     stay = false,
@@ -1398,25 +1405,30 @@ export default function QuestionPage() {
         </Field>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
-        {confirmNoCorrect && noCorrectForSelfCheck && (
-          <ConfirmInline
-            message={t(
-              "No correct answer is marked. In a self-check this question then gives no feedback. Save anyway?",
-            )}
-            confirmLabel={t("Save anyway")}
-            onConfirm={() => {
-              setConfirmNoCorrect(false);
-              void save();
-            }}
-            onCancel={() => setConfirmNoCorrect(false)}
-          />
+        {confirmNoCorrect && missingSolutionForSelfCheck && (
+          <div
+            role="alert"
+            className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            <TriangleAlert aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+            <ConfirmInline
+              message={t(missingSolutionMessage)}
+              confirmLabel={t("Save anyway")}
+              confirmVariant="primary"
+              onConfirm={() => {
+                setConfirmNoCorrect(false);
+                void save();
+              }}
+              onCancel={() => setConfirmNoCorrect(false)}
+            />
+          </div>
         )}
         <div className="sticky bottom-0 z-20 mt-4 flex gap-2 bg-white/90 py-3 backdrop-blur shadow-[0_-6px_16px_-8px_rgba(15,23,42,0.18)] dark:bg-slate-950/90">
           <Button
             variant="primary"
             disabled={saving || invalid}
             onClick={() => {
-              if (noCorrectForSelfCheck && !confirmNoCorrect) setConfirmNoCorrect(true);
+              if (missingSolutionForSelfCheck && !confirmNoCorrect) setConfirmNoCorrect(true);
               else void save();
             }}
           >
