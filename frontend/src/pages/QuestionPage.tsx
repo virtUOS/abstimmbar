@@ -96,45 +96,45 @@ function defaultOptions(kind: string, template?: string | null): EditableOption[
   return texts.map((text) => ({ clientId: nextClientId--, text, is_correct: false }));
 }
 
-/** Likert scales are fixed presets — freely editable items would make the
- * question plain single choice and break ordinal analyses (review feedback).
- * The only extra is an optional abstention. */
+/** Likert scales use a fixed step count (3–7 steps, plus optional
+ * abstention) rather than freely editable items — that would make the
+ * question plain single choice and break ordinal analyses (review
+ * feedback). Only the two endpoints carry text (bilingual, #103); the emoji
+ * preset instead fills one emoji per step (#86). */
 const ABSTENTION = "Enthaltung";
 // Labels are English source strings, translated with t() at the render site
 // (same pattern as TIME_PRESETS below).
-const LIKERT_PRESETS: { key: string; label: string; options: string[] }[] = [
+const LIKERT_PRESETS: {
+  key: string;
+  label: string;
+  left?: LocalizedText;
+  right?: LocalizedText;
+  emoji?: boolean;
+}[] = [
   {
-    key: "agree5",
-    label: "Agreement — 5 levels",
-    options: [
-      "Stimme voll zu",
-      "Stimme eher zu",
-      "Teils-teils",
-      "Stimme eher nicht zu",
-      "Stimme gar nicht zu",
-    ],
+    key: "agreement",
+    label: "Agreement",
+    left: { de: "Stimme nicht zu", en: "Disagree" },
+    right: { de: "Stimme zu", en: "Agree" },
   },
   {
-    key: "agree4",
-    label: "Agreement — 4 levels (no middle)",
-    options: [
-      "Stimme voll zu",
-      "Stimme eher zu",
-      "Stimme eher nicht zu",
-      "Stimme gar nicht zu",
-    ],
+    key: "probability",
+    label: "Probability",
+    left: { de: "Unwahrscheinlich", en: "Unlikely" },
+    right: { de: "Wahrscheinlich", en: "Likely" },
   },
-  {
-    key: "freq5",
-    label: "Frequency — 5 levels",
-    options: ["Immer", "Oft", "Manchmal", "Selten", "Nie"],
-  },
-  {
-    key: "rating5",
-    label: "Rating — 5 levels",
-    options: ["Sehr gut", "Eher gut", "Mittel", "Eher schlecht", "Sehr schlecht"],
-  },
+  { key: "emoji", label: "Emoji", emoji: true },
 ];
+
+const LIKERT_EMOJI: Record<number, string[]> = {
+  3: ["😞", "😐", "😀"],
+  4: ["😞", "🙁", "🙂", "😀"],
+  5: ["😠", "😞", "😐", "🙂", "😀"],
+  6: ["😡", "😞", "🙁", "🙂", "😀", "😍"],
+  7: ["😡", "😠", "😞", "😐", "🙂", "😀", "😍"],
+};
+
+const emptyLoc: LocalizedText = { de: "", en: "" };
 
 /** Typical time limits as one-click presets that fill the always-visible
  * seconds field; "keine" (empty) is the default, any other value can be
@@ -165,13 +165,18 @@ function detectEvalPreset(categories: string[]): string {
   return preset?.value ?? "custom";
 }
 
-function detectPreset(options: { text: LocalizedText; is_abstention?: boolean }[]): string {
-  const scale = options.filter((o) => !o.is_abstention).map((o) => localizedText(o.text));
-  const match = LIKERT_PRESETS.find(
-    (preset) =>
-      preset.options.length === scale.length &&
-      preset.options.every((text, index) => text === scale[index]),
-  );
+function isEmojiOnly(s: string): boolean {
+  return !!s && /^\p{Extended_Pictographic}$/u.test(s.trim());
+}
+function detectLikertPreset(left?: LocalizedText, right?: LocalizedText): string {
+  // Compare per-language via localizedMap (not raw `.de`/`.en`) since
+  // LocalizedText also accepts a legacy plain string.
+  const eq = (a?: LocalizedText, b?: LocalizedText) => {
+    const am = localizedMap(a);
+    const bm = localizedMap(b);
+    return am.de === bm.de && am.en === bm.en;
+  };
+  const match = LIKERT_PRESETS.find((p) => p.left && eq(p.left, left) && eq(p.right, right));
   return match ? match.key : "custom";
 }
 
@@ -210,7 +215,10 @@ export default function QuestionPage() {
   // it is allowed, just flagged).
   const [confirmNoCorrect, setConfirmNoCorrect] = useState(false);
   const [timeLimit, setTimeLimit] = useState("");
-  const [likertPreset, setLikertPreset] = useState("agree5");
+  const [likertPreset, setLikertPreset] = useState<string>("agreement");
+  const [likertSteps, setLikertSteps] = useState(5);
+  const [likertLeft, setLikertLeft] = useState<LocalizedText>({ de: "Stimme nicht zu", en: "Disagree" });
+  const [likertRight, setLikertRight] = useState<LocalizedText>({ de: "Stimme zu", en: "Agree" });
   const [abstention, setAbstention] = useState(false);
   const [aiEvaluate, setAiEvaluate] = useState(false);
   const [evaluationHint, setEvaluationHint] = useState("");
@@ -306,8 +314,18 @@ export default function QuestionPage() {
         clientId: option.id ?? nextClientId--,
       }));
       if (data.kind === "likert") {
-        setLikertPreset(detectPreset(editableOptions));
+        const scale = editableOptions.filter((o) => !o.is_abstention);
+        setLikertSteps(Math.min(7, Math.max(3, scale.length || 5)));
         setAbstention(editableOptions.some((option) => option.is_abstention));
+        const allEmoji =
+          scale.length > 0 && scale.every((o) => isEmojiOnly(localizedText(o.text)));
+        if (allEmoji) {
+          setLikertPreset("emoji");
+        } else {
+          setLikertLeft(scale[0]?.text ?? emptyLoc);
+          setLikertRight(scale[scale.length - 1]?.text ?? emptyLoc);
+          setLikertPreset(detectLikertPreset(scale[0]?.text, scale[scale.length - 1]?.text));
+        }
       }
       setOptions(editableOptions);
       setOptionBaseline(
@@ -373,16 +391,26 @@ export default function QuestionPage() {
   }
 
   function likertOptions(): AnswerOption[] {
-    const preset = LIKERT_PRESETS.find((entry) => entry.key === likertPreset);
-    const scale = preset
-      ? preset.options
-      : options.filter((o) => !o.is_abstention).map((o) => o.text);
-    const result: AnswerOption[] = scale.map((text) => ({
-      text,
-      is_correct: false,
-    }));
+    const n = Math.min(7, Math.max(3, likertSteps));
+    const preset = LIKERT_PRESETS.find((p) => p.key === likertPreset);
+    let result: AnswerOption[];
+    if (preset?.emoji) {
+      result = (LIKERT_EMOJI[n] ?? LIKERT_EMOJI[5]).map((e) => ({
+        text: { de: e, en: e },
+        is_correct: false,
+      }));
+    } else {
+      result = Array.from({ length: n }, (_, i) => ({
+        text: i === 0 ? likertLeft : i === n - 1 ? likertRight : emptyLoc,
+        is_correct: false,
+      }));
+    }
     if (abstention) {
-      result.push({ text: ABSTENTION, is_correct: false, is_abstention: true });
+      result.push({
+        text: { de: ABSTENTION, en: "Abstain" },
+        is_correct: false,
+        is_abstention: true,
+      });
     }
     return result;
   }
@@ -1110,39 +1138,65 @@ export default function QuestionPage() {
 
         {isLikert && (
           <div className="grid gap-3">
-            <Field label={t("Scale")}>
-              <select
-                value={likertPreset}
-                onChange={(event) => setLikertPreset(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
-              >
-                {LIKERT_PRESETS.map((preset) => (
-                  <option key={preset.key} value={preset.key}>
-                    {t(preset.label)}
-                  </option>
-                ))}
-                {likertPreset === "custom" && (
-                  <option value="custom">{t("Custom scale (imported)")}</option>
-                )}
-              </select>
-            </Field>
-            <ol className="flex flex-wrap gap-2 text-sm">
-              {(LIKERT_PRESETS.find((p) => p.key === likertPreset)?.options ??
-                options.filter((o) => !o.is_abstention).map((o) => o.text)
-              ).map((text, index) => (
-                <li
-                  key={index}
-                  className="rounded-lg bg-slate-100 px-2.5 py-1 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label={t("Scale")}>
+                <select
+                  value={likertPreset}
+                  onChange={(event) => {
+                    const key = event.target.value;
+                    const preset = LIKERT_PRESETS.find((p) => p.key === key);
+                    setLikertPreset(key);
+                    if (preset?.left) setLikertLeft(preset.left);
+                    if (preset?.right) setLikertRight(preset.right);
+                  }}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
                 >
-                  {localizedText(text)}
-                </li>
-              ))}
-              {abstention && (
-                <li className="rounded-lg border border-dashed border-slate-300 px-2.5 py-1 text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  {ABSTENTION}
-                </li>
-              )}
-            </ol>
+                  {LIKERT_PRESETS.map((preset) => (
+                    <option key={preset.key} value={preset.key}>
+                      {t(preset.label)}
+                    </option>
+                  ))}
+                  {likertPreset === "custom" && (
+                    <option value="custom">{t("Custom")}</option>
+                  )}
+                </select>
+              </Field>
+              <Field label={t("Steps")}>
+                <select
+                  value={likertSteps}
+                  onChange={(event) => setLikertSteps(Number(event.target.value))}
+                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                >
+                  {[3, 4, 5, 6, 7].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+
+            {!LIKERT_PRESETS.find((p) => p.key === likertPreset)?.emoji && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <TranslatableField
+                  label={t("Left label (negative)")}
+                  value={likertLeft}
+                  onChange={(value) => {
+                    setLikertLeft(value);
+                    setLikertPreset(detectLikertPreset(value, likertRight));
+                  }}
+                />
+                <TranslatableField
+                  label={t("Right label (positive)")}
+                  value={likertRight}
+                  onChange={(value) => {
+                    setLikertRight(value);
+                    setLikertPreset(detectLikertPreset(likertLeft, value));
+                  }}
+                />
+              </div>
+            )}
+
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
               <input
                 type="checkbox"
@@ -1154,11 +1208,37 @@ export default function QuestionPage() {
                 abstention: ABSTENTION,
               })}
             </label>
-            <p className="text-xs text-slate-400">
-              {t(
-                "The scale steps are fixed — this keeps Likert evaluations comparable across questions and semesters.",
+
+            {/* Live preview (#86): one segment per step, emoji or blank,
+                with the endpoint labels shown under the two ends. */}
+            <ol className="flex flex-wrap items-stretch gap-2 text-sm">
+              {Array.from({ length: likertSteps }, (_, index) => {
+                const emojiPreset = LIKERT_PRESETS.find((p) => p.key === likertPreset)?.emoji;
+                const emoji = emojiPreset
+                  ? (LIKERT_EMOJI[likertSteps] ?? LIKERT_EMOJI[5])[index]
+                  : null;
+                const isLeftEnd = index === 0;
+                const isRightEnd = index === likertSteps - 1;
+                return (
+                  <li
+                    key={index}
+                    className="flex w-16 flex-col items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-center dark:bg-slate-800"
+                  >
+                    <span className="text-lg leading-none">{emoji ?? " "}</span>
+                    {!emojiPreset && (isLeftEnd || isRightEnd) && (
+                      <span className="line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
+                        {localizedText(isLeftEnd ? likertLeft : likertRight) || "—"}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+              {abstention && (
+                <li className="flex w-16 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                  {ABSTENTION}
+                </li>
               )}
-            </p>
+            </ol>
           </div>
         )}
 
