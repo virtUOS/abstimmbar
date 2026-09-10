@@ -970,6 +970,8 @@ export default function RoomPage() {
                     const Icon = SET_TYPES[set.type].icon;
                     return (
                       <span
+                        title={t(SET_TYPES[set.type].label)}
+                        aria-label={t(SET_TYPES[set.type].label)}
                         className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${SET_TYPES[set.type].accent.iconBox}`}
                       >
                         <Icon aria-hidden className="h-5 w-5" />

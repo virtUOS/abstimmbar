@@ -7,7 +7,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
 import { useApp, useEasyMode } from "../App";
 import { api, type Room, type SearchResults } from "../api";
-import { SET_TYPES, CREATABLE_SET_TYPES } from "../setTypes";
+import { SET_TYPES, CREATABLE_SET_TYPES, type SetType } from "../setTypes";
 import { localizedText } from "@basicbar/ui";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
@@ -55,8 +55,19 @@ function Heart({ filled }: { filled: boolean }) {
   );
 }
 
+// Count-aware, pluralized tooltip per set type (#75), e.g. "5 Live-Umfragen".
+// English source strings are the i18next keys (with _one/_other plurals).
+const SET_TYPE_COUNT_LABEL: Record<SetType, string> = {
+  live_poll: "{{count}} live poll",
+  self_paced: "{{count}} self-paced quiz",
+  self_check: "{{count}} self-check",
+};
+
 /** Per-type set counts on a room card (#75): one colored icon badge per set
- *  type present, in the canonical order. An empty room says so quietly. */
+ *  type present, in the canonical order, each with a count-aware tooltip. The
+ *  row sits above the card's full-card click overlay (`relative z-10`) so the
+ *  native title tooltips are not swallowed by it; the badges stay inside the
+ *  link, so a click still opens the room. An empty room says so quietly. */
 function RoomSetTypeBreakdown({ room }: { room: Room }) {
   const { t } = useTranslation();
   const counts = room.set_type_counts;
@@ -69,16 +80,17 @@ function RoomSetTypeBreakdown({ room }: { room: Room }) {
     );
   }
   return (
-    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+    <div className="relative z-10 mt-1.5 flex flex-wrap items-center gap-1.5">
       {present.map((type) => {
         const info = SET_TYPES[type];
         const Icon = info.icon;
         const count = counts[type];
+        const label = t(SET_TYPE_COUNT_LABEL[type], { count });
         return (
           <span
             key={type}
-            title={t(info.label)}
-            aria-label={`${count} ${t(info.label)}`}
+            title={label}
+            aria-label={label}
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ${info.accent.badge}`}
           >
             <Icon aria-hidden className="h-3.5 w-3.5" />

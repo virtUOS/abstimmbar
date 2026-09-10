@@ -1,6 +1,12 @@
 {
   "question set_one": "question set",
   "question set_other": "question sets",
+  "{{count}} live poll_one": "{{count}} live poll",
+  "{{count}} live poll_other": "{{count}} live polls",
+  "{{count}} self-paced quiz_one": "{{count}} self-paced quiz",
+  "{{count}} self-paced quiz_other": "{{count}} self-paced quizzes",
+  "{{count}} self-check_one": "{{count}} self-check",
+  "{{count}} self-check_other": "{{count}} self-checks",
   "vote_one": "vote",
   "vote_other": "votes",
   "answer_one": "answer",
