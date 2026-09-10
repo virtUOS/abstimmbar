@@ -81,6 +81,11 @@
   "Cancel": "Abbrechen",
   "Discard unsaved changes?": "Ungespeicherte Änderungen verwerfen?",
   "Discard": "Verwerfen",
+  "Previous question": "Vorherige Frage",
+  "Next question": "Nächste Frage",
+  "You have unsaved changes. Save before switching questions?": "Es gibt ungespeicherte Änderungen. Vor dem Wechsel speichern?",
+  "Save & continue": "Speichern & weiter",
+  "Discard & continue": "Verwerfen & weiter",
   "More actions": "Weitere Aktionen",
 
   "Last used": "zuletzt genutzt",
