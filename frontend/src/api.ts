@@ -81,6 +81,7 @@ export interface QuestionSet {
   present_results_after: boolean;
   allow_back_navigation: boolean;
   shuffle_questions: boolean;
+  reveal_only_in_summary: boolean;
   share_token: string | null;
   self_check_token: string | null;
   license: string;
@@ -550,6 +551,7 @@ export const api = {
       present_results_after?: boolean;
       allow_back_navigation?: boolean;
       shuffle_questions?: boolean;
+      reveal_only_in_summary?: boolean;
     },
   ) =>
     request<QuestionSet>("/api/question-sets/", {

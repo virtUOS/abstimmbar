@@ -945,6 +945,7 @@ def check_questions(request, token):
         {
             "set_title": translated_map(qs, "title"),
             "shuffle_questions": qs.shuffle_questions,
+            "reveal_only_in_summary": qs.reveal_only_in_summary,
             "single": single,
             "questions": [
                 {

@@ -143,6 +143,7 @@ const NEW_SET_DEFAULTS: SetSettings = {
   present_results_after: true,
   allow_back_navigation: true,
   shuffle_questions: false,
+  reveal_only_in_summary: false,
 };
 
 type SortKey = "updated" | "created" | "title" | "questions";

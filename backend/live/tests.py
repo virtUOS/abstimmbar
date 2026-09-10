@@ -3741,6 +3741,16 @@ class SelfCheckGradeTests(TestCase):
         self.assertIn("ai_evaluate", q)
         self.assertTrue(q["ai_evaluate"])
 
+    def test_check_questions_payload_has_reveal_only_in_summary(self):
+        resp = self.client.get(f"/api/live/check/{self.token}/")
+        self.assertEqual(resp.status_code, 200)
+        # Default is False (results after each question).
+        self.assertFalse(resp.json()["reveal_only_in_summary"])
+        self.qs.reveal_only_in_summary = True
+        self.qs.save(update_fields=["reveal_only_in_summary"])
+        resp = self.client.get(f"/api/live/check/{self.token}/")
+        self.assertTrue(resp.json()["reveal_only_in_summary"])
+
 
 class SelfCheckRegressionTests(LiveTestCase):
     """#75 Phase 3: solutions must stay exclusive to the check endpoints —

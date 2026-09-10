@@ -120,6 +120,7 @@ export interface SetSettings {
   present_results_after: boolean;
   allow_back_navigation: boolean;
   shuffle_questions: boolean;
+  reveal_only_in_summary: boolean;
 }
 
 /** The settings form, shared by the create panel (RoomPage) and the edit
@@ -176,19 +177,33 @@ export function SetSettingsForm({
           </legend>
           <div className="grid gap-2">
             {draft.type === "self_check" ? (
-              // Self-check (#75): a standing practice link with per-question
-              // instant feedback, no timing/reveal/results controls apply.
-              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                <input
-                  type="checkbox"
-                  checked={draft.shuffle_questions}
-                  onChange={(event) =>
-                    onChange({ shuffle_questions: event.target.checked })
-                  }
-                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-                />
-                {t("Show questions in a random order")}
-              </label>
+              // Self-check (#75): a standing practice link. The teacher picks
+              // whether results appear after each question or only in the
+              // end-of-block summary; question order can be randomized.
+              <>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.shuffle_questions}
+                    onChange={(event) =>
+                      onChange({ shuffle_questions: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show questions in a random order")}
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={draft.reveal_only_in_summary}
+                    onChange={(event) =>
+                      onChange({ reveal_only_in_summary: event.target.checked })
+                    }
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Show results only in the summary at the end")}
+                </label>
+              </>
             ) : draft.type === "self_paced" ? (
               // Quiz-Block (#75): no per-question start/stop, so "reveal timing"
               // and "open on show" don't apply; the choices are whether the
@@ -706,6 +721,7 @@ export default function SetPage() {
       present_results_after: set.present_results_after,
       allow_back_navigation: set.allow_back_navigation,
       shuffle_questions: set.shuffle_questions,
+      reveal_only_in_summary: set.reveal_only_in_summary,
     });
     setEditingMeta(true);
   }
@@ -1196,6 +1212,10 @@ export default function SetPage() {
               {t("Show questions in a random order")}:{" "}
               <strong className="font-semibold text-slate-700 dark:text-slate-200">
                 {set.shuffle_questions ? t("yes") : t("no")}
+              </strong>{" "}
+              · {t("Show results only in the summary at the end")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.reveal_only_in_summary ? t("yes") : t("no")}
               </strong>
             </p>
           )}

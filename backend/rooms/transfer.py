@@ -185,6 +185,7 @@ def duplicate_set(question_set, target_room, title=None):
         present_results_after=question_set.present_results_after,
         allow_back_navigation=question_set.allow_back_navigation,
         shuffle_questions=question_set.shuffle_questions,
+        reveal_only_in_summary=question_set.reveal_only_in_summary,
         # The license statement travels with the copy; the share link does not.
         license=question_set.license,
         license_holder=question_set.license_holder,
@@ -224,6 +225,7 @@ def export_set(question_set):
         "present_results_after": question_set.present_results_after,
         "allow_back_navigation": question_set.allow_back_navigation,
         "shuffle_questions": question_set.shuffle_questions,
+        "reveal_only_in_summary": question_set.reveal_only_in_summary,
         "license": question_set.license,
         "license_holder": question_set.license_holder,
         "sections": [
@@ -322,6 +324,7 @@ def import_set(room, data):
         present_results_after=bool(data.get("present_results_after", True)),
         allow_back_navigation=bool(data.get("allow_back_navigation", True)),
         shuffle_questions=bool(data.get("shuffle_questions", False)),
+        reveal_only_in_summary=bool(data.get("reveal_only_in_summary", False)),
         license=(
             data.get("license")
             if data.get("license") in {c.value for c in QuestionSet.License}
