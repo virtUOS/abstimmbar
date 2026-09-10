@@ -46,6 +46,8 @@ multi-line note must use {% comment %} or it renders as text.)
   <p class="soft" id="countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="question-text"></div>
   <div id="options"></div>
+  {# Likert scale (#86): a connected row of segment buttons, one tap = one vote. #}
+  <div id="likert" hidden></div>
   <form id="wordcloud" hidden>
     <input type="text" id="word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}">
@@ -125,6 +127,14 @@ multi-line note must use {% comment %} or it renders as text.)
   .ord-arrows button{display:flex;align-items:center;justify-content:center;width:36px;height:32px;min-height:0;margin:0;padding:0;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;font-size:12px;line-height:1}
   .ord-arrows button:hover{background:var(--brand-soft);border-color:var(--brand-strong)}
   .ord-arrows button[hidden]{display:none}
+  /* Likert (#86): a connected, snapping segment row — equal-width steps,
+     rounded ends via overflow:hidden on the container, touch-friendly. */
+  .likert-row{display:flex;width:100%;margin-top:10px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .likert-seg{flex:1 1 0;min-width:0;margin:0;padding:8px 4px;border:0;border-radius:0;min-height:52px;background:var(--surface);color:var(--ink);font-size:13px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:break-word}
+  .likert-seg + .likert-seg{border-left:1px solid var(--line)}
+  .likert-seg.selected{background:var(--brand-soft);color:var(--brand-strong);font-weight:700}
+  .likert-caps{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--ink-soft);font-size:13px}
+  .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center}
 </style>
 <section id="finished" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
@@ -1039,6 +1049,8 @@ multi-line note must use {% comment %} or it renders as text.)
     selected = new Set();
     wordcloud.hidden = q.kind !== "word_cloud";
     opentext.hidden = q.kind !== "open_text";
+    document.getElementById("likert").hidden = q.kind !== "likert";
+    optionsBox.hidden = q.kind === "likert";
     submitMulti.hidden = !q.multiple;
     renderCountdown();
     // Word cloud with multiple answers (#14): a "Done" button appears and
@@ -1081,6 +1093,10 @@ multi-line note must use {% comment %} or it renders as text.)
       renderOrderingSorter(optionsBox, q, (payload) => submitVote(payload));
       return;
     }
+    if (q.kind === "likert") {
+      renderLikert(q);
+      return;
+    }
     for (const option of q.options) {
       const button = document.createElement("button");
       button.type = "button";
@@ -1098,6 +1114,43 @@ multi-line note must use {% comment %} or it renders as text.)
     }
     submitMulti.disabled = true;
     submitMulti.onclick = () => submitVote({ options: [...selected] });
+  }
+
+  // Likert (#86): a connected row of segment buttons, one per step (position
+  // order, abstention excluded). A tap submits immediately, like single
+  // choice. If every step carries its own label (emoji scale, or a legacy
+  // fully-labeled scale) it's shown inside the segment; otherwise segments
+  // stay blank and only the two endpoints are captioned below the row.
+  function renderLikert(q) {
+    const box = document.getElementById("likert");
+    box.hidden = false;
+    box.replaceChildren();
+    const scale = q.options.filter((o) => !o.is_abstention);
+    const perStep = scale.every((o) => (locText(o.text) || "").trim().length > 0);
+    const row = document.createElement("div"); row.className = "likert-row";
+    scale.forEach((option) => {
+      const seg = document.createElement("button");
+      seg.type = "button"; seg.className = "likert-seg";
+      if (perStep) seg.textContent = locText(option.text);
+      seg.setAttribute("aria-label", locText(option.text) || "");
+      seg.addEventListener("click", () => submitVote({ options: [option.id] }));
+      row.appendChild(seg);
+    });
+    box.appendChild(row);
+    if (!perStep && scale.length) {
+      const caps = document.createElement("div"); caps.className = "likert-caps";
+      const l = document.createElement("span"); l.textContent = locText(scale[0].text);
+      const r = document.createElement("span"); r.textContent = locText(scale[scale.length - 1].text);
+      caps.append(l, r); box.appendChild(caps);
+    }
+    const abstain = q.options.find((o) => o.is_abstention);
+    if (abstain) {
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "likert-abstain";
+      btn.textContent = locText(abstain.text);
+      btn.addEventListener("click", () => submitVote({ options: [abstain.id] }));
+      box.appendChild(btn);
+    }
   }
 
   // --- self-paced quiz (concept §6.3) ---------------------------------------
