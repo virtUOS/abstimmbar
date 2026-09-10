@@ -197,7 +197,7 @@ function RoomCard({
                 onClick={() => onToggleFavorite(room)}
                 className={`rounded-lg p-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
                   room.is_favorite
-                    ? "text-red-500 hover:bg-red-50 dark:hover:bg-red-950/40"
+                    ? "text-brand-600 hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-950/40"
                     : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
                 }`}
               >
@@ -520,7 +520,7 @@ export default function RoomsPage() {
           {favorites.length > 0 && (
             <section className="mb-6">
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
-                <span className="text-red-500">
+                <span className="text-brand-600 dark:text-brand-400">
                   <Heart filled />
                 </span>
                 {t("Favorites")}
