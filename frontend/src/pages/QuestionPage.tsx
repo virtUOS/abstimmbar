@@ -27,7 +27,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
-import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
+import { Button, ConfirmInline, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
@@ -205,6 +205,10 @@ export default function QuestionPage() {
   const [binaryChoice, setBinaryChoice] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
   const [options, setOptions] = useState<EditableOption[]>([]);
+  // #75 Phase 3: a self-check choice question without a marked correct answer
+  // gives no feedback — warn before saving (questions may be copied around, so
+  // it is allowed, just flagged).
+  const [confirmNoCorrect, setConfirmNoCorrect] = useState(false);
   const [timeLimit, setTimeLimit] = useState("");
   const [likertPreset, setLikertPreset] = useState("agree5");
   const [abstention, setAbstention] = useState(false);
@@ -372,6 +376,12 @@ export default function QuestionPage() {
     }
     return result;
   }
+
+  const noCorrectForSelfCheck =
+    set?.type === "self_check" &&
+    !!question &&
+    (question.kind === "single_choice" || question.kind === "multiple_choice") &&
+    !options.some((o) => o.is_correct && !o.is_abstention);
 
   async function save({
     stay = false,
@@ -1388,8 +1398,28 @@ export default function QuestionPage() {
         </Field>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
+        {confirmNoCorrect && noCorrectForSelfCheck && (
+          <ConfirmInline
+            message={t(
+              "No correct answer is marked. In a self-check this question then gives no feedback. Save anyway?",
+            )}
+            confirmLabel={t("Save anyway")}
+            onConfirm={() => {
+              setConfirmNoCorrect(false);
+              void save();
+            }}
+            onCancel={() => setConfirmNoCorrect(false)}
+          />
+        )}
         <div className="sticky bottom-0 z-20 mt-4 flex gap-2 bg-white/90 py-3 backdrop-blur shadow-[0_-6px_16px_-8px_rgba(15,23,42,0.18)] dark:bg-slate-950/90">
-          <Button variant="primary" disabled={saving || invalid} onClick={() => void save()}>
+          <Button
+            variant="primary"
+            disabled={saving || invalid}
+            onClick={() => {
+              if (noCorrectForSelfCheck && !confirmNoCorrect) setConfirmNoCorrect(true);
+              else void save();
+            }}
+          >
             {saving ? t("Saving …") : t("Save")}
           </Button>
           <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>

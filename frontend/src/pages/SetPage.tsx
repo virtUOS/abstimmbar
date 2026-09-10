@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2, TriangleAlert } from "lucide-react";
 import {
   api,
   results,
@@ -52,6 +52,22 @@ export const KIND_LABEL: Record<QuestionKind, string> = {
 // Kinds whose answers are options (mirror of backend Question.CHOICE_KINDS) —
 // the only kinds that can get an after-question (#54).
 const CHOICE_KINDS: QuestionKind[] = ["single_choice", "multiple_choice", "likert"];
+
+/** #75 Phase 3: in a self-check, a question needs something to give feedback
+ * with — a marked correct option (choice kinds) or a model solution (free
+ * text). Ordering always has its correct order; other kinds are not allowed. */
+function missingSolution(question: Question): boolean {
+  if (question.kind === "single_choice" || question.kind === "multiple_choice") {
+    return !question.options.some((o) => o.is_correct && !o.is_abstention);
+  }
+  if (question.kind === "open_text") return !(question.model_solution || "").trim();
+  return false;
+}
+function missingSolutionHint(question: Question): string {
+  return question.kind === "open_text"
+    ? "No model solution — no feedback in the self-check"
+    : "No correct answer marked — no feedback in the self-check";
+}
 
 // Labels are English source strings, translated with t() at each render site.
 export const REVEAL_OPTIONS: { value: RevealAnswers; label: string }[] = [
@@ -1611,6 +1627,20 @@ export default function SetPage() {
                       />
                     ) : (
                       <>
+                        {/* #75 Phase 3: a self-check question without a solution
+                            (no correct option / no model solution) gives the
+                            learner no feedback — flag it. */}
+                        {set.type === "self_check" && missingSolution(question) && (
+                          <span
+                            title={t(missingSolutionHint(question))}
+                            className="inline-flex shrink-0 px-1 text-amber-500"
+                          >
+                            <TriangleAlert
+                              aria-label={t(missingSolutionHint(question))}
+                              className="h-4 w-4"
+                            />
+                          </span>
+                        )}
                         {/* Pro only (#91): a persisted stale-translation flag,
                             sitting with the row actions. */}
                         {!easyMode && hasStaleTranslation && (
