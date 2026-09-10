@@ -818,12 +818,18 @@ export default function QuestionPage() {
         <div className="flex items-center gap-1">
           {!isNew && (
             <>
+              {/* aria-disabled (not the disabled attribute) so the native
+                  title tooltip still shows at the ends of the list, where the
+                  button is greyed out (#92 follow-up). */}
               <Button
                 variant="ghost"
                 aria-label={t("Previous question")}
                 title={t("Previous question")}
-                disabled={prevId == null || saving}
-                onClick={() => goToQuestion(prevId)}
+                aria-disabled={prevId == null || saving}
+                className={prevId == null || saving ? "opacity-40 cursor-not-allowed" : ""}
+                onClick={() => {
+                  if (prevId != null && !saving) goToQuestion(prevId);
+                }}
               >
                 <ChevronLeft aria-hidden className="h-4 w-4" />
               </Button>
@@ -831,8 +837,11 @@ export default function QuestionPage() {
                 variant="ghost"
                 aria-label={t("Next question")}
                 title={t("Next question")}
-                disabled={nextId == null || saving}
-                onClick={() => goToQuestion(nextId)}
+                aria-disabled={nextId == null || saving}
+                className={nextId == null || saving ? "opacity-40 cursor-not-allowed" : ""}
+                onClick={() => {
+                  if (nextId != null && !saving) goToQuestion(nextId);
+                }}
               >
                 <ChevronRight aria-hidden className="h-4 w-4" />
               </Button>
