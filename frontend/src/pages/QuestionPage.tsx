@@ -27,7 +27,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
-import { Button, Field, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
+import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
@@ -1020,6 +1020,24 @@ export default function QuestionPage() {
                     <option value="after_close">{t(REVEAL_LABEL.after_close)}</option>
                     <option value="never">{t(REVEAL_LABEL.never)}</option>
                   </select>
+                  {/* #75: the per-question reveal only matters for live polls —
+                      the self-paced and self-check flows use the set's own
+                      rule. Keep the option (questions get copied between sets)
+                      but say so. */}
+                  {set?.type === "self_check" && (
+                    <InfoHint
+                      text={t(
+                        "In a self-check this has no effect — the correct answer or model solution is always shown right away. The setting is kept in case the question is copied to another set.",
+                      )}
+                    />
+                  )}
+                  {set?.type === "self_paced" && (
+                    <InfoHint
+                      text={t(
+                        "In a self-paced quiz the set's own setting (show correct answers right after answering) applies; this per-question option has no effect there. It is kept in case the question is copied to a live poll.",
+                      )}
+                    />
+                  )}
                 </label>
               )}
 
