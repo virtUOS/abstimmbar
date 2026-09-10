@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2, TriangleAlert } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Square, Timer, Trash2, TriangleAlert } from "lucide-react";
 import {
   api,
   results,
@@ -1255,8 +1255,13 @@ export default function SetPage() {
                 : t("{{n}} attempts", { n: selfCheckStats.attempts }))}
           </p>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => void handleUnpublish()}>
-              {t("Unpublish")}
+            <Button
+              variant="primary"
+              onClick={() => void handleUnpublish()}
+              className="inline-flex items-center gap-1.5"
+            >
+              <Square aria-hidden className="h-4 w-4 fill-current" />
+              {t("Stop")}
             </Button>
             {confirmResetStats ? (
               <ConfirmInline
