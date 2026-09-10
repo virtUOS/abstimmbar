@@ -620,11 +620,9 @@
   "Jump to page": "Zu Seite springen",
   "Next page": "Nächste Seite",
 
-  "← Disagreement": "← Ablehnung",
-  "Agreement →": "Zustimmung →",
-  "Agreement": "Zustimmung",
   "neutral": "neutral",
-  "Disagreement": "Ablehnung",
+  "high": "hoch",
+  "low": "niedrig",
 
   "answer being evaluated_one": "Antwort wird noch ausgewertet …",
   "answer being evaluated_other": "Antworten werden noch ausgewertet …",

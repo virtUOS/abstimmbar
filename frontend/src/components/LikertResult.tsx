@@ -17,7 +17,7 @@ import { localizedText } from "@basicbar/ui";
 function stepFill(step: LikertStep, groupSize: number, rank: number): string {
   if (step.polarity === "neutral") return "oklch(0.8 0.012 220)";
   const t = groupSize <= 1 ? 1 : rank / (groupSize - 1);
-  return step.polarity === "disagree"
+  return step.polarity === "low"
     ? `oklch(${0.8 - 0.26 * t} ${0.08 + 0.13 * t} 27)`
     : `oklch(${0.84 - 0.3 * t} ${0.09 + 0.05 * t} 149)`;
 }
@@ -26,7 +26,7 @@ function stepFill(step: LikertStep, groupSize: number, rank: number): string {
 function inkFor(step: LikertStep, groupSize: number, rank: number): string {
   if (step.polarity === "neutral") return "oklch(0.28 0.011 220)";
   const t = groupSize <= 1 ? 1 : rank / (groupSize - 1);
-  const lightness = step.polarity === "disagree" ? 0.8 - 0.26 * t : 0.84 - 0.3 * t;
+  const lightness = step.polarity === "low" ? 0.8 - 0.26 * t : 0.84 - 0.3 * t;
   return lightness > 0.62 ? "oklch(0.25 0.02 27)" : "oklch(0.98 0.01 149)";
 }
 
@@ -36,21 +36,21 @@ interface Colored extends LikertStep {
 }
 
 function colorize(steps: LikertStep[]): Colored[] {
-  const disagree = steps.filter((s) => s.polarity === "disagree").length;
-  const agree = steps.filter((s) => s.polarity === "agree").length;
-  let dSeen = 0;
-  let aSeen = 0;
+  const low = steps.filter((s) => s.polarity === "low").length;
+  const high = steps.filter((s) => s.polarity === "high").length;
+  let lSeen = 0;
+  let hSeen = 0;
   return steps.map((step) => {
     let group = 1;
     let rank = 0;
-    if (step.polarity === "disagree") {
-      group = disagree;
-      rank = disagree - 1 - dSeen; // innermost disagree step ranks 0
-      dSeen += 1;
-    } else if (step.polarity === "agree") {
-      group = agree;
-      rank = aSeen; // innermost agree step ranks 0
-      aSeen += 1;
+    if (step.polarity === "low") {
+      group = low;
+      rank = low - 1 - lSeen; // innermost low step ranks 0
+      lSeen += 1;
+    } else if (step.polarity === "high") {
+      group = high;
+      rank = hSeen; // innermost high step ranks 0
+      hSeen += 1;
     }
     return { ...step, fill: stepFill(step, group, rank), ink: inkFor(step, group, rank) };
   });
@@ -105,8 +105,8 @@ export default function LikertResult({
 
       {present && (
         <div className="mt-1.5 flex justify-between text-xs text-slate-400">
-          <span>{t("← Disagreement")}</span>
-          <span>{t("Agreement →")}</span>
+          <span>{localizedText(summary.low_label) ? `← ${localizedText(summary.low_label)}` : "←"}</span>
+          <span>{localizedText(summary.high_label) ? `${localizedText(summary.high_label)} →` : "→"}</span>
         </div>
       )}
 
@@ -128,7 +128,8 @@ export default function LikertResult({
         className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${present ? "mt-4 border-t border-slate-200 pt-3 text-lg dark:border-slate-700" : "mt-2 text-xs"}`}
       >
         <span className="text-brand-700 dark:text-brand-300">
-          <span className="font-semibold">{summary.agree_pct} %</span> {t("Agreement")}
+          <span className="font-semibold">{summary.high_pct} %</span>{" "}
+          {localizedText(summary.high_label) || t("high")}
         </span>
         {summary.neutral > 0 && (
           <span className="text-slate-500 dark:text-slate-400">
@@ -136,7 +137,8 @@ export default function LikertResult({
           </span>
         )}
         <span className="text-rose-700 dark:text-rose-300">
-          <span className="font-semibold">{summary.disagree_pct} %</span> {t("Disagreement")}
+          <span className="font-semibold">{summary.low_pct} %</span>{" "}
+          {localizedText(summary.low_label) || t("low")}
         </span>
         {summary.abstentions > 0 && (
           <span className="ml-auto text-slate-400">
