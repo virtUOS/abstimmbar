@@ -1993,13 +1993,14 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   // Local grading (no POST for the grading itself — the check API already
-  // handed us the solutions). Choice kinds compare the chosen option ids
-  // against `q.correct` (empty = no correct answer was marked = unscored,
-  // `isCorrect` stays null); ordering compares the submitted order against
-  // `q.correct_order`; open_text is always unscored (the model solution is
-  // shown, never auto-graded). Single-question mode posts the attempt right
-  // here — exactly once per grading, regardless of how often the graded
-  // view is re-rendered afterwards (fix round 1, must-fix 2).
+  // handed us the solutions). Handles choice and ordering kinds only: choice
+  // kinds compare the chosen option ids against `q.correct` (empty = no
+  // correct answer was marked = unscored, `isCorrect` stays null); ordering
+  // compares the submitted order against `q.correct_order`. open_text is
+  // graded separately in `gradeCheckText`, which calls the AI endpoint
+  // (`/grade/`) when `q.ai_evaluate` is set. Single-question mode posts the
+  // attempt right here — exactly once per grading, regardless of how often
+  // the graded view is re-rendered afterwards (fix round 1, must-fix 2).
   function gradeCheck(q, payload) {
     let isCorrect = null;
     if (CHOICE_KINDS.includes(q.kind)) {
@@ -2234,13 +2235,19 @@ multi-line note must use {% comment %} or it renders as text.)
     (ai.categories || []).forEach((cat, i) => {
       const pill = document.createElement("span");
       const on = i === ai.index;
-      const good = ai.index === 0;
+      // index 0 = top category (green, brand-strong); any other highlighted
+      // category is a middle/lower bucket ("unklar" etc.), shown in amber —
+      // not the same red as a fully-wrong answer, so it doesn't read as an
+      // outright failure. There is no shared amber/warning CSS token in this
+      // template, so a literal amber is used here (reads fine in both
+      // light/dark since it's a solid fill, not a theme-dependent tint).
+      const highlightColor = ai.index === 0 ? "var(--brand-strong)" : "#b45309";
       pill.textContent = cat;
       pill.style.cssText =
         "padding:3px 10px;border-radius:999px;font-size:14px;border:1px solid " +
-        (on ? (good ? "var(--brand-strong)" : "var(--danger-strong)") : "var(--line)") +
+        (on ? highlightColor : "var(--line)") +
         ";" + (on
-          ? "color:#fff;background:" + (good ? "var(--brand-strong)" : "var(--danger-strong)") + ";font-weight:600"
+          ? "color:#fff;background:" + highlightColor + ";font-weight:600"
           : "color:var(--ink-soft)");
       row.appendChild(pill);
     });

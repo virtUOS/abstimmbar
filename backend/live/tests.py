@@ -3705,6 +3705,14 @@ class SelfCheckGradeTests(TestCase):
         )
         self.assertEqual(self._grade("a", question=mc.pk).status_code, 400)
 
+    def test_grade_rejects_non_numeric_question(self):
+        resp = self.client.post(
+            f"/api/live/check/{self.token}/grade/",
+            {"question": "abc", "answer": "x"},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
     def test_grade_rejects_ai_evaluate_off(self):
         self.q.ai_evaluate = False
         self.q.save(update_fields=["ai_evaluate"])

@@ -1006,9 +1006,11 @@ def check_grade(request, token):
     from . import self_check_ai
 
     qs = _self_check_set(token)
-    question = Question.objects.filter(
-        question_set=qs, pk=request.data.get("question")
-    ).first()
+    try:
+        question_id = int(request.data.get("question"))
+    except (TypeError, ValueError):
+        return Response({"detail": "Not gradable."}, status=400)
+    question = Question.objects.filter(question_set=qs, pk=question_id).first()
     if (
         question is None
         or question.kind != Question.Kind.OPEN_TEXT
