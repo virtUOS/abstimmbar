@@ -304,6 +304,8 @@ export interface ManageSite {
   ai_notice: LocalizedText;
   ai_notice_page: string | null;
   ai_notice_url: string;
+  /** Self-check AI grading rate limit, per minute; 0 = unlimited (#75). */
+  self_check_ai_per_minute: number;
 }
 
 export interface ManagePage {
@@ -418,6 +420,7 @@ export const api = {
     ai_notice: LocalizedText;
     ai_notice_page: string | null;
     ai_notice_url: string;
+    self_check_ai_per_minute: number;
   }) =>
     request<ManageSite>("/api/manage/site/", {
       method: "PUT",

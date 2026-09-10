@@ -57,6 +57,7 @@ function BrandingSection() {
   const [aiNotice, setAiNotice] = useState<LocalizedText>("");
   const [aiNoticePage, setAiNoticePage] = useState("");
   const [aiNoticeUrl, setAiNoticeUrl] = useState("");
+  const [selfCheckAiPerMinute, setSelfCheckAiPerMinute] = useState(30);
   const [pages, setPages] = useState<ManagePage[]>([]);
   const [saved, setSaved] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -69,6 +70,7 @@ function BrandingSection() {
       setAiNotice(data.ai_notice);
       setAiNoticePage(data.ai_notice_page ?? "");
       setAiNoticeUrl(data.ai_notice_url);
+      setSelfCheckAiPerMinute(data.self_check_ai_per_minute ?? 30);
     });
     void api.listManagePages().then(setPages);
   }, []);
@@ -80,6 +82,7 @@ function BrandingSection() {
       ai_notice: aiNotice,
       ai_notice_page: aiNoticePage || null,
       ai_notice_url: aiNoticeUrl,
+      self_check_ai_per_minute: selfCheckAiPerMinute,
     });
     setSite(updated);
     setSaved(true);
@@ -184,6 +187,19 @@ function BrandingSection() {
               onChange={(event) => setAiNoticeUrl(event.target.value)}
               placeholder="https://…"
               disabled={!!aiNoticePage}
+            />
+          </Field>
+        </div>
+        <div className="mt-3">
+          <Field label={t("AI gradings per minute per self-check (0 = unlimited)")}>
+            <TextInput
+              type="number"
+              min={0}
+              value={String(selfCheckAiPerMinute)}
+              onChange={(event) =>
+                setSelfCheckAiPerMinute(Math.max(0, parseInt(event.target.value, 10) || 0))
+              }
+              className="!w-32"
             />
           </Field>
         </div>

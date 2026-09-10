@@ -227,6 +227,7 @@
   "Privacy policy page (internal)": "Datenschutz-Seite (intern)",
   "— none —": "— keine —",
   "…or external privacy policy URL": "…oder externe Datenschutz-URL",
+  "AI gradings per minute per self-check (0 = unlimited)": "KI-Bewertungen pro Minute je Lernkontrolle (0 = unbegrenzt)",
   "Shown to participants after every vote — e.g. contact, feedback link …": "Wird Teilnehmenden nach jeder Abstimmung gezeigt — z. B. Kontakt, Feedback-Link …",
   "Saved.": "Gespeichert.",
   "Pages (footer)": "Seiten (Footer)",
