@@ -412,6 +412,25 @@ class QuestionApiTests(ApiTestCase):
         response = self._create_question(kind="word_cloud")
         self.assertEqual(response.status_code, 400)
 
+    def test_word_cloud_allow_multiple_derived_from_max(self):
+        # #88: max==1 -> single (allow_multiple False, batch forced off);
+        # max 0/5 -> multiple.
+        r1 = self._create_question(
+            kind="word_cloud", text="<p>A?</p>", options=[],
+            wordcloud_max_answers=1, allow_multiple=True, wordcloud_batch_submit=True,
+        )
+        self.assertEqual(r1.status_code, 201)
+        q1 = Question.objects.get(pk=r1.json()["id"])
+        self.assertFalse(q1.allow_multiple)
+        self.assertFalse(q1.wordcloud_batch_submit)
+        for max_val in (0, 5):
+            r = self._create_question(
+                kind="word_cloud", text="<p>A?</p>", options=[],
+                wordcloud_max_answers=max_val, allow_multiple=False,
+            )
+            self.assertEqual(r.status_code, 201)
+            self.assertTrue(Question.objects.get(pk=r.json()["id"]).allow_multiple)
+
     def test_positions_append_and_reorder(self):
         first = self._create_question().json()["id"]
         second = self._create_question().json()["id"]

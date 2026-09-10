@@ -356,3 +356,23 @@ msgstr "KI-Einschätzung"
 #: live/templates/live/participant.html
 msgid "AI assessment is not available right now — only the model solution is shown."
 msgstr "Die KI-Einschätzung ist gerade nicht verfügbar — es wird nur die Musterlösung angezeigt."
+
+#: live/templates/live/participant.html
+msgid "You have one answer only and cannot change it afterwards."
+msgstr "Du hast nur eine Antwort und kannst sie danach nicht mehr ändern."
+
+#: live/templates/live/participant.html
+msgid "Fill in your terms and submit them together."
+msgstr "Trage deine Begriffe ein und schicke sie gemeinsam ab."
+
+#: live/templates/live/participant.html
+msgid "Submit all"
+msgstr "Alle abschicken"
+
+#: live/templates/live/participant.html
+msgid "Remove field"
+msgstr "Feld entfernen"
+
+#: live/templates/live/participant.html
+msgid "Clear field"
+msgstr "Feld leeren"

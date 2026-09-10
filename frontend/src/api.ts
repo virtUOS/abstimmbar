@@ -170,8 +170,10 @@ export interface Question {
   wordcloud_ai_enabled: boolean;
   /** word_cloud only: optional AI grouping criteria (empty = auto themes). */
   wordcloud_grouping: string;
-  /** word_cloud + allow_multiple: max terms per participant (0 = unlimited, #76). */
+  /** word_cloud: max terms per participant (0 = unlimited, 1 = single, #76/#88). */
   wordcloud_max_answers: number;
+  /** word_cloud: collect several terms in fields and submit together (#88). */
+  wordcloud_batch_submit: boolean;
   /** Per-question reveal override; "inherit" uses the set default (#28). */
   reveal_answers: "inherit" | RevealAnswers;
   /** Before/after pair (#54): the before-question this one mirrors (null if
@@ -760,6 +762,7 @@ export interface LiveState {
     text: LocalizedText;
     multiple: boolean;
     allow_multiple?: boolean;
+    wordcloud_batch_submit?: boolean;
     wordcloud_live?: boolean;
     wordcloud_ai_enabled?: boolean;
     options: LiveOption[];
