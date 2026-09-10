@@ -1205,10 +1205,11 @@ export default function SetPage() {
       )}
 
       {/* Lernkontrolle "Veröffentlichen" panel (#75 phase 3): permanent link,
-          QR code, LMS hint, attempt stats, unpublish/reset — shown once the
-          standing practice link exists. */}
+          LMS hint, attempt stats, unpublish/reset — shown once the standing
+          practice link exists. Neutral card: the green box is the app's dialog
+          style, not an info panel. */}
       {set.type === "self_check" && selfCheckToken && (
-        <div className="mb-8 grid max-w-2xl gap-3 rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
+        <div className="mb-8 grid max-w-2xl gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
           <div>
             <p className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
               {t("Permanent link")}
@@ -1231,16 +1232,14 @@ export default function SetPage() {
                     {t("Copied")}
                   </>
                 ) : (
-                  t("Copy link")
+                  <>
+                    <Copy aria-hidden className="h-4 w-4" />
+                    {t("Copy link")}
+                  </>
                 )}
               </Button>
             </div>
           </div>
-          <img
-            src={selfCheck.qrUrl(selfCheckToken)}
-            alt={t("QR code")}
-            className="h-40 w-40 rounded-xl border border-slate-200 dark:border-slate-700"
-          />
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {t(
               "In your LMS, choose this set in the Abstimmbar deep link — learners land here directly.",
