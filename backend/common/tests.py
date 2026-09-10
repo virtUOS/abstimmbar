@@ -128,6 +128,18 @@ class ManageSiteTests(TestCase):
         self.assertEqual(public["ai_notice"], {"de": "Externes Modell.", "en": "External model."})
         self.assertEqual(public["ai_notice_url"], "https://uni.example/datenschutz")
 
+    def test_self_check_ai_per_minute_defaults_and_roundtrips(self):
+        self.assertEqual(SiteConfig.load().self_check_ai_per_minute, 30)
+        self.client.force_login(self.admin)
+        response = self.client.put(
+            "/api/manage/site/",
+            {"self_check_ai_per_minute": 0},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["self_check_ai_per_minute"], 0)
+        self.assertEqual(SiteConfig.load().self_check_ai_per_minute, 0)
+
     def test_ai_notice_empty_by_default(self):
         self.assertEqual(self.client.get("/api/site/").json()["ai_notice"], {"de": "", "en": ""})
 
