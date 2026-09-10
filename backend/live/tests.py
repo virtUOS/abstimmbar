@@ -10,11 +10,11 @@ from django.db import connections
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone, translation
 
-from common.i18n_fields import resolve_translated_text
+from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import ai_evaluation, ai_wordcloud, ai_wordcloud_live
-from .models import ParticipantToken, Run, Vote
+from .models import ParticipantToken, Run, SelfCheckAttempt, Vote
 from .results import freetext_evaluation
 from .state import active_run, build_payloads
 
@@ -3439,3 +3439,251 @@ class ConcurrentStartRunTests(TransactionTestCase):
         )
         self.assertEqual(active.count(), 1)
         self.assertEqual(active.first().pk, run_ids.pop())
+
+
+class SelfCheckAttemptModelTests(LiveTestCase):
+    """#75 Phase 3 (Lernkontrolle): anonymous attempt counter."""
+
+    def test_defaults_to_zero_correct_and_scored(self):
+        from .models import SelfCheckAttempt
+
+        attempt = SelfCheckAttempt.objects.create(question_set=self.question_set)
+        self.assertEqual(attempt.correct, 0)
+        self.assertEqual(attempt.scored, 0)
+        self.assertIsNone(attempt.question)
+        self.assertIsNotNone(attempt.created_at)
+        self.assertEqual(self.question_set.self_check_attempts.get(), attempt)
+
+    def test_accepts_per_question_row(self):
+        from .models import SelfCheckAttempt
+
+        attempt = SelfCheckAttempt.objects.create(
+            question_set=self.question_set, question=self.question, correct=1, scored=1
+        )
+        self.assertEqual(attempt.question, self.question)
+        self.assertEqual(attempt.correct, 1)
+        self.assertEqual(attempt.scored, 1)
+
+
+class CheckApiTests(LiveTestCase):
+    """#75 Phase 3 (Lernkontrolle): token-keyed participant API + page + QR."""
+
+    def setUp(self):
+        super().setUp()
+        self.check_set = QuestionSet.objects.create(
+            room=self.room, title="Lernkontrolle", type=QuestionSet.SetType.SELF_CHECK,
+        )
+        self.sc_choice = Question.objects.create(
+            question_set=self.check_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="<p>2+2?</p>", position=0,
+        )
+        self.sc_correct = AnswerOption.objects.create(
+            question=self.sc_choice, text="4", is_correct=True, position=0
+        )
+        self.sc_wrong = AnswerOption.objects.create(
+            question=self.sc_choice, text="5", position=1
+        )
+        self.sc_open = Question.objects.create(
+            question_set=self.check_set, kind=Question.Kind.OPEN_TEXT,
+            text="<p>Explain</p>", position=1, model_solution="Because reasons.",
+        )
+        self.sc_ordering = Question.objects.create(
+            question_set=self.check_set, kind=Question.Kind.ORDERING,
+            text="<p>Order</p>", position=2,
+        )
+        self.sc_a = AnswerOption.objects.create(question=self.sc_ordering, text="A", position=0)
+        self.sc_b = AnswerOption.objects.create(question=self.sc_ordering, text="B", position=1)
+        self.sc_c = AnswerOption.objects.create(question=self.sc_ordering, text="C", position=2)
+        self.check_set.enable_self_check()
+        self.token = self.check_set.self_check_token
+
+    # -- check_questions --------------------------------------------------
+
+    def test_unknown_token_404(self):
+        resp = self.client.get("/api/live/check/does-not-exist/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_unpublished_self_check_set_404(self):
+        from django.http import Http404
+
+        from .views import _self_check_set
+
+        unpublished = QuestionSet.objects.create(
+            room=self.room, title="Draft", type=QuestionSet.SetType.SELF_CHECK,
+        )
+        self.assertIsNone(unpublished.self_check_token)
+        # Unpublished (no token) has no valid URL to reach it by; the guard
+        # this exercises is the helper itself refusing a None/empty token.
+        with self.assertRaises(Http404):
+            _self_check_set(unpublished.self_check_token)
+        with self.assertRaises(Http404):
+            _self_check_set(None)
+
+    def test_wrong_type_with_manual_token_404(self):
+        # Type guard: a live_poll set that somehow carries a token value
+        # (shouldn't happen via the UI) must not be servable as a check set.
+        self.question_set.self_check_token = "manually-set-token"
+        self.question_set.save(update_fields=["self_check_token"])
+        resp = self.client.get(f"/api/live/check/{self.question_set.self_check_token}/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_payload_carries_solutions_per_kind(self):
+        resp = self.client.get(f"/api/live/check/{self.token}/")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["set_title"], translated_map(self.check_set, "title"))
+        self.assertFalse(data["single"])
+        by_id = {q["id"]: q for q in data["questions"]}
+        self.assertEqual(by_id[self.sc_choice.pk]["correct"], [self.sc_correct.pk])
+        self.assertEqual(by_id[self.sc_choice.pk]["model_solution"], "")
+        self.assertEqual(by_id[self.sc_choice.pk]["correct_order"], [])
+        self.assertEqual(by_id[self.sc_open.pk]["model_solution"], "Because reasons.")
+        self.assertEqual(by_id[self.sc_open.pk]["correct"], [])
+        self.assertEqual(
+            by_id[self.sc_ordering.pk]["correct_order"],
+            [self.sc_a.pk, self.sc_b.pk, self.sc_c.pk],
+        )
+        self.assertEqual(by_id[self.sc_ordering.pk]["correct"], [])
+
+    def test_single_question_via_query_param(self):
+        resp = self.client.get(f"/api/live/check/{self.token}/?q={self.sc_choice.pk}")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertTrue(data["single"])
+        self.assertEqual(len(data["questions"]), 1)
+        self.assertEqual(data["questions"][0]["id"], self.sc_choice.pk)
+
+    def test_unknown_question_query_param_404(self):
+        resp = self.client.get(f"/api/live/check/{self.token}/?q={self.question.pk}")
+        self.assertEqual(resp.status_code, 404)
+
+    # -- check_attempt ------------------------------------------------------
+
+    def _attempt(self, **payload):
+        return self.client.post(
+            f"/api/live/check/{self.token}/attempt/", payload,
+            content_type="application/json",
+        )
+
+    def test_valid_attempt_creates_row(self):
+        resp = self._attempt(correct=2, scored=3)
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json(), {"status": "ok"})
+        self.assertEqual(SelfCheckAttempt.objects.count(), 1)
+        attempt = SelfCheckAttempt.objects.get()
+        self.assertEqual(attempt.question_set, self.check_set)
+        self.assertIsNone(attempt.question)
+        self.assertEqual((attempt.correct, attempt.scored), (2, 3))
+
+    def test_attempt_clamps_to_question_count(self):
+        self._attempt(correct=99, scored=99)
+        attempt = SelfCheckAttempt.objects.get()
+        self.assertEqual((attempt.correct, attempt.scored), (3, 3))
+
+    def test_attempt_clamps_correct_to_scored(self):
+        self._attempt(correct=5, scored=2)
+        attempt = SelfCheckAttempt.objects.get()
+        self.assertEqual((attempt.correct, attempt.scored), (2, 2))
+
+    def test_attempt_with_question_scoped_to_one(self):
+        resp = self._attempt(correct=1, scored=1, question=self.sc_choice.pk)
+        self.assertEqual(resp.status_code, 201)
+        attempt = SelfCheckAttempt.objects.get()
+        self.assertEqual(attempt.question, self.sc_choice)
+        self.assertEqual((attempt.correct, attempt.scored), (1, 1))
+        # Even an inflated report is clamped to the single-question cap.
+        SelfCheckAttempt.objects.all().delete()
+        self._attempt(correct=9, scored=9, question=self.sc_choice.pk)
+        attempt = SelfCheckAttempt.objects.get()
+        self.assertEqual((attempt.correct, attempt.scored), (1, 1))
+
+    def test_attempt_with_foreign_question_400(self):
+        resp = self._attempt(correct=1, scored=1, question=self.question.pk)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(SelfCheckAttempt.objects.count(), 0)
+
+    def test_attempt_non_int_fields_400(self):
+        resp = self._attempt(correct="nope", scored=3)
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(SelfCheckAttempt.objects.count(), 0)
+
+    def test_attempt_unknown_token_404(self):
+        resp = self.client.post(
+            "/api/live/check/does-not-exist/attempt/", {"correct": 1, "scored": 1},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    # -- check_page / check_qr ----------------------------------------------
+
+    def test_check_page_renders_with_token_in_context(self):
+        resp = self.client.get(f"/c/{self.token}/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.context["check_token"], self.token)
+
+    def test_check_page_unknown_token_404(self):
+        resp = self.client.get("/c/does-not-exist/")
+        self.assertEqual(resp.status_code, 404)
+
+    def test_check_qr_returns_png(self):
+        resp = self.client.get(f"/c/{self.token}/qr.png?q={self.sc_choice.pk}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp["Content-Type"], "image/png")
+
+    def test_check_page_never_renders_the_live_join_flow(self):
+        # #75 Phase 3 review carry-forward: before the participant template
+        # grew a CHECK_TOKEN branch, /c/<token>/ fell into the live "else"
+        # branch and would join the room / open SSE — a real leak for a
+        # page that is meant to be anonymous, stateless and permanent. The
+        # room's join code is the one piece of real, per-room templated data
+        # that only a live/recording render would need (CODE is blanked for
+        # the check page precisely so it never needs it) — its absence here
+        # is a stable proxy for "this render took the check branch".
+        from django.utils.html import escapejs
+
+        # Proxy only: no browser/JS harness runs here, so this checks the
+        # rendered template string, not that the check-mode JS itself never
+        # calls join()/connect() at runtime.
+        resp = self.client.get(f"/c/{self.token}/")
+        html = resp.content.decode()
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn(escapejs(self.token), html)  # CHECK_TOKEN, JS-escaped like room.code below
+        self.assertNotIn(escapejs(self.room.code), html)
+
+
+class SelfCheckRegressionTests(LiveTestCase):
+    """#75 Phase 3: solutions must stay exclusive to the check endpoints —
+    neither the self-paced quiz payload nor the live payload may carry
+    ``correct``/``model_solution``/``correct_order`` on their questions."""
+
+    def setUp(self):
+        super().setUp()
+        self.sp_set = QuestionSet.objects.create(
+            room=self.room, title="Self-paced", type=QuestionSet.SetType.SELF_PACED,
+        )
+        self.sp_question = Question.objects.create(
+            question_set=self.sp_set, kind=Question.Kind.SINGLE_CHOICE, text="<p>Q</p>",
+        )
+        AnswerOption.objects.create(
+            question=self.sp_question, text="4", is_correct=True, position=0
+        )
+        AnswerOption.objects.create(question=self.sp_question, text="5", position=1)
+        self.sp_run = Run.objects.create(
+            question_set=self.sp_set, mode=Run.Mode.SELF_PACED, phase=Run.Phase.OPEN,
+        )
+
+    def test_self_paced_quiz_payload_has_no_solution_keys(self):
+        resp = self.client.get(f"/api/live/rooms/{self.room.code}/quiz/")
+        self.assertEqual(resp.status_code, 200)
+        for question in resp.json()["questions"]:
+            self.assertNotIn("correct", question)
+            self.assertNotIn("model_solution", question)
+            self.assertNotIn("correct_order", question)
+
+    def test_live_payload_has_no_solution_keys(self):
+        self.open_question()
+        payloads = build_payloads(self.room)
+        question = payloads["participant"]["question"]
+        self.assertNotIn("correct", question)
+        self.assertNotIn("model_solution", question)
+        self.assertNotIn("correct_order", question)

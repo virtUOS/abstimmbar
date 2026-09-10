@@ -190,13 +190,58 @@ multi-line note must use {% comment %} or it renders as text.)
   <p id="rec-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
   <div id="rec-results" style="margin-top:14px"></div>
 </section>
+
+{# Lernkontrolle / self-check mode (#75 Phase 3): stateless, locally graded practice — own pace, or a single question via a per-question QR/link. No SSE/join; grading happens client-side against the check API's solutions. #}
+<section id="check" hidden>
+  <div id="check-nav" style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px">
+    <button id="check-prev" type="button" aria-label="{% trans 'Previous question' %}" hidden
+            style="width:auto;min-height:0;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;font-size:18px">←</button>
+    <p class="soft" id="check-progress" style="margin:0;flex:1;text-align:center"></p>
+    <button id="check-next-nav" type="button" aria-label="{% trans 'Next question' %}" hidden
+            style="width:auto;min-height:0;margin:0;padding:8px 14px;border:1px solid var(--line);border-radius:10px;background:transparent;font-size:18px">→</button>
+  </div>
+  <div class="question-text" id="check-text"></div>
+  <div id="check-options"></div>
+  <form id="check-textform" hidden>
+    <input type="text" id="check-word" maxlength="60" autocomplete="off"
+           placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
+    <textarea id="check-textarea" maxlength="500" rows="4"
+              placeholder="{% trans 'Your answer …' %}" aria-label="{% trans 'Answer' %}" hidden
+              style="font:inherit;width:100%;padding:14px 16px;margin-top:10px;border:1px solid var(--line);border-radius:14px"></textarea>
+    <button class="primary" type="submit">{% trans "Submit" %}</button>
+  </form>
+  <button class="primary" id="check-submit" hidden>{% trans "Submit answer" %}</button>
+  <p id="check-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
+  <div id="check-solution" style="margin-top:14px;border:1px solid var(--line);border-radius:12px;padding:12px 16px" hidden></div>
+  <button class="primary" id="check-next" hidden>{% trans "Next" %}</button>
+  {# Single-question mode only (#75 Phase 3 fix round 1): grading stays inline (highlights + solution box) instead of jumping to a compact done screen; these two controls replace "Weiter" since there is no next question. #}
+  <div id="check-single-actions" hidden style="margin-top:14px">
+    <button class="primary" type="button" id="check-single-again">{% trans "Try again" %}</button>
+    <a id="check-single-all" href="" style="display:block;margin-top:14px;color:var(--brand-strong)">{% trans "All questions of this self-check" %}</a>
+  </div>
+</section>
+
+<section id="check-done" class="center" hidden>
+  <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
+  <p id="check-summary"></p>
+  <button class="primary" id="check-restart" style="margin-top:6px">{% trans "Start over" %}</button>
+</section>
+
+<section id="check-unavailable" class="center" hidden>
+  <div class="emoji">🔒</div>
+  <p>{% trans "This self-check is not available." %}</p>
+</section>
 {% endblock %}
 
 {% block script %}
 {% if preview %}{{ preview_state|json_script:"preview-state" }}{% endif %}
 <script>
 (() => {
-  const CODE = "{{ room.code|escapejs }}";
+  // The Lernkontrolle (check) mode is anonymous and never joins the room —
+  // no join()/vote()/quiz call ever needs CODE there, so it stays blank to
+  // avoid exposing the room's join code on an unrelated, permanent link
+  // (#75 Phase 3 review carry-forward).
+  const CODE = "{% if check_token %}{% else %}{{ room.code|escapejs }}{% endif %}";
   // Editor preview (#74): a standalone, interactive render of one question —
   // no run, no SSE, submissions inert. State is seeded from the embedded JSON.
   const PREVIEW = document.getElementById("preview-state") !== null;
@@ -242,6 +287,11 @@ multi-line note must use {% comment %} or it renders as text.)
     you: "{% trans 'you' %}",
     questionProgress: "{% trans 'Question {i} of {n}' %}",
     timeUp: "{% trans 'Time is up.' %}",
+    // Lernkontrolle / self-check mode (#75 Phase 3).
+    modelSolution: "{% trans 'Model solution' %}",
+    startOver: "{% trans 'Start over' %}",
+    checkScored: "{% trans '{right} of {total} correct.' %}",
+    checkUnscored: "{% trans 'You worked through all {total} questions.' %}",
   };
   // Authored content (question/option text, set title, results labels) now
   // arrives as a {de, en} map — the SSE hub broadcasts one payload to every
@@ -255,7 +305,8 @@ multi-line note must use {% comment %} or it renders as text.)
       Object.values(v).find(Boolean) || "";
   }
   const sections = ["waiting", "question", "done", "closed", "finished",
-                    "resultsview", "review", "quiz", "quiz-done", "recording"].reduce(
+                    "resultsview", "review", "quiz", "quiz-done", "recording",
+                    "check", "check-done", "check-unavailable"].reduce(
     (acc, id) => (acc[id] = document.getElementById(id), acc), {});
   const subtitle = document.getElementById("subtitle");
   let token = localStorage.getItem(TOKEN_KEY) || "";
@@ -1708,6 +1759,11 @@ multi-line note must use {% comment %} or it renders as text.)
   const REC_TOKEN = "{{ recording_token|default:''|escapejs }}";
   const REC_ENTRY = "{{ entry_question|default:''|escapejs }}";
   let rec = null, recIndex = 0, recSelected = new Set(), recTimer = null;
+  // Lernkontrolle / self-check mode (#75 Phase 3) reuses the same
+  // `entry_question` context var (only one of REC_TOKEN/CHECK_TOKEN is ever
+  // set on a given page render).
+  const CHECK_TOKEN = "{{ check_token|default:''|escapejs }}";
+  const CHECK_ENTRY = "{{ entry_question|default:''|escapejs }}";
 
   async function startRecording() {
     await join();
@@ -1891,10 +1947,308 @@ multi-line note must use {% comment %} or it renders as text.)
     if (value) void submitRec(q, { text: value });
   });
 
+  // --- Lernkontrolle / self-check mode (#75 Phase 3) ------------------------
+  // Stateless and repeatable: no run, no token, no SSE. `loadCheck()` fetches
+  // the (freshly shuffled) questions WITH their solutions and grades every
+  // answer locally against them; the server only ever records an anonymous
+  // {correct, scored} attempt counter, never re-derives correctness itself.
+  // Two flows share this state: the full set (own pace, prev/next, a final
+  // summary) and a single question reached via a per-question QR/link
+  // (`check.single` — no navigation, just "try again" or a link to the rest).
+  let check = null, checkIndex = 0, checkSelected = new Set();
+
+  const CHOICE_KINDS = ["single_choice", "multiple_choice", "likert"];
+
+  function arraysEqual(a, b) {
+    return !!a && !!b && a.length === b.length &&
+      a.every((v, i) => String(v) === String(b[i]));
+  }
+
+  async function loadCheck() {
+    check = null;
+    checkIndex = 0;
+    checkSelected = new Set();
+    let response;
+    try {
+      response = await fetch(`/api/live/check/${CHECK_TOKEN}/` +
+        (CHECK_ENTRY ? `?q=${encodeURIComponent(CHECK_ENTRY)}` : ""));
+    } catch {
+      showCheckUnavailable();
+      return;
+    }
+    if (!response.ok) { showCheckUnavailable(); return; }
+    const data = await response.json();
+    subtitle.textContent = locText(data.set_title);
+    check = { questions: data.questions, single: data.single, answered: {}, summaryPosted: false };
+    if (!check.questions.length) { renderCheckSummary(); return; }
+    renderCheck();
+  }
+
+  function showCheckUnavailable() {
+    subtitle.textContent = "";
+    show("check-unavailable");
+  }
+
+  // Local grading (no POST for the grading itself — the check API already
+  // handed us the solutions). Choice kinds compare the chosen option ids
+  // against `q.correct` (empty = no correct answer was marked = unscored,
+  // `isCorrect` stays null); ordering compares the submitted order against
+  // `q.correct_order`; open_text is always unscored (the model solution is
+  // shown, never auto-graded). Single-question mode posts the attempt right
+  // here — exactly once per grading, regardless of how often the graded
+  // view is re-rendered afterwards (fix round 1, must-fix 2).
+  function gradeCheck(q, payload) {
+    let isCorrect = null;
+    if (CHOICE_KINDS.includes(q.kind)) {
+      isCorrect = q.correct.length ? sameSet(payload.options, q.correct) : null;
+    } else if (q.kind === "ordering") {
+      isCorrect = arraysEqual(payload.order, q.correct_order);
+    }
+    check.answered[String(q.id)] = { chosen: payload, isCorrect };
+    if (check.single) {
+      postCheckAttempt({ question: q.id, correct: isCorrect ? 1 : 0, scored: isCorrect === null ? 0 : 1 });
+    }
+    renderCheck(true);
+  }
+
+  function sameSet(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    const sb = new Set(b);
+    return a.every((v) => sb.has(v)) && new Set(a).size === sb.size;
+  }
+
+  // `justGraded` is true only for the render immediately after `gradeCheck`
+  // stored a fresh answer; every other render of an answered question (the
+  // arrows, or landing back on it) is a revisit — passed through to
+  // `renderCheckAnswered` so ordering's "already answered" note only shows
+  // on a revisit, matching choice/text (fix round 1, minor finding).
+  function renderCheck(justGraded) {
+    const q = check.questions[checkIndex];
+    const ans = check.answered[String(q.id)];
+
+    const nav = document.getElementById("check-nav");
+    nav.hidden = check.single;
+    if (!check.single) {
+      document.getElementById("check-progress").textContent = I18N.questionProgress
+        .replace("{i}", String(checkIndex + 1)).replace("{n}", String(check.questions.length));
+      const prev = document.getElementById("check-prev");
+      const nextNav = document.getElementById("check-next-nav");
+      prev.hidden = false;
+      nextNav.hidden = false;
+      prev.disabled = checkIndex === 0;
+      nextNav.disabled = checkIndex === check.questions.length - 1;
+      prev.style.opacity = prev.disabled ? "0.35" : "";
+      nextNav.style.opacity = nextNav.disabled ? "0.35" : "";
+    }
+    document.getElementById("check-text").innerHTML = locText(q.text);
+    const optionsBox = document.getElementById("check-options");
+    const form = document.getElementById("check-textform");
+    const word = document.getElementById("check-word");
+    const area = document.getElementById("check-textarea");
+    const submit = document.getElementById("check-submit");
+    const feedback = document.getElementById("check-feedback");
+    const solution = document.getElementById("check-solution");
+    const nextBtn = document.getElementById("check-next");
+    const singleActions = document.getElementById("check-single-actions");
+    optionsBox.replaceChildren();
+    form.hidden = true;
+    submit.hidden = true;
+    feedback.hidden = true;
+    solution.hidden = true;
+    solution.replaceChildren();
+    nextBtn.hidden = true;
+    singleActions.hidden = true;
+    clearPriBudget(optionsBox.parentNode);
+    clearOrderingUi(optionsBox.parentNode);
+    checkSelected = new Set();
+
+    if (ans) {
+      renderCheckAnswered(q, ans, optionsBox, feedback, solution, !justGraded);
+      // Set mode advances via "Weiter"; single mode has no next question,
+      // so it shows "Nochmal" / "Alle Fragen" beneath the graded view
+      // instead (must-fix 1 — single mode used to jump to a separate,
+      // compact "done" screen that skipped this feedback entirely).
+      if (check.single) singleActions.hidden = false;
+      else nextBtn.hidden = false;
+    } else {
+      renderCheckForm(q, optionsBox, form, word, area, submit);
+    }
+    show("check");
+  }
+
+  // Unanswered: the answer form per kind. Word cloud/priorities cannot occur
+  // in a self_check set (enforced when authoring), so only the choice kinds,
+  // open_text and ordering are handled here.
+  function renderCheckForm(q, optionsBox, form, word, area, submit) {
+    if (q.kind === "ordering") {
+      renderOrderingSorter(optionsBox, q, (payload) => gradeCheck(q, payload));
+      return;
+    }
+    const isText = q.kind === "open_text";
+    form.hidden = !isText;
+    word.hidden = true;
+    area.hidden = !isText;
+    area.value = "";
+    submit.hidden = !q.multiple;
+    if (!isText) {
+      for (const option of q.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        fillOptionButton(button, option);
+        button.dataset.id = String(option.id);
+        button.addEventListener("click", () => {
+          if (q.multiple) {
+            checkSelected.has(option.id) ? checkSelected.delete(option.id) : checkSelected.add(option.id);
+            button.classList.toggle("selected", checkSelected.has(option.id));
+            submit.disabled = checkSelected.size === 0;
+          } else {
+            gradeCheck(q, { options: [option.id] });
+          }
+        });
+        optionsBox.appendChild(button);
+      }
+      submit.disabled = true;
+      submit.onclick = () => gradeCheck(q, { options: [...checkSelected] });
+    }
+  }
+
+  // Answered — whether just graded or revisited via the arrows: read-only
+  // replay of the same feedback from `check.answered` (no inputs). `revisit`
+  // is false right after grading and true on every later re-render of the
+  // same answer (arrows, single-mode reload of a stale render).
+  function renderCheckAnswered(q, ans, optionsBox, feedback, solution, revisit) {
+    const chosen = (ans.chosen && ans.chosen.options) || [];
+    if (CHOICE_KINDS.includes(q.kind)) {
+      for (const option of q.options) {
+        const button = document.createElement("button");
+        button.type = "button";
+        fillOptionButton(button, option);
+        button.disabled = true;
+        // Unscored choice question (no option marked correct): keep the
+        // chosen option neutral instead of painting it red (#75 Phase 3).
+        if (q.correct.length && q.correct.includes(option.id)) button.classList.add("correct");
+        else if (q.correct.length && chosen.includes(option.id)) button.classList.add("wrong");
+        else if (chosen.includes(option.id)) button.classList.add("selected");
+        optionsBox.appendChild(button);
+      }
+      feedback.textContent = ans.isCorrect === null
+        ? I18N.answerSaved
+        : (ans.isCorrect ? "✓ " + I18N.correct : "✗ " + I18N.incorrect);
+      feedback.style.color = ans.isCorrect === null
+        ? "var(--ink-soft)"
+        : (ans.isCorrect ? "var(--brand-strong)" : "var(--danger-strong)");
+    } else if (q.kind === "open_text") {
+      const p = document.createElement("p");
+      p.append(I18N.yourAnswer);
+      const strong = document.createElement("strong");
+      strong.style.color = "var(--ink)";
+      strong.textContent = (ans.chosen && ans.chosen.text) || "";
+      p.appendChild(strong);
+      optionsBox.appendChild(p);
+      feedback.textContent = I18N.answerSaved;
+      feedback.style.color = "var(--ink-soft)";
+      renderModelSolution(solution, q);
+    } else if (q.kind === "ordering") {
+      if (revisit) {
+        const note = document.createElement("p");
+        note.className = "soft";
+        note.textContent = I18N.alreadyAnswered;
+        optionsBox.appendChild(note);
+      }
+      feedback.textContent = ans.isCorrect ? "✓ " + I18N.correct : "✗ " + I18N.incorrect;
+      feedback.style.color = ans.isCorrect ? "var(--brand-strong)" : "var(--danger-strong)";
+      renderCorrectOrder(solution, q);
+    }
+    feedback.hidden = false;
+  }
+
+  function renderModelSolution(container, q) {
+    if (!q.model_solution) return;
+    const label = document.createElement("p");
+    label.className = "soft";
+    label.style.cssText = "margin:0 0 4px;font-weight:600";
+    label.textContent = I18N.modelSolution;
+    const text = document.createElement("div");
+    text.textContent = q.model_solution;
+    container.append(label, text);
+    container.hidden = false;
+  }
+
+  function renderCorrectOrder(container, q) {
+    const byId = new Map(q.options.map((o) => [String(o.id), locText(o.text)]));
+    const label = document.createElement("p");
+    label.className = "soft";
+    label.style.cssText = "margin:0 0 4px;font-weight:600";
+    label.textContent = I18N.correctOrder;
+    const ol = document.createElement("ol");
+    ol.style.cssText = "margin:0;padding-left:22px;color:var(--ink)";
+    for (const id of q.correct_order) {
+      const li = document.createElement("li");
+      li.textContent = byId.get(String(id)) || "";
+      ol.appendChild(li);
+    }
+    container.append(label, ol);
+    container.hidden = false;
+  }
+
+  function postCheckAttempt(payload) {
+    void post(`/api/live/check/${CHECK_TOKEN}/attempt/`, payload);
+  }
+
+  // Set mode, after the LAST question: "X of Y correct" over the scored
+  // answers (open_text is never scored); if nothing was scored (e.g. an
+  // all-open_text/ordering-less set with no marked correct options), a
+  // neutral "you worked through all N questions" instead. `check.summaryPosted`
+  // guards against a double-click on the final "Weiter" firing two attempt
+  // POSTs (fix round 1, must-fix 2).
+  function renderCheckSummary() {
+    const scored = Object.values(check.answered).filter((a) => a.isCorrect !== null);
+    const right = scored.filter((a) => a.isCorrect).length;
+    document.getElementById("check-summary").textContent = scored.length
+      ? I18N.checkScored.replace("{right}", String(right)).replace("{total}", String(scored.length))
+      : I18N.checkUnscored.replace("{total}", String(check.questions.length));
+    const restart = document.getElementById("check-restart");
+    restart.textContent = I18N.startOver;
+    restart.onclick = () => void loadCheck();
+    if (!check.summaryPosted) {
+      check.summaryPosted = true;
+      postCheckAttempt({ correct: right, scored: scored.length });
+    }
+    show("check-done");
+  }
+
+  document.getElementById("check-prev").addEventListener("click", () => {
+    if (check && !check.single && checkIndex > 0) { checkIndex--; renderCheck(); }
+  });
+  document.getElementById("check-next-nav").addEventListener("click", () => {
+    if (check && !check.single && checkIndex < check.questions.length - 1) { checkIndex++; renderCheck(); }
+  });
+  document.getElementById("check-next").addEventListener("click", () => {
+    if (!check || check.single) return;
+    if (checkIndex + 1 < check.questions.length) { checkIndex++; renderCheck(); }
+    else renderCheckSummary();
+  });
+  // Single-question mode's own "ending" controls (fix round 1, must-fix 1):
+  // "Nochmal" reloads the same question fresh (new option shuffle), the
+  // link falls back to the full Lernkontrolle since a per-question deep
+  // link never shows the others.
+  document.getElementById("check-single-again").addEventListener("click", () => void loadCheck());
+  document.getElementById("check-single-all").href = `/c/${CHECK_TOKEN}/`;
+  document.getElementById("check-textform").addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!check) return;
+    const value = document.getElementById("check-textarea").value.trim();
+    if (value) gradeCheck(check.questions[checkIndex], { text: value });
+  });
+
   if (PREVIEW) {
     // Editor preview (#74): render the seeded question directly, no run/SSE.
     state = PREVIEW_STATE;
     render();
+  } else if (CHECK_TOKEN) {
+    // Lernkontrolle (#75 Phase 3): anonymous and stateless — never joins the
+    // room or opens SSE (carry-forward from the Task-3 review).
+    void loadCheck();
   } else if (REC_TOKEN) {
     void startRecording();
   } else {

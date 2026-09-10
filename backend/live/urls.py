@@ -16,6 +16,9 @@ api_urlpatterns = [
     # Recording mode (#53): async viewer voting, keyed by the run's token.
     path("live/recording/<str:token>/", views.recording_questions),
     path("live/recording/<str:token>/vote/", views.recording_vote),
+    # Self-check / Lernkontrolle (#75 Phase 3): permanent async link.
+    path("live/check/<str:token>/", views.check_questions),
+    path("live/check/<str:token>/attempt/", views.check_attempt),
     path("question-sets/<int:set_id>/live-status/", views.live_status),
     path("question-sets/<int:set_id>/start-run/", views.start_run),
     path("question-sets/<int:set_id>/results/", views.set_results),
@@ -51,4 +54,7 @@ page_urlpatterns = [
     # Recording mode (#53): the viewer page + per-question QR.
     path("r/<str:token>/", views.recording_page, name="recording-page"),
     path("r/<str:token>/qr.png", views.recording_qr, name="recording-qr"),
+    # Self-check / Lernkontrolle (#75 Phase 3): the viewer page + per-question QR.
+    path("c/<str:token>/", views.check_page, name="check-page"),
+    path("c/<str:token>/qr.png", views.check_qr, name="check-qr"),
 ]

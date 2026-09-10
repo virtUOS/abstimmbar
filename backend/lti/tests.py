@@ -177,6 +177,48 @@ class LearnerLaunchTests(LtiTestCase):
         self.assertEqual(response.status_code, 404)
         self.assertContains(response, "noch nicht verknüpft", status_code=404)
 
+    def test_learner_launch_on_published_self_check_set_redirects_to_link(self):
+        self.launch()  # instructor creates the room + link first
+        room = LtiContextLink.objects.get().room
+        question_set = QuestionSet.objects.create(
+            room=room, title="Lernkontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        question_set.enable_self_check()
+        response = self.launch(
+            roles=self.LEARNER, sub="student-9",
+            extra={f"{CLAIM}custom": {"set": str(question_set.pk)}},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(
+            response["Location"], f"/c/{question_set.self_check_token}/"
+        )
+
+    def test_learner_launch_on_unpublished_self_check_set_shows_error(self):
+        self.launch()  # instructor creates the room + link first
+        room = LtiContextLink.objects.get().room
+        question_set = QuestionSet.objects.create(
+            room=room, title="Lernkontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        response = self.launch(
+            roles=self.LEARNER, sub="student-9",
+            extra={f"{CLAIM}custom": {"set": str(question_set.pk)}},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "noch nicht veröffentlicht")
+
+    def test_learner_launch_on_live_poll_set_still_goes_to_participant_page(self):
+        self.launch()  # instructor creates the room + link first
+        room = LtiContextLink.objects.get().room
+        question_set = QuestionSet.objects.create(
+            room=room, title="Live-Quiz", type=QuestionSet.SetType.LIVE_POLL
+        )
+        response = self.launch(
+            roles=self.LEARNER, sub="student-9",
+            extra={f"{CLAIM}custom": {"set": str(question_set.pk)}},
+        )
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], f"/p/{room.code}/")
+
 
 class DeepLinkingTests(LtiTestCase):
     DL_SETTINGS: ClassVar = {

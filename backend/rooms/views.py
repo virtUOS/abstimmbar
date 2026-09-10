@@ -16,7 +16,7 @@ from basicbar_integrations import ai
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Exists, Max, OuterRef, Q
+from django.db.models import Count, Exists, Max, OuterRef, Q, Sum
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import strip_tags
@@ -29,7 +29,7 @@ from rest_framework.views import APIView
 
 from common import documents
 
-from . import ai_generate, ai_prompts
+from . import ai_generate, ai_prompts, set_types
 from .images import InvalidImageError, normalize_image
 from .models import Question, QuestionSet, Room, Section
 from .serializers import (
@@ -476,6 +476,47 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             question_set.disable_sharing()
         return Response({"share_token": question_set.share_token})
 
+    @action(detail=True, methods=["post"], url_path="self-check/publish")
+    def self_check_publish(self, request, pk=None):
+        """Publish a Lernkontrolle (#75 Phase 3): mint (or keep) the
+        permanent participant link. Idempotent — calling it again returns
+        the same token. Only meaningful for type == self_check."""
+        question_set = self.get_object()
+        if question_set.type != QuestionSet.SetType.SELF_CHECK:
+            return Response(
+                {"detail": "Only a Lernkontrolle can be published."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        question_set.enable_self_check()
+        return Response({"self_check_token": question_set.self_check_token})
+
+    @action(detail=True, methods=["post"], url_path="self-check/unpublish")
+    def self_check_unpublish(self, request, pk=None):
+        """Unpublish a Lernkontrolle: invalidate the participant link."""
+        question_set = self.get_object()
+        question_set.disable_self_check()
+        return Response({"self_check_token": None})
+
+    @action(detail=True, methods=["get", "delete"], url_path="self-check/stats")
+    def self_check_stats(self, request, pk=None):
+        """Aggregate anonymous attempt counters (#75 Phase 3): GET returns
+        them, DELETE clears all attempts first and then returns the
+        (now zero) aggregate."""
+        question_set = self.get_object()
+        qs = question_set.self_check_attempts
+        if request.method == "DELETE":
+            qs.all().delete()
+        agg = qs.aggregate(attempts=Count("id"), correct=Sum("correct"), scored=Sum("scored"))
+        correct, scored = agg["correct"] or 0, agg["scored"] or 0
+        return Response(
+            {
+                "attempts": agg["attempts"] or 0,
+                "correct": correct,
+                "scored": scored,
+                "ratio": (correct / scored) if scored else None,
+            }
+        )
+
     @action(detail=True, methods=["get"])
     def export(self, request, pk=None):
         """Download this set as a JSON file (roadmap M3)."""
@@ -648,6 +689,14 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 {"detail": "One or more questions were not found."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        allowed = set_types.allowed_kinds(target.type)
+        for question_id in ids:
+            source = by_id[question_id]
+            if source.kind not in allowed:
+                return Response(
+                    {"detail": "Question type not allowed in this set type."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
         with transaction.atomic():
             last = target.questions.order_by("-position").first()
             position = (last.position + 1) if last else 0

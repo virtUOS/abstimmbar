@@ -281,6 +281,23 @@ class QuestionSetApiTests(ApiTestCase):
             self.client.get(f"/api/question-sets/{foreign_set.pk}/").status_code, 404
         )
 
+    def test_self_check_token_is_null_by_default_and_read_only(self):
+        # #75 Phase 3: self_check_token is only ever set via the (not yet
+        # built) publish action, never by a plain write.
+        qs = QuestionSet.objects.create(room=self.room, title="Termin 1")
+        response = self.client.get(f"/api/question-sets/{qs.pk}/")
+        self.assertIsNone(response.json()["self_check_token"])
+
+        response = self.client.patch(
+            f"/api/question-sets/{qs.pk}/",
+            {"self_check_token": "abc"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["self_check_token"])
+        qs.refresh_from_db()
+        self.assertIsNone(qs.self_check_token)
+
 
 class QuestionApiTests(ApiTestCase):
     def setUp(self):
@@ -1348,6 +1365,51 @@ class CopyQuestionsTests(ApiTestCase):
         response = self.copy(["abc"])
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.target.questions.count(), 1)
+
+    def test_copy_into_live_poll_set_allows_any_kind(self):
+        # Regression: a live_poll target (the default type) is unrestricted.
+        likert = Question.objects.create(
+            question_set=self.source, kind="likert", text="Wie zufrieden?",
+        )
+        response = self.copy([likert.pk])
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(self.target.questions.filter(text="Wie zufrieden?").exists())
+
+    def test_copy_kind_not_allowed_in_self_check_set(self):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        likert = Question.objects.create(
+            question_set=self.source, kind="likert", text="Wie zufrieden?",
+        )
+        response = self.copy([likert.pk], target=check_set)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("not allowed", response.json()["detail"])
+        self.assertEqual(check_set.questions.count(), 0)
+
+    def test_copy_open_text_without_model_solution_into_self_check_set(self):
+        # Allowed — the editor warns, it does not block (#75).
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        open_text = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Erkläre X.",
+        )
+        response = self.copy([open_text.pk], target=check_set)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(check_set.questions.count(), 1)
+
+    def test_copy_open_text_with_model_solution_into_self_check_set(self):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="Kontrolle", type=QuestionSet.SetType.SELF_CHECK
+        )
+        open_text = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Erkläre X.",
+            model_solution="Weil Y.",
+        )
+        response = self.copy([open_text.pk], target=check_set)
+        self.assertEqual(response.status_code, 201)
+        self.assertTrue(check_set.questions.filter(text="Erkläre X.").exists())
 
 
 class SearchTests(ApiTestCase):
@@ -3310,6 +3372,36 @@ class SetTypeModelTests(TestCase):
         self.assertFalse(qs.shuffle_questions)
 
 
+class SelfCheckTokenModelTests(TestCase):
+    """#75 Phase 3 (Lernkontrolle): permanent publish link, mirroring
+    share_token/enable_sharing/disable_sharing."""
+
+    def test_enable_self_check_sets_token_and_is_idempotent(self):
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        self.assertIsNone(qs.self_check_token)
+
+        qs.enable_self_check()
+        self.assertIsNotNone(qs.self_check_token)
+        # secrets.token_urlsafe(16)[:32] -> 22 chars, well under max_length=32,
+        # same as share_token.
+        self.assertLessEqual(len(qs.self_check_token), 32)
+        self.assertGreater(len(qs.self_check_token), 0)
+
+        token = qs.self_check_token
+        qs.enable_self_check()
+        self.assertEqual(qs.self_check_token, token)
+
+    def test_disable_self_check_clears_token(self):
+        room = Room.objects.create(title="R")
+        qs = QuestionSet.objects.create(room=room, title="S")
+        qs.enable_self_check()
+        self.assertIsNotNone(qs.self_check_token)
+
+        qs.disable_self_check()
+        self.assertIsNone(qs.self_check_token)
+
+
 class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):
         allk = tuple(k for k, _ in Question.Kind.choices)
@@ -3321,8 +3413,6 @@ class SetTypeRulesTests(TestCase):
             set(set_types.allowed_kinds("self_check")),
             {"single_choice", "multiple_choice", "ordering", "open_text"},
         )
-        self.assertTrue(set_types.requires_solution("self_check"))
-        self.assertFalse(set_types.requires_solution("live_poll"))
 
 
 class QuestionKindGatingTests(ApiTestCase):
@@ -3349,7 +3439,8 @@ class QuestionKindGatingTests(ApiTestCase):
         r = self._create_q(qs, "likert")  # likert not allowed in self_check
         self.assertEqual(r.status_code, 400)
 
-    def test_open_text_in_self_check_requires_solution(self):
+    def test_open_text_in_self_check_without_solution_is_allowed(self):
+        # No hard requirement: the editor shows a bypassable warning (#75).
         qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
         r = self.client.post(
             "/api/questions/",
@@ -3361,7 +3452,7 @@ class QuestionKindGatingTests(ApiTestCase):
             },
             content_type="application/json",
         )
-        self.assertEqual(r.status_code, 400)  # no model_solution
+        self.assertEqual(r.status_code, 201)
         r2 = self.client.post(
             "/api/questions/",
             {
@@ -3378,62 +3469,6 @@ class QuestionKindGatingTests(ApiTestCase):
     def test_all_kinds_allowed_in_live_poll(self):
         qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
         self.assertEqual(self._create_q(qs, "single_choice").status_code, 201)
-
-    def test_patch_clearing_model_solution_rejected(self):
-        # A partial PATCH that explicitly sets model_solution to "" must not
-        # fall back to the old (non-empty) instance value and slip through.
-        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
-        create = self.client.post(
-            "/api/questions/",
-            {
-                "question_set": qs.pk,
-                "kind": "open_text",
-                "text": {"de": "F", "en": "Q"},
-                "options": [],
-                "model_solution": "Paris",
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(create.status_code, 201)
-        qid = create.json()["id"]
-
-        resp = self.client.patch(
-            f"/api/questions/{qid}/",
-            {"model_solution": ""},
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 400)
-        self.assertIn("model_solution", resp.json())
-        self.assertEqual(
-            Question.objects.get(pk=qid).model_solution, "Paris"
-        )  # unchanged
-
-    def test_patch_untouched_model_solution_still_falls_back(self):
-        # A PATCH that doesn't mention model_solution at all should keep
-        # using the stored value (the "key absent" branch of the sentinel).
-        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
-        create = self.client.post(
-            "/api/questions/",
-            {
-                "question_set": qs.pk,
-                "kind": "open_text",
-                "text": {"de": "F", "en": "Q"},
-                "options": [],
-                "model_solution": "Paris",
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(create.status_code, 201)
-        qid = create.json()["id"]
-
-        resp = self.client.patch(
-            f"/api/questions/{qid}/",
-            {"text": {"de": "Neue Frage", "en": "New question"}},
-            content_type="application/json",
-        )
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(Question.objects.get(pk=qid).model_solution, "Paris")
-
 
 class SetTypeApiTests(ApiTestCase):
     # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.
@@ -3543,3 +3578,102 @@ class SetTypeApiTests(ApiTestCase):
         self.assertEqual(r.status_code, 200)
         qs.refresh_from_db()
         self.assertEqual(qs.quiz_time_limit, 300)
+
+
+class SelfCheckPublishStatsApiTests(ApiTestCase):
+    """#75 Phase 3 (Lernkontrolle): owner actions to publish/unpublish a
+    self_check set and read/reset its anonymous attempt stats."""
+
+    def setUp(self):
+        super().setUp()
+        self.question_set = QuestionSet.objects.create(
+            room=self.room, title="Lernkontrolle", type="self_check"
+        )
+
+    def publish(self):
+        return self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/self-check/publish/"
+        )
+
+    def unpublish(self):
+        return self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/self-check/unpublish/"
+        )
+
+    def stats(self, method="get"):
+        url = f"/api/question-sets/{self.question_set.pk}/self-check/stats/"
+        return getattr(self.client, method)(url)
+
+    def test_publish_returns_token_and_is_idempotent(self):
+        response = self.publish()
+        self.assertEqual(response.status_code, 200)
+        token = response.json()["self_check_token"]
+        self.assertTrue(token)
+        # Publishing again keeps the same token (link stays stable).
+        response = self.publish()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["self_check_token"], token)
+
+    def test_publish_rejects_non_self_check_set(self):
+        live_poll = QuestionSet.objects.create(
+            room=self.room, title="Runde", type="live_poll"
+        )
+        response = self.client.post(
+            f"/api/question-sets/{live_poll.pk}/self-check/publish/"
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_unpublish_clears_token(self):
+        self.publish()
+        response = self.unpublish()
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["self_check_token"])
+        self.question_set.refresh_from_db()
+        self.assertIsNone(self.question_set.self_check_token)
+
+    def test_stats_empty(self):
+        response = self.stats()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"attempts": 0, "correct": 0, "scored": 0, "ratio": None},
+        )
+
+    def test_stats_aggregates_attempts(self):
+        from live.models import SelfCheckAttempt
+
+        SelfCheckAttempt.objects.create(
+            question_set=self.question_set, correct=3, scored=4
+        )
+        SelfCheckAttempt.objects.create(
+            question_set=self.question_set, correct=1, scored=2
+        )
+        response = self.stats()
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["attempts"], 2)
+        self.assertEqual(payload["correct"], 4)
+        self.assertEqual(payload["scored"], 6)
+        self.assertAlmostEqual(payload["ratio"], 4 / 6)
+
+    def test_stats_delete_resets_attempts(self):
+        from live.models import SelfCheckAttempt
+
+        SelfCheckAttempt.objects.create(
+            question_set=self.question_set, correct=3, scored=4
+        )
+        response = self.stats(method="delete")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"attempts": 0, "correct": 0, "scored": 0, "ratio": None},
+        )
+        self.assertEqual(
+            SelfCheckAttempt.objects.filter(question_set=self.question_set).count(), 0
+        )
+
+    def test_non_owner_gets_404(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.publish().status_code, 404)
+        self.assertEqual(self.unpublish().status_code, 404)
+        self.assertEqual(self.stats().status_code, 404)

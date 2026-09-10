@@ -80,6 +80,7 @@ export interface QuestionSet {
   allow_back_navigation: boolean;
   shuffle_questions: boolean;
   share_token: string | null;
+  self_check_token: string | null;
   license: string;
   license_holder: string;
   question_count: number;
@@ -917,6 +918,31 @@ export const results = {
     `${API_BASE_URL}/api/question-sets/${setId}/results.csv` +
     (runId ? `?run=${runId}` : ""),
   exportUrl: (setId: number) => `${API_BASE_URL}/api/question-sets/${setId}/export/`,
+};
+
+export const selfCheck = {
+  publish: (setId: number) =>
+    request<{ self_check_token: string }>(
+      `/api/question-sets/${setId}/self-check/publish/`,
+      { method: "POST" },
+    ),
+  unpublish: (setId: number) =>
+    request<{ self_check_token: null }>(
+      `/api/question-sets/${setId}/self-check/unpublish/`,
+      { method: "POST" },
+    ),
+  stats: (setId: number) =>
+    request<{ attempts: number; correct: number; scored: number; ratio: number | null }>(
+      `/api/question-sets/${setId}/self-check/stats/`,
+    ),
+  resetStats: (setId: number) =>
+    request<unknown>(`/api/question-sets/${setId}/self-check/stats/`, {
+      method: "DELETE",
+    }),
+  url: (token: string, questionId?: number) =>
+    `${API_BASE_URL}/c/${token}/${questionId ? `?q=${questionId}` : ""}`,
+  qrUrl: (token: string, questionId?: number) =>
+    `${API_BASE_URL}/c/${token}/qr.png${questionId ? `?q=${questionId}` : ""}`,
 };
 
 export const live = {

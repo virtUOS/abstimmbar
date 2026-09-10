@@ -35,7 +35,14 @@ from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import ai_evaluation, ai_freetext, ai_report, ai_wordcloud, ai_wordcloud_live
 from .hub import hub, sse_frame
-from .models import OrderingResponse, ParticipantToken, PriorityScore, Run, Vote
+from .models import (
+    OrderingResponse,
+    ParticipantToken,
+    PriorityScore,
+    Run,
+    SelfCheckAttempt,
+    Vote,
+)
 from .results import (
     likert_summary,
     options_with_counts,
@@ -860,6 +867,164 @@ def recording_page(request, token):
             "closing_html": closing_html,
             "CONTENT_DEFAULT_LANGUAGE": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
             "recording_token": token,
+            "entry_question": entry if entry.isdigit() else "",
+        },
+    )
+    if lang:
+        response.set_cookie(settings.LANGUAGE_COOKIE_NAME, lang, max_age=31536000, samesite="Lax")
+    return response
+
+
+# --- self-check mode (#75 Phase 3): async, permanent Lernkontrolle link -----
+
+
+def _self_check_set(token):
+    """The published Lernkontrolle for a token, or 404 (unpublished = 404).
+
+    Type-guarded: a token that got onto a non-self_check set (shouldn't
+    happen via the UI, but keep the lookup honest) is treated as unknown."""
+    qs = (
+        QuestionSet.objects.filter(
+            self_check_token=token, type=QuestionSet.SetType.SELF_CHECK
+        )
+        .select_related("room")
+        .first()
+        if token
+        else None
+    )
+    if qs is None:
+        raise Http404
+    return qs
+
+
+def _self_check_solution(question):
+    """Solution data added to a self-check question payload — never sent on
+    any other participant path (#75 Phase 3 is the only place answers leak
+    to the client ahead of time)."""
+    correct = []
+    model_solution = ""
+    correct_order = []
+    if question.kind in Question.CHOICE_KINDS:
+        correct = sorted(o.pk for o in question.options.all() if o.is_correct)
+    elif question.kind == Question.Kind.OPEN_TEXT:
+        model_solution = question.model_solution
+    elif question.kind == Question.Kind.ORDERING:
+        correct_order = [
+            o.pk for o in sorted(question.options.all(), key=lambda o: o.position)
+        ]
+    return {
+        "correct": correct,
+        "model_solution": model_solution,
+        "correct_order": correct_order,
+    }
+
+
+@api_view(["GET"])
+def check_questions(request, token):
+    """All questions of a published Lernkontrolle, with solutions, for the
+    self-check participant page (#75 Phase 3).
+
+    No participant token/identity involved — self-check is anonymous and
+    stateless per attempt, unlike recording/self-paced resume. ``?q=<id>``
+    restricts to a single question (per-question QR deep link)."""
+    qs = _self_check_set(token)
+    questions = list(qs.questions.prefetch_related("options"))
+    q_id = request.GET.get("q")
+    single = bool(q_id and q_id.isdigit())
+    if single:
+        questions = [q for q in questions if q.pk == int(q_id)]
+        if not questions:
+            raise Http404
+    elif qs.shuffle_questions:
+        # Fresh per call = per attempt (no seed/token to key a stable order
+        # on — self-check is anonymous).
+        random.shuffle(questions)
+
+    return Response(
+        {
+            "set_title": translated_map(qs, "title"),
+            "shuffle_questions": qs.shuffle_questions,
+            "single": single,
+            "questions": [
+                {
+                    **question_payload(q, shuffle_seed=random.randrange(1 << 30)),
+                    **_self_check_solution(q),
+                }
+                for q in questions
+            ],
+        }
+    )
+
+
+@api_view(["POST"])
+def check_attempt(request, token):
+    """Record an anonymous attempt counter for a Lernkontrolle (#75 Phase 3).
+
+    No auth, no token: participants are anonymous by design. The client
+    reports how it scored itself (correct/scored are computed there against
+    the solutions from ``check_questions``); this endpoint only clamps and
+    counts — it never re-derives correctness server-side."""
+    qs = _self_check_set(token)
+
+    question = None
+    question_id = request.data.get("question")
+    if question_id not in (None, ""):
+        try:
+            question_id = int(question_id)
+        except (TypeError, ValueError):
+            return Response({"detail": "Unknown question."}, status=400)
+        question = Question.objects.filter(question_set=qs, pk=question_id).first()
+        if question is None:
+            return Response({"detail": "Unknown question."}, status=400)
+
+    try:
+        correct = int(request.data.get("correct"))
+        scored = int(request.data.get("scored"))
+    except (TypeError, ValueError):
+        return Response({"detail": "Invalid attempt data."}, status=400)
+
+    total = 1 if question is not None else qs.questions.count()
+    scored = max(0, min(scored, total))
+    correct = max(0, min(correct, scored))
+
+    SelfCheckAttempt.objects.create(
+        question_set=qs, question=question, correct=correct, scored=scored
+    )
+    return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+
+
+def check_qr(request, token):
+    """QR code for a Lernkontrolle's (optionally per-question) link."""
+    _self_check_set(token)  # 404 for an unknown/unpublished token
+    url = request.build_absolute_uri(f"/c/{token}/")
+    question_id = request.GET.get("q")
+    if question_id and question_id.isdigit():
+        url += f"?q={question_id}"
+    image = qrcode.make(url, box_size=8, border=1)
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return HttpResponse(buffer.getvalue(), content_type="image/png")
+
+
+@ensure_csrf_cookie
+def check_page(request, token):
+    """The Lernkontrolle participant page (#75 Phase 3) — reuses
+    participant.html like the recording viewer (no SSE; drives the question
+    flow via the check endpoints)."""
+    lang = _lang_from_query(request)
+    qs = _self_check_set(token)
+    room = qs.room
+    site = SiteConfig.load()
+    closing_html = clean_html(site.closing_info) + clean_html(room.closing_info)
+    entry = request.GET.get("q") or ""
+    response = render(
+        request,
+        "live/participant.html",
+        {
+            "room": room,
+            "closing_html": closing_html,
+            "CONTENT_DEFAULT_LANGUAGE": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
+            "check_token": token,
             "entry_question": entry if entry.isdigit() else "",
         },
     )

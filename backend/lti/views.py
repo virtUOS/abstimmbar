@@ -127,6 +127,15 @@ def lti_launch(request):
                       {"message": "Dieser Kurs ist noch nicht verknüpft — die "
                                   "Lehrperson muss Abstimmbar zuerst öffnen."},
                       status=404)
+    if set_id:
+        check_set = link.room.question_sets.filter(
+            pk=set_id, type=QuestionSet.SetType.SELF_CHECK
+        ).first()
+        if check_set is not None:
+            if check_set.self_check_token:
+                return redirect(f"/c/{check_set.self_check_token}/")
+            return render(request, "lti/error.html",
+                          {"message": "Diese Lernkontrolle ist noch nicht veröffentlicht."})
     return redirect(f"/p/{link.room.code}/")
 
 

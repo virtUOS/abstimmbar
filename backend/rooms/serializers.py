@@ -204,10 +204,10 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "id", "room", "room_title", "title", "description", "type", "reveal_answers",
             "open_on_show", "show_results_to_participants", "present_results_after",
             "allow_back_navigation", "shuffle_questions", "quiz_time_limit",
-            "share_token", "license", "license_holder",
+            "share_token", "self_check_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
         ]
-        read_only_fields: ClassVar = ["share_token"]
+        read_only_fields: ClassVar = ["share_token", "self_check_token"]
 
     def get_has_results(self, obj):
         annotated = getattr(obj, "vote_count", None)
@@ -431,27 +431,6 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                 raise serializers.ValidationError(
                     {"kind": "This question type is not allowed in this set."}
                 )
-            if kind == Question.Kind.OPEN_TEXT and set_types.requires_solution(
-                target_set.type
-            ):
-                # Distinguish "key absent" (a partial PATCH not touching
-                # model_solution at all -> fall back to the instance) from
-                # "key present with value ''" (client explicitly cleared it
-                # -> treat as empty, don't fall back). Same sentinel pattern
-                # as the canonical-text check below.
-                _missing = object()
-                submitted = attrs.get("model_solution", _missing)
-                if submitted is _missing:
-                    resolved_solution = getattr(self.instance, "model_solution", "") or ""
-                else:
-                    resolved_solution = submitted or ""
-                if not resolved_solution.strip():
-                    raise serializers.ValidationError(
-                        {
-                            "model_solution": "A model solution is required for free-text "
-                            "questions in this set type."
-                        }
-                    )
         if kind in Question.TEXT_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}

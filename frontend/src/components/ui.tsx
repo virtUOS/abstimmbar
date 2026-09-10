@@ -256,6 +256,7 @@ export function MoreMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label={label ?? t("More actions")}
+        title={label ?? t("More actions")}
         onClick={() => setOpen((value) => !value)}
         className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-brand-700 transition-colors hover:bg-brand-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-900/40"
       >

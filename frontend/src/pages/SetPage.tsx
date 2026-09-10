@@ -4,10 +4,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, ListTree, Play, Settings, Share2, Sparkles, Timer, Trash2 } from "lucide-react";
+import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Square, Timer, Trash2, TriangleAlert } from "lucide-react";
 import {
   api,
   results,
+  selfCheck,
   type Question,
   type QuestionKind,
   type QuestionSet,
@@ -51,6 +52,22 @@ export const KIND_LABEL: Record<QuestionKind, string> = {
 // Kinds whose answers are options (mirror of backend Question.CHOICE_KINDS) —
 // the only kinds that can get an after-question (#54).
 const CHOICE_KINDS: QuestionKind[] = ["single_choice", "multiple_choice", "likert"];
+
+/** #75 Phase 3: in a self-check, a question needs something to give feedback
+ * with — a marked correct option (choice kinds) or a model solution (free
+ * text). Ordering always has its correct order; other kinds are not allowed. */
+function missingSolution(question: Question): boolean {
+  if (question.kind === "single_choice" || question.kind === "multiple_choice") {
+    return !question.options.some((o) => o.is_correct && !o.is_abstention);
+  }
+  if (question.kind === "open_text") return !(question.model_solution || "").trim();
+  return false;
+}
+function missingSolutionHint(question: Question): string {
+  return question.kind === "open_text"
+    ? "No model solution — no feedback in the self-check"
+    : "No correct answer marked — no feedback in the self-check";
+}
 
 // Labels are English source strings, translated with t() at each render site.
 export const REVEAL_OPTIONS: { value: RevealAnswers; label: string }[] = [
@@ -157,7 +174,21 @@ export function SetSettingsForm({
             {t("Answers & results")}
           </legend>
           <div className="grid gap-2">
-            {draft.type === "self_paced" ? (
+            {draft.type === "self_check" ? (
+              // Self-check (#75): a standing practice link with per-question
+              // instant feedback, no timing/reveal/results controls apply.
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                <input
+                  type="checkbox"
+                  checked={draft.shuffle_questions}
+                  onChange={(event) =>
+                    onChange({ shuffle_questions: event.target.checked })
+                  }
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                />
+                {t("Show questions in a random order")}
+              </label>
+            ) : draft.type === "self_paced" ? (
               // Quiz-Block (#75): no per-question start/stop, so "reveal timing"
               // and "open on show" don't apply; the choices are whether the
               // correct answer is shown right after answering (bound to
@@ -541,6 +572,17 @@ export default function SetPage() {
   const [pullBusy, setPullBusy] = useState(false);
   // Small bottom toast, shared by "copy link" and the new copy actions.
   const [toastMessage, setToastMessage] = useState("");
+  // Lernkontrolle publish panel (#75 phase 3): one shared "just copied" key
+  // for the permanent link ("set") and each per-question link (question id),
+  // so only the clicked one shows "Copied" at a time.
+  const [copiedKey, setCopiedKey] = useState<string | number | null>(null);
+  const [selfCheckStats, setSelfCheckStats] = useState<{
+    attempts: number;
+    correct: number;
+    scored: number;
+    ratio: number | null;
+  } | null>(null);
+  const [confirmResetStats, setConfirmResetStats] = useState(false);
   const easyMode = useEasyMode();
   const aiVisible = aiEnabled && !easyMode;
   // Recording mode (#53): opt-in before presenting; carried to the beamer via
@@ -730,6 +772,47 @@ export default function SetPage() {
     showToast(t("Copied"));
   }
 
+  /** Lernkontrolle (#75 phase 3): publish/unpublish the standing practice
+   * link and load/reset its attempt stats. Publish/unpublish re-fetch the
+   * whole set (same pattern as `handleArchiveResults`/`saveMeta`) so the
+   * summary line and panel stay in sync. */
+  async function loadSelfCheckStats() {
+    const stats = await selfCheck.stats(id);
+    setSelfCheckStats(stats);
+  }
+
+  useEffect(() => {
+    if (set?.type === "self_check" && set.self_check_token) void loadSelfCheckStats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, set?.self_check_token]);
+
+  async function handlePublish() {
+    await selfCheck.publish(id);
+    const updated = await api.getQuestionSet(id);
+    setSet(updated);
+  }
+
+  async function handleUnpublish() {
+    await selfCheck.unpublish(id);
+    const updated = await api.getQuestionSet(id);
+    setSet(updated);
+  }
+
+  async function handleResetStats() {
+    setConfirmResetStats(false);
+    await selfCheck.resetStats(id);
+    await loadSelfCheckStats();
+  }
+
+  /** Shared copy mechanism for the permanent link ("set") and per-question
+   * links (keyed by question id) — mirrors `copyShareLink` but supports
+   * more than one "just copied" target at a time. */
+  async function copySelfCheckLink(key: string | number, url: string) {
+    await navigator.clipboard.writeText(url);
+    setCopiedKey(key);
+    window.setTimeout(() => setCopiedKey((current) => (current === key ? null : current)), 1500);
+  }
+
   /** Two-stage Room→Question-set picker, shared by the move/copy modal and
    * the pull picker: all of the user's sets minus the current one, grouped
    * by room, defaulting to the current set's room. */
@@ -909,6 +992,10 @@ export default function SetPage() {
 
   if (!set || !questions) return null;
 
+  // Plain local const (not `set.self_check_token`) so it narrows cleanly to
+  // `string` inside closures below (#75 phase 3).
+  const selfCheckToken = set.self_check_token;
+
   return (
     <div>
       <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
@@ -1080,7 +1167,15 @@ export default function SetPage() {
               </strong>
             </p>
           )}
-          {!easyMode && set.type !== "self_paced" && (
+          {!easyMode && set.type === "self_check" && (
+            <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+              {t("Show questions in a random order")}:{" "}
+              <strong className="font-semibold text-slate-700 dark:text-slate-200">
+                {set.shuffle_questions ? t("yes") : t("no")}
+              </strong>
+            </p>
+          )}
+          {!easyMode && set.type !== "self_paced" && set.type !== "self_check" && (
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {t("Correct answers:")}{" "}
               <strong className="font-semibold text-slate-700 dark:text-slate-200">
@@ -1106,6 +1201,81 @@ export default function SetPage() {
             </p>
           )}
           {metaError && <p className="mt-1 text-sm text-red-600">{metaError}</p>}
+        </div>
+      )}
+
+      {/* Lernkontrolle "Veröffentlichen" panel (#75 phase 3): permanent link,
+          LMS hint, attempt stats, unpublish/reset — shown once the standing
+          practice link exists. Neutral card: the green box is the app's dialog
+          style, not an info panel. */}
+      {set.type === "self_check" && selfCheckToken && (
+        <div className="mb-8 grid max-w-2xl gap-3 rounded-2xl border border-slate-200 bg-slate-50/50 p-4 dark:border-slate-800 dark:bg-slate-900/40">
+          <div>
+            <p className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t("Permanent link")}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <TextInput
+                readOnly
+                value={selfCheck.url(selfCheckToken)}
+                onFocus={(event) => event.target.select()}
+                aria-label={t("Permanent link")}
+                className="!w-96 font-mono !text-xs"
+              />
+              <Button
+                onClick={() => void copySelfCheckLink("set", selfCheck.url(selfCheckToken))}
+                className="inline-flex items-center gap-1.5"
+              >
+                {copiedKey === "set" ? (
+                  <>
+                    <Check aria-hidden className="h-4 w-4" />
+                    {t("Copied")}
+                  </>
+                ) : (
+                  <>
+                    <Copy aria-hidden className="h-4 w-4" />
+                    {t("Copy link")}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            {t(
+              "In your LMS, choose this set in the Abstimmbar deep link — learners land here directly.",
+            )}
+          </p>
+          <p className="text-sm text-slate-700 dark:text-slate-300">
+            {selfCheckStats &&
+              (selfCheckStats.ratio !== null
+                ? t("{{n}} attempts · {{pct}} % correct", {
+                    n: selfCheckStats.attempts,
+                    pct: Math.round(selfCheckStats.ratio * 100),
+                  })
+                : t("{{n}} attempts", { n: selfCheckStats.attempts }))}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              variant="primary"
+              onClick={() => void handleUnpublish()}
+              className="inline-flex items-center gap-1.5"
+            >
+              <Square aria-hidden className="h-4 w-4 fill-current" />
+              {t("Stop")}
+            </Button>
+            {confirmResetStats ? (
+              <ConfirmInline
+                message={t("Reset the attempt counter?")}
+                confirmLabel={t("Reset counter")}
+                onConfirm={() => void handleResetStats()}
+                onCancel={() => setConfirmResetStats(false)}
+              />
+            ) : (
+              <Button variant="ghost" onClick={() => setConfirmResetStats(true)}>
+                {t("Reset counter")}
+              </Button>
+            )}
+          </div>
         </div>
       )}
 
@@ -1245,9 +1415,25 @@ export default function SetPage() {
                   <Play aria-hidden className="h-4 w-4" />{t("Present")}
                 </Button>
               )}
-              <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
-                <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
-              </Button>
+              {/* Lernkontrolle (#75 phase 3): "run" means publishing the
+                  standing link once; once published the panel below carries
+                  the actions, so no primary button is shown here. */}
+              {SET_TYPES[set.type].runAction === "self_check" && !selfCheckToken && (
+                <Button
+                  variant="primary"
+                  onClick={() => void handlePublish()}
+                  className="inline-flex items-center gap-1.5"
+                >
+                  <Link2 aria-hidden className="h-4 w-4" />{t("Publish")}
+                </Button>
+              )}
+              {/* A Lernkontrolle has no run results — it's per-question
+                  attempt stats instead, shown in the publish panel. */}
+              {SET_TYPES[set.type].runAction !== "self_check" && (
+                <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
+                  <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
+                </Button>
+              )}
             </>
           )}
         </div>
@@ -1288,8 +1474,9 @@ export default function SetPage() {
         </div>
       </div>
 
-      {/* Recording mode (#53): opt-in before presenting (Pro only). */}
-      {!easyMode && questions.length > 0 && (
+      {/* Recording mode (#53): opt-in before presenting (Pro only). A
+          Lernkontrolle is never presented, so it has no recording mode. */}
+      {!easyMode && set.type !== "self_check" && questions.length > 0 && (
         <label className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
           <input
             type="checkbox"
@@ -1445,6 +1632,20 @@ export default function SetPage() {
                       />
                     ) : (
                       <>
+                        {/* #75 Phase 3: a self-check question without a solution
+                            (no correct option / no model solution) gives the
+                            learner no feedback — flag it. */}
+                        {set.type === "self_check" && missingSolution(question) && (
+                          <span
+                            title={t(missingSolutionHint(question))}
+                            className="inline-flex shrink-0 px-1 text-amber-500"
+                          >
+                            <TriangleAlert
+                              aria-label={t(missingSolutionHint(question))}
+                              className="h-4 w-4"
+                            />
+                          </span>
+                        )}
                         {/* Pro only (#91): a persisted stale-translation flag,
                             sitting with the row actions. */}
                         {!easyMode && hasStaleTranslation && (
@@ -1458,10 +1659,11 @@ export default function SetPage() {
                             />
                           </span>
                         )}
-                        {!easyMode && (
+                        {!easyMode && set.type !== "self_check" && (
                           <Button
                             variant="ghost"
                             aria-label={t("Present this question")}
+                            title={t("Present this question")}
                             onClick={() =>
                               window.open(
                                 `/sets/${id}/present?question=${question.id}`,
@@ -1470,6 +1672,27 @@ export default function SetPage() {
                             }
                           >
                             <Play aria-hidden className="h-4 w-4" />
+                          </Button>
+                        )}
+                        {/* Lernkontrolle (#75 phase 3): per-question deep
+                            link into the standing practice page. */}
+                        {set.type === "self_check" && selfCheckToken && (
+                          <Button
+                            variant="ghost"
+                            aria-label={t("Copy link to this question")}
+                            title={t("Copy link to this question")}
+                            onClick={() =>
+                              void copySelfCheckLink(
+                                question.id,
+                                selfCheck.url(selfCheckToken, question.id),
+                              )
+                            }
+                          >
+                            {copiedKey === question.id ? (
+                              <Check aria-hidden className="h-4 w-4" />
+                            ) : (
+                              <Link2 aria-hidden className="h-4 w-4" />
+                            )}
                           </Button>
                         )}
                         <MoreMenu label={t("Question actions")}>
