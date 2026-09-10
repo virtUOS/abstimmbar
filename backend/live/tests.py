@@ -869,6 +869,20 @@ class StatePayloadTests(LiveTestCase):
         self.assertEqual(payloads["presenter"]["question"]["wordcloud_max_answers"], 3)
         self.assertEqual(payloads["participant"]["question"]["wordcloud_max_answers"], 3)
 
+    def test_question_payload_carries_wordcloud_batch_submit(self):
+        # #88: the participant page needs to know whether to show batch fields.
+        wc = Question.objects.create(
+            question_set=self.question_set,
+            kind=Question.Kind.WORD_CLOUD,
+            text="<p>Stichwort?</p>",
+            allow_multiple=True,
+            wordcloud_max_answers=5,
+            wordcloud_batch_submit=True,
+        )
+        self.open_question(question=wc)
+        payloads = build_payloads(self.room)
+        self.assertTrue(payloads["participant"]["question"]["wordcloud_batch_submit"])
+
     def test_question_payload_carries_participant_feedback(self):
         # The participant client polls my-evaluation only when this is set;
         # False for every non-open_text question (self.question is single-choice).

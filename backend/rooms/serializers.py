@@ -394,7 +394,7 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             "binary_choice",
             "time_limit", "position", "options", "ai_evaluate", "evaluation_hint",
             "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
-            "wordcloud_grouping", "wordcloud_max_answers",
+            "wordcloud_grouping", "wordcloud_max_answers", "wordcloud_batch_submit",
             "evaluation_categories", "evaluation_chart",
             "model_solution", "participant_feedback",
             "reveal_answers", "before_question", "after_question", "is_after",
@@ -453,6 +453,20 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                 and kind == Question.Kind.OPEN_TEXT
             ):
                 attrs["participant_feedback"] = True
+        # #88: a word cloud's `allow_multiple` is derived from the per-person
+        # cap — 1 = a single, final answer; 0/N = multiple. Batch submit only
+        # applies to the multi-answer case, so force it off for a single answer.
+        if kind == Question.Kind.WORD_CLOUD:
+            _missing_max = object()
+            submitted_max = attrs.get("wordcloud_max_answers", _missing_max)
+            max_answers = (
+                submitted_max
+                if submitted_max is not _missing_max
+                else getattr(self.instance, "wordcloud_max_answers", 5)
+            )
+            attrs["allow_multiple"] = max_answers != 1
+            if max_answers == 1:
+                attrs["wordcloud_batch_submit"] = False
         if kind in Question.TEXT_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}

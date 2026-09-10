@@ -91,6 +91,7 @@ QUESTION_CONTENT_FIELDS = (
     "wordcloud_ai_enabled",
     "wordcloud_grouping",
     "wordcloud_max_answers",
+    "wordcloud_batch_submit",
     "reveal_answers",
     "ai_evaluate",
     "evaluation_hint",
@@ -243,6 +244,7 @@ def export_set(question_set):
                 "wordcloud_ai_enabled": question.wordcloud_ai_enabled,
                 "wordcloud_grouping": question.wordcloud_grouping,
                 "wordcloud_max_answers": question.wordcloud_max_answers,
+                "wordcloud_batch_submit": question.wordcloud_batch_submit,
                 "reveal_answers": question.reveal_answers,
                 "ai_evaluate": question.ai_evaluate,
                 "evaluation_hint": question.evaluation_hint,
@@ -358,7 +360,7 @@ def import_set(room, data):
             else None
         )
         raw_max = item.get("wordcloud_max_answers")
-        wc_max = int(raw_max) if isinstance(raw_max, int) and raw_max > 0 else 0
+        wc_max = int(raw_max) if isinstance(raw_max, int) and raw_max >= 0 else 5
         raw_section = item.get("section")
         section = (
             imported_sections[raw_section]
@@ -381,6 +383,7 @@ def import_set(room, data):
             wordcloud_ai_enabled=bool(item.get("wordcloud_ai_enabled")),
             wordcloud_grouping=str(item.get("wordcloud_grouping") or "")[:2000],
             wordcloud_max_answers=wc_max,
+            wordcloud_batch_submit=bool(item.get("wordcloud_batch_submit")),
             ai_evaluate=bool(item.get("ai_evaluate")),
             evaluation_hint=str(item.get("evaluation_hint") or "")[:2000],
             evaluation_categories=_import_categories(item.get("evaluation_categories")),

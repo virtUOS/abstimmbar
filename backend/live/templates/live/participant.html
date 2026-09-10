@@ -50,6 +50,10 @@ multi-line note must use {% comment %} or it renders as text.)
     <input type="text" id="word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}">
     <button class="primary" type="submit" id="wc-submit">{% trans "Submit" %}</button>
+    {# Single-answer word cloud (#88): make clear it is final. #}
+    <p class="soft" id="wc-single-hint" style="margin-top:10px" hidden>
+      {% trans "You have one answer only and cannot change it afterwards." %}
+    </p>
     {# Multiple-answer word cloud (#14): info, submitted terms, "Done". #}
     <p class="soft" id="wc-info" style="margin-top:10px" hidden>
       {% blocktrans trimmed %}
@@ -57,6 +61,14 @@ multi-line note must use {% comment %} or it renders as text.)
       Use × to withdraw an entry again.
       {% endblocktrans %}
     </p>
+    {# Batch word cloud (#88): several fields, submitted together. #}
+    <div id="wc-batch" style="margin-top:10px" hidden>
+      <p class="soft" style="margin:0 0 8px">
+        {% trans "Fill in your terms and submit them together." %}
+      </p>
+      <div id="wc-batch-fields"></div>
+      <button class="primary" type="button" id="wc-batch-submit">{% trans "Submit all" %}</button>
+    </div>
     <p class="soft" id="wc-hint" style="margin-top:10px;color:var(--danger-strong)" hidden></p>
     <p class="soft" id="wc-count" style="margin-top:6px" hidden></p>
     <div id="wc-mine" style="margin-top:12px"></div>
@@ -268,6 +280,9 @@ multi-line note must use {% comment %} or it renders as text.)
     quizUnscored: "{% trans 'Done! You answered all {total} questions.' %}",
     add: "{% trans 'Add' %}",
     submit: "{% trans 'Submit' %}",
+    yourTerm: "{% trans 'Your term …' %}",
+    answer: "{% trans 'Answer' %}",
+    removeField: "{% trans 'Remove field' %}",
     alreadySubmitted: "{% trans 'You already submitted this term.' %}",
     wcLimitReached: "{% trans 'You have reached the maximum number of terms.' %}",
     removeTerm: "{% trans 'Remove term “{word}”' %}",
@@ -334,6 +349,7 @@ multi-line note must use {% comment %} or it renders as text.)
   let priKey = null;
   let wcWords = new Set();
   let wcList = []; // [{ word, key }] in submission order
+  let wcBatchPending = []; // #88 batch mode: current non-empty field values
   const wcNorm = (s) => s.trim().split(/\s+/).join(" ").slice(0, 60).toLowerCase();
 
   function saveHistory() {
@@ -511,6 +527,7 @@ multi-line note must use {% comment %} or it renders as text.)
       box.textContent = "⏱ " + I18N.countdownLeft.replace("{n}", String(left));
       if (left <= 0) {
         window.clearInterval(countdownTimer);
+        flushWcBatch(); // #88: time up — submit whatever is in the batch fields
         show("closed");
       }
     };
@@ -1029,19 +1046,30 @@ multi-line note must use {% comment %} or it renders as text.)
     // run OR the question changes (a re-run's old terms no longer count), but
     // not on every vote broadcast within the same run.
     if (q.kind === "word_cloud") {
-      const multi = !!q.allow_multiple;
+      // Three modes (#88): single answer (allow_multiple off), immediate multi
+      // (each term sent right away, chips + "Done"), and batch (several fields
+      // submitted together). Batch is teacher-chosen (Expert).
+      const batch = !!q.allow_multiple && !!q.wordcloud_batch_submit;
+      const multi = !!q.allow_multiple && !batch;
+      const single = !q.allow_multiple;
+      document.getElementById("word").hidden = batch;
+      document.getElementById("wc-submit").hidden = batch;
       document.getElementById("wc-submit").textContent = multi ? I18N.add : I18N.submit;
       document.getElementById("wc-done").hidden = !multi;
       document.getElementById("wc-info").hidden = !multi;
+      document.getElementById("wc-single-hint").hidden = !single;
+      document.getElementById("wc-batch").hidden = !batch;
       const key = (state.run_id ?? "") + ":" + q.id;
       if (wcKey !== key) {
         wcKey = key;
         wcWords = new Set();
         wcList = [];
+        wcBatchPending = [];
         renderWcChips();
         document.getElementById("word").value = "";
         document.getElementById("wc-hint").hidden = true;
       }
+      if (batch) renderWcBatch();
       updateWcLimit(); // reflect the per-person cap (#76) on every render
     }
     if (q.kind === "word_cloud" || q.kind === "open_text") return;
@@ -1660,6 +1688,80 @@ multi-line note must use {% comment %} or it renders as text.)
     return state && state.question && state.question.kind === "word_cloud"
       && state.question.allow_multiple;
   }
+
+  // --- Batch word cloud (#88): up to 5 fields submitted together ------------
+  const WC_BATCH_GROUP = 5;
+
+  // Build a group of empty fields (bounded by the remaining per-person cap),
+  // each with an × to clear it. When the cap is reached, hide the group and
+  // the submit button — renderWcChips already shows what was contributed.
+  function renderWcBatch() {
+    const box = document.getElementById("wc-batch-fields");
+    const submit = document.getElementById("wc-batch-submit");
+    box.replaceChildren();
+    wcBatchPending = [];
+    const max = state.question.wordcloud_max_answers || 0; // 0 = unlimited
+    const remaining = max ? Math.max(0, max - wcList.length) : WC_BATCH_GROUP;
+    const count = Math.min(WC_BATCH_GROUP, remaining);
+    submit.hidden = count === 0;
+    if (count === 0) return;
+    for (let i = 0; i < count; i++) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:8px;margin-bottom:8px;align-items:center";
+      const input = document.createElement("input");
+      input.type = "text";
+      input.maxLength = 60;
+      input.autocomplete = "off";
+      input.placeholder = I18N.yourTerm;
+      input.setAttribute("aria-label", I18N.answer);
+      input.style.cssText = "flex:1;font:inherit;padding:12px 14px;border:1px solid var(--line);border-radius:12px";
+      input.addEventListener("input", updateWcBatchPending);
+      input.addEventListener("keydown", (e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const inputs = [...box.querySelectorAll("input")];
+        const next = inputs[inputs.indexOf(input) + 1];
+        if (next) next.focus();
+        else void submitWcBatch();
+      });
+      const x = document.createElement("button");
+      x.type = "button";
+      x.textContent = "×";
+      x.setAttribute("aria-label", I18N.removeField);
+      x.style.cssText = "border:0;background:none;color:var(--ink-soft);font-size:22px;line-height:1;cursor:pointer;padding:4px 8px";
+      x.addEventListener("click", () => { input.value = ""; updateWcBatchPending(); input.focus(); });
+      row.append(input, x);
+      box.appendChild(row);
+    }
+    updateWcBatchPending();
+  }
+
+  function updateWcBatchPending() {
+    const inputs = document.querySelectorAll("#wc-batch-fields input");
+    wcBatchPending = [...inputs].map((i) => i.value.trim()).filter(Boolean);
+  }
+
+  // Submit every filled field (dedupe + cap enforced by addWord), then show
+  // the next group if the cap still allows more.
+  async function submitWcBatch() {
+    updateWcBatchPending();
+    const values = [...wcBatchPending];
+    for (const v of values) await addWord(v);
+    renderWcBatch();
+    updateWcLimit();
+  }
+
+  // Time up / question closing: fire off whatever is still in the fields.
+  function flushWcBatch() {
+    if (!state || !state.question || state.question.kind !== "word_cloud") return;
+    if (!(state.question.allow_multiple && state.question.wordcloud_batch_submit)) return;
+    updateWcBatchPending();
+    const values = [...wcBatchPending];
+    wcBatchPending = [];
+    for (const v of values) void addWord(v);
+  }
+
+  document.getElementById("wc-batch-submit").addEventListener("click", () => void submitWcBatch());
 
   document.getElementById("wordcloud").addEventListener("submit", (e) => {
     e.preventDefault();

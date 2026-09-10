@@ -219,8 +219,8 @@ export default function QuestionPage() {
   const [evalChart, setEvalChart] = useState(false);
   const [modelSolution, setModelSolution] = useState("");
   const [participantFeedback, setParticipantFeedback] = useState(false);
-  const [allowMultiple, setAllowMultiple] = useState(false);
-  const [wordcloudMaxAnswers, setWordcloudMaxAnswers] = useState(0);
+  const [wordcloudMaxAnswers, setWordcloudMaxAnswers] = useState(5);
+  const [wordcloudBatchSubmit, setWordcloudBatchSubmit] = useState(false);
   const [wordcloudLive, setWordcloudLive] = useState(true);
   const [wordcloudAiEnabled, setWordcloudAiEnabled] = useState(false);
   const [wordcloudGrouping, setWordcloudGrouping] = useState("");
@@ -293,8 +293,8 @@ export default function QuestionPage() {
       setEvalChart(data.evaluation_chart);
       setModelSolution(data.model_solution ?? "");
       setParticipantFeedback(data.participant_feedback ?? false);
-      setAllowMultiple(data.allow_multiple);
-      setWordcloudMaxAnswers(data.wordcloud_max_answers ?? 0);
+      setWordcloudMaxAnswers(data.wordcloud_max_answers ?? 5);
+      setWordcloudBatchSubmit(data.wordcloud_batch_submit ?? false);
       setWordcloudLive(data.wordcloud_live);
       setWordcloudAiEnabled(data.wordcloud_ai_enabled);
       setWordcloudGrouping(data.wordcloud_grouping);
@@ -435,9 +435,15 @@ export default function QuestionPage() {
         evaluation_chart: question.kind === "open_text" && evalChart,
         model_solution: question.kind === "open_text" ? modelSolution : "",
         participant_feedback: question.kind === "open_text" && participantFeedback,
-        allow_multiple: question.kind === "word_cloud" && allowMultiple,
+        // #88: a single answer is wordcloud_max_answers === 1; allow_multiple
+        // is derived server-side too, but send it for older code paths.
+        allow_multiple: question.kind === "word_cloud" && wordcloudMaxAnswers !== 1,
         wordcloud_max_answers:
-          question.kind === "word_cloud" && allowMultiple ? wordcloudMaxAnswers : 0,
+          question.kind === "word_cloud" ? wordcloudMaxAnswers : 0,
+        wordcloud_batch_submit:
+          question.kind === "word_cloud" &&
+          wordcloudMaxAnswers !== 1 &&
+          wordcloudBatchSubmit,
         wordcloud_live: question.kind !== "word_cloud" || wordcloudLive,
         wordcloud_ai_enabled: question.kind === "word_cloud" && wordcloudAiEnabled,
         wordcloud_grouping: question.kind === "word_cloud" ? wordcloudGrouping : "",
@@ -1165,27 +1171,28 @@ export default function QuestionPage() {
               )}
             </p>
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              {t("Maximum contributions per person")}
               <input
-                type="checkbox"
-                checked={allowMultiple}
-                onChange={(event) => setAllowMultiple(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                type="number"
+                min={0}
+                value={String(wordcloudMaxAnswers)}
+                onChange={(event) =>
+                  setWordcloudMaxAnswers(Math.max(0, Number(event.target.value) || 0))
+                }
+                className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
               />
-              {t("Allow multiple answers per person (with “+” and “Done”)")}
+              <span className="text-slate-400">{t("(0 = no limit, 1 = a single answer)")}</span>
             </label>
-            {allowMultiple && (
-              <label className="ml-6 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                {t("Maximum contributions per person")}
+            {!easyMode && wordcloudMaxAnswers !== 1 && (
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
                 <input
-                  type="number"
-                  min={0}
-                  value={wordcloudMaxAnswers || ""}
-                  onChange={(event) =>
-                    setWordcloudMaxAnswers(Math.max(0, Number(event.target.value) || 0))
-                  }
-                  className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                  type="checkbox"
+                  checked={wordcloudBatchSubmit}
+                  onChange={(event) => setWordcloudBatchSubmit(event.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
                 />
-                <span className="text-slate-400">{t("(0 = no limit)")}</span>
+                {t("Collect answers and submit them together")}
+                <span className="text-slate-400">{t("(up to 5 fields at a time)")}</span>
               </label>
             )}
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">

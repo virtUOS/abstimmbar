@@ -317,9 +317,14 @@ class Question(TimeStampedModel):
     # dieser Vorgabe. Nur wirksam bei aktivem wordcloud_ai_enabled.
     wordcloud_grouping = models.TextField(blank=True)
     # v2 (#76): cap how many terms one participant may contribute to a word
-    # cloud. 0 = unlimited. Only meaningful for WORD_CLOUD + allow_multiple
-    # (without allow_multiple each participant contributes exactly one term).
-    wordcloud_max_answers = models.PositiveSmallIntegerField(default=0)
+    # cloud. 0 = unlimited, 1 = a single answer, N>=2 = capped. Default 5
+    # (#88). `allow_multiple` is derived from this in the serializer
+    # (== 1 -> single). Only meaningful for WORD_CLOUD.
+    wordcloud_max_answers = models.PositiveSmallIntegerField(default=5)
+    # #88: collect several terms in up to 5 fields and submit them together,
+    # instead of sending each term immediately. Teacher-chosen (Expert mode);
+    # only meaningful for a multi-answer WORD_CLOUD.
+    wordcloud_batch_submit = models.BooleanField(default=False)
 
     class RevealAnswers(models.TextChoices):
         # Per-question override of when correct answers are highlighted (#28).
