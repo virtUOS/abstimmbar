@@ -3509,6 +3509,23 @@ class QuestionKindGatingTests(ApiTestCase):
         qs = QuestionSet.objects.create(room=self.room, title="S", type="live_poll")
         self.assertEqual(self._create_q(qs, "single_choice").status_code, 201)
 
+    def test_self_check_open_text_forces_participant_feedback(self):
+        qs = QuestionSet.objects.create(room=self.room, title="S", type="self_check")
+        r = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "open_text",
+                "text": {"de": "F", "en": "Q"},
+                "options": [],
+                "model_solution": "Paris",
+                "participant_feedback": False,  # client tries to turn it off
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertTrue(Question.objects.get(pk=r.json()["id"]).participant_feedback)
+
 class SetTypeApiTests(ApiTestCase):
     # Reuses the authed owner client (self.owner/self.room) from ApiTestCase.
 
