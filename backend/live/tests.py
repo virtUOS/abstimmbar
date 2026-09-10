@@ -896,6 +896,24 @@ class StatePayloadTests(LiveTestCase):
         self.assertTrue(payloads["presenter"]["question"]["participant_feedback"])
         self.assertTrue(payloads["participant"]["question"]["participant_feedback"])
 
+    def test_question_payload_carries_is_abstention_for_likert(self):
+        # #86: the Likert participant renderer excludes the abstention option
+        # from the segment scale and renders it as a separate button — it
+        # needs the flag on each option to tell them apart.
+        likert = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.LIKERT, text="<p>Wie?</p>",
+        )
+        AnswerOption.objects.create(question=likert, text="Stimme nicht zu", position=0)
+        AnswerOption.objects.create(question=likert, text="Stimme zu", position=1)
+        AnswerOption.objects.create(
+            question=likert, text="Enthaltung", is_abstention=True, position=2
+        )
+        self.open_question(question=likert)
+        payloads = build_payloads(self.room)
+        opts = payloads["participant"]["question"]["options"]
+        self.assertTrue(any(o["is_abstention"] for o in opts))
+        self.assertFalse(all(o["is_abstention"] for o in opts))
+
 
 class ParticipantPageTests(LiveTestCase):
     def test_pages_render(self):

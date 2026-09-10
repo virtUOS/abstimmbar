@@ -78,6 +78,7 @@ def question_payload(question, shuffle_seed):
             {
                 "id": o.pk,
                 "text": translated_map(o, "text"),
+                "is_abstention": o.is_abstention,
                 **({"image": o.image} if o.image else {}),
             }
             for o in options

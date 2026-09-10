@@ -1137,7 +1137,7 @@ multi-line note must use {% comment %} or it renders as text.)
       row.appendChild(seg);
     });
     box.appendChild(row);
-    if (!perStep && scale.length) {
+    if (!perStep) {
       const caps = document.createElement("div"); caps.className = "likert-caps";
       const l = document.createElement("span"); l.textContent = locText(scale[0].text);
       const r = document.createElement("span"); r.textContent = locText(scale[scale.length - 1].text);
