@@ -111,7 +111,7 @@ def seed_example_room(user) -> Room:
         )
     position += 1
 
-    # likert: positive-first 5-point agreement scale + a trailing abstention.
+    # likert: negative-first 5-point agreement scale + a trailing abstention.
     text_de, text_en = _p(
         "Ich fühle mich in dieser Veranstaltung gut aufgehoben.",
         "I feel well supported in this course.",
@@ -124,11 +124,11 @@ def seed_example_room(user) -> Room:
         position=position,
     )
     likert_scale = [
-        ("Stimme voll zu", "Strongly agree"),
-        ("Stimme eher zu", "Agree"),
-        ("Neutral", "Neutral"),
-        ("Stimme eher nicht zu", "Disagree"),
         ("Stimme gar nicht zu", "Strongly disagree"),
+        ("Stimme eher nicht zu", "Disagree"),
+        ("Neutral", "Neutral"),
+        ("Stimme eher zu", "Agree"),
+        ("Stimme voll zu", "Strongly agree"),
     ]
     for i, (option_de, option_en) in enumerate(likert_scale):
         AnswerOption.objects.create(
