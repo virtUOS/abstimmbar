@@ -47,7 +47,11 @@ def options_with_counts(run, question):
 
 
 def likert_summary(options):
-    """Diverging aggregation of an ordered Likert scale (v2 review feedback).
+    """Diverging aggregation of an ordered Likert scale. Position order is the
+    scale from the negative/low pole (0) to the positive/high pole (N-1) — no
+    reversal (#86). Buckets: first half = "low", second half = "high", the
+    middle step of an odd scale = "neutral". Endpoint labels drive the axis
+    captions downstream. Returns None for < 2 real steps.
 
     `options` is the ``options_with_counts`` output for a Likert question —
     ordered by position and including any ``is_abstention`` entries.
@@ -58,37 +62,31 @@ def likert_summary(options):
     divider sits between the two middle steps. ``divider`` is the position of
     that centre line as a percentage (0–100) of the scale width, so the
     frontend can draw the same line the presentation and results views share.
-
-    Returns ``None`` when the shape is not a usable scale (< 2 real steps),
-    so callers fall back to the plain per-option bars.
     """
     scale = [o for o in options if not o["is_abstention"]]
     abstentions = sum(o["count"] for o in options if o["is_abstention"])
     if len(scale) < 2:
         return None
-    # Authored Likert options are stored positive-first ("Stimme voll zu" …
-    # "Stimme gar nicht zu", see LIKERT_PRESETS in the editor), but the
-    # diverging aggregation below — and the shared bar (disagreement red on the
-    # left, agreement green on the right) — expect disagreement→agreement. Flip
-    # to that order so the polarity and centre line match what's shown; without
-    # this, full agreement was coloured/counted as disagreement (#93).
-    scale = list(reversed(scale))
     scale_total = sum(o["count"] for o in scale)
     n = len(scale)
     mid = n // 2
     neutral_index = mid if n % 2 else None
 
-    def pct(count):
-        return round(100 * count / scale_total, 1) if scale_total else 0.0
+    def pct(c):
+        return round(100 * c / scale_total, 1) if scale_total else 0.0
 
     steps = []
+    low = neutral = high = 0
     for i, option in enumerate(scale):
         if i == neutral_index:
             polarity = "neutral"
+            neutral += option["count"]
         elif i < mid:
-            polarity = "disagree"
+            polarity = "low"
+            low += option["count"]
         else:
-            polarity = "agree"
+            polarity = "high"
+            high += option["count"]
         steps.append(
             {
                 "id": option["id"],
@@ -100,27 +98,20 @@ def likert_summary(options):
                 "polarity": polarity,
             }
         )
-
-    def total(polarity):
-        return sum(s["count"] for s in steps if s["polarity"] == polarity)
-
-    disagree, neutral, agree = total("disagree"), total("neutral"), total("agree")
-    # Centre line from raw counts (not rounded pcts) to avoid display drift.
-    lower = sum(o["count"] for o in scale[:mid])
-    divider = 100 * lower / scale_total if scale_total else 50.0
-    if neutral_index is not None and scale_total:
-        divider += 100 * scale[neutral_index]["count"] / scale_total / 2
-
+    # Centre-line position: end of the low block (+ half the neutral block).
+    divider = pct(low) + (pct(neutral) / 2 if neutral_index is not None else 0)
     return {
         "scale_total": scale_total,
         "abstentions": abstentions,
-        "agree": agree,
-        "agree_pct": pct(agree),
+        "high": high,
+        "high_pct": pct(high),
         "neutral": neutral,
         "neutral_pct": pct(neutral),
-        "disagree": disagree,
-        "disagree_pct": pct(disagree),
+        "low": low,
+        "low_pct": pct(low),
         "divider": round(divider, 1),
+        "low_label": scale[0]["text"],
+        "high_label": scale[-1]["text"],
         "steps": steps,
     }
 

@@ -62,9 +62,13 @@ def build_report_prompt(set_title, results):
             lines.append(f"  - {option_text}: {option['count']}{mark}")
         likert = question.get("likert")
         if likert:
+            # high/low_label are {de, en} endpoint maps (#86) — resolve to one
+            # canonical string, same as the option/question text above.
+            high_label = resolve_translated_text(likert["high_label"]) or "hoch"
+            low_label = resolve_translated_text(likert["low_label"]) or "niedrig"
             lines.append(
-                f"  Zustimmung {likert['agree_pct']} % / Neutral "
-                f"{likert['neutral_pct']} % / Ablehnung {likert['disagree_pct']} % "
+                f"  {high_label} {likert['high_pct']} % / Neutral "
+                f"{likert['neutral_pct']} % / {low_label} {likert['low_pct']} % "
                 f"(Enthaltungen {likert['abstentions']})"
             )
         words = question.get("words") or []
