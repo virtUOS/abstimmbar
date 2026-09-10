@@ -96,6 +96,8 @@ QUESTION_CONTENT_FIELDS = (
     "evaluation_hint",
     "evaluation_categories",
     "evaluation_chart",
+    "model_solution",
+    "participant_feedback",
 )
 
 

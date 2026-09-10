@@ -3,6 +3,7 @@
 
 import io
 from typing import ClassVar
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
@@ -1410,6 +1411,44 @@ class CopyQuestionsTests(ApiTestCase):
         response = self.copy([open_text.pk], target=check_set)
         self.assertEqual(response.status_code, 201)
         self.assertTrue(check_set.questions.filter(text="Erkläre X.").exists())
+
+    def test_duplicate_carries_model_solution_and_feedback(self):
+        from rooms.transfer import duplicate_question
+        src = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Q",
+            model_solution="Paris", participant_feedback=True,
+        )
+        clone = duplicate_question(src, question_set=self.target, section=None, position=5)
+        self.assertEqual(clone.model_solution, "Paris")
+        self.assertTrue(clone.participant_feedback)
+
+    @patch("rooms.views.ai.is_enabled", return_value=True)
+    def test_copy_open_text_into_self_check_activates_ai(self, _m):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="K", type=QuestionSet.SetType.SELF_CHECK
+        )
+        src = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Q", model_solution="Paris",
+        )
+        resp = self.copy([src.pk], target=check_set)
+        self.assertEqual(resp.status_code, 201)
+        clone = check_set.questions.get()
+        self.assertTrue(clone.ai_evaluate)
+        self.assertTrue(clone.participant_feedback)
+        self.assertEqual(clone.model_solution, "Paris")
+
+    @patch("rooms.views.ai.is_enabled", return_value=False)
+    def test_copy_into_self_check_without_ai_still_sets_feedback(self, _m):
+        check_set = QuestionSet.objects.create(
+            room=self.room, title="K2", type=QuestionSet.SetType.SELF_CHECK
+        )
+        src = Question.objects.create(
+            question_set=self.source, kind="open_text", text="Q",
+        )
+        self.copy([src.pk], target=check_set)
+        clone = check_set.questions.get()
+        self.assertFalse(clone.ai_evaluate)      # no provider → don't enable AI
+        self.assertTrue(clone.participant_feedback)
 
 
 class SearchTests(ApiTestCase):

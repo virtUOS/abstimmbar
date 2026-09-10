@@ -700,10 +700,19 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         with transaction.atomic():
             last = target.questions.order_by("-position").first()
             position = (last.position + 1) if last else 0
+            activate = target.type == QuestionSet.SetType.SELF_CHECK
+            ai_on = activate and ai.is_enabled()
             for question_id in ids:
-                duplicate_question(
+                clone = duplicate_question(
                     by_id[question_id], question_set=target, section=None, position=position
                 )
+                if activate and clone.kind == Question.Kind.OPEN_TEXT:
+                    # Self-checks always show learners their own evaluation;
+                    # turn AI grading on too when a provider is configured (#75).
+                    clone.participant_feedback = True
+                    if ai_on:
+                        clone.ai_evaluate = True
+                    clone.save(update_fields=["participant_feedback", "ai_evaluate"])
                 position += 1
             _touch(target)
         return Response({"copied": len(ids)}, status=status.HTTP_201_CREATED)
@@ -788,6 +797,11 @@ class QuestionViewSet(viewsets.ModelViewSet):
         question.save(
             update_fields=["question_set", "section", "position", "updated_at"]
         )
+        if target.type == QuestionSet.SetType.SELF_CHECK and question.kind == Question.Kind.OPEN_TEXT:
+            question.participant_feedback = True
+            if ai.is_enabled():
+                question.ai_evaluate = True
+            question.save(update_fields=["participant_feedback", "ai_evaluate", "updated_at"])
         _touch(source)
         _touch(target)
         return Response({"status": "ok", "question_set": target.pk})
