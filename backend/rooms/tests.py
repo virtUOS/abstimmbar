@@ -110,6 +110,35 @@ class RoomApiTests(ApiTestCase):
         titles = [room["title"] for room in payload["results"]]
         self.assertEqual(titles, [{"de": "Bio 101", "en": ""}])
 
+    def test_list_reports_set_type_counts(self):
+        # #75: the room card shows a per-type breakdown of its sets.
+        QuestionSet.objects.create(room=self.room, title="L1", type="live_poll")
+        QuestionSet.objects.create(room=self.room, title="L2", type="live_poll")
+        QuestionSet.objects.create(room=self.room, title="Q1", type="self_paced")
+        QuestionSet.objects.create(room=self.room, title="C1", type="self_check")
+        QuestionSet.objects.create(room=self.room, title="C2", type="self_check")
+        QuestionSet.objects.create(room=self.room, title="C3", type="self_check")
+        room = next(
+            r for r in self.client.get("/api/rooms/").json()["results"]
+            if r["id"] == self.room.pk
+        )
+        self.assertEqual(
+            room["set_type_counts"],
+            {"live_poll": 2, "self_paced": 1, "self_check": 3},
+        )
+        self.assertEqual(room["question_set_count"], 6)
+
+    def test_create_response_has_zeroed_set_type_counts(self):
+        # The create response isn't annotated; the serializer falls back to a
+        # grouped count, which is all zeros for a brand-new room.
+        response = self.client.post(
+            "/api/rooms/", {"title": "Leer"}, content_type="application/json"
+        )
+        self.assertEqual(
+            response.json()["set_type_counts"],
+            {"live_poll": 0, "self_paced": 0, "self_check": 0},
+        )
+
     def test_create_room_assigns_owner_and_code(self):
         response = self.client.post(
             "/api/rooms/", {"title": "Neuer Raum"}, content_type="application/json"

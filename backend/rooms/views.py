@@ -194,9 +194,22 @@ class RoomViewSet(viewsets.ModelViewSet):
         from lti.models import LtiContextLink
 
         lti = LtiContextLink.objects.filter(room=OuterRef("pk"))
+        # Per-type set counts for the room-card breakdown (#75): one filtered
+        # Count per set type, so the overview shows e.g. "2 live polls · 1
+        # quiz · 3 self-checks" without an N+1. Derived from the choices so a
+        # new set type is picked up automatically. Read as `set_count_<value>`.
+        type_counts = {
+            f"set_count_{value}": Count(
+                "question_sets",
+                filter=Q(question_sets__type=value),
+                distinct=True,
+            )
+            for value, _ in QuestionSet.SetType.choices
+        }
         queryset = Room.objects.annotate(
             question_set_count=Count("question_sets", distinct=True),
             owner_count=Count("owners", distinct=True),
+            **type_counts,
             # Last actual use = most recent run across the room's sets.
             last_used_at=Max("question_sets__runs__created_at"),
             is_favorite=Exists(favorite),

@@ -41,6 +41,8 @@ export interface Room {
   is_archived: boolean;
   last_used_at: string | null;
   question_set_count: number;
+  /** Number of question sets per set type, keyed by set type (#75). */
+  set_type_counts: Record<SetType, number>;
   created_at: string;
   updated_at: string;
   created_by_name: string;
