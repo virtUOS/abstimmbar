@@ -27,7 +27,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
-import { Button, ConfirmInline, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
+import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
 function aiErrorText(err: unknown): string {
@@ -1408,19 +1408,26 @@ export default function QuestionPage() {
         {confirmNoCorrect && missingSolutionForSelfCheck && (
           <div
             role="alert"
-            className="flex items-start gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
+            className="grid gap-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"
           >
-            <TriangleAlert aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
-            <ConfirmInline
-              message={t(missingSolutionMessage)}
-              confirmLabel={t("Save anyway")}
-              confirmVariant="primary"
-              onConfirm={() => {
-                setConfirmNoCorrect(false);
-                void save();
-              }}
-              onCancel={() => setConfirmNoCorrect(false)}
-            />
+            <div className="flex items-start gap-3">
+              <TriangleAlert aria-hidden className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+              <p>{t(missingSolutionMessage)}</p>
+            </div>
+            <div className="flex flex-wrap gap-2 pl-8">
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setConfirmNoCorrect(false);
+                  void save();
+                }}
+              >
+                {t("Save anyway")}
+              </Button>
+              <Button variant="ghost" onClick={() => setConfirmNoCorrect(false)}>
+                {t("Cancel")}
+              </Button>
+            </div>
           </div>
         )}
         <div className="sticky bottom-0 z-20 mt-4 flex gap-2 bg-white/90 py-3 backdrop-blur shadow-[0_-6px_16px_-8px_rgba(15,23,42,0.18)] dark:bg-slate-950/90">
