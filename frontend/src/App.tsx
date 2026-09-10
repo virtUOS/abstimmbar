@@ -420,7 +420,7 @@ export default function App() {
                 onChange={(v) => setEasyMode(v === "simple")}
                 options={[
                   { value: "simple", label: t("Simple") },
-                  { value: "pro", label: t("Pro") },
+                  { value: "pro", label: t("Expert") },
                 ]}
               />
               <UserMenu whoami={whoami} />
