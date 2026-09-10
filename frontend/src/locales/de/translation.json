@@ -448,6 +448,7 @@
   "Show the results in the presentation afterwards": "Im Anschluss die Ergebnisse in der Präsentation anzeigen",
   "Let participants navigate between questions and change answers": "Vor- und Zurückblättern zwischen Fragen (und Antworten ändern) erlauben",
   "Answers can only be changed while instant feedback is off.": "Antworten lassen sich nur ändern, solange kein Sofort-Feedback aktiv ist.",
+  "Show results only in the summary at the end": "Ergebnisse erst am Ende in der Zusammenfassung anzeigen",
   "Show questions in a random order": "Fragen in zufälliger Reihenfolge zeigen",
   "Publish": "Veröffentlichen",
   "Permanent link": "Dauer-Link",

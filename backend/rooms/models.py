@@ -168,6 +168,9 @@ class QuestionSet(TimeStampedModel):
     allow_back_navigation = models.BooleanField(default=True)
     # #75: deliver the questions in a per-participant random order. Only self_paced.
     shuffle_questions = models.BooleanField(default=False)
+    # #75: for a self-check, show per-question feedback during the block
+    # (False, default) or defer all results to the end-of-block summary (True).
+    reveal_only_in_summary = models.BooleanField(default=False)
     # v2 "Teilen & Zusammenarbeit": a non-guessable token makes the set
     # copyable by any logged-in colleague who has the link; null = not
     # shared. The optional license travels with copies and exports.
