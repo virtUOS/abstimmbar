@@ -323,6 +323,16 @@ export default function QuestionPage() {
     setError("");
   }, [text, options]);
 
+  // #75 Phase 3: a brand-new free-text question in a Lernkontrolle starts with
+  // AI evaluation (and own-answer feedback) on — that is the point of the type.
+  useEffect(() => {
+    if (isNew && set?.type === "self_check" && question?.kind === "open_text" && aiEnabled) {
+      setAiEvaluate(true);
+      setParticipantFeedback(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNew, set?.type, question?.kind, aiEnabled]);
+
   function updateOption(clientId: number, patch: Partial<EditableOption>) {
     setOptions((current) =>
       current.map((option) => {
@@ -1240,7 +1250,7 @@ export default function QuestionPage() {
                 onChange={(event) => setAiEvaluate(event.target.checked)}
                 className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
               />
-              {t("Have the AI assign answers to a scale live")}
+              {t("Have the AI evaluate answers")}
             </label>
             {aiEvaluate && (
               <div className="mt-2">
@@ -1254,9 +1264,7 @@ export default function QuestionPage() {
                   className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
                 />
                 <p className="mt-1 text-xs text-slate-400">
-                  {t(
-                    "Each incoming answer is automatically assigned to a category during the run and grouped live in presentation mode.",
-                  )}
+                  {t("The AI assigns each answer to one category of the scale.")}
                 </p>
 
                 <div className="mt-2">
@@ -1351,15 +1359,21 @@ export default function QuestionPage() {
                   {t("Show distribution as bar chart")}
                 </label>
 
-                <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={participantFeedback}
-                    onChange={(event) => setParticipantFeedback(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
-                  />
-                  {t("Show each participant the evaluation of their own answer")}
-                </label>
+                {set?.type === "self_check" ? (
+                  <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">
+                    {t("In a self-check, learners always see the evaluation of their own answer.")}
+                  </p>
+                ) : (
+                  <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={participantFeedback}
+                      onChange={(event) => setParticipantFeedback(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    />
+                    {t("Show each participant the evaluation of their own answer")}
+                  </label>
+                )}
               </div>
             )}
           </AiAssistPanel>
