@@ -344,3 +344,15 @@ msgstr "Du hast alle {total} Fragen bearbeitet."
 #: live/templates/live/participant.html
 msgid "This self-check is not available."
 msgstr "Diese Lernkontrolle ist nicht verfügbar."
+
+#: live/templates/live/participant.html
+msgid "Checking …"
+msgstr "Wird geprüft …"
+
+#: live/templates/live/participant.html
+msgid "AI assessment"
+msgstr "KI-Einschätzung"
+
+#: live/templates/live/participant.html
+msgid "AI assessment is not available right now — only the model solution is shown."
+msgstr "Die KI-Einschätzung ist gerade nicht verfügbar — es wird nur die Musterlösung angezeigt."
