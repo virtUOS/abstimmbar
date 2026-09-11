@@ -715,6 +715,11 @@ export default function QuestionPage() {
     return JSON.stringify({
       text, shuffle, binaryChoice, reveal, options,
       timeLimit, likertPreset, abstention,
+      // Likert step count and endpoint labels live outside `options` until
+      // save (likertOptions() bakes them in), so the unsaved-changes guard
+      // must watch them directly — otherwise editing only an endpoint label or
+      // the step count and hitting the next-arrow discards it silently (#86).
+      likertSteps, likertLeft, likertRight,
       aiEvaluate, evaluationHint, evalCategories, evalScale, evalChart,
       modelSolution, participantFeedback,
       wordcloudMaxAnswers, wordcloudBatchSubmit, wordcloudLive,
