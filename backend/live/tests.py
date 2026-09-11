@@ -3367,6 +3367,59 @@ class OrderingPayloadTests(LiveTestCase):
         self.assertNotEqual(ids, [o.pk for o in opts])  # shuffled vs authored order
 
 
+class ShuffleLetterMappingTests(LiveTestCase):
+    """#127: the beamer letters each option by its display index, in both the
+    voting view (question_payload) and the results view (options_with_counts).
+    Both must present the same per-run order, or "B" while voting becomes "C"
+    in the results."""
+
+    def _shuffled_choice(self):
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="<p>?</p>", position=1, shuffle_options=True,
+        )
+        # 8 options: the authored order surviving a shuffle is a 1/8! fluke.
+        for i in range(8):
+            AnswerOption.objects.create(
+                question=q, text=f"O{i}", position=i, is_correct=(i == 1),
+            )
+        return q
+
+    def test_results_order_matches_question_order(self):
+        from .results import options_with_counts
+        from .state import question_payload
+
+        q = self._shuffled_choice()
+        run = Run.objects.create(question_set=self.question_set)
+        payload_ids = [o["id"] for o in question_payload(q, shuffle_seed=run.pk)["options"]]
+        result_ids = [o["id"] for o in options_with_counts(run, q)]
+        self.assertEqual(payload_ids, result_ids)
+        # And the order is really shuffled (not just position order agreeing).
+        self.assertNotEqual(payload_ids, list(
+            q.options.order_by("position").values_list("pk", flat=True)
+        ))
+
+    def test_unshuffled_choice_keeps_position_order(self):
+        from .results import options_with_counts
+        from .state import question_payload
+
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="<p>?</p>", position=2, shuffle_options=False,
+        )
+        for i in range(4):
+            AnswerOption.objects.create(question=q, text=f"O{i}", position=i)
+        run = Run.objects.create(question_set=self.question_set)
+        position_ids = list(q.options.order_by("position").values_list("pk", flat=True))
+        self.assertEqual(
+            [o["id"] for o in question_payload(q, shuffle_seed=run.pk)["options"]],
+            position_ids,
+        )
+        self.assertEqual(
+            [o["id"] for o in options_with_counts(run, q)], position_ids
+        )
+
+
 class OrderingCsvTests(LiveTestCase):
     def test_csv_has_ordering_rows(self):
         from .models import OrderingResponse
