@@ -1357,7 +1357,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {t("No terms yet …")}
                 </p>
               ) : (
-                <WordCloud words={rampWords(state.words ?? [])} />
+                <WordCloud words={rampWords(state.words ?? [])} animate />
               )
             ) : (
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
@@ -1798,15 +1798,19 @@ type PlacedWord = CloudWord & { x: number; y: number; size: number; rank: number
 /** Lay the most frequent word large in the centre and arrange the rest
  * concentrically outward along an Archimedean spiral, biggest first (#31).
  * Box sizes are estimated from text length so no DOM measuring is needed. */
+// Lay out the top-40 words in the given order (callers pass stable first-seen
+// order, #Wortwolke). Each word spirals out from its (cluster) centroid until
+// it clears the words already placed, so growth mostly nudges later words that
+// then glide via the CSS transition — no full re-pack, no teleporting.
 function layoutWordCloud(
   words: CloudWord[],
   scale = 1,
   size: { w: number; h: number } = { w: 900, h: 520 },
 ): PlacedWord[] {
-  const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
-  if (top.length === 0) return [];
-  const max = top[0].count;
-  const min = top[top.length - 1].count;
+  if (words.length === 0) return [];
+  const counts = words.map((w) => w.count);
+  const max = Math.max(...counts);
+  const min = Math.min(...counts);
   const sizeOf = (count: number) => {
     if (max === min) return 40 * scale;
     const t = (count - min) / (max - min);
@@ -1814,7 +1818,7 @@ function layoutWordCloud(
   };
   // One centroid per cluster index, spread on an ellipse; single cloud → centre.
   const clusterIds = Array.from(
-    new Set(top.map((w) => w.cluster).filter((c): c is number => c != null)),
+    new Set(words.map((w) => w.cluster).filter((c): c is number => c != null)),
   ).sort((a, b) => a - b);
   const centroid = (cluster?: number): { cx: number; cy: number } => {
     if (cluster == null || clusterIds.length <= 1) return { cx: 0, cy: 0 };
@@ -1830,7 +1834,7 @@ function layoutWordCloud(
         Math.abs(x - p.x) * 2 < w + estWidth(p) + 10 &&
         Math.abs(y - p.y) * 2 < h + p.size * 1.15 + 8,
     );
-  top.forEach((word, rank) => {
+  words.forEach((word, rank) => {
     const wsize = sizeOf(word.count);
     const w = word.text.length * wsize * 0.56;
     const h = wsize * 1.15;
@@ -1839,7 +1843,8 @@ function layoutWordCloud(
     let x = cx;
     let y = cy;
     let guard = 0;
-    // Spiral out from the (cluster) centroid until the box no longer collides.
+    // Spiral out from the (cluster) centroid until the box clears the ones
+    // already placed.
     while (overlaps(x, y, w, h) && guard++ < 1500) {
       angle += 0.35;
       const r = 5 * angle;
@@ -1870,12 +1875,31 @@ function WordCloud({
   heightClass?: string;
   animate?: boolean;
 }) {
-  const placed = useMemo(() => layoutWordCloud(words, scale), [words, scale]);
+  // Stable first-seen order (new terms appended). Laying out in this order —
+  // rather than re-sorting by count every update — keeps a word roughly where
+  // it was as its votes change: a growing word mostly nudges the words placed
+  // after it, which glide via the CSS transition instead of the whole cloud
+  // re-packing and teleporting (#Wortwolke). New terms sort last → outer ring.
+  const orderRef = useRef<Map<string, number>>(new Map());
+  const seqRef = useRef(0);
 
+  const placed = useMemo(() => {
+    const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
+    for (const w of top) {
+      if (!orderRef.current.has(w.text)) orderRef.current.set(w.text, seqRef.current++);
+    }
+    top.sort((a, b) => orderRef.current.get(a.text)! - orderRef.current.get(b.text)!);
+    return layoutWordCloud(top, scale);
+  }, [words, scale]);
+
+  // Diff against the previous render (updated in an effect, so the render body
+  // still sees the prior counts): brand-new terms fly in, terms that gained
+  // votes grow + glow, everything else holds still.
   const prev = useRef<Map<string, number>>(new Map());
-  const isFresh = (w: PlacedWord) => {
-    const before = prev.current.get(w.text);
-    return before === undefined || w.count > before;
+  const isNew = (text: string) => !prev.current.has(text);
+  const isGrown = (text: string, count: number) => {
+    const before = prev.current.get(text);
+    return before !== undefined && count > before;
   };
   useEffect(() => {
     prev.current = new Map(placed.map((w) => [w.text, w.count]));
@@ -1884,30 +1908,39 @@ function WordCloud({
   return (
     <div className={`relative mx-auto w-full max-w-5xl ${heightClass}`}>
       <style>{`
-        @keyframes wc-enter { from { opacity: 0; transform: translate(-50%,-50%) scale(0.5); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
-        @keyframes wc-pulse { 0%,100% { filter: none; } 35% { filter: drop-shadow(0 0 10px currentColor); } }
+        @keyframes wc-fly { from { opacity: 0; transform: translate(-50%,-50%) translateX(var(--wc-fly, 640px)); } 55% { opacity: 1; } to { opacity: 1; transform: translate(-50%,-50%) translateX(0); } }
+        @keyframes wc-pulse { 0%, 100% { filter: none; } 30% { filter: drop-shadow(0 0 14px currentColor); } }
       `}</style>
       <div className="absolute left-1/2 top-1/2">
-        {placed.map((w) => (
-          <span
-            key={w.text}
-            title={`${w.count}×`}
-            className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold"
-            style={{
-              left: `${w.x}px`,
-              top: `${w.y}px`,
-              fontSize: `${w.size}px`,
-              color: w.color,
-              transition: animate
-                ? "left 400ms ease-out, top 400ms ease-out, font-size 400ms ease-out"
-                : undefined,
-              animation:
-                animate && isFresh(w) ? "wc-enter 380ms ease-out, wc-pulse 1000ms ease-out" : undefined,
-            }}
-          >
-            {w.text}
-          </span>
-        ))}
+        {placed.map((w) => {
+          const fresh = animate && isNew(w.text);
+          const grew = animate && isGrown(w.text, w.count);
+          return (
+            <span
+              key={w.text}
+              title={`${w.count}×`}
+              className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold"
+              style={{
+                left: `${w.x}px`,
+                top: `${w.y}px`,
+                fontSize: `${w.size}px`,
+                color: w.color,
+                // Fly in from whichever side the word ends up on.
+                ["--wc-fly" as string]: `${w.x < 0 ? -640 : 640}px`,
+                transition: animate
+                  ? "left 500ms ease-out, top 500ms ease-out, font-size 700ms ease-out"
+                  : undefined,
+                animation: fresh
+                  ? "wc-fly 600ms cubic-bezier(.2,.85,.25,1), wc-pulse 1100ms ease-out"
+                  : grew
+                    ? "wc-pulse 1100ms ease-out"
+                    : undefined,
+              }}
+            >
+              {w.text}
+            </span>
+          );
+        })}
       </div>
     </div>
   );
@@ -1938,7 +1971,7 @@ function WordCloudAiView({
     if (ai.merged.length === 0) {
       return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
     }
-    return <WordCloud words={rampWords(ai.merged)} />;
+    return <WordCloud words={rampWords(ai.merged)} animate />;
   }
   if (ai.clusters.length === 0) {
     return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
