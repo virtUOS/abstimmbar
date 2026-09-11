@@ -3963,3 +3963,45 @@ class WordCloudModerationAggregationTests(LiveTestCase):
         self.assertEqual(len(words), 1)
         self.assertEqual(words[0]["text"], "zorn")
         self.assertEqual(words[0]["count"], 2)  # wut's votes are NOT counted
+
+
+class WordCloudModerationApiTests(LiveTestCase):
+    def setUp(self):
+        super().setUp()
+        self.q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>Wort?</p>", position=1, allow_multiple=True,
+        )
+        self.run = Run.objects.create(question_set=self.question_set)
+        for text, n in (("froh", 3), ("gluecklich", 2), ("wut", 1)):
+            for _ in range(n):
+                token = ParticipantToken.objects.create(room=self.room)
+                Vote.objects.create(run=self.run, question=self.q, token=token, text=text)
+        self.url = f"/api/runs/{self.run.pk}/wordcloud/{self.q.pk}/moderation"
+        self.client.force_login(self.owner)
+
+    def _post(self, body):
+        # self.client must be authenticated as the room owner — use the same
+        # login the other presenter-endpoint tests in this file use.
+        return self.client.post(self.url, body, content_type="application/json")
+
+    def test_hide_then_unhide(self):
+        from .models import WordCloudModeration
+        self.assertEqual(self._post({"op": "hide", "keys": ["wut"]}).status_code, 200)
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).hidden, ["wut"])
+        self.assertEqual(self._post({"op": "unhide", "keys": ["wut"]}).status_code, 200)
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).hidden, [])
+
+    def test_merge_and_rename_and_unmerge(self):
+        from .models import WordCloudModeration
+        self._post({"op": "merge", "keys": ["froh", "gluecklich"], "label": "froh"})
+        m = WordCloudModeration.objects.get(run=self.run)
+        self.assertEqual(m.merges, [{"keys": ["froh", "gluecklich"], "label": "froh"}])
+        self._post({"op": "rename", "keys": ["froh", "gluecklich"], "label": "positiv"})
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).merges[0]["label"], "positiv")
+        self._post({"op": "unmerge", "keys": ["froh", "gluecklich"]})
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).merges, [])
+
+    def test_requires_owner(self):
+        self.client.logout()
+        self.assertIn(self._post({"op": "hide", "keys": ["wut"]}).status_code, (401, 403, 404))

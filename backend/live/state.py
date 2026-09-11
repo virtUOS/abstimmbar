@@ -17,7 +17,7 @@ from rooms.models import Question
 
 from . import ai_wordcloud_live
 from .hub import hub
-from .models import Run
+from .models import Run, WordCloudModeration
 from .results import (
     freetext_evaluation,
     likert_summary,
@@ -185,6 +185,11 @@ def build_payloads(room):
         presenter["votes"] = run.votes.filter(question=question).count()
         if question.kind in Question.TEXT_KINDS:
             presenter["words"] = words_with_counts(run, question)
+            mod = WordCloudModeration.objects.filter(run=run, question=question).first()
+            presenter["wordcloud_moderation"] = {
+                "hidden": [{"key": k} for k in (mod.hidden if mod else [])],
+                "merges": (mod.merges if mod else []),
+            }
             if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
                 presenter["evaluation"] = freetext_evaluation(run, question)
             # Live AI word-cloud views (consolidated/grouped), only while the
