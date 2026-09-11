@@ -1883,6 +1883,7 @@ function WordCloud({
   const orderRef = useRef<Map<string, number>>(new Map());
   const seqRef = useRef(0);
 
+  const { t } = useTranslation();
   const placed = useMemo(() => {
     const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
     for (const w of top) {
@@ -1891,6 +1892,9 @@ function WordCloud({
     top.sort((a, b) => orderRef.current.get(a.text)! - orderRef.current.get(b.text)!);
     return layoutWordCloud(top, scale);
   }, [words, scale]);
+  // Only the 40 most frequent terms fit the beamer legibly; flag the rest so a
+  // long tail isn't silently dropped (#Wortwolke).
+  const hidden = Math.max(0, words.length - placed.length);
 
   // Diff against the previous render (updated in an effect, so the render body
   // still sees the prior counts): brand-new terms fly in, terms that gained
@@ -1942,6 +1946,11 @@ function WordCloud({
           );
         })}
       </div>
+      {hidden > 0 && (
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-sm text-slate-400">
+          {t("+{{count}} more terms", { count: hidden })}
+        </div>
+      )}
     </div>
   );
 }
