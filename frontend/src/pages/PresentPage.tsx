@@ -1910,8 +1910,9 @@ function WordCloud({
   });
 
   return (
-    <div className={`relative mx-auto w-full max-w-5xl ${heightClass}`}>
-      <style>{`
+    <div className="mx-auto w-full max-w-5xl">
+      <div className={`relative ${heightClass}`}>
+        <style>{`
         @keyframes wc-fly { from { opacity: 0; transform: translate(-50%,-50%) translateX(var(--wc-fly, 640px)); } 55% { opacity: 1; } to { opacity: 1; transform: translate(-50%,-50%) translateX(0); } }
         @keyframes wc-pulse { 0%, 100% { filter: none; } 30% { filter: drop-shadow(0 0 14px currentColor); } }
       `}</style>
@@ -1945,9 +1946,10 @@ function WordCloud({
             </span>
           );
         })}
+        </div>
       </div>
       {hidden > 0 && (
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 text-center text-sm text-slate-400">
+        <div className="mt-8 text-center text-sm text-slate-400">
           {t("+{{count}} more terms", { count: hidden })}
         </div>
       )}
