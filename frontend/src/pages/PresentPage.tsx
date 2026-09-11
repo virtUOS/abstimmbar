@@ -1020,7 +1020,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             html={localizedText(question.text)}
           />
 
-          {question.kind !== "word_cloud" && question.kind !== "open_text" && phase !== "results" && (
+          {question.kind !== "word_cloud" && question.kind !== "open_text" &&
+            question.kind !== "likert" && phase !== "results" && (
             <ol className="mt-8 space-y-3">
               {question.options.map((option, i) => (
                 <li key={option.id} className="flex items-center gap-4 rounded-2xl border border-slate-200 px-5 py-3 text-lg sm:text-xl md:text-2xl">
@@ -1037,6 +1038,43 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               ))}
             </ol>
           )}
+
+          {/* Likert scale on the beamer (#86): the ordered steps as a segment
+              row with the endpoint labels, matching the participant view. */}
+          {question.kind === "likert" && phase !== "results" && (() => {
+            const scale = question.options.filter((o) => !o.is_abstention);
+            const perStep = scale.every((o) => localizedText(o.text).trim().length > 0);
+            const abstain = question.options.find((o) => o.is_abstention);
+            return (
+              <div className="mt-8">
+                <div className="flex w-full overflow-hidden rounded-2xl border border-slate-300 text-center dark:border-slate-700">
+                  {scale.map((o) => (
+                    <div
+                      key={o.id}
+                      className="flex flex-1 items-center justify-center border-l border-slate-200 py-6 text-2xl first:border-l-0 sm:text-3xl dark:border-slate-700"
+                    >
+                      {perStep ? (
+                        localizedText(o.text)
+                      ) : (
+                        <span className="inline-block h-5 w-5 rounded-full border-2 border-slate-400" />
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {!perStep && (
+                  <div className="mt-2 flex justify-between text-lg text-slate-500 dark:text-slate-400 sm:text-xl">
+                    <span>{localizedText(scale[0].text)}</span>
+                    <span>{localizedText(scale[scale.length - 1].text)}</span>
+                  </div>
+                )}
+                {abstain && (
+                  <div className="mt-4 inline-block rounded-xl border border-dashed border-slate-300 px-5 py-2 text-lg text-slate-500 dark:border-slate-700 dark:text-slate-400">
+                    {localizedText(abstain.text)}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {question.kind === "likert" && state.likert && phase === "results" && (
             state.before?.likert ? (

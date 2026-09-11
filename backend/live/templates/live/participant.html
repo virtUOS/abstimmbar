@@ -141,6 +141,7 @@ multi-line note must use {% comment %} or it renders as text.)
   .likert-caps{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--ink-soft);font-size:13px}
   .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
   .likert-abstain:hover{background:var(--brand-soft);border-color:var(--brand-strong);color:var(--brand-strong)}
+  .likert-abstain.selected{background:var(--brand-soft);border-style:solid;border-color:var(--brand-strong);color:var(--brand-strong);font-weight:600}
 </style>
 <section id="finished" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
@@ -296,6 +297,7 @@ multi-line note must use {% comment %} or it renders as text.)
     quizUnscored: "{% trans 'Done! You answered all {total} questions.' %}",
     add: "{% trans 'Add' %}",
     submit: "{% trans 'Submit' %}",
+    submitAnswer: "{% trans 'Submit answer' %}",
     yourTerm: "{% trans 'Your term …' %}",
     answer: "{% trans 'Answer' %}",
     clearField: "{% trans 'Clear field' %}",
@@ -1123,8 +1125,9 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   // Likert (#86): a connected row of segment buttons, one per step (position
-  // order, abstention excluded). A tap submits immediately, like single
-  // choice. If every step carries its own label (emoji scale, or a legacy
+  // order, abstention excluded). Selecting a step (or the abstention) marks it
+  // and enables a "Submit answer" button, consistent with the other question
+  // types. If every step carries its own label (emoji scale, or a legacy
   // fully-labeled scale) it's shown inside the segment; otherwise segments
   // stay blank and only the two endpoints are captioned below the row.
   function renderLikert(q) {
@@ -1134,6 +1137,19 @@ multi-line note must use {% comment %} or it renders as text.)
     const scale = q.options.filter((o) => !o.is_abstention);
     const perStep = scale.every((o) => (locText(o.text) || "").trim().length > 0);
     const row = document.createElement("div"); row.className = "likert-row";
+    let choice = null;
+    const choosable = [];
+    const submit = document.createElement("button");
+    submit.type = "button"; submit.className = "primary";
+    submit.style.marginTop = "14px";
+    submit.textContent = I18N.submitAnswer;
+    submit.disabled = true;
+    const choose = (id, btn) => {
+      choice = id;
+      choosable.forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      submit.disabled = false;
+    };
     scale.forEach((option) => {
       const seg = document.createElement("button");
       seg.type = "button"; seg.className = "likert-seg";
@@ -1149,7 +1165,8 @@ multi-line note must use {% comment %} or it renders as text.)
         seg.appendChild(dot);
       }
       seg.setAttribute("aria-label", label);
-      seg.addEventListener("click", () => submitVote({ options: [option.id] }));
+      seg.addEventListener("click", () => choose(option.id, seg));
+      choosable.push(seg);
       row.appendChild(seg);
     });
     box.appendChild(row);
@@ -1164,9 +1181,12 @@ multi-line note must use {% comment %} or it renders as text.)
       const btn = document.createElement("button");
       btn.type = "button"; btn.className = "likert-abstain";
       btn.textContent = locText(abstain.text);
-      btn.addEventListener("click", () => submitVote({ options: [abstain.id] }));
+      btn.addEventListener("click", () => choose(abstain.id, btn));
+      choosable.push(btn);
       box.appendChild(btn);
     }
+    submit.onclick = () => { if (choice != null) submitVote({ options: [choice] }); };
+    box.appendChild(submit);
   }
 
   // --- self-paced quiz (concept §6.3) ---------------------------------------
