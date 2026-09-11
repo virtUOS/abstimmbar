@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { Check, ChevronLeft, ChevronRight, QrCode, Timer, Users, Vote, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -17,6 +17,7 @@ import {
   type Question,
   type RunResults,
   type WordCloudAI,
+  type WordCloudModeration,
 } from "../api";
 import { localizedText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
@@ -233,6 +234,59 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     },
     [runId],
   );
+
+  // --- Word-cloud moderation (#Wortwolke): hide/merge with client undo/redo. ---
+  type ModOp = {
+    op: "hide" | "unhide" | "merge" | "unmerge" | "rename";
+    keys: string[];
+    label?: string;
+  };
+  const [showModPanel, setShowModPanel] = useState(false);
+  const undoStack = useRef<{ done: ModOp; inverse: ModOp }[]>([]);
+  const redoStack = useRef<{ done: ModOp; inverse: ModOp }[]>([]);
+  const mod = state?.wordcloud_moderation;
+  const sendMod = (op: ModOp) => {
+    if (runId != null && activeId != null)
+      void live.wordcloudModeration(runId, activeId, op);
+  };
+  const moderate = (done: ModOp, inverse: ModOp) => {
+    undoStack.current.push({ done, inverse });
+    redoStack.current = [];
+    sendMod(done);
+  };
+  const undoMod = () => {
+    const last = undoStack.current.pop();
+    if (!last) return;
+    redoStack.current.push(last);
+    sendMod(last.inverse);
+  };
+  const redoMod = () => {
+    const item = redoStack.current.pop();
+    if (!item) return;
+    undoStack.current.push(item);
+    sendMod(item.done);
+  };
+  // A merge group's current label (for the rename/split inverses).
+  const mergeLabel = (keys: string[]) => {
+    const norm = [...keys].sort().join(" ");
+    return (mod?.merges ?? []).find((m) => [...m.keys].sort().join(" ") === norm)?.label;
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      if (activeKind !== "word_cloud") return;
+      // Don't hijack native undo while the presenter edits a merge label.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable))
+        return;
+      e.preventDefault();
+      if (e.shiftKey) redoMod();
+      else undoMod();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKind, runId, activeId]);
 
   const cycleWcView = useCallback(() => {
     setWcView((v) =>
@@ -1357,11 +1411,102 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {t("No terms yet …")}
                 </p>
               ) : (
-                <WordCloud words={rampWords(state.words ?? [])} animate />
+                <WordCloud
+                  words={rampWords(state.words ?? [])}
+                  animate
+                  onModerate={(op, keys, label) =>
+                    op === "hide"
+                      ? moderate({ op: "hide", keys }, { op: "unhide", keys })
+                      : moderate({ op: "merge", keys, label }, { op: "unmerge", keys })
+                  }
+                />
               )
             ) : (
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
             ))}
+
+          {question.kind === "word_cloud" &&
+            wcView === "raw" &&
+            (phase === "results" ||
+              (phase === "open" && question.wordcloud_live !== false)) &&
+            (state.words ?? []).length > 0 && (
+              <>
+                {/* Unobtrusive pencil handle at the right edge; opens the drawer. */}
+                <button
+                  type="button"
+                  onClick={() => setShowModPanel((s) => !s)}
+                  aria-label={t("Moderate")}
+                  title={t("Moderate")}
+                  className={`fixed right-0 top-[62%] z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
+                    showModPanel ? "pointer-events-none opacity-0" : "opacity-100"
+                  }`}
+                >
+                  <Pencil className="h-5 w-5" />
+                </button>
+                {/* Slide-out moderation drawer. */}
+                <div
+                  className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
+                    showModPanel ? "translate-x-0" : "translate-x-full"
+                  }`}
+                >
+                  <div className="flex items-center justify-between border-b border-slate-100 p-3">
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={undoMod}
+                        title={t("Undo")}
+                        aria-label={t("Undo")}
+                        className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
+                      >
+                        <Undo2 className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={redoMod}
+                        title={t("Redo")}
+                        aria-label={t("Redo")}
+                        className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
+                      >
+                        <Redo2 className="h-5 w-5" />
+                      </button>
+                    </div>
+                    <span className="text-sm font-semibold text-slate-600">{t("Moderate")}</span>
+                    <button
+                      type="button"
+                      onClick={() => setShowModPanel(false)}
+                      aria-label={t("Close")}
+                      className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3">
+                    {mod ? (
+                      <ModerationPanel
+                        mod={mod}
+                        onRestore={(key) =>
+                          moderate({ op: "unhide", keys: [key] }, { op: "hide", keys: [key] })
+                        }
+                        onSplit={(keys) =>
+                          moderate(
+                            { op: "unmerge", keys },
+                            { op: "merge", keys, label: mergeLabel(keys) ?? "" },
+                          )
+                        }
+                        onRename={(keys, label) =>
+                          moderate(
+                            { op: "rename", keys, label },
+                            { op: "rename", keys, label: mergeLabel(keys) ?? "" },
+                          )
+                        }
+                      />
+                    ) : (
+                      <p className="text-sm text-slate-400">{t("Nothing moderated yet.")}</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
 
           <div className="mt-10 text-center text-slate-500">
             {phase === "preview" && (
@@ -1792,7 +1937,7 @@ function rampColor(t: number): string {
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(0)})`;
 }
 
-type CloudWord = { text: string; count: number; color: string; cluster?: number };
+type CloudWord = { text: string; count: number; color: string; cluster?: number; keys?: string[] };
 type PlacedWord = CloudWord & { x: number; y: number; size: number; rank: number };
 
 /** Lay the most frequent word large in the centre and arrange the rest
@@ -1856,24 +2001,29 @@ function layoutWordCloud(
   return placed;
 }
 
-function rampWords(words: { text: string; count: number }[]): CloudWord[] {
+function rampWords(words: { text: string; count: number; keys?: string[] }[]): CloudWord[] {
   if (words.length === 0) return [];
   const max = Math.max(...words.map((w) => w.count));
   const min = Math.min(...words.map((w) => w.count));
   const t = (c: number) => (max === min ? 1 : (c - min) / (max - min));
-  return words.map((w) => ({ text: w.text, count: w.count, color: rampColor(t(w.count)) }));
+  return words.map((w) => ({
+    text: w.text, count: w.count, color: rampColor(t(w.count)), keys: w.keys,
+  }));
 }
 
 function WordCloud({
   words,
   scale = 1,
   heightClass = "h-[62vh]",
-  animate = false, // wired up in Task 3
+  animate = false,
+  onModerate,
 }: {
   words: CloudWord[];
   scale?: number;
   heightClass?: string;
   animate?: boolean;
+  // Presenter curation (#Wortwolke): hide a term, or merge one word onto another.
+  onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
 }) {
   // Stable first-seen order (new terms appended). Laying out in this order —
   // rather than re-sorting by count every update — keeps a word roughly where
@@ -1884,14 +2034,67 @@ function WordCloud({
   const seqRef = useRef(0);
 
   const { t } = useTranslation();
+  // While a merge drag is in progress the layout holds still (frozen snapshot)
+  // so the drop target doesn't wander as votes keep arriving.
+  const [dragging, setDragging] = useState(false);
+  const frozen = useRef<PlacedWord[] | null>(null);
+  const centerRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ keys: string[]; text: string; moved: boolean } | null>(null);
+  // The word being dragged, rendered as a ghost that follows the cursor.
+  const [ghost, setGhost] = useState<
+    { text: string; color: string; size: number; x: number; y: number } | null
+  >(null);
+
   const placed = useMemo(() => {
+    if (dragging && frozen.current) return frozen.current;
     const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
     for (const w of top) {
       if (!orderRef.current.has(w.text)) orderRef.current.set(w.text, seqRef.current++);
     }
     top.sort((a, b) => orderRef.current.get(a.text)! - orderRef.current.get(b.text)!);
-    return layoutWordCloud(top, scale);
-  }, [words, scale]);
+    const laid = layoutWordCloud(top, scale);
+    frozen.current = laid;
+    return laid;
+  }, [words, scale, dragging]);
+
+  // Press-drag a word onto another to merge (pointer-based, no lib). Document
+  // listeners keep the drag tracking off the small target; a drag that barely
+  // moves is treated as a click (the × handles hide instead).
+  function startDrag(e: React.PointerEvent, w: PlacedWord) {
+    if (!onModerate) return;
+    dragRef.current = { keys: w.keys ?? [], text: w.text, moved: false };
+    const sx = e.clientX;
+    const sy = e.clientY;
+    setDragging(true);
+    setGhost({ text: w.text, color: w.color, size: w.size, x: sx, y: sy });
+    const move = (ev: PointerEvent) => {
+      if (dragRef.current && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 6) {
+        dragRef.current.moved = true;
+      }
+      setGhost((g) => (g ? { ...g, x: ev.clientX, y: ev.clientY } : g));
+    };
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      const drag = dragRef.current;
+      dragRef.current = null;
+      setDragging(false);
+      setGhost(null);
+      const rect = centerRef.current?.getBoundingClientRect();
+      if (!drag || !drag.moved || !rect || !onModerate) return;
+      const px = ev.clientX - rect.left;
+      const py = ev.clientY - rect.top;
+      const target = (frozen.current ?? []).find((p) => {
+        if (p.text === drag.text) return false;
+        const halfW = (p.text.length * p.size * 0.56) / 2 + 6;
+        const halfH = (p.size * 1.15) / 2 + 6;
+        return Math.abs(px - p.x) < halfW && Math.abs(py - p.y) < halfH;
+      });
+      if (target) onModerate("merge", [...drag.keys, ...(target.keys ?? [])], target.text);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  }
   // Only the 40 most frequent terms fit the beamer legibly; flag the rest so a
   // long tail isn't silently dropped (#Wortwolke).
   const hidden = Math.max(0, words.length - placed.length);
@@ -1916,7 +2119,7 @@ function WordCloud({
         @keyframes wc-fly { from { opacity: 0; transform: translate(-50%,-50%) translateX(var(--wc-fly, 640px)); } 55% { opacity: 1; } to { opacity: 1; transform: translate(-50%,-50%) translateX(0); } }
         @keyframes wc-pulse { 0%, 100% { filter: none; } 30% { filter: drop-shadow(0 0 14px currentColor); } }
       `}</style>
-      <div className="absolute left-1/2 top-1/2">
+      <div className="absolute left-1/2 top-1/2" ref={centerRef}>
         {placed.map((w) => {
           const fresh = animate && isNew(w.text);
           const grew = animate && isGrown(w.text, w.count);
@@ -1924,12 +2127,19 @@ function WordCloud({
             <span
               key={w.text}
               title={`${w.count}×`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold"
+              onPointerDown={onModerate ? (e) => startDrag(e, w) : undefined}
+              className={`group absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold ${
+                onModerate ? "cursor-grab hover:z-30" : ""
+              }`}
               style={{
                 left: `${w.x}px`,
                 top: `${w.y}px`,
                 fontSize: `${w.size}px`,
                 color: w.color,
+                opacity: ghost?.text === w.text ? 0.2 : undefined,
+                userSelect: "none",
+                WebkitUserSelect: "none",
+                touchAction: onModerate ? "none" : undefined,
                 // Fly in from whichever side the word ends up on.
                 ["--wc-fly" as string]: `${w.x < 0 ? -640 : 640}px`,
                 transition: animate
@@ -1943,15 +2153,112 @@ function WordCloud({
               }}
             >
               {w.text}
+              {onModerate && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onModerate("hide", w.keys ?? []);
+                  }}
+                  // Right-centre, over the word's own glyphs on the horizontal
+                  // midline the mouse travels — reachable without crossing a gap
+                  // or a neighbouring word (the hovered word is raised via z-30).
+                  className="absolute right-0 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
+                  aria-label={t("Hide {{word}}", { word: w.text })}
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+                </button>
+              )}
             </span>
           );
         })}
         </div>
       </div>
+      {ghost && (
+        <span
+          className="pointer-events-none fixed z-50 whitespace-nowrap font-bold"
+          style={{
+            left: ghost.x,
+            top: ghost.y,
+            transform: "translate(-50%, -50%) scale(1.05)",
+            fontSize: `${ghost.size}px`,
+            color: ghost.color,
+            filter: "drop-shadow(0 6px 12px rgba(0,0,0,0.28))",
+          }}
+        >
+          {ghost.text}
+        </span>
+      )}
       {hidden > 0 && (
         <div className="mt-8 text-center text-sm text-slate-400">
           {t("+{{count}} more terms", { count: hidden })}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ModerationPanel({
+  mod,
+  onRestore,
+  onSplit,
+  onRename,
+}: {
+  mod: WordCloudModeration;
+  onRestore: (key: string) => void;
+  onSplit: (keys: string[]) => void;
+  onRename: (keys: string[], label: string) => void;
+}) {
+  const { t } = useTranslation();
+  const empty = mod.hidden.length === 0 && mod.merges.length === 0;
+  return (
+    <div className="text-left text-sm">
+      {empty && <p className="text-slate-400">{t("Nothing moderated yet.")}</p>}
+      {mod.hidden.length > 0 && (
+        <>
+          <h3 className="mb-1 font-semibold text-slate-600">{t("Hidden")}</h3>
+          {mod.hidden.map((h) => (
+            <div key={h.key} className="flex items-center justify-between py-0.5">
+              <span className="truncate">{h.key}</span>
+              <button
+                type="button"
+                className="ml-2 shrink-0 text-brand-700 hover:underline"
+                onClick={() => onRestore(h.key)}
+              >
+                {t("Restore")}
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+      {mod.merges.length > 0 && (
+        <>
+          <h3 className="mb-1 mt-2 font-semibold text-slate-600">{t("Merged")}</h3>
+          {mod.merges.map((m) => (
+            <div key={m.keys.join("+")} className="py-1">
+              <div className="flex items-center gap-2">
+                <input
+                  key={m.label}
+                  defaultValue={m.label}
+                  onBlur={(e) => {
+                    if (e.target.value.trim() && e.target.value !== m.label)
+                      onRename(m.keys, e.target.value.trim());
+                  }}
+                  className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1"
+                />
+                <button
+                  type="button"
+                  className="shrink-0 text-brand-700 hover:underline"
+                  onClick={() => onSplit(m.keys)}
+                >
+                  {t("Split")}
+                </button>
+              </div>
+              <p className="mt-0.5 truncate text-xs text-slate-400">{m.keys.join(", ")}</p>
+            </div>
+          ))}
+        </>
       )}
     </div>
   );
@@ -2017,11 +2324,12 @@ function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) 
   return (
     <div>
       <WordCloud words={words} heightClass="h-[56vh]" animate />
-      <div className="mt-2 flex flex-wrap justify-center gap-x-6 gap-y-2">
+      {/* Legend down the left edge, lower area, one category per line. */}
+      <div className="fixed bottom-32 left-6 z-10 flex flex-col gap-2">
         {visible.map((cluster, i) => (
           <span key={cluster.label} className="flex items-center gap-2 text-lg">
             <span
-              className="inline-block h-4 w-4 rounded"
+              className="inline-block h-4 w-4 shrink-0 rounded"
               style={{ background: hueColor(categoryHue(i), 0.8) }}
             />
             <span className="font-semibold text-slate-700 dark:text-slate-200">

@@ -43,6 +43,7 @@ from .models import (
     Run,
     SelfCheckAttempt,
     Vote,
+    WordCloudModeration,
 )
 from .results import (
     likert_summary,
@@ -1420,6 +1421,54 @@ def delete_run(request, run_id):
     run.delete()
     broadcast(room)
     return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wordcloud_moderation(request, run_id, question_id):
+    """Presenter curation of a word cloud (#Wortwolke): hide/unhide a term,
+    merge/unmerge terms, rename a merge. Reversible overlay; votes untouched."""
+    run = get_object_or_404(
+        Run.objects.select_related("question_set__room"), pk=run_id
+    )
+    room = run.question_set.room
+    if not _require_owner(request.user, room):
+        raise Http404
+    question = get_object_or_404(
+        Question, pk=question_id, question_set=run.question_set
+    )
+    op = request.data.get("op")
+    keys = [str(k) for k in (request.data.get("keys") or [])]
+    label = request.data.get("label")
+    mod, _ = WordCloudModeration.objects.get_or_create(run=run, question=question)
+    if op == "hide":
+        mod.hidden = sorted(set(mod.hidden) | set(keys))
+    elif op == "unhide":
+        mod.hidden = [k for k in mod.hidden if k not in set(keys)]
+    elif op == "merge":
+        # Dissolve any existing merge that overlaps these keys, then regroup all.
+        keyset = set(keys)
+        remaining = []
+        for m in mod.merges:
+            if keyset & set(m.get("keys", [])):
+                keyset |= set(m["keys"])
+            else:
+                remaining.append(m)
+        remaining.append({"keys": sorted(keyset), "label": str(label or "")})
+        mod.merges = remaining
+    elif op == "unmerge":
+        keyset = set(keys)
+        mod.merges = [m for m in mod.merges if set(m.get("keys", [])) != keyset]
+    elif op == "rename":
+        keyset = set(keys)
+        for m in mod.merges:
+            if set(m.get("keys", [])) == keyset:
+                m["label"] = str(label or "")
+    else:
+        return Response({"detail": "Unknown op."}, status=400)
+    mod.save()
+    broadcast(room)
+    return Response({"status": "ok"})
 
 
 @api_view(["POST"])

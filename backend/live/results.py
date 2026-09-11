@@ -147,8 +147,11 @@ def likert_summary(options):
 
 
 def words_with_counts(run, question, limit=150):
-    """Word-cloud aggregation: case variants merge (review decision); the
-    most frequent raw spelling wins the display."""
+    """Word-cloud aggregation: case variants merge (review decision); the most
+    frequent raw spelling wins the display. A WordCloudModeration overlay (if
+    present) hides keys and combines merge groups (#Wortwolke). Each returned
+    term carries its underlying `keys` and a `merged` flag."""
+    from .models import WordCloudModeration
     votes = run.votes.filter(question=question).exclude(text="")
     groups = {}
     for text, source in votes.values_list("text", "source"):
@@ -156,20 +159,51 @@ def words_with_counts(run, question, limit=150):
             text.casefold(), {"variants": [], "onsite": 0, "recording": 0}
         )
         group["variants"].append(text)
-        # Recording mode (#53): keep the source split per merged term.
         if source == Vote.Source.RECORDING:
             group["recording"] += 1
         else:
             group["onsite"] += 1
-    words = [
-        {
+    mod = WordCloudModeration.objects.filter(run=run, question=question).first()
+    hidden = set(mod.hidden) if mod else set()
+    merges = mod.merges if mod else []
+    # Hidden = excluded everywhere: drop hidden keys up front so neither the
+    # merge loop nor the singles loop below can see them. A partially-hidden
+    # merge then naturally counts only its visible keys via `combine()`.
+    for k in hidden:
+        groups.pop(k, None)
+
+    def combine(keys):
+        variants, onsite, recording = [], 0, 0
+        for k in keys:
+            g = groups.get(k)
+            if g:
+                variants += g["variants"]
+                onsite += g["onsite"]
+                recording += g["recording"]
+        return variants, onsite, recording
+
+    words = []
+    merged_keys = set()
+    for m in merges:
+        keys = list(m.get("keys", []))
+        merged_keys.update(keys)
+        variants, onsite, recording = combine(keys)
+        if not variants:
+            continue  # no votes for this group yet
+        words.append({
+            "text": m.get("label") or Counter(variants).most_common(1)[0][0],
+            "count": len(variants), "onsite": onsite, "recording": recording,
+            "keys": keys, "merged": True,
+        })
+    for key, group in groups.items():
+        if key in merged_keys:
+            continue  # hidden keys are already gone from `groups`
+        words.append({
             "text": Counter(group["variants"]).most_common(1)[0][0],
             "count": len(group["variants"]),
-            "onsite": group["onsite"],
-            "recording": group["recording"],
-        }
-        for group in groups.values()
-    ]
+            "onsite": group["onsite"], "recording": group["recording"],
+            "keys": [key], "merged": False,
+        })
     words.sort(key=lambda w: -w["count"])
     return words[:limit]
 

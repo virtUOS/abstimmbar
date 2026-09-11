@@ -3896,3 +3896,112 @@ class SelfCheckRegressionTests(LiveTestCase):
         self.assertNotIn("correct", question)
         self.assertNotIn("model_solution", question)
         self.assertNotIn("correct_order", question)
+
+
+class WordCloudModerationAggregationTests(LiveTestCase):
+    def setUp(self):
+        super().setUp()
+        self.q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>Wort?</p>", position=1, allow_multiple=True,
+        )
+        self.run = Run.objects.create(question_set=self.question_set)
+
+    def _cast(self, text, n):
+        for _ in range(n):
+            token = ParticipantToken.objects.create(room=self.room)
+            Vote.objects.create(run=self.run, question=self.q, token=token, text=text)
+
+    def test_hidden_term_is_dropped(self):
+        from .models import WordCloudModeration
+        from .results import words_with_counts
+        self._cast("froh", 3)
+        self._cast("wut", 2)
+        WordCloudModeration.objects.create(run=self.run, question=self.q, hidden=["wut"])
+        words = words_with_counts(self.run, self.q)
+        texts = [w["text"] for w in words]
+        self.assertIn("froh", texts)
+        self.assertNotIn("wut", texts)
+        # raw votes untouched
+        self.assertEqual(self.run.votes.filter(question=self.q, text="wut").count(), 2)
+
+    def test_merge_combines_counts_and_uses_label(self):
+        from .models import WordCloudModeration
+        from .results import words_with_counts
+        self._cast("froh", 3)
+        self._cast("gluecklich", 2)
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.q,
+            merges=[{"keys": ["froh", "gluecklich"], "label": "froh"}],
+        )
+        words = words_with_counts(self.run, self.q)
+        self.assertEqual(len(words), 1)
+        w = words[0]
+        self.assertEqual(w["text"], "froh")
+        self.assertEqual(w["count"], 5)
+        self.assertTrue(w["merged"])
+        self.assertEqual(sorted(w["keys"]), ["froh", "gluecklich"])
+
+    def test_no_overlay_is_unchanged_and_exposes_keys(self):
+        from .results import words_with_counts
+        self._cast("froh", 1)
+        [w] = words_with_counts(self.run, self.q)
+        self.assertEqual(w["text"], "froh")
+        self.assertEqual(w["keys"], ["froh"])
+        self.assertFalse(w["merged"])
+
+    def test_hidden_key_excluded_even_when_merged(self):
+        from .models import WordCloudModeration
+        from .results import words_with_counts
+        self._cast("zorn", 2)
+        self._cast("wut", 3)
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.q, hidden=["wut"],
+            merges=[{"keys": ["wut", "zorn"], "label": "zorn"}],
+        )
+        words = words_with_counts(self.run, self.q)
+        self.assertEqual(len(words), 1)
+        self.assertEqual(words[0]["text"], "zorn")
+        self.assertEqual(words[0]["count"], 2)  # wut's votes are NOT counted
+
+
+class WordCloudModerationApiTests(LiveTestCase):
+    def setUp(self):
+        super().setUp()
+        self.q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>Wort?</p>", position=1, allow_multiple=True,
+        )
+        self.run = Run.objects.create(question_set=self.question_set)
+        for text, n in (("froh", 3), ("gluecklich", 2), ("wut", 1)):
+            for _ in range(n):
+                token = ParticipantToken.objects.create(room=self.room)
+                Vote.objects.create(run=self.run, question=self.q, token=token, text=text)
+        self.url = f"/api/runs/{self.run.pk}/wordcloud/{self.q.pk}/moderation"
+        self.client.force_login(self.owner)
+
+    def _post(self, body):
+        # self.client must be authenticated as the room owner — use the same
+        # login the other presenter-endpoint tests in this file use.
+        return self.client.post(self.url, body, content_type="application/json")
+
+    def test_hide_then_unhide(self):
+        from .models import WordCloudModeration
+        self.assertEqual(self._post({"op": "hide", "keys": ["wut"]}).status_code, 200)
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).hidden, ["wut"])
+        self.assertEqual(self._post({"op": "unhide", "keys": ["wut"]}).status_code, 200)
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).hidden, [])
+
+    def test_merge_and_rename_and_unmerge(self):
+        from .models import WordCloudModeration
+        self._post({"op": "merge", "keys": ["froh", "gluecklich"], "label": "froh"})
+        m = WordCloudModeration.objects.get(run=self.run)
+        self.assertEqual(m.merges, [{"keys": ["froh", "gluecklich"], "label": "froh"}])
+        self._post({"op": "rename", "keys": ["froh", "gluecklich"], "label": "positiv"})
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).merges[0]["label"], "positiv")
+        self._post({"op": "unmerge", "keys": ["froh", "gluecklich"]})
+        self.assertEqual(WordCloudModeration.objects.get(run=self.run).merges, [])
+
+    def test_requires_owner(self):
+        self.client.logout()
+        self.assertIn(self._post({"op": "hide", "keys": ["wut"]}).status_code, (401, 403, 404))

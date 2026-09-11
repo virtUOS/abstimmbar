@@ -30,6 +30,10 @@ api_urlpatterns = [
     path("runs/<int:run_id>/ai-summary/", views.run_summary),
     path("runs/<int:run_id>/wordcloud-ai/", views.wordcloud_ai),
     path(
+        "runs/<int:run_id>/wordcloud/<int:question_id>/moderation",
+        views.wordcloud_moderation,
+    ),
+    path(
         "runs/<int:run_id>/questions/<int:question_id>/ai-wordcloud/",
         views.optimize_wordcloud,
     ),

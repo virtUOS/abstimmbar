@@ -793,12 +793,24 @@ export interface LiveState {
   /** Live AI word-cloud views (consolidated + grouped), while the presenter
    *  shows an AI view (#Wortwolke-KI). */
   wordcloud_ai?: WordCloudAI;
+  /** Presenter-side moderation state (hidden terms, manual merges, #Wortwolke). */
+  wordcloud_moderation?: WordCloudModeration;
 }
 
 export interface WordCloudWord {
   text: string;
   count: number;
   variants: string[];
+  keys: string[];
+  merged: boolean;
+}
+
+/** Presenter-side moderation state for a word cloud (#Wortwolke): terms hidden
+ *  from the live view and manual merges (grouping several keys under one
+ *  label), independent of the AI cleanup view. */
+export interface WordCloudModeration {
+  hidden: { key: string }[];
+  merges: { keys: string[]; label: string }[];
 }
 
 export interface WordCloudAI {
@@ -1002,6 +1014,17 @@ export const live = {
     request<{ status: string; active: boolean }>(
       `/api/runs/${runId}/wordcloud-ai/`,
       { method: "POST", body: JSON.stringify({ question: questionId, active }) },
+    ),
+  /** Presenter word-cloud moderation (#Wortwolke): hide/unhide a term, merge
+   *  several keys under one label, unmerge, or rename a merge's label. */
+  wordcloudModeration: (
+    runId: number,
+    questionId: number,
+    body: { op: "hide" | "unhide" | "merge" | "unmerge" | "rename"; keys?: string[]; label?: string },
+  ) =>
+    request<{ status: string }>(
+      `/api/runs/${runId}/wordcloud/${questionId}/moderation`,
+      { method: "POST", body: JSON.stringify(body) },
     ),
   streamUrl: (code: string) =>
     `${API_BASE_URL}/api/live/rooms/${code}/stream/?role=presenter`,
