@@ -1357,7 +1357,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {t("No terms yet …")}
                 </p>
               ) : (
-                <WordCloud words={rampWords(state.words ?? [])} animate />
+                <WordCloud
+                  words={rampWords(state.words ?? [])}
+                  animate
+                  onModerate={(op, keys, label) => {
+                    if (runId != null && activeId != null)
+                      void live.wordcloudModeration(runId, activeId, { op, keys, label });
+                  }}
+                />
               )
             ) : (
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
@@ -1792,7 +1799,7 @@ function rampColor(t: number): string {
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(0)})`;
 }
 
-type CloudWord = { text: string; count: number; color: string; cluster?: number };
+type CloudWord = { text: string; count: number; color: string; cluster?: number; keys?: string[] };
 type PlacedWord = CloudWord & { x: number; y: number; size: number; rank: number };
 
 /** Lay the most frequent word large in the centre and arrange the rest
@@ -1856,24 +1863,29 @@ function layoutWordCloud(
   return placed;
 }
 
-function rampWords(words: { text: string; count: number }[]): CloudWord[] {
+function rampWords(words: { text: string; count: number; keys?: string[] }[]): CloudWord[] {
   if (words.length === 0) return [];
   const max = Math.max(...words.map((w) => w.count));
   const min = Math.min(...words.map((w) => w.count));
   const t = (c: number) => (max === min ? 1 : (c - min) / (max - min));
-  return words.map((w) => ({ text: w.text, count: w.count, color: rampColor(t(w.count)) }));
+  return words.map((w) => ({
+    text: w.text, count: w.count, color: rampColor(t(w.count)), keys: w.keys,
+  }));
 }
 
 function WordCloud({
   words,
   scale = 1,
   heightClass = "h-[62vh]",
-  animate = false, // wired up in Task 3
+  animate = false,
+  onModerate,
 }: {
   words: CloudWord[];
   scale?: number;
   heightClass?: string;
   animate?: boolean;
+  // Presenter curation (#Wortwolke): hide a term, or merge one word onto another.
+  onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
 }) {
   // Stable first-seen order (new terms appended). Laying out in this order —
   // rather than re-sorting by count every update — keeps a word roughly where
@@ -1884,14 +1896,60 @@ function WordCloud({
   const seqRef = useRef(0);
 
   const { t } = useTranslation();
+  // While a merge drag is in progress the layout holds still (frozen snapshot)
+  // so the drop target doesn't wander as votes keep arriving.
+  const [dragging, setDragging] = useState(false);
+  const frozen = useRef<PlacedWord[] | null>(null);
+  const centerRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ keys: string[]; text: string; moved: boolean } | null>(null);
+
   const placed = useMemo(() => {
+    if (dragging && frozen.current) return frozen.current;
     const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
     for (const w of top) {
       if (!orderRef.current.has(w.text)) orderRef.current.set(w.text, seqRef.current++);
     }
     top.sort((a, b) => orderRef.current.get(a.text)! - orderRef.current.get(b.text)!);
-    return layoutWordCloud(top, scale);
-  }, [words, scale]);
+    const laid = layoutWordCloud(top, scale);
+    frozen.current = laid;
+    return laid;
+  }, [words, scale, dragging]);
+
+  // Press-drag a word onto another to merge (pointer-based, no lib). Document
+  // listeners keep the drag tracking off the small target; a drag that barely
+  // moves is treated as a click (the × handles hide instead).
+  function startDrag(e: React.PointerEvent, w: PlacedWord) {
+    if (!onModerate) return;
+    dragRef.current = { keys: w.keys ?? [], text: w.text, moved: false };
+    const sx = e.clientX;
+    const sy = e.clientY;
+    setDragging(true);
+    const move = (ev: PointerEvent) => {
+      if (dragRef.current && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 6) {
+        dragRef.current.moved = true;
+      }
+    };
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      const drag = dragRef.current;
+      dragRef.current = null;
+      setDragging(false);
+      const rect = centerRef.current?.getBoundingClientRect();
+      if (!drag || !drag.moved || !rect || !onModerate) return;
+      const px = ev.clientX - rect.left;
+      const py = ev.clientY - rect.top;
+      const target = (frozen.current ?? []).find((p) => {
+        if (p.text === drag.text) return false;
+        const halfW = (p.text.length * p.size * 0.56) / 2 + 6;
+        const halfH = (p.size * 1.15) / 2 + 6;
+        return Math.abs(px - p.x) < halfW && Math.abs(py - p.y) < halfH;
+      });
+      if (target) onModerate("merge", [...drag.keys, ...(target.keys ?? [])], target.text);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  }
   // Only the 40 most frequent terms fit the beamer legibly; flag the rest so a
   // long tail isn't silently dropped (#Wortwolke).
   const hidden = Math.max(0, words.length - placed.length);
@@ -1916,7 +1974,7 @@ function WordCloud({
         @keyframes wc-fly { from { opacity: 0; transform: translate(-50%,-50%) translateX(var(--wc-fly, 640px)); } 55% { opacity: 1; } to { opacity: 1; transform: translate(-50%,-50%) translateX(0); } }
         @keyframes wc-pulse { 0%, 100% { filter: none; } 30% { filter: drop-shadow(0 0 14px currentColor); } }
       `}</style>
-      <div className="absolute left-1/2 top-1/2">
+      <div className="absolute left-1/2 top-1/2" ref={centerRef}>
         {placed.map((w) => {
           const fresh = animate && isNew(w.text);
           const grew = animate && isGrown(w.text, w.count);
@@ -1924,12 +1982,18 @@ function WordCloud({
             <span
               key={w.text}
               title={`${w.count}×`}
-              className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold"
+              onPointerDown={onModerate ? (e) => startDrag(e, w) : undefined}
+              className={`group absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold ${
+                onModerate ? "cursor-grab" : ""
+              }`}
               style={{
                 left: `${w.x}px`,
                 top: `${w.y}px`,
                 fontSize: `${w.size}px`,
                 color: w.color,
+                userSelect: "none",
+                WebkitUserSelect: "none",
+                touchAction: onModerate ? "none" : undefined,
                 // Fly in from whichever side the word ends up on.
                 ["--wc-fly" as string]: `${w.x < 0 ? -640 : 640}px`,
                 transition: animate
@@ -1943,6 +2007,21 @@ function WordCloud({
               }}
             >
               {w.text}
+              {onModerate && (
+                <button
+                  type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onModerate("hide", w.keys ?? []);
+                  }}
+                  className="absolute -right-3 -top-2 hidden h-5 w-5 items-center justify-center rounded-full bg-slate-900/85 text-xs font-normal leading-none text-white group-hover:flex"
+                  style={{ fontSize: "14px" }}
+                  aria-label={t("Hide {{word}}", { word: w.text })}
+                >
+                  ×
+                </button>
+              )}
             </span>
           );
         })}

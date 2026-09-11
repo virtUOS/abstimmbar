@@ -339,6 +339,7 @@
   "No answers yet.": "Noch keine Antworten.",
   "{{count}} answers": "{{count}} Antworten",
   "+{{count}} more terms": "+{{count}} weitere Begriffe",
+  "Hide {{word}}": "{{word}} ausblenden",
   "Delete question?": "Frage löschen?",
   "Delete question": "Frage löschen",
   "Section at the end": "Abschnitt am Ende",
