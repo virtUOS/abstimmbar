@@ -586,49 +586,42 @@ multi-line note must use {% comment %} or it renders as text.)
       p.textContent = I18N.answerSaved; list.appendChild(p); return;
     }
     const steps = likertColors(summary.steps);
-    const maxCount = Math.max(1, ...steps.map((s) => s.count));
-    const barMax = 76, labelH = 16;
+    // Single diverging stacked bar: each segment's width is its share of the
+    // scale votes, coloured by polarity. Own vote (myOptionIds) gets an arrow.
     const chart = document.createElement("div");
-    chart.style.cssText = "position:relative;height:" + (barMax + labelH) + "px";
-    const cols = document.createElement("div");
-    cols.style.cssText = "display:flex;height:100%;align-items:flex-end";
-    let myIndex = null;
-    steps.forEach((step, i) => {
-      const col = document.createElement("div");
-      col.style.cssText = "width:" + (100 / steps.length) + "%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;padding:0 2px";
-      col.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
-      const num = document.createElement("span");
-      num.textContent = step.count || "";
-      num.style.cssText = "height:" + labelH + "px;line-height:" + labelH + "px;font-size:11px;color:var(--ink-soft)";
-      const bar = document.createElement("div");
-      const mine = myOptionIds.has(step.id);
-      if (mine) myIndex = i;
-      bar.style.cssText = "width:100%;border-radius:6px 6px 0 0;height:" + ((step.count / maxCount) * barMax) + "px;min-height:" + (step.count > 0 ? 4 : 0) + "px;background:" + step.fill;
-      col.append(num, bar);
-      cols.appendChild(col);
+    chart.style.cssText = "position:relative";
+    const bar = document.createElement("div");
+    bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:26px;border-radius:8px;font-size:11px";
+    let myMidPct = null, cursor = 0;
+    steps.forEach((step) => {
+      const seg = document.createElement("div");
+      seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
+      seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
+      if (step.pct >= 12) seg.textContent = Math.round(step.pct) + " %";
+      if (myOptionIds.has(step.id)) myMidPct = cursor + step.pct / 2;
+      cursor += step.pct;
+      bar.appendChild(seg);
     });
-    chart.appendChild(cols);
-    // Mean marker (weights each vote by how extreme its step is).
+    chart.appendChild(bar);
+    // Mean marker: the intensity-weighted central tendency (mean_pct), leaning
+    // toward the heavier / more extreme side — not the plain 50:50 count split.
     const mean = document.createElement("div");
-    mean.style.cssText = "position:absolute;top:-4px;bottom:0;width:2px;border-radius:2px;background:var(--ink);opacity:.85;transform:translateX(-50%);left:" + summary.mean_pct + "%";
+    mean.style.cssText = "position:absolute;top:-6px;bottom:-6px;width:2px;border-radius:2px;background:var(--ink);opacity:.8;transform:translateX(-50%);left:" + summary.mean_pct + "%";
     const mlab = document.createElement("span");
-    mlab.textContent = "⌀"; mlab.style.cssText = "position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:700;color:var(--ink)";
+    mlab.textContent = "⌀"; mlab.style.cssText = "position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:700;color:var(--ink)";
     mean.appendChild(mlab); chart.appendChild(mean);
-    // The viewer's own vote as an extra line.
-    if (myIndex != null) {
-      const myPct = (myIndex + 0.5) / steps.length * 100;
-      const mark = document.createElement("div");
-      mark.style.cssText = "position:absolute;top:-15px;bottom:0;width:2px;background:var(--brand-strong);transform:translateX(-50%);left:" + myPct + "%";
-      const tag = document.createElement("span");
-      tag.textContent = I18N.you; tag.style.cssText = "position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--brand-strong)";
-      mark.appendChild(tag); chart.appendChild(mark);
-    }
     list.appendChild(chart);
-    const baseline = document.createElement("div");
-    baseline.style.cssText = "border-top:1px solid var(--line);margin-top:2px";
-    list.appendChild(baseline);
+    // Own vote: an arrow pointing up at the segment the viewer chose.
+    if (myMidPct != null) {
+      const ownRow = document.createElement("div");
+      ownRow.style.cssText = "position:relative;height:20px;margin-top:2px;color:var(--brand-strong);font-weight:700;font-size:12px";
+      const own = document.createElement("span");
+      own.textContent = "▲ " + I18N.you;
+      own.style.cssText = "position:absolute;left:" + myMidPct + "%;transform:translateX(-50%);white-space:nowrap";
+      ownRow.appendChild(own); list.appendChild(ownRow);
+    }
     const caps = document.createElement("div");
-    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:4px;color:var(--ink-soft);font-size:12px";
+    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:6px;color:var(--ink-soft);font-size:12px";
     const cl = document.createElement("span"); cl.textContent = locText(summary.low_label) ? ("← " + locText(summary.low_label)) : "←";
     const cr = document.createElement("span"); cr.textContent = locText(summary.high_label) ? (locText(summary.high_label) + " →") : "→";
     caps.append(cl, cr); list.appendChild(caps);

@@ -408,6 +408,52 @@ class QuestionApiTests(ApiTestCase):
         self.assertEqual(options[0].pk, keep_id)
         self.assertEqual(options[0].text, "vier")
 
+    def test_update_with_ids_preserves_options_and_their_votes(self):
+        # Regression (#86): re-saving a question must UPDATE the existing option
+        # rows (whose pks the votes point at), not delete+recreate them — else
+        # every vote is orphaned. The Likert editor used to rebuild its scale
+        # from scratch without ids; it now sends each row's id, exercised here.
+        from live.models import ParticipantToken, Run, Vote
+
+        question = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.LIKERT,
+            text="<p>Gut?</p>",
+        )
+        steps = [
+            AnswerOption.objects.create(question=question, text_de=t, position=i)
+            for i, t in enumerate(["Stimme nicht zu", "", "", "", "Stimme zu"])
+        ]
+        run = Run.objects.create(question_set=self.question_set)
+        for option in (steps[0], steps[3]):
+            token = ParticipantToken.objects.create(room=self.room)
+            Vote.objects.create(run=run, question=question, token=token).options.add(option)
+        original_ids = [s.pk for s in steps]
+
+        response = self.client.put(
+            f"/api/questions/{question.pk}/",
+            {
+                "question_set": self.question_set.pk,
+                "kind": "likert",
+                "text": "<p>Immer noch gut?</p>",  # edit the question, then re-save
+                "options": [
+                    {"id": pk, "text": text, "is_correct": False}
+                    for pk, text in zip(
+                        original_ids,
+                        ["Stimme gar nicht zu", "", "", "", "Stimme voll zu"],
+                    )
+                ],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        # Same rows, same pks — so the votes still resolve.
+        self.assertEqual(
+            [o.pk for o in question.options.order_by("position")], original_ids
+        )
+        self.assertEqual(Vote.objects.filter(run=run, question=question).count(), 2)
+        self.assertEqual(steps[0].votes.count(), 1)
+        self.assertEqual(steps[3].votes.count(), 1)
+
     def test_word_cloud_rejects_options(self):
         response = self._create_question(kind="word_cloud")
         self.assertEqual(response.status_code, 400)
