@@ -275,6 +275,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
       if (activeKind !== "word_cloud") return;
+      // Don't hijack native undo while the presenter edits a merge label.
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable))
+        return;
       e.preventDefault();
       if (e.shiftKey) redoMod();
       else undoMod();
@@ -2185,6 +2189,7 @@ function ModerationPanel({
             <div key={m.keys.join("+")} className="py-1">
               <div className="flex items-center gap-2">
                 <input
+                  key={m.label}
                   defaultValue={m.label}
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value !== m.label)
