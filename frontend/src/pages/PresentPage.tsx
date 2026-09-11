@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { Check, ChevronLeft, ChevronRight, QrCode, Timer, Users, Vote, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, QrCode, Redo2, SlidersHorizontal, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -17,6 +17,7 @@ import {
   type Question,
   type RunResults,
   type WordCloudAI,
+  type WordCloudModeration,
 } from "../api";
 import { localizedText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
@@ -233,6 +234,55 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     },
     [runId],
   );
+
+  // --- Word-cloud moderation (#Wortwolke): hide/merge with client undo/redo. ---
+  type ModOp = {
+    op: "hide" | "unhide" | "merge" | "unmerge" | "rename";
+    keys: string[];
+    label?: string;
+  };
+  const [showModPanel, setShowModPanel] = useState(false);
+  const undoStack = useRef<{ done: ModOp; inverse: ModOp }[]>([]);
+  const redoStack = useRef<{ done: ModOp; inverse: ModOp }[]>([]);
+  const mod = state?.wordcloud_moderation;
+  const sendMod = (op: ModOp) => {
+    if (runId != null && activeId != null)
+      void live.wordcloudModeration(runId, activeId, op);
+  };
+  const moderate = (done: ModOp, inverse: ModOp) => {
+    undoStack.current.push({ done, inverse });
+    redoStack.current = [];
+    sendMod(done);
+  };
+  const undoMod = () => {
+    const last = undoStack.current.pop();
+    if (!last) return;
+    redoStack.current.push(last);
+    sendMod(last.inverse);
+  };
+  const redoMod = () => {
+    const item = redoStack.current.pop();
+    if (!item) return;
+    undoStack.current.push(item);
+    sendMod(item.done);
+  };
+  // A merge group's current label (for the rename/split inverses).
+  const mergeLabel = (keys: string[]) => {
+    const norm = [...keys].sort().join(" ");
+    return (mod?.merges ?? []).find((m) => [...m.keys].sort().join(" ") === norm)?.label;
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      if (activeKind !== "word_cloud") return;
+      e.preventDefault();
+      if (e.shiftKey) redoMod();
+      else undoMod();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKind, runId, activeId]);
 
   const cycleWcView = useCallback(() => {
     setWcView((v) =>
@@ -1360,15 +1410,74 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <WordCloud
                   words={rampWords(state.words ?? [])}
                   animate
-                  onModerate={(op, keys, label) => {
-                    if (runId != null && activeId != null)
-                      void live.wordcloudModeration(runId, activeId, { op, keys, label });
-                  }}
+                  onModerate={(op, keys, label) =>
+                    op === "hide"
+                      ? moderate({ op: "hide", keys }, { op: "unhide", keys })
+                      : moderate({ op: "merge", keys, label }, { op: "unmerge", keys })
+                  }
                 />
               )
             ) : (
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
             ))}
+
+          {question.kind === "word_cloud" &&
+            wcView === "raw" &&
+            (phase === "results" ||
+              (phase === "open" && question.wordcloud_live !== false)) &&
+            (state.words ?? []).length > 0 && (
+              <div className="fixed right-4 top-24 z-20 flex flex-col items-end">
+                <div className="flex items-center gap-1 rounded-full border border-slate-200 bg-white/90 p-1 shadow">
+                  <button
+                    type="button"
+                    onClick={undoMod}
+                    title={t("Undo")}
+                    aria-label={t("Undo")}
+                    className="rounded-full p-2 text-slate-600 hover:bg-slate-100"
+                  >
+                    <Undo2 className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={redoMod}
+                    title={t("Redo")}
+                    aria-label={t("Redo")}
+                    className="rounded-full p-2 text-slate-600 hover:bg-slate-100"
+                  >
+                    <Redo2 className="h-5 w-5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowModPanel((s) => !s)}
+                    className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ${
+                      showModPanel ? "bg-brand-700 text-white" : "text-slate-600 hover:bg-slate-100"
+                    }`}
+                  >
+                    <SlidersHorizontal className="h-4 w-4" /> {t("Moderate")}
+                  </button>
+                </div>
+                {showModPanel && mod && (
+                  <ModerationPanel
+                    mod={mod}
+                    onRestore={(key) =>
+                      moderate({ op: "unhide", keys: [key] }, { op: "hide", keys: [key] })
+                    }
+                    onSplit={(keys) =>
+                      moderate(
+                        { op: "unmerge", keys },
+                        { op: "merge", keys, label: mergeLabel(keys) ?? "" },
+                      )
+                    }
+                    onRename={(keys, label) =>
+                      moderate(
+                        { op: "rename", keys, label },
+                        { op: "rename", keys, label: mergeLabel(keys) ?? "" },
+                      )
+                    }
+                  />
+                )}
+              </div>
+            )}
 
           <div className="mt-10 text-center text-slate-500">
             {phase === "preview" && (
@@ -2031,6 +2140,70 @@ function WordCloud({
         <div className="mt-8 text-center text-sm text-slate-400">
           {t("+{{count}} more terms", { count: hidden })}
         </div>
+      )}
+    </div>
+  );
+}
+
+function ModerationPanel({
+  mod,
+  onRestore,
+  onSplit,
+  onRename,
+}: {
+  mod: WordCloudModeration;
+  onRestore: (key: string) => void;
+  onSplit: (keys: string[]) => void;
+  onRename: (keys: string[], label: string) => void;
+}) {
+  const { t } = useTranslation();
+  const empty = mod.hidden.length === 0 && mod.merges.length === 0;
+  return (
+    <div className="mt-2 w-72 rounded-xl border border-slate-200 bg-white p-3 text-left text-sm shadow-lg">
+      {empty && <p className="text-slate-400">{t("Nothing moderated yet.")}</p>}
+      {mod.hidden.length > 0 && (
+        <>
+          <h3 className="mb-1 font-semibold text-slate-600">{t("Hidden")}</h3>
+          {mod.hidden.map((h) => (
+            <div key={h.key} className="flex items-center justify-between py-0.5">
+              <span className="truncate">{h.key}</span>
+              <button
+                type="button"
+                className="ml-2 shrink-0 text-brand-700 hover:underline"
+                onClick={() => onRestore(h.key)}
+              >
+                {t("Restore")}
+              </button>
+            </div>
+          ))}
+        </>
+      )}
+      {mod.merges.length > 0 && (
+        <>
+          <h3 className="mb-1 mt-2 font-semibold text-slate-600">{t("Merged")}</h3>
+          {mod.merges.map((m) => (
+            <div key={m.keys.join("+")} className="py-1">
+              <div className="flex items-center gap-2">
+                <input
+                  defaultValue={m.label}
+                  onBlur={(e) => {
+                    if (e.target.value.trim() && e.target.value !== m.label)
+                      onRename(m.keys, e.target.value.trim());
+                  }}
+                  className="min-w-0 flex-1 rounded border border-slate-200 px-2 py-1"
+                />
+                <button
+                  type="button"
+                  className="shrink-0 text-brand-700 hover:underline"
+                  onClick={() => onSplit(m.keys)}
+                >
+                  {t("Split")}
+                </button>
+              </div>
+              <p className="mt-0.5 truncate text-xs text-slate-400">{m.keys.join(", ")}</p>
+            </div>
+          ))}
+        </>
       )}
     </div>
   );
