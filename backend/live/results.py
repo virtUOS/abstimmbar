@@ -100,6 +100,18 @@ def likert_summary(options):
         )
     # Centre-line position: end of the low block (+ half the neutral block).
     divider = pct(low) + (pct(neutral) / 2 if neutral_index is not None else 0)
+    # #86 Likert-proper central tendency: the MEAN scale position, weighting
+    # each vote by how extreme its step is (so 1×far-negative + 1×mildly-positive
+    # sits left of centre, not 50:50). `mean_index` is 0..n-1; `mean_score` is
+    # centred (0 = the middle of the scale, negative = net-low); `mean_pct` is
+    # the mean aligned to the equal-width step columns the frontend draws.
+    mean_index = (
+        sum(i * option["count"] for i, option in enumerate(scale)) / scale_total
+        if scale_total
+        else (n - 1) / 2
+    )
+    mean_pct = round((mean_index + 0.5) / n * 100, 1)
+    mean_score = round(mean_index - (n - 1) / 2, 2)
     return {
         "scale_total": scale_total,
         "abstentions": abstentions,
@@ -110,6 +122,8 @@ def likert_summary(options):
         "low": low,
         "low_pct": pct(low),
         "divider": round(divider, 1),
+        "mean_pct": mean_pct,
+        "mean_score": mean_score,
         "low_label": scale[0]["text"],
         "high_label": scale[-1]["text"],
         "steps": steps,

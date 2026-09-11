@@ -1936,6 +1936,34 @@ class LikertSummaryTests(TestCase):
 
         self.assertIsNone(likert_summary(self._opts([("a", 1)])))
 
+    def test_mean_weights_by_intensity_not_count_split(self):
+        from .results import likert_summary
+
+        # One far-negative (pos 0) + one mildly-positive (pos 3) on a 5-step
+        # scale, plus an abstention. The plain count split is 50:50 (divider
+        # at 50 %), but the intensity-weighted mean leans left/negative.
+        summary = likert_summary(self._opts([
+            ("Stimme nicht zu", 1), ("", 0), ("", 0), ("", 1), ("Stimme zu", 0),
+            ("Enthaltung", 1, True),
+        ]))
+        self.assertEqual(summary["scale_total"], 2)
+        self.assertEqual(summary["abstentions"], 1)
+        self.assertEqual(summary["divider"], 50.0)
+        # mean_index = (0*1 + 3*1) / 2 = 1.5 → mean_pct = (1.5+0.5)/5*100 = 40.0
+        self.assertEqual(summary["mean_pct"], 40.0)
+        # centred: 1.5 - (5-1)/2 = -0.5
+        self.assertEqual(summary["mean_score"], -0.5)
+
+    def test_mean_is_centred_when_votes_are_symmetric(self):
+        from .results import likert_summary
+
+        # Symmetric distribution → mean sits exactly at the centre.
+        summary = likert_summary(self._opts([
+            ("a", 1), ("", 0), ("", 0), ("", 0), ("b", 1),
+        ]))
+        self.assertEqual(summary["mean_pct"], 50.0)
+        self.assertEqual(summary["mean_score"], 0.0)
+
 
 class LikertResultsIntegrationTests(LiveTestCase):
     """Likert summary flows into the results API and CSV export."""
@@ -1981,6 +2009,9 @@ class LikertResultsIntegrationTests(LiveTestCase):
         self.assertEqual(item["likert"]["high"], 4)
         self.assertEqual(item["likert"]["abstentions"], 2)
         self.assertEqual(item["likert"]["high_pct"], 100.0)
+        # 3×pos3 + 1×pos4 = mean_index 3.25 → strongly high, right of centre.
+        self.assertEqual(item["likert"]["mean_pct"], 75.0)
+        self.assertEqual(item["likert"]["mean_score"], 1.25)
         self.assertEqual(
             item["likert"]["high_label"], {"de": "Stimme zu", "en": ""}
         )

@@ -586,57 +586,67 @@ multi-line note must use {% comment %} or it renders as text.)
       p.textContent = I18N.answerSaved; list.appendChild(p); return;
     }
     const steps = likertColors(summary.steps);
-    const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;margin-top:8px";
-    const bar = document.createElement("div");
-    bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:34px;border-radius:12px;font-size:12px";
-    let cum = 0, myPos = null;
-    steps.forEach((step) => {
-      const seg = document.createElement("div");
-      seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
-      seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
-      if (step.pct >= 10) seg.textContent = Math.round(step.pct) + " %";
-      if (myOptionIds.has(step.id)) myPos = cum + step.pct / 2;
-      cum += step.pct;
-      bar.appendChild(seg);
+    const maxCount = Math.max(1, ...steps.map((s) => s.count));
+    const barMax = 76, labelH = 16;
+    const chart = document.createElement("div");
+    chart.style.cssText = "position:relative;height:" + (barMax + labelH) + "px";
+    const cols = document.createElement("div");
+    cols.style.cssText = "display:flex;height:100%;align-items:flex-end";
+    let myIndex = null;
+    steps.forEach((step, i) => {
+      const col = document.createElement("div");
+      col.style.cssText = "width:" + (100 / steps.length) + "%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;padding:0 2px";
+      col.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
+      const num = document.createElement("span");
+      num.textContent = step.count || "";
+      num.style.cssText = "height:" + labelH + "px;line-height:" + labelH + "px;font-size:11px;color:var(--ink-soft)";
+      const bar = document.createElement("div");
+      const mine = myOptionIds.has(step.id);
+      if (mine) myIndex = i;
+      bar.style.cssText = "width:100%;border-radius:6px 6px 0 0;height:" + ((step.count / maxCount) * barMax) + "px;min-height:" + (step.count > 0 ? 4 : 0) + "px;background:" + step.fill;
+      col.append(num, bar);
+      cols.appendChild(col);
     });
-    wrap.appendChild(bar);
-    const divider = document.createElement("div");
-    divider.style.cssText = "position:absolute;top:-4px;bottom:-4px;width:2px;border-radius:2px;background:var(--ink);opacity:.8;transform:translateX(-50%);left:" + summary.divider + "%";
-    wrap.appendChild(divider);
-    if (myPos != null) {
+    chart.appendChild(cols);
+    // Mean marker (weights each vote by how extreme its step is).
+    const mean = document.createElement("div");
+    mean.style.cssText = "position:absolute;top:-4px;bottom:0;width:2px;border-radius:2px;background:var(--ink);opacity:.85;transform:translateX(-50%);left:" + summary.mean_pct + "%";
+    const mlab = document.createElement("span");
+    mlab.textContent = "⌀"; mlab.style.cssText = "position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:700;color:var(--ink)";
+    mean.appendChild(mlab); chart.appendChild(mean);
+    // The viewer's own vote as an extra line.
+    if (myIndex != null) {
+      const myPct = (myIndex + 0.5) / steps.length * 100;
       const mark = document.createElement("div");
-      mark.style.cssText = "position:absolute;top:-18px;bottom:-4px;width:2px;background:var(--brand-strong);transform:translateX(-50%);left:" + myPos + "%";
+      mark.style.cssText = "position:absolute;top:-15px;bottom:0;width:2px;background:var(--brand-strong);transform:translateX(-50%);left:" + myPct + "%";
       const tag = document.createElement("span");
-      tag.textContent = I18N.you;
-      tag.style.cssText = "position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--brand-strong)";
-      mark.appendChild(tag);
-      wrap.appendChild(mark);
+      tag.textContent = I18N.you; tag.style.cssText = "position:absolute;top:-15px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--brand-strong)";
+      mark.appendChild(tag); chart.appendChild(mark);
     }
-    list.appendChild(wrap);
+    list.appendChild(chart);
+    const baseline = document.createElement("div");
+    baseline.style.cssText = "border-top:1px solid var(--line);margin-top:2px";
+    list.appendChild(baseline);
     const caps = document.createElement("div");
-    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:6px;color:var(--ink-soft);font-size:12px";
+    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:4px;color:var(--ink-soft);font-size:12px";
     const cl = document.createElement("span"); cl.textContent = locText(summary.low_label) ? ("← " + locText(summary.low_label)) : "←";
     const cr = document.createElement("span"); cr.textContent = locText(summary.high_label) ? (locText(summary.high_label) + " →") : "→";
     caps.append(cl, cr); list.appendChild(caps);
     const line = document.createElement("div");
     line.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px";
     const lowS = document.createElement("span"); lowS.style.color = "var(--danger-strong)";
-    lowS.innerHTML = "<strong>" + summary.low_pct + " %</strong> ";
-    lowS.append(locText(summary.low_label) || "");
+    lowS.innerHTML = "<strong>" + summary.low_pct + " %</strong> "; lowS.append(locText(summary.low_label) || "");
     line.appendChild(lowS);
     if (summary.neutral > 0) {
       const nS = document.createElement("span"); nS.style.color = "var(--ink-soft)";
-      nS.innerHTML = "<strong>" + summary.neutral_pct + " %</strong> " + I18N.neutral;
-      line.appendChild(nS);
+      nS.innerHTML = "<strong>" + summary.neutral_pct + " %</strong> " + I18N.neutral; line.appendChild(nS);
     }
     const highS = document.createElement("span"); highS.style.color = "var(--brand-strong)";
-    highS.innerHTML = "<strong>" + summary.high_pct + " %</strong> ";
-    highS.append(locText(summary.high_label) || "");
+    highS.innerHTML = "<strong>" + summary.high_pct + " %</strong> "; highS.append(locText(summary.high_label) || "");
     line.appendChild(highS);
     if (summary.abstentions > 0) {
       const aS = document.createElement("span"); aS.style.cssText = "margin-left:auto;color:var(--ink-soft)";
-      aS.textContent = summary.abstentions + " " + I18N.abstentionsWord;
-      line.appendChild(aS);
+      aS.textContent = summary.abstentions + " " + I18N.abstentionsWord; line.appendChild(aS);
     }
     list.appendChild(line);
   }

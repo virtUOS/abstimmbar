@@ -245,6 +245,11 @@ export interface LikertSummary {
   low_pct: number;
   /** Centre-line position as a percentage (0–100) of the scale width. */
   divider: number;
+  /** Mean scale position (0–100) aligned to the step columns, weighting each
+   *  vote by how extreme its step is. */
+  mean_pct: number;
+  /** Centred mean score (0 = middle of the scale, negative = net-low). */
+  mean_score: number;
   /** Text of the first/last scale step, used as the axis endpoint labels. */
   low_label: LocalizedText;
   high_label: LocalizedText;
