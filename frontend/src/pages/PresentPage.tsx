@@ -1774,13 +1774,12 @@ function Kbd({ children }: { children: React.ReactNode }) {
 // Category hues for the clustered cloud (#Wortwolke): one per AI group, cycled.
 const GROUP_HUES = [150, 238, 28, 300, 195, 60, 330];
 // green, blue, amber, violet, teal, yellow-green, magenta
-// Exported (not yet called): wired up by the clustered-cloud rework in Task 2.
-export function categoryHue(i: number): number {
+function categoryHue(i: number): number {
   return GROUP_HUES[((i % GROUP_HUES.length) + GROUP_HUES.length) % GROUP_HUES.length];
 }
 // Within-category frequency ramp: t 0..1 (rare..frequent) → lighter/desaturated
 // to darker/saturated, so a category's leader reads darkest on the light beamer.
-export function hueColor(hue: number, t: number): string {
+function hueColor(hue: number, t: number): string {
   const L = 0.64 - 0.24 * t;
   const C = 0.07 + 0.09 * t;
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${hue})`;
@@ -1896,17 +1895,6 @@ function WordCloud({
   );
 }
 
-// Categorical palette for grouped clouds (tuned for the always-light beamer).
-const GROUP_COLORS = [
-  "oklch(0.52 0.13 150)", // green (brand family)
-  "oklch(0.52 0.12 245)", // blue
-  "oklch(0.50 0.15 300)", // violet
-  "oklch(0.55 0.14 40)", // orange
-  "oklch(0.53 0.16 20)", // red
-  "oklch(0.50 0.10 195)", // teal
-  "oklch(0.50 0.13 330)", // magenta
-];
-
 function AiWait() {
   const { t } = useTranslation();
   return (
@@ -1940,36 +1928,47 @@ function WordCloudAiView({
   return <GroupedWordClouds clusters={ai.clusters} />;
 }
 
-/** Several concentric clouds side by side, one per AI group, each in its own
- * colour with the most frequent word largest/centred (#Wortwolke-KI). */
+/** One unified cloud (not side-by-side cards): words coloured by category hue
+ * with a within-category frequency ramp, soft-clustered around per-category
+ * centroids, plus a legend mapping colour → category label · count
+ * (#Wortwolke-KI). */
 function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) {
-  const colsClass =
-    clusters.length <= 1
-      ? "grid-cols-1"
-      : clusters.length === 2
-        ? "sm:grid-cols-2"
-        : "sm:grid-cols-2 lg:grid-cols-3";
+  const visible = clusters.filter((c) => c.words.length > 0);
+  if (visible.length === 0) {
+    return <WordCloud words={[]} />;
+  }
+  // Flatten every cluster's words into one cloud: hue = category, colour
+  // intensity ramps within the category, layout clusters around per-index
+  // centroids (soft grouping, one cloud). Size is global (WordCloud handles it).
+  const words: CloudWord[] = visible.flatMap((cluster, i) => {
+    const hue = categoryHue(i);
+    const max = Math.max(...cluster.words.map((w) => w.count));
+    const min = Math.min(...cluster.words.map((w) => w.count));
+    const t = (c: number) => (max === min ? 1 : (c - min) / (max - min));
+    return cluster.words.map((w) => ({
+      text: w.text,
+      count: w.count,
+      color: hueColor(hue, t(w.count)),
+      cluster: i,
+    }));
+  });
   return (
-    <div className={`mt-2 grid gap-4 ${colsClass}`}>
-      {clusters.map((cluster, i) => {
-        const color = GROUP_COLORS[i % GROUP_COLORS.length];
-        return (
-          <div
-            key={cluster.label}
-            className="rounded-2xl border border-slate-200 p-3"
-          >
-            <h3 className="text-center text-xl font-semibold" style={{ color }}>
-              {cluster.label}{" "}
-              <span className="font-normal text-slate-400">· {cluster.count}</span>
-            </h3>
-            <WordCloud
-              words={cluster.words.map((w) => ({ text: w.text, count: w.count, color }))}
-              scale={0.6}
-              heightClass="h-[34vh]"
+    <div>
+      <WordCloud words={words} heightClass="h-[56vh]" animate />
+      <div className="mt-2 flex flex-wrap justify-center gap-x-6 gap-y-2">
+        {visible.map((cluster, i) => (
+          <span key={cluster.label} className="flex items-center gap-2 text-lg">
+            <span
+              className="inline-block h-4 w-4 rounded"
+              style={{ background: hueColor(categoryHue(i), 0.8) }}
             />
-          </div>
-        );
-      })}
+            <span className="font-semibold text-slate-700 dark:text-slate-200">
+              {cluster.label}
+            </span>
+            <span className="text-slate-400">· {cluster.count}</span>
+          </span>
+        ))}
+      </div>
     </div>
   );
 }
