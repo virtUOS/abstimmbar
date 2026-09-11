@@ -137,7 +137,7 @@ multi-line note must use {% comment %} or it renders as text.)
   .likert-seg.emoji{font-size:30px;line-height:1}
   .likert-seg.selected{background:var(--brand-soft);color:var(--brand-strong);font-weight:700}
   .likert-dot{display:block;width:16px;height:16px;border:2px solid var(--ink-soft);border-radius:50%;transition:border-color .12s ease,background .12s ease}
-  .likert-seg:hover .likert-dot{border-color:var(--brand-strong);background:var(--brand-strong)}
+  .likert-seg:hover .likert-dot,.likert-seg.selected .likert-dot{border-color:var(--brand-strong);background:var(--brand-strong)}
   .likert-caps{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--ink-soft);font-size:13px}
   .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
   .likert-abstain:hover{background:var(--brand-soft);border-color:var(--brand-strong);color:var(--brand-strong)}
@@ -319,6 +319,8 @@ multi-line note must use {% comment %} or it renders as text.)
     moveUp: "{% trans 'Move up' %}",
     moveDown: "{% trans 'Move down' %}",
     you: "{% trans 'you' %}",
+    neutral: "{% trans 'neutral' %}",
+    abstentionsWord: "{% trans 'Abstentions' %}",
     questionProgress: "{% trans 'Question {i} of {n}' %}",
     timeUp: "{% trans 'Time is up.' %}",
     // Lernkontrolle / self-check mode (#75 Phase 3).
@@ -555,9 +557,94 @@ multi-line note must use {% comment %} or it renders as text.)
 
   // Render result bars / word chips of `data` (which has .results and/or
   // .words) into `list`, highlighting the answer the viewer gave (#13).
+  // Colored Likert steps (#86), ported from LikertResult.tsx: low pole in
+  // reds, high pole in the brand green, neutral grey; darkest at the extremes.
+  function likertColors(steps) {
+    const low = steps.filter((s) => s.polarity === "low").length;
+    const high = steps.filter((s) => s.polarity === "high").length;
+    let lSeen = 0, hSeen = 0;
+    return steps.map((step) => {
+      let group = 1, rank = 0;
+      if (step.polarity === "low") { group = low; rank = low - 1 - lSeen; lSeen++; }
+      else if (step.polarity === "high") { group = high; rank = hSeen; hSeen++; }
+      const t = group <= 1 ? 1 : rank / (group - 1);
+      if (step.polarity === "neutral") return { ...step, fill: "oklch(0.8 0.012 220)", ink: "oklch(0.28 0.011 220)" };
+      const L = step.polarity === "low" ? 0.8 - 0.26 * t : 0.84 - 0.3 * t;
+      const fill = step.polarity === "low"
+        ? "oklch(" + L + " " + (0.08 + 0.13 * t) + " 27)"
+        : "oklch(" + L + " " + (0.09 + 0.05 * t) + " 149)";
+      const ink = L > 0.62 ? "oklch(0.25 0.02 27)" : "oklch(0.98 0.01 149)";
+      return { ...step, fill, ink };
+    });
+  }
+
+  // Participant results for a Likert (#86): the same diverging bar the beamer
+  // shows, plus a marker for the viewer's own vote.
+  function renderLikertBar(list, summary, myOptionIds) {
+    if (!summary.scale_total) {
+      const p = document.createElement("p"); p.className = "soft";
+      p.textContent = I18N.answerSaved; list.appendChild(p); return;
+    }
+    const steps = likertColors(summary.steps);
+    const wrap = document.createElement("div"); wrap.style.cssText = "position:relative;margin-top:8px";
+    const bar = document.createElement("div");
+    bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:34px;border-radius:12px;font-size:12px";
+    let cum = 0, myPos = null;
+    steps.forEach((step) => {
+      const seg = document.createElement("div");
+      seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
+      seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
+      if (step.pct >= 10) seg.textContent = Math.round(step.pct) + " %";
+      if (myOptionIds.has(step.id)) myPos = cum + step.pct / 2;
+      cum += step.pct;
+      bar.appendChild(seg);
+    });
+    wrap.appendChild(bar);
+    const divider = document.createElement("div");
+    divider.style.cssText = "position:absolute;top:-4px;bottom:-4px;width:2px;border-radius:2px;background:var(--ink);opacity:.8;transform:translateX(-50%);left:" + summary.divider + "%";
+    wrap.appendChild(divider);
+    if (myPos != null) {
+      const mark = document.createElement("div");
+      mark.style.cssText = "position:absolute;top:-18px;bottom:-4px;width:2px;background:var(--brand-strong);transform:translateX(-50%);left:" + myPos + "%";
+      const tag = document.createElement("span");
+      tag.textContent = I18N.you;
+      tag.style.cssText = "position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:11px;font-weight:700;color:var(--brand-strong)";
+      mark.appendChild(tag);
+      wrap.appendChild(mark);
+    }
+    list.appendChild(wrap);
+    const caps = document.createElement("div");
+    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:6px;color:var(--ink-soft);font-size:12px";
+    const cl = document.createElement("span"); cl.textContent = locText(summary.low_label) ? ("← " + locText(summary.low_label)) : "←";
+    const cr = document.createElement("span"); cr.textContent = locText(summary.high_label) ? (locText(summary.high_label) + " →") : "→";
+    caps.append(cl, cr); list.appendChild(caps);
+    const line = document.createElement("div");
+    line.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px";
+    const lowS = document.createElement("span"); lowS.style.color = "var(--danger-strong)";
+    lowS.innerHTML = "<strong>" + summary.low_pct + " %</strong> ";
+    lowS.append(locText(summary.low_label) || "");
+    line.appendChild(lowS);
+    if (summary.neutral > 0) {
+      const nS = document.createElement("span"); nS.style.color = "var(--ink-soft)";
+      nS.innerHTML = "<strong>" + summary.neutral_pct + " %</strong> " + I18N.neutral;
+      line.appendChild(nS);
+    }
+    const highS = document.createElement("span"); highS.style.color = "var(--brand-strong)";
+    highS.innerHTML = "<strong>" + summary.high_pct + " %</strong> ";
+    highS.append(locText(summary.high_label) || "");
+    line.appendChild(highS);
+    if (summary.abstentions > 0) {
+      const aS = document.createElement("span"); aS.style.cssText = "margin-left:auto;color:var(--ink-soft)";
+      aS.textContent = summary.abstentions + " " + I18N.abstentionsWord;
+      line.appendChild(aS);
+    }
+    list.appendChild(line);
+  }
+
   function renderResultBlock(list, data, mine) {
     mine = mine || {};
     const myOptionIds = new Set((mine.answerOptions || []).map((o) => o.id));
+    if (data.likert) { renderLikertBar(list, data.likert, myOptionIds); return; }
     const myWord = (mine.answerText || "").trim().toLowerCase();
     const total = (data.results || []).reduce((sum, r) => sum + r.count, 0);
     for (const row of data.results || []) {

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-/** Diverging Likert result bar (v2 review feedback): the ordered scale as a
- * single stacked bar — disagreement in reds to the left, agreement in the
- * brand green to the right, an optional neutral step in grey. A centre line
- * marks the split. Percentages are over the scale responses; abstentions sit
- * apart. Shared by the presentation (beamer) and the results page. */
+/** Diverging Likert result bar (#86): the ordered scale as a single stacked
+ * bar — the low (negative) pole in reds to the left, the high (positive) pole
+ * in the brand green to the right, an optional neutral step in grey. The two
+ * endpoint labels caption the ends. A centre line marks the split. Percentages
+ * are over the scale responses; abstentions sit apart. Shared by the
+ * presentation (beamer) and the results page. */
 import { useTranslation } from "react-i18next";
 import type { LikertStep, LikertSummary } from "../api";
 import { localizedText } from "@basicbar/ui";
@@ -127,18 +128,20 @@ export default function LikertResult({
       <div
         className={`flex flex-wrap items-center gap-x-4 gap-y-1 ${present ? "mt-4 border-t border-slate-200 pt-3 text-lg dark:border-slate-700" : "mt-2 text-xs"}`}
       >
-        <span className="text-brand-700 dark:text-brand-300">
-          <span className="font-semibold">{summary.high_pct} %</span>{" "}
-          {localizedText(summary.high_label) || t("high")}
+        {/* Left→right to match the bar: low (red) first, then neutral, then
+            high (green) — so "Stimme nicht zu" reads on the left. */}
+        <span className="text-rose-700 dark:text-rose-300">
+          <span className="font-semibold">{summary.low_pct} %</span>{" "}
+          {localizedText(summary.low_label) || t("low")}
         </span>
         {summary.neutral > 0 && (
           <span className="text-slate-500 dark:text-slate-400">
             <span className="font-semibold">{summary.neutral_pct} %</span> {t("neutral")}
           </span>
         )}
-        <span className="text-rose-700 dark:text-rose-300">
-          <span className="font-semibold">{summary.low_pct} %</span>{" "}
-          {localizedText(summary.low_label) || t("low")}
+        <span className="text-brand-700 dark:text-brand-300">
+          <span className="font-semibold">{summary.high_pct} %</span>{" "}
+          {localizedText(summary.high_label) || t("high")}
         </span>
         {summary.abstentions > 0 && (
           <span className="ml-auto text-slate-400">
