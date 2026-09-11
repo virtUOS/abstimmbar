@@ -130,11 +130,17 @@ multi-line note must use {% comment %} or it renders as text.)
   /* Likert (#86): a connected, snapping segment row — equal-width steps,
      rounded ends via overflow:hidden on the container, touch-friendly. */
   .likert-row{display:flex;width:100%;margin-top:10px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
-  .likert-seg{flex:1 1 0;min-width:0;margin:0;padding:8px 4px;border:0;border-radius:0;min-height:52px;background:var(--surface);color:var(--ink);font-size:13px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:break-word}
+  .likert-seg{flex:1 1 0;min-width:0;margin:0;padding:8px 4px;border:0;border-radius:0;min-height:60px;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:break-word;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s ease,color .12s ease}
   .likert-seg + .likert-seg{border-left:1px solid var(--line)}
+  .likert-seg:hover{background:var(--brand-soft);color:var(--brand-strong)}
+  .likert-seg:active{background:var(--brand-strong);color:#fff}
+  .likert-seg.emoji{font-size:30px;line-height:1}
   .likert-seg.selected{background:var(--brand-soft);color:var(--brand-strong);font-weight:700}
+  .likert-dot{display:block;width:16px;height:16px;border:2px solid var(--ink-soft);border-radius:50%;transition:border-color .12s ease,background .12s ease}
+  .likert-seg:hover .likert-dot{border-color:var(--brand-strong);background:var(--brand-strong)}
   .likert-caps{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--ink-soft);font-size:13px}
-  .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center}
+  .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
+  .likert-abstain:hover{background:var(--brand-soft);border-color:var(--brand-strong);color:var(--brand-strong)}
 </style>
 <section id="finished" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
@@ -1131,8 +1137,18 @@ multi-line note must use {% comment %} or it renders as text.)
     scale.forEach((option) => {
       const seg = document.createElement("button");
       seg.type = "button"; seg.className = "likert-seg";
-      if (perStep) seg.textContent = locText(option.text);
-      seg.setAttribute("aria-label", locText(option.text) || "");
+      const label = locText(option.text) || "";
+      if (perStep) {
+        seg.textContent = label;
+        // Bigger glyphs for an emoji scale so the button reads as tappable.
+        if (/^\p{Extended_Pictographic}/u.test(label.trim())) seg.classList.add("emoji");
+      } else {
+        // Endpoint-only scale: a dot marks each blank step as a tap target.
+        const dot = document.createElement("span");
+        dot.className = "likert-dot"; dot.setAttribute("aria-hidden", "true");
+        seg.appendChild(dot);
+      }
+      seg.setAttribute("aria-label", label);
       seg.addEventListener("click", () => submitVote({ options: [option.id] }));
       row.appendChild(seg);
     });

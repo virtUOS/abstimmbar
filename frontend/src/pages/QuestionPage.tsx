@@ -1156,23 +1156,30 @@ export default function QuestionPage() {
                       {t(preset.label)}
                     </option>
                   ))}
-                  {likertPreset === "custom" && (
-                    <option value="custom">{t("Custom")}</option>
-                  )}
+                  <option value="custom">{t("Define your own")}</option>
                 </select>
               </Field>
               <Field label={t("Steps")}>
-                <select
-                  value={likertSteps}
-                  onChange={(event) => setLikertSteps(Number(event.target.value))}
-                  className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
-                >
-                  {[3, 4, 5, 6, 7].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {[3, 4, 5, 6, 7].map((n) => {
+                    const active = likertSteps === n;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        aria-pressed={active}
+                        onClick={() => setLikertSteps(n)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                          active
+                            ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
+                            : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    );
+                  })}
+                </div>
               </Field>
             </div>
 
@@ -1209,36 +1216,6 @@ export default function QuestionPage() {
               })}
             </label>
 
-            {/* Live preview (#86): one segment per step, emoji or blank,
-                with the endpoint labels shown under the two ends. */}
-            <ol className="flex flex-wrap items-stretch gap-2 text-sm">
-              {Array.from({ length: likertSteps }, (_, index) => {
-                const emojiPreset = LIKERT_PRESETS.find((p) => p.key === likertPreset)?.emoji;
-                const emoji = emojiPreset
-                  ? (LIKERT_EMOJI[likertSteps] ?? LIKERT_EMOJI[5])[index]
-                  : null;
-                const isLeftEnd = index === 0;
-                const isRightEnd = index === likertSteps - 1;
-                return (
-                  <li
-                    key={index}
-                    className="flex w-16 flex-col items-center gap-1 rounded-lg bg-slate-100 px-2 py-1.5 text-center dark:bg-slate-800"
-                  >
-                    <span className="text-lg leading-none">{emoji ?? " "}</span>
-                    {!emojiPreset && (isLeftEnd || isRightEnd) && (
-                      <span className="line-clamp-2 text-xs text-slate-500 dark:text-slate-400">
-                        {localizedText(isLeftEnd ? likertLeft : likertRight) || "—"}
-                      </span>
-                    )}
-                  </li>
-                );
-              })}
-              {abstention && (
-                <li className="flex w-16 flex-col items-center justify-center rounded-lg border border-dashed border-slate-300 px-2 py-1.5 text-center text-xs text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                  {ABSTENTION}
-                </li>
-              )}
-            </ol>
           </div>
         )}
 
