@@ -408,6 +408,52 @@ class QuestionApiTests(ApiTestCase):
         self.assertEqual(options[0].pk, keep_id)
         self.assertEqual(options[0].text, "vier")
 
+    def test_update_with_ids_preserves_options_and_their_votes(self):
+        # Regression (#86): re-saving a question must UPDATE the existing option
+        # rows (whose pks the votes point at), not delete+recreate them — else
+        # every vote is orphaned. The Likert editor used to rebuild its scale
+        # from scratch without ids; it now sends each row's id, exercised here.
+        from live.models import ParticipantToken, Run, Vote
+
+        question = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.LIKERT,
+            text="<p>Gut?</p>",
+        )
+        steps = [
+            AnswerOption.objects.create(question=question, text_de=t, position=i)
+            for i, t in enumerate(["Stimme nicht zu", "", "", "", "Stimme zu"])
+        ]
+        run = Run.objects.create(question_set=self.question_set)
+        for option in (steps[0], steps[3]):
+            token = ParticipantToken.objects.create(room=self.room)
+            Vote.objects.create(run=run, question=question, token=token).options.add(option)
+        original_ids = [s.pk for s in steps]
+
+        response = self.client.put(
+            f"/api/questions/{question.pk}/",
+            {
+                "question_set": self.question_set.pk,
+                "kind": "likert",
+                "text": "<p>Immer noch gut?</p>",  # edit the question, then re-save
+                "options": [
+                    {"id": pk, "text": text, "is_correct": False}
+                    for pk, text in zip(
+                        original_ids,
+                        ["Stimme gar nicht zu", "", "", "", "Stimme voll zu"],
+                    )
+                ],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        # Same rows, same pks — so the votes still resolve.
+        self.assertEqual(
+            [o.pk for o in question.options.order_by("position")], original_ids
+        )
+        self.assertEqual(Vote.objects.filter(run=run, question=question).count(), 2)
+        self.assertEqual(steps[0].votes.count(), 1)
+        self.assertEqual(steps[3].votes.count(), 1)
+
     def test_word_cloud_rejects_options(self):
         response = self._create_question(kind="word_cloud")
         self.assertEqual(response.status_code, 400)
@@ -1843,6 +1889,37 @@ class V21TransferTests(ApiTestCase):
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["time_limit"], 60)
+
+    def test_likert_endpoints_are_bilingual_and_blank_middles_ok(self):
+        qs = QuestionSet.objects.create(room=self.room, title="L")
+        resp = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": qs.pk,
+                "kind": "likert",
+                "text": {"de": "Wie geht es dir?", "en": "How are you?"},
+                "options": [
+                    {"text": {"de": "Schlecht", "en": "Bad"}},
+                    {"text": {"de": "", "en": ""}},
+                    {"text": {"de": "", "en": ""}},
+                    {"text": {"de": "", "en": ""}},
+                    {"text": {"de": "Gut", "en": "Good"}},
+                ],
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        opts = list(
+            AnswerOption.objects.filter(question_id=resp.json()["id"]).order_by("position")
+        )
+        self.assertEqual(len(opts), 5)
+        self.assertEqual(opts[0].text_de, "Schlecht")
+        self.assertEqual(opts[0].text_en, "Bad")
+        self.assertEqual(opts[4].text_en, "Good")
+        # A blank map entry is normalized to None at the model level (shared
+        # TranslatedMapMixin behavior, common/i18n_fields.py); the API read
+        # path (translated_map) still exposes it as "" to clients.
+        self.assertIsNone(opts[2].text_de)
 
     def test_open_text_rejects_options(self):
         question_set = QuestionSet.objects.create(room=self.room, title="T")
@@ -3400,7 +3477,7 @@ class OnboardingSeedTests(TestCase):
         self.assertTrue(question.allow_multiple)
         self.assertGreaterEqual(question.options.filter(is_correct=True).count(), 2)
 
-    def test_likert_is_positive_first_with_trailing_abstention(self):
+    def test_likert_is_negative_first_with_trailing_abstention(self):
         question = self._question(Question.Kind.LIKERT)
         options = list(question.options.all())  # ordered by position
         self.assertFalse(any(o.is_correct for o in options))
@@ -3408,9 +3485,10 @@ class OnboardingSeedTests(TestCase):
         abstentions = [o for o in options if o.is_abstention]
         self.assertEqual(len(scale), 5)
         self.assertEqual(len(abstentions), 1)
-        # position 0 = strongest agreement; the abstention is last.
-        self.assertEqual(scale[0].text_de, "Stimme voll zu")
+        # position 0 = strongest disagreement (low pole); the abstention is last.
+        self.assertEqual(scale[0].text_de, "Stimme gar nicht zu")
         self.assertEqual(scale[0].position, 0)
+        self.assertEqual(scale[-1].text_de, "Stimme voll zu")
         self.assertEqual(abstentions[0].position, options[-1].position)
 
     def test_word_cloud_and_open_text_have_no_options(self):

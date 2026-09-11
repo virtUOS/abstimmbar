@@ -1677,10 +1677,12 @@ def results_csv(request, set_id):
                            step_pct.get(option["id"], "")]
                     )
                 if summary:
+                    high_label = resolve_translated_text(summary["high_label"]) or "hoch"
+                    low_label = resolve_translated_text(summary["low_label"]) or "niedrig"
                     for label, count, pct in (
-                        ("Zusammenfassung: Zustimmung", summary["agree"], summary["agree_pct"]),
+                        (f"Zusammenfassung: {high_label}", summary["high"], summary["high_pct"]),
                         ("Zusammenfassung: Neutral", summary["neutral"], summary["neutral_pct"]),
-                        ("Zusammenfassung: Ablehnung", summary["disagree"], summary["disagree_pct"]),
+                        (f"Zusammenfassung: {low_label}", summary["low"], summary["low_pct"]),
                         ("Zusammenfassung: Enthaltung", summary["abstentions"], ""),
                     ):
                         writer.writerow(base + [label, "", count, "", "", pct])

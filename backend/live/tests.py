@@ -896,6 +896,24 @@ class StatePayloadTests(LiveTestCase):
         self.assertTrue(payloads["presenter"]["question"]["participant_feedback"])
         self.assertTrue(payloads["participant"]["question"]["participant_feedback"])
 
+    def test_question_payload_carries_is_abstention_for_likert(self):
+        # #86: the Likert participant renderer excludes the abstention option
+        # from the segment scale and renders it as a separate button — it
+        # needs the flag on each option to tell them apart.
+        likert = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.LIKERT, text="<p>Wie?</p>",
+        )
+        AnswerOption.objects.create(question=likert, text="Stimme nicht zu", position=0)
+        AnswerOption.objects.create(question=likert, text="Stimme zu", position=1)
+        AnswerOption.objects.create(
+            question=likert, text="Enthaltung", is_abstention=True, position=2
+        )
+        self.open_question(question=likert)
+        payloads = build_payloads(self.room)
+        opts = payloads["participant"]["question"]["options"]
+        self.assertTrue(any(o["is_abstention"] for o in opts))
+        self.assertFalse(all(o["is_abstention"] for o in opts))
+
 
 class ParticipantPageTests(LiveTestCase):
     def test_pages_render(self):
@@ -1869,74 +1887,82 @@ class AnswerCorrectionTests(LiveTestCase):
 class LikertSummaryTests(TestCase):
     """Diverging Likert aggregation (results.likert_summary)."""
 
-    def _opts(self, *specs):
-        """specs: (text, count, is_abstention) → options_with_counts shape."""
-        return [
-            {"id": i, "text": t, "is_correct": False, "is_abstention": a, "count": c}
-            for i, (t, c, a) in enumerate(specs)
-        ]
+    def _opts(self, specs):
+        """specs: [(text, count, is_abstention=False), ...] →
+        options_with_counts shape. Plain-string text is wrapped as a
+        {de, en} map, matching what options_with_counts actually returns."""
+        opts = []
+        for i, spec in enumerate(specs):
+            text, count, *rest = spec
+            is_abstention = rest[0] if rest else False
+            if not isinstance(text, dict):
+                text = {"de": text, "en": ""}
+            opts.append(
+                {
+                    "id": i,
+                    "text": text,
+                    "is_correct": False,
+                    "is_abstention": is_abstention,
+                    "count": count,
+                }
+            )
+        return opts
 
     def test_odd_scale_has_neutral_and_centre_line(self):
         from .results import likert_summary
 
-        # Options are stored positive-first, exactly like LIKERT_PRESETS
-        # ("Stimme voll zu" … "Stimme gar nicht zu"); the diverging summary
-        # must still count the positive steps as agreement (#93).
-        summary = likert_summary(
-            self._opts(
-                ("voll", 15, False),
-                ("eher", 20, False),
-                ("neutral", 8, False),
-                ("eher nicht", 5, False),
-                ("gar nicht", 2, False),
-                ("Enthaltung", 3, True),
-            )
-        )
-        self.assertEqual(summary["scale_total"], 50)
-        self.assertEqual(summary["abstentions"], 3)
-        self.assertEqual(summary["disagree"], 7)
-        self.assertEqual(summary["neutral"], 8)
-        self.assertEqual(summary["agree"], 35)
-        self.assertEqual(summary["agree_pct"], 70.0)
-        # The most-positive authored step is agreement, not disagreement (#93).
-        voll = next(s for s in summary["steps"] if s["text"] == "voll")
-        self.assertEqual(voll["polarity"], "agree")
-        # Steps render disagreement→agreement (red left, green right).
-        polarities = [s["polarity"] for s in summary["steps"]]
-        self.assertEqual(
-            polarities, ["disagree", "disagree", "neutral", "agree", "agree"]
-        )
-        # centre line = 14 % (disagree) + half of 16 % (neutral) = 22 %
-        self.assertEqual(summary["divider"], 22.0)
+        # positions 0..4 = low..high; middle (index 2) is neutral.
+        summary = likert_summary(self._opts([
+            ("Stimme nicht zu", 1), ("", 2), ("", 4), ("", 2), ("Stimme zu", 1),
+        ]))
+        self.assertEqual(summary["steps"][0]["polarity"], "low")
+        self.assertEqual(summary["steps"][2]["polarity"], "neutral")
+        self.assertEqual(summary["steps"][4]["polarity"], "high")
+        self.assertEqual(summary["low_label"], {"de": "Stimme nicht zu", "en": ""})
+        self.assertEqual(summary["high_label"], {"de": "Stimme zu", "en": ""})
+        self.assertGreater(summary["high"], 0)
+        self.assertGreater(summary["low"], 0)
 
     def test_even_scale_splits_between_middle_steps(self):
         from .results import likert_summary
 
-        # Positive-first, as stored (LIKERT_PRESETS): voll → gar nicht.
-        summary = likert_summary(
-            self._opts(
-                ("voll", 2, False),
-                ("eher", 2, False),
-                ("eher nicht", 3, False),
-                ("gar nicht", 3, False),
-            )
+        summary = likert_summary(self._opts([("a", 1), ("", 1), ("", 1), ("b", 1)]))
+        self.assertIsNone(
+            next((s for s in summary["steps"] if s["polarity"] == "neutral"), None)
         )
-        self.assertEqual(summary["neutral"], 0)
-        self.assertEqual(summary["disagree"], 6)
-        self.assertEqual(summary["agree"], 4)
-        self.assertNotIn("neutral", [s["polarity"] for s in summary["steps"]])
-        # divider between the two halves = disagree (lower) share = 60 %
-        self.assertEqual(summary["divider"], 60.0)
 
     def test_too_few_steps_returns_none(self):
         from .results import likert_summary
 
-        self.assertIsNone(likert_summary(self._opts(("nur eine", 5, False))))
-        self.assertIsNone(
-            likert_summary(
-                self._opts(("skala", 5, False), ("Enthaltung", 1, True))
-            )
-        )
+        self.assertIsNone(likert_summary(self._opts([("a", 1)])))
+
+    def test_mean_weights_by_intensity_not_count_split(self):
+        from .results import likert_summary
+
+        # One far-negative (pos 0) + one mildly-positive (pos 3) on a 5-step
+        # scale, plus an abstention. The plain count split is 50:50 (divider
+        # at 50 %), but the intensity-weighted mean leans left/negative.
+        summary = likert_summary(self._opts([
+            ("Stimme nicht zu", 1), ("", 0), ("", 0), ("", 1), ("Stimme zu", 0),
+            ("Enthaltung", 1, True),
+        ]))
+        self.assertEqual(summary["scale_total"], 2)
+        self.assertEqual(summary["abstentions"], 1)
+        self.assertEqual(summary["divider"], 50.0)
+        # mean_index = (0*1 + 3*1) / 2 = 1.5 → mean_pct = (1.5+0.5)/5*100 = 40.0
+        self.assertEqual(summary["mean_pct"], 40.0)
+        # centred: 1.5 - (5-1)/2 = -0.5
+        self.assertEqual(summary["mean_score"], -0.5)
+
+    def test_mean_is_centred_when_votes_are_symmetric(self):
+        from .results import likert_summary
+
+        # Symmetric distribution → mean sits exactly at the centre.
+        summary = likert_summary(self._opts([
+            ("a", 1), ("", 0), ("", 0), ("", 0), ("b", 1),
+        ]))
+        self.assertEqual(summary["mean_pct"], 50.0)
+        self.assertEqual(summary["mean_score"], 0.0)
 
 
 class LikertResultsIntegrationTests(LiveTestCase):
@@ -1948,14 +1974,18 @@ class LikertResultsIntegrationTests(LiveTestCase):
             question_set=self.question_set, kind=Question.Kind.LIKERT,
             text="<p>Gut strukturiert?</p>", position=5,
         )
-        # Positive-first, exactly as the editor saves LIKERT_PRESETS
-        # ("Stimme voll zu" first). steps[0] = strongest agreement (#93).
+        # Negative-first (#86): position 0 = low pole, position N-1 = high
+        # pole. steps[0]/steps[-1] carry the low/high endpoint labels.
+        # text_de= explicitly (not the bare text= accessor, which follows the
+        # active UI language — LANGUAGE_CODE="en" — not the canonical "de").
         self.steps = [
-            AnswerOption.objects.create(question=self.likert, text=t, position=i)
-            for i, t in enumerate(["voll", "eher", "neutral", "eher nicht", "gar nicht"])
+            AnswerOption.objects.create(question=self.likert, text_de=t, position=i)
+            for i, t in enumerate(
+                ["Stimme nicht zu", "eher nicht", "neutral", "eher", "Stimme zu"]
+            )
         ]
         self.abstain = AnswerOption.objects.create(
-            question=self.likert, text="Enthaltung", position=5, is_abstention=True
+            question=self.likert, text_de="Enthaltung", position=5, is_abstention=True
         )
 
     def _cast(self, run, option, n):
@@ -1970,21 +2000,30 @@ class LikertResultsIntegrationTests(LiveTestCase):
         run = Run.objects.create(
             question_set=self.question_set, phase=Run.Phase.FINISHED
         )
-        self._cast(run, self.steps[1], 3)  # eher (agreement)
-        self._cast(run, self.steps[0], 1)  # voll (agreement)
+        self._cast(run, self.steps[3], 3)  # eher (high)
+        self._cast(run, self.steps[4], 1)  # Stimme zu (high)
         self._cast(run, self.abstain, 2)
         item = next(
             q for q in run_results(run)["questions"] if q["id"] == self.likert.pk
         )
-        self.assertEqual(item["likert"]["agree"], 4)
+        self.assertEqual(item["likert"]["high"], 4)
         self.assertEqual(item["likert"]["abstentions"], 2)
-        self.assertEqual(item["likert"]["agree_pct"], 100.0)
+        self.assertEqual(item["likert"]["high_pct"], 100.0)
+        # 3×pos3 + 1×pos4 = mean_index 3.25 → strongly high, right of centre.
+        self.assertEqual(item["likert"]["mean_pct"], 75.0)
+        self.assertEqual(item["likert"]["mean_score"], 1.25)
+        self.assertEqual(
+            item["likert"]["high_label"], {"de": "Stimme zu", "en": ""}
+        )
+        self.assertEqual(
+            item["likert"]["low_label"], {"de": "Stimme nicht zu", "en": ""}
+        )
 
     def test_csv_has_percent_column_and_summary_rows(self):
         run = Run.objects.create(
             question_set=self.question_set, phase=Run.Phase.FINISHED
         )
-        self._cast(run, self.steps[1], 3)  # eher (agreement)
+        self._cast(run, self.steps[4], 3)  # Stimme zu (high)
         self._cast(run, self.abstain, 1)
         self.client.force_login(self.owner)
         body = self.client.get(
@@ -1992,7 +2031,9 @@ class LikertResultsIntegrationTests(LiveTestCase):
         ).content.decode("utf-8-sig")
         # Recording mode (#53) added on-site/recording columns before prozent.
         self.assertIn("stimmen;vor_ort;aufzeichnung;prozent", body)
-        self.assertIn("Zusammenfassung: Zustimmung;;3;;;100.0", body)
+        # Summary rows are labelled with the endpoint text, not a fixed
+        # German "Zustimmung"/"Ablehnung" (#86).
+        self.assertIn("Zusammenfassung: Stimme zu;;3;;;100.0", body)
         self.assertIn("Zusammenfassung: Enthaltung;;1;", body)
 
 

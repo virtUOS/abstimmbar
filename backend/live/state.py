@@ -78,6 +78,7 @@ def question_payload(question, shuffle_seed):
             {
                 "id": o.pk,
                 "text": translated_map(o, "text"),
+                "is_abstention": o.is_abstention,
                 **({"image": o.image} if o.image else {}),
             }
             for o in options
@@ -155,6 +156,7 @@ def build_payloads(room):
         elif question.kind == Question.Kind.ORDERING:
             participant["ordering"] = ordering_stats(run, question)
         else:
+            participant_options = options_with_counts(run, question)
             participant["results"] = [
                 {
                     "id": option["id"],
@@ -162,8 +164,12 @@ def build_payloads(room):
                     "count": option["count"],
                     **({"is_correct": option["is_correct"]} if reveal_correct else {}),
                 }
-                for option in options_with_counts(run, question)
+                for option in participant_options
             ]
+            # #86: participants see the same diverging Likert bar as the beamer,
+            # with their own vote marked.
+            if question.kind == Question.Kind.LIKERT:
+                participant["likert"] = likert_summary(participant_options)
 
     presenter = dict(base)
     presenter["run_id"] = run.pk

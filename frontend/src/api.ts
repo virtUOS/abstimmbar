@@ -231,20 +231,28 @@ export interface LikertStep {
   text: LocalizedText;
   count: number;
   pct: number;
-  polarity: "disagree" | "neutral" | "agree";
+  polarity: "low" | "neutral" | "high";
 }
 
 export interface LikertSummary {
   scale_total: number;
   abstentions: number;
-  agree: number;
-  agree_pct: number;
+  high: number;
+  high_pct: number;
   neutral: number;
   neutral_pct: number;
-  disagree: number;
-  disagree_pct: number;
+  low: number;
+  low_pct: number;
   /** Centre-line position as a percentage (0–100) of the scale width. */
   divider: number;
+  /** Mean scale position (0–100) aligned to the step columns, weighting each
+   *  vote by how extreme its step is. */
+  mean_pct: number;
+  /** Centred mean score (0 = middle of the scale, negative = net-low). */
+  mean_score: number;
+  /** Text of the first/last scale step, used as the axis endpoint labels. */
+  low_label: LocalizedText;
+  high_label: LocalizedText;
   steps: LikertStep[];
 }
 

@@ -376,3 +376,11 @@ msgstr "Feld entfernen"
 #: live/templates/live/participant.html
 msgid "Clear field"
 msgstr "Feld leeren"
+
+#: live/templates/live/participant.html
+msgid "neutral"
+msgstr "neutral"
+
+#: live/templates/live/participant.html
+msgid "Abstentions"
+msgstr "Enthaltungen"

@@ -46,6 +46,8 @@ multi-line note must use {% comment %} or it renders as text.)
   <p class="soft" id="countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="question-text"></div>
   <div id="options"></div>
+  {# Likert scale (#86): a connected row of segment buttons, one tap = one vote. #}
+  <div id="likert" hidden></div>
   <form id="wordcloud" hidden>
     <input type="text" id="word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}">
@@ -125,6 +127,21 @@ multi-line note must use {% comment %} or it renders as text.)
   .ord-arrows button{display:flex;align-items:center;justify-content:center;width:36px;height:32px;min-height:0;margin:0;padding:0;border-radius:8px;border:1px solid var(--line);background:var(--surface);color:var(--ink);cursor:pointer;font-size:12px;line-height:1}
   .ord-arrows button:hover{background:var(--brand-soft);border-color:var(--brand-strong)}
   .ord-arrows button[hidden]{display:none}
+  /* Likert (#86): a connected, snapping segment row — equal-width steps,
+     rounded ends via overflow:hidden on the container, touch-friendly. */
+  .likert-row{display:flex;width:100%;margin-top:10px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+  .likert-seg{flex:1 1 0;min-width:0;margin:0;padding:8px 4px;border:0;border-radius:0;min-height:60px;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:break-word;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s ease,color .12s ease}
+  .likert-seg + .likert-seg{border-left:1px solid var(--line)}
+  .likert-seg:hover{background:var(--brand-soft);color:var(--brand-strong)}
+  .likert-seg:active{background:var(--brand-strong);color:#fff}
+  .likert-seg.emoji{font-size:30px;line-height:1}
+  .likert-seg.selected{background:var(--brand-soft);color:var(--brand-strong);font-weight:700}
+  .likert-dot{display:block;width:16px;height:16px;border:2px solid var(--ink-soft);border-radius:50%;transition:border-color .12s ease,background .12s ease}
+  .likert-seg:hover .likert-dot,.likert-seg.selected .likert-dot{border-color:var(--brand-strong);background:var(--brand-strong)}
+  .likert-caps{display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--ink-soft);font-size:13px}
+  .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
+  .likert-abstain:hover{background:var(--brand-soft);border-color:var(--brand-strong);color:var(--brand-strong)}
+  .likert-abstain.selected{background:var(--brand-soft);border-style:solid;border-color:var(--brand-strong);color:var(--brand-strong);font-weight:600}
 </style>
 <section id="finished" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
@@ -280,6 +297,7 @@ multi-line note must use {% comment %} or it renders as text.)
     quizUnscored: "{% trans 'Done! You answered all {total} questions.' %}",
     add: "{% trans 'Add' %}",
     submit: "{% trans 'Submit' %}",
+    submitAnswer: "{% trans 'Submit answer' %}",
     yourTerm: "{% trans 'Your term …' %}",
     answer: "{% trans 'Answer' %}",
     clearField: "{% trans 'Clear field' %}",
@@ -301,6 +319,8 @@ multi-line note must use {% comment %} or it renders as text.)
     moveUp: "{% trans 'Move up' %}",
     moveDown: "{% trans 'Move down' %}",
     you: "{% trans 'you' %}",
+    neutral: "{% trans 'neutral' %}",
+    abstentionsWord: "{% trans 'Abstentions' %}",
     questionProgress: "{% trans 'Question {i} of {n}' %}",
     timeUp: "{% trans 'Time is up.' %}",
     // Lernkontrolle / self-check mode (#75 Phase 3).
@@ -537,9 +557,97 @@ multi-line note must use {% comment %} or it renders as text.)
 
   // Render result bars / word chips of `data` (which has .results and/or
   // .words) into `list`, highlighting the answer the viewer gave (#13).
+  // Colored Likert steps (#86), ported from LikertResult.tsx: low pole in
+  // reds, high pole in the brand green, neutral grey; darkest at the extremes.
+  function likertColors(steps) {
+    const low = steps.filter((s) => s.polarity === "low").length;
+    const high = steps.filter((s) => s.polarity === "high").length;
+    let lSeen = 0, hSeen = 0;
+    return steps.map((step) => {
+      let group = 1, rank = 0;
+      if (step.polarity === "low") { group = low; rank = low - 1 - lSeen; lSeen++; }
+      else if (step.polarity === "high") { group = high; rank = hSeen; hSeen++; }
+      const t = group <= 1 ? 1 : rank / (group - 1);
+      if (step.polarity === "neutral") return { ...step, fill: "oklch(0.8 0.012 220)", ink: "oklch(0.28 0.011 220)" };
+      const L = step.polarity === "low" ? 0.8 - 0.26 * t : 0.84 - 0.3 * t;
+      const fill = step.polarity === "low"
+        ? "oklch(" + L + " " + (0.08 + 0.13 * t) + " 27)"
+        : "oklch(" + L + " " + (0.09 + 0.05 * t) + " 149)";
+      const ink = L > 0.62 ? "oklch(0.25 0.02 27)" : "oklch(0.98 0.01 149)";
+      return { ...step, fill, ink };
+    });
+  }
+
+  // Participant results for a Likert (#86): the same diverging bar the beamer
+  // shows, plus a marker for the viewer's own vote.
+  function renderLikertBar(list, summary, myOptionIds) {
+    if (!summary.scale_total) {
+      const p = document.createElement("p"); p.className = "soft";
+      p.textContent = I18N.answerSaved; list.appendChild(p); return;
+    }
+    const steps = likertColors(summary.steps);
+    // Single diverging stacked bar: each segment's width is its share of the
+    // scale votes, coloured by polarity. Own vote (myOptionIds) gets an arrow.
+    const chart = document.createElement("div");
+    chart.style.cssText = "position:relative";
+    const bar = document.createElement("div");
+    bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:26px;border-radius:8px;font-size:11px";
+    let myMidPct = null, cursor = 0;
+    steps.forEach((step) => {
+      const seg = document.createElement("div");
+      seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
+      seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
+      if (step.pct >= 12) seg.textContent = Math.round(step.pct) + " %";
+      if (myOptionIds.has(step.id)) myMidPct = cursor + step.pct / 2;
+      cursor += step.pct;
+      bar.appendChild(seg);
+    });
+    chart.appendChild(bar);
+    // Mean marker: the intensity-weighted central tendency (mean_pct), leaning
+    // toward the heavier / more extreme side — not the plain 50:50 count split.
+    const mean = document.createElement("div");
+    mean.style.cssText = "position:absolute;top:-6px;bottom:-6px;width:2px;border-radius:2px;background:var(--ink);opacity:.8;transform:translateX(-50%);left:" + summary.mean_pct + "%";
+    const mlab = document.createElement("span");
+    mlab.textContent = "⌀"; mlab.style.cssText = "position:absolute;top:-16px;left:50%;transform:translateX(-50%);font-size:12px;font-weight:700;color:var(--ink)";
+    mean.appendChild(mlab); chart.appendChild(mean);
+    list.appendChild(chart);
+    // Own vote: an arrow pointing up at the segment the viewer chose.
+    if (myMidPct != null) {
+      const ownRow = document.createElement("div");
+      ownRow.style.cssText = "position:relative;height:20px;margin-top:2px;color:var(--ink);font-weight:700;font-size:12px";
+      const own = document.createElement("span");
+      own.textContent = "▲ " + I18N.you;
+      own.style.cssText = "position:absolute;left:" + myMidPct + "%;transform:translateX(-50%);white-space:nowrap";
+      ownRow.appendChild(own); list.appendChild(ownRow);
+    }
+    const caps = document.createElement("div");
+    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:6px;color:var(--ink-soft);font-size:12px";
+    const cl = document.createElement("span"); cl.textContent = locText(summary.low_label) ? ("← " + locText(summary.low_label)) : "←";
+    const cr = document.createElement("span"); cr.textContent = locText(summary.high_label) ? (locText(summary.high_label) + " →") : "→";
+    caps.append(cl, cr); list.appendChild(caps);
+    const line = document.createElement("div");
+    line.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px";
+    const lowS = document.createElement("span"); lowS.style.color = "var(--danger-strong)";
+    lowS.innerHTML = "<strong>" + summary.low_pct + " %</strong> "; lowS.append(locText(summary.low_label) || "");
+    line.appendChild(lowS);
+    if (summary.neutral > 0) {
+      const nS = document.createElement("span"); nS.style.color = "var(--ink-soft)";
+      nS.innerHTML = "<strong>" + summary.neutral_pct + " %</strong> " + I18N.neutral; line.appendChild(nS);
+    }
+    const highS = document.createElement("span"); highS.style.color = "var(--brand-strong)";
+    highS.innerHTML = "<strong>" + summary.high_pct + " %</strong> "; highS.append(locText(summary.high_label) || "");
+    line.appendChild(highS);
+    if (summary.abstentions > 0) {
+      const aS = document.createElement("span"); aS.style.cssText = "margin-left:auto;color:var(--ink-soft)";
+      aS.textContent = summary.abstentions + " " + I18N.abstentionsWord; line.appendChild(aS);
+    }
+    list.appendChild(line);
+  }
+
   function renderResultBlock(list, data, mine) {
     mine = mine || {};
     const myOptionIds = new Set((mine.answerOptions || []).map((o) => o.id));
+    if (data.likert) { renderLikertBar(list, data.likert, myOptionIds); return; }
     const myWord = (mine.answerText || "").trim().toLowerCase();
     const total = (data.results || []).reduce((sum, r) => sum + r.count, 0);
     for (const row of data.results || []) {
@@ -1039,6 +1147,8 @@ multi-line note must use {% comment %} or it renders as text.)
     selected = new Set();
     wordcloud.hidden = q.kind !== "word_cloud";
     opentext.hidden = q.kind !== "open_text";
+    document.getElementById("likert").hidden = q.kind !== "likert";
+    optionsBox.hidden = q.kind === "likert";
     submitMulti.hidden = !q.multiple;
     renderCountdown();
     // Word cloud with multiple answers (#14): a "Done" button appears and
@@ -1081,6 +1191,10 @@ multi-line note must use {% comment %} or it renders as text.)
       renderOrderingSorter(optionsBox, q, (payload) => submitVote(payload));
       return;
     }
+    if (q.kind === "likert") {
+      renderLikert(q);
+      return;
+    }
     for (const option of q.options) {
       const button = document.createElement("button");
       button.type = "button";
@@ -1098,6 +1212,71 @@ multi-line note must use {% comment %} or it renders as text.)
     }
     submitMulti.disabled = true;
     submitMulti.onclick = () => submitVote({ options: [...selected] });
+  }
+
+  // Likert (#86): a connected row of segment buttons, one per step (position
+  // order, abstention excluded). Selecting a step (or the abstention) marks it
+  // and enables a "Submit answer" button, consistent with the other question
+  // types. If every step carries its own label (emoji scale, or a legacy
+  // fully-labeled scale) it's shown inside the segment; otherwise segments
+  // stay blank and only the two endpoints are captioned below the row.
+  function renderLikert(q) {
+    const box = document.getElementById("likert");
+    box.hidden = false;
+    box.replaceChildren();
+    const scale = q.options.filter((o) => !o.is_abstention);
+    const perStep = scale.every((o) => (locText(o.text) || "").trim().length > 0);
+    const row = document.createElement("div"); row.className = "likert-row";
+    let choice = null;
+    const choosable = [];
+    const submit = document.createElement("button");
+    submit.type = "button"; submit.className = "primary";
+    submit.style.marginTop = "14px";
+    submit.textContent = I18N.submitAnswer;
+    submit.disabled = true;
+    const choose = (id, btn) => {
+      choice = id;
+      choosable.forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      submit.disabled = false;
+    };
+    scale.forEach((option) => {
+      const seg = document.createElement("button");
+      seg.type = "button"; seg.className = "likert-seg";
+      const label = locText(option.text) || "";
+      if (perStep) {
+        seg.textContent = label;
+        // Bigger glyphs for an emoji scale so the button reads as tappable.
+        if (/^\p{Extended_Pictographic}/u.test(label.trim())) seg.classList.add("emoji");
+      } else {
+        // Endpoint-only scale: a dot marks each blank step as a tap target.
+        const dot = document.createElement("span");
+        dot.className = "likert-dot"; dot.setAttribute("aria-hidden", "true");
+        seg.appendChild(dot);
+      }
+      seg.setAttribute("aria-label", label);
+      seg.addEventListener("click", () => choose(option.id, seg));
+      choosable.push(seg);
+      row.appendChild(seg);
+    });
+    box.appendChild(row);
+    if (!perStep) {
+      const caps = document.createElement("div"); caps.className = "likert-caps";
+      const l = document.createElement("span"); l.textContent = locText(scale[0].text);
+      const r = document.createElement("span"); r.textContent = locText(scale[scale.length - 1].text);
+      caps.append(l, r); box.appendChild(caps);
+    }
+    const abstain = q.options.find((o) => o.is_abstention);
+    if (abstain) {
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "likert-abstain";
+      btn.textContent = locText(abstain.text);
+      btn.addEventListener("click", () => choose(abstain.id, btn));
+      choosable.push(btn);
+      box.appendChild(btn);
+    }
+    submit.onclick = () => { if (choice != null) submitVote({ options: [choice] }); };
+    box.appendChild(submit);
   }
 
   // --- self-paced quiz (concept §6.3) ---------------------------------------
