@@ -1871,9 +1871,22 @@ function WordCloud({
   animate?: boolean;
 }) {
   const placed = useMemo(() => layoutWordCloud(words, scale), [words, scale]);
-  void animate; // Task 3
+
+  const prev = useRef<Map<string, number>>(new Map());
+  const isFresh = (w: PlacedWord) => {
+    const before = prev.current.get(w.text);
+    return before === undefined || w.count > before;
+  };
+  useEffect(() => {
+    prev.current = new Map(placed.map((w) => [w.text, w.count]));
+  });
+
   return (
     <div className={`relative mx-auto w-full max-w-5xl ${heightClass}`}>
+      <style>{`
+        @keyframes wc-enter { from { opacity: 0; transform: translate(-50%,-50%) scale(0.5); } to { opacity: 1; transform: translate(-50%,-50%) scale(1); } }
+        @keyframes wc-pulse { 0%,100% { filter: none; } 35% { filter: drop-shadow(0 0 10px currentColor); } }
+      `}</style>
       <div className="absolute left-1/2 top-1/2">
         {placed.map((w) => (
           <span
@@ -1885,6 +1898,11 @@ function WordCloud({
               top: `${w.y}px`,
               fontSize: `${w.size}px`,
               color: w.color,
+              transition: animate
+                ? "left 400ms ease-out, top 400ms ease-out, font-size 400ms ease-out"
+                : undefined,
+              animation:
+                animate && isFresh(w) ? "wc-enter 380ms ease-out, wc-pulse 1000ms ease-out" : undefined,
             }}
           >
             {w.text}
