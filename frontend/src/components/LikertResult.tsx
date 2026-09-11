@@ -114,23 +114,24 @@ export default function LikertResult({
       </div>
 
       {present && (
-        <div className="mt-1.5 flex justify-between text-xs text-slate-400">
-          <span>{localizedText(summary.low_label) ? `← ${localizedText(summary.low_label)}` : "←"}</span>
-          <span>{localizedText(summary.high_label) ? `${localizedText(summary.high_label)} →` : "→"}</span>
-        </div>
-      )}
-
-      {present && (
-        <div className="mt-4 flex flex-wrap gap-x-5 gap-y-1.5 text-sm text-slate-600 dark:text-slate-300">
-          {steps.map((step) => (
-            <span key={step.id} className="flex items-center gap-2">
-              <span
-                className="inline-block h-3 w-3 rounded"
-                style={{ background: step.fill }}
-              />
-              {localizedText(step.text)} · {step.count}
-            </span>
-          ))}
+        // Legend: the endpoint labels caption the far ends, the per-step colour
+        // dots with their counts sit between them (intermediate steps carry no
+        // text of their own, only the colour).
+        <div className="mt-3 flex items-center gap-4 text-sm text-slate-600 dark:text-slate-300">
+          <span className="shrink-0">
+            {localizedText(summary.low_label) ? `← ${localizedText(summary.low_label)}` : "←"}
+          </span>
+          <div className="flex flex-1 flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
+            {steps.map((step) => (
+              <span key={step.id} className="flex items-center gap-1.5 tabular-nums" title={localizedText(step.text)}>
+                <span className="inline-block h-3 w-3 rounded" style={{ background: step.fill }} />
+                {step.count}
+              </span>
+            ))}
+          </div>
+          <span className="shrink-0">
+            {localizedText(summary.high_label) ? `${localizedText(summary.high_label)} →` : "→"}
+          </span>
         </div>
       )}
 

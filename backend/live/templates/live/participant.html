@@ -614,7 +614,7 @@ multi-line note must use {% comment %} or it renders as text.)
     // Own vote: an arrow pointing up at the segment the viewer chose.
     if (myMidPct != null) {
       const ownRow = document.createElement("div");
-      ownRow.style.cssText = "position:relative;height:20px;margin-top:2px;color:var(--brand-strong);font-weight:700;font-size:12px";
+      ownRow.style.cssText = "position:relative;height:20px;margin-top:2px;color:var(--ink);font-weight:700;font-size:12px";
       const own = document.createElement("span");
       own.textContent = "▲ " + I18N.you;
       own.style.cssText = "position:absolute;left:" + myMidPct + "%;transform:translateX(-50%);white-space:nowrap";
