@@ -215,6 +215,11 @@ multi-line note must use {% comment %} or it renders as text.)
               style="font:inherit;width:100%;padding:14px 16px;margin-top:10px;border:1px solid var(--line);border-radius:14px"></textarea>
     <button class="primary" type="submit">{% trans "Submit" %}</button>
   </form>
+  {# Multi-term word cloud (#128): term chips, a per-person count and „Done". #}
+  <p id="rec-wc-count" class="soft" style="margin:10px 0 0" hidden></p>
+  <div id="rec-wc-mine" style="margin-top:12px"></div>
+  <p id="rec-wc-hint" class="soft" aria-live="polite" style="margin-top:8px" hidden></p>
+  <button class="primary" id="rec-wc-done" style="margin-top:10px" hidden>{% trans "Done" %}</button>
   <button class="primary" id="rec-submit" hidden>{% trans "Submit answer" %}</button>
   <p id="rec-feedback" aria-live="polite" style="margin-top:14px;font-weight:600" hidden></p>
   <div id="rec-results" style="margin-top:14px"></div>
@@ -2056,6 +2061,11 @@ multi-line note must use {% comment %} or it renders as text.)
   const REC_TOKEN = "{{ recording_token|default:''|escapejs }}";
   const REC_ENTRY = "{{ entry_question|default:''|escapejs }}";
   let rec = null, recIndex = 0, recSelected = new Set(), recTimer = null;
+  // Multi-term word cloud terms the viewer has added, per question id (#128).
+  let recWc = {};
+  function recWcState(qid) {
+    return (recWc[String(qid)] ??= { list: [], words: new Set(), lastData: null });
+  }
   // Lernkontrolle / self-check mode (#75 Phase 3) reuses the same
   // `entry_question` context var (only one of REC_TOKEN/CHECK_TOKEN is ever
   // set on a given page render).
@@ -2068,6 +2078,7 @@ multi-line note must use {% comment %} or it renders as text.)
       `/api/live/recording/${REC_TOKEN}/?token=${encodeURIComponent(token)}`);
     if (!response.ok) { subtitle.textContent = I18N.almostThere; return; }
     rec = await response.json();
+    recWc = {};
     subtitle.textContent = locText(rec.set_title);
     recIndex = 0;
     if (REC_ENTRY) {
@@ -2118,6 +2129,10 @@ multi-line note must use {% comment %} or it renders as text.)
     document.getElementById("rec-feedback").hidden = true;
     document.getElementById("rec-textform").hidden = true;
     document.getElementById("rec-submit").hidden = true;
+    document.getElementById("rec-wc-done").hidden = true;
+    document.getElementById("rec-wc-mine").hidden = true;
+    document.getElementById("rec-wc-count").hidden = true;
+    document.getElementById("rec-wc-hint").hidden = true;
     optionsBox.replaceChildren();
     results.replaceChildren();
     // Drop any priorities budget box from the previously shown question;
@@ -2157,8 +2172,17 @@ multi-line note must use {% comment %} or it renders as text.)
     word.hidden = q.kind !== "word_cloud";
     area.hidden = q.kind !== "open_text";
     word.value = "";
+    word.disabled = false;
     area.value = "";
     submit.hidden = !q.multiple;
+    // Multi-term word cloud (#128): keep the form open, list the terms, and
+    // offer „Done"; a single-answer word cloud stays one-shot.
+    const isMultiWc = q.kind === "word_cloud" && q.allow_multiple;
+    document.getElementById("rec-wc-done").hidden = !isMultiWc;
+    document.getElementById("rec-wc-mine").hidden = !isMultiWc;
+    document.getElementById("rec-wc-count").hidden = true;
+    document.getElementById("rec-wc-hint").hidden = true;
+    if (isMultiWc) renderRecWc(q);
     if (q.kind === "priorities") {
       form.hidden = true;
       submit.hidden = true;
@@ -2229,6 +2253,86 @@ multi-line note must use {% comment %} or it renders as text.)
     renderRec();
   }
 
+  // Multi-term word cloud in recording mode (#128): each term posts a vote
+  // right away (like the live flow), the input stays open, terms show as chips,
+  // and „Done" flips to the results. The backend already accepts several
+  // recording votes per viewer (allow_multiple, dedupe, cap).
+  function showRecWcHint(text) {
+    const hint = document.getElementById("rec-wc-hint");
+    hint.textContent = text;
+    hint.hidden = false;
+  }
+
+  function renderRecWc(q) {
+    const box = document.getElementById("rec-wc-mine");
+    const st = recWcState(q.id);
+    box.replaceChildren();
+    for (const entry of st.list) {
+      const chip = document.createElement("span");
+      chip.style.cssText = "display:inline-flex;align-items:center;background:var(--brand-soft);color:var(--brand-strong);border-radius:10px;padding:4px 10px;margin:0 8px 8px 0";
+      chip.textContent = entry.word;
+      box.appendChild(chip);
+    }
+    const max = q.wordcloud_max_answers || 0; // 0 = unlimited
+    const count = document.getElementById("rec-wc-count");
+    const input = document.getElementById("rec-word");
+    if (max) {
+      count.hidden = false;
+      count.textContent = st.list.length + " / " + max;
+      const atLimit = st.list.length >= max;
+      input.disabled = atLimit;
+      if (atLimit) showRecWcHint(I18N.wcLimitReached);
+    } else {
+      count.hidden = true;
+      input.disabled = false;
+    }
+  }
+
+  async function addRecWord(q, word) {
+    const norm = wcNorm(word);
+    if (!norm) return;
+    const st = recWcState(q.id);
+    const max = q.wordcloud_max_answers || 0;
+    if (max && st.list.length >= max) { showRecWcHint(I18N.wcLimitReached); return; }
+    if (st.words.has(norm)) {
+      showRecWcHint(I18N.alreadySubmitted);
+      document.getElementById("rec-word").select();
+      return;
+    }
+    const response = await post(`/api/live/recording/${REC_TOKEN}/vote/`, {
+      token, question: q.id, text: word,
+    });
+    if (response.status !== 201) {
+      if (response.status === 409) showRecWcHint(I18N.alreadySubmitted);
+      return;
+    }
+    st.lastData = await response.json();
+    st.words.add(norm);
+    st.list.push({ word, key: norm });
+    document.getElementById("rec-wc-hint").hidden = true;
+    const input = document.getElementById("rec-word");
+    input.value = "";
+    input.focus();
+    renderRecWc(q);
+  }
+
+  // „Done": add any pending term, then show the results (terms already stored).
+  async function finishRecWc(q) {
+    const input = document.getElementById("rec-word");
+    const pending = input.value.trim();
+    if (pending) await addRecWord(q, pending);
+    const st = recWcState(q.id);
+    const data = st.lastData || {};
+    rec.answered[String(q.id)] = {
+      results: data.results, words: data.words, likert: data.likert,
+      priorities: data.priorities, ordering: data.ordering,
+      is_correct: null, correct: false,
+      mine: { text: st.list.map((e) => e.word).join(", ") },
+    };
+    recStopCountdown();
+    renderRec();
+  }
+
   document.getElementById("rec-prev").addEventListener("click", () => {
     if (recIndex > 0) { recIndex--; renderRec(); }
   });
@@ -2241,7 +2345,14 @@ multi-line note must use {% comment %} or it renders as text.)
     const value = (q.kind === "word_cloud"
       ? document.getElementById("rec-word").value
       : document.getElementById("rec-textarea").value).trim();
-    if (value) void submitRec(q, { text: value });
+    if (!value) return;
+    // Multi-term word cloud (#128): add the term and keep going; anything else
+    // is a single submission that flips straight to the results.
+    if (q.kind === "word_cloud" && q.allow_multiple) void addRecWord(q, value);
+    else void submitRec(q, { text: value });
+  });
+  document.getElementById("rec-wc-done").addEventListener("click", () => {
+    void finishRecWc(rec.questions[recIndex]);
   });
 
   // --- Lernkontrolle / self-check mode (#75 Phase 3) ------------------------
