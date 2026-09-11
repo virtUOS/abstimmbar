@@ -1357,7 +1357,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {t("No terms yet …")}
                 </p>
               ) : (
-                <WordCloud words={state.words ?? []} />
+                <WordCloud words={rampWords(state.words ?? [])} />
               )
             ) : (
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
@@ -1548,7 +1548,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
     return (item.words ?? []).length === 0 ? (
       <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>
     ) : (
-      <WordCloud words={item.words ?? []} />
+      <WordCloud words={rampWords(item.words ?? [])} />
     );
   }
 
@@ -1771,21 +1771,38 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-type PlacedWord = {
-  text: string;
-  count: number;
-  x: number;
-  y: number;
-  size: number;
-  rank: number;
-};
+// Category hues for the clustered cloud (#Wortwolke): one per AI group, cycled.
+const GROUP_HUES = [150, 238, 28, 300, 195, 60, 330];
+// green, blue, amber, violet, teal, yellow-green, magenta
+// Exported (not yet called): wired up by the clustered-cloud rework in Task 2.
+export function categoryHue(i: number): number {
+  return GROUP_HUES[((i % GROUP_HUES.length) + GROUP_HUES.length) % GROUP_HUES.length];
+}
+// Within-category frequency ramp: t 0..1 (rare..frequent) → lighter/desaturated
+// to darker/saturated, so a category's leader reads darkest on the light beamer.
+export function hueColor(hue: number, t: number): string {
+  const L = 0.64 - 0.24 * t;
+  const C = 0.07 + 0.09 * t;
+  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${hue})`;
+}
+// Single-cloud (no AI groups): a calm green→teal frequency ramp.
+function rampColor(t: number): string {
+  const L = 0.62 - 0.22 * t;
+  const C = 0.07 + 0.09 * t;
+  const H = 195 - 45 * t; // teal (195) → brand green (150)
+  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(0)})`;
+}
+
+type CloudWord = { text: string; count: number; color: string; cluster?: number };
+type PlacedWord = CloudWord & { x: number; y: number; size: number; rank: number };
 
 /** Lay the most frequent word large in the centre and arrange the rest
  * concentrically outward along an Archimedean spiral, biggest first (#31).
  * Box sizes are estimated from text length so no DOM measuring is needed. */
 function layoutWordCloud(
-  words: { text: string; count: number }[],
+  words: CloudWord[],
   scale = 1,
+  size: { w: number; h: number } = { w: 900, h: 520 },
 ): PlacedWord[] {
   const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
   if (top.length === 0) return [];
@@ -1794,48 +1811,68 @@ function layoutWordCloud(
   const sizeOf = (count: number) => {
     if (max === min) return 40 * scale;
     const t = (count - min) / (max - min);
-    // 18–80px, quadratic so the leader really pops; scaled down for group clouds.
-    return (18 + t * t * 62) * scale;
+    return (18 + t * t * 62) * scale; // 18–80px, quadratic so the leader pops
+  };
+  // One centroid per cluster index, spread on an ellipse; single cloud → centre.
+  const clusterIds = Array.from(
+    new Set(top.map((w) => w.cluster).filter((c): c is number => c != null)),
+  ).sort((a, b) => a - b);
+  const centroid = (cluster?: number): { cx: number; cy: number } => {
+    if (cluster == null || clusterIds.length <= 1) return { cx: 0, cy: 0 };
+    const k = clusterIds.indexOf(cluster);
+    const theta = (2 * Math.PI * k) / clusterIds.length - Math.PI / 2;
+    return { cx: Math.cos(theta) * size.w * 0.26, cy: Math.sin(theta) * size.h * 0.26 };
   };
   const placed: PlacedWord[] = [];
+  const estWidth = (p: PlacedWord) => p.text.length * p.size * 0.56;
   const overlaps = (x: number, y: number, w: number, h: number) =>
     placed.some(
       (p) =>
-        Math.abs(x - p.x) * 2 < w + estWidth(p) + 14 &&
-        Math.abs(y - p.y) * 2 < h + p.size * 1.15 + 10,
+        Math.abs(x - p.x) * 2 < w + estWidth(p) + 10 &&
+        Math.abs(y - p.y) * 2 < h + p.size * 1.15 + 8,
     );
-  const estWidth = (p: PlacedWord) => p.text.length * p.size * 0.58;
   top.forEach((word, rank) => {
-    const size = sizeOf(word.count);
-    const w = word.text.length * size * 0.58;
-    const h = size * 1.15;
+    const wsize = sizeOf(word.count);
+    const w = word.text.length * wsize * 0.56;
+    const h = wsize * 1.15;
+    const { cx, cy } = centroid(word.cluster);
     let angle = 0;
-    let x = 0;
-    let y = 0;
-    // Spiral out until the estimated box no longer collides.
-    while (overlaps(x, y, w, h)) {
+    let x = cx;
+    let y = cy;
+    let guard = 0;
+    // Spiral out from the (cluster) centroid until the box no longer collides.
+    while (overlaps(x, y, w, h) && guard++ < 1500) {
       angle += 0.35;
-      const r = 6 * angle;
-      x = r * Math.cos(angle);
-      y = r * Math.sin(angle) * 0.62; // squash vertically → a wider cloud
+      const r = 5 * angle;
+      x = cx + r * Math.cos(angle);
+      y = cy + r * Math.sin(angle) * 0.62; // squash vertically → a wider cloud
     }
-    placed.push({ text: word.text, count: word.count, x, y, size, rank });
+    placed.push({ ...word, x, y, size: wsize, rank });
   });
   return placed;
 }
 
+function rampWords(words: { text: string; count: number }[]): CloudWord[] {
+  if (words.length === 0) return [];
+  const max = Math.max(...words.map((w) => w.count));
+  const min = Math.min(...words.map((w) => w.count));
+  const t = (c: number) => (max === min ? 1 : (c - min) / (max - min));
+  return words.map((w) => ({ text: w.text, count: w.count, color: rampColor(t(w.count)) }));
+}
+
 function WordCloud({
   words,
-  color,
   scale = 1,
   heightClass = "h-[62vh]",
+  animate = false, // wired up in Task 3
 }: {
-  words: { text: string; count: number }[];
-  color?: string;
+  words: CloudWord[];
   scale?: number;
   heightClass?: string;
+  animate?: boolean;
 }) {
   const placed = useMemo(() => layoutWordCloud(words, scale), [words, scale]);
+  void animate; // Task 3
   return (
     <div className={`relative mx-auto w-full max-w-5xl ${heightClass}`}>
       <div className="absolute left-1/2 top-1/2">
@@ -1843,15 +1880,12 @@ function WordCloud({
           <span
             key={w.text}
             title={`${w.count}×`}
-            className={`absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold ${
-              color ? "" : "text-brand-700 dark:text-brand-300"
-            }`}
+            className="absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold"
             style={{
               left: `${w.x}px`,
               top: `${w.y}px`,
               fontSize: `${w.size}px`,
-              opacity: 1 - Math.min(0.45, w.rank * 0.02),
-              ...(color ? { color } : {}),
+              color: w.color,
             }}
           >
             {w.text}
@@ -1898,7 +1932,7 @@ function WordCloudAiView({
     if (ai.merged.length === 0) {
       return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
     }
-    return <WordCloud words={ai.merged} />;
+    return <WordCloud words={rampWords(ai.merged)} />;
   }
   if (ai.clusters.length === 0) {
     return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
@@ -1929,8 +1963,7 @@ function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) 
               <span className="font-normal text-slate-400">· {cluster.count}</span>
             </h3>
             <WordCloud
-              words={cluster.words}
-              color={color}
+              words={cluster.words.map((w) => ({ text: w.text, count: w.count, color }))}
               scale={0.6}
               heightClass="h-[34vh]"
             />
