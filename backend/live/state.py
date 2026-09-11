@@ -7,7 +7,6 @@ Participant payloads contain only what participants may see (question
 content once open, never results — device results are v2). Presenter
 payloads add counters, per-option results and the word cloud.
 """
-import random
 from datetime import timedelta
 
 import nh3
@@ -23,6 +22,7 @@ from .results import (
     freetext_evaluation,
     likert_summary,
     options_with_counts,
+    ordered_options,
     ordering_stats,
     priority_stats,
     words_with_counts,
@@ -42,12 +42,11 @@ def active_run(room):
 
 
 def question_payload(question, shuffle_seed):
-    options = list(question.options.all())
-    if question.shuffle_options or question.kind == Question.Kind.ORDERING:
-        # Stable per-run shuffle: every device sees the same random order.
-        # Ordering (#72) always shuffles so the correct order (option.position,
-        # which is never in the payload) cannot be read off the option sequence.
-        random.Random(shuffle_seed).shuffle(options)
+    # Stable per-run shuffle: every device sees the same random order, and the
+    # results tally reuses this order via the same helper (#127). Ordering (#72)
+    # always shuffles so the correct order (option.position, never in the
+    # payload) cannot be read off the option sequence.
+    options = ordered_options(question, shuffle_seed)
     return {
         "id": question.pk,
         "kind": question.kind,

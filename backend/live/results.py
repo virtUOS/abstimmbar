@@ -3,6 +3,7 @@
 
 """Result aggregation, shared by the SSE snapshots (state.py), the
 management results API and the CSV export."""
+import random
 from collections import Counter
 
 from django.db.models import Avg, Count, Max, Min
@@ -11,6 +12,19 @@ from common.i18n_fields import translated_map
 from rooms.models import Question
 
 from .models import Vote
+
+
+def ordered_options(question, seed):
+    """The question's options in the order a run presents them: position order,
+    but per-run shuffled (seeded, so every device agrees) when the question
+    shuffles its options or is an ordering question. Both the question payload
+    and the result tally use this, so the A/B/C letters the beamer draws map to
+    the same answers while voting and in the results (#127). Likert and plain
+    choice questions keep position order (Likert's order is its scale)."""
+    options = list(question.options.all())
+    if question.shuffle_options or question.kind == Question.Kind.ORDERING:
+        random.Random(seed).shuffle(options)
+    return options
 
 
 def options_with_counts(run, question):
@@ -42,7 +56,9 @@ def options_with_counts(run, question):
             "onsite": onsite.get(option.pk, 0),
             "recording": recording.get(option.pk, 0),
         }
-        for option in question.options.all()
+        # Same order the run presented the question in (#127), so the beamer's
+        # A/B/C letters match between the voting and the results view.
+        for option in ordered_options(question, run.pk)
     ]
 
 
