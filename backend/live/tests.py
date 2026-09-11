@@ -3896,3 +3896,56 @@ class SelfCheckRegressionTests(LiveTestCase):
         self.assertNotIn("correct", question)
         self.assertNotIn("model_solution", question)
         self.assertNotIn("correct_order", question)
+
+
+class WordCloudModerationAggregationTests(LiveTestCase):
+    def setUp(self):
+        super().setUp()
+        self.q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>Wort?</p>", position=1, allow_multiple=True,
+        )
+        self.run = Run.objects.create(question_set=self.question_set)
+
+    def _cast(self, text, n):
+        for _ in range(n):
+            token = ParticipantToken.objects.create(room=self.room)
+            Vote.objects.create(run=self.run, question=self.q, token=token, text=text)
+
+    def test_hidden_term_is_dropped(self):
+        from .models import WordCloudModeration
+        from .results import words_with_counts
+        self._cast("froh", 3)
+        self._cast("wut", 2)
+        WordCloudModeration.objects.create(run=self.run, question=self.q, hidden=["wut"])
+        words = words_with_counts(self.run, self.q)
+        texts = [w["text"] for w in words]
+        self.assertIn("froh", texts)
+        self.assertNotIn("wut", texts)
+        # raw votes untouched
+        self.assertEqual(self.run.votes.filter(question=self.q, text="wut").count(), 2)
+
+    def test_merge_combines_counts_and_uses_label(self):
+        from .models import WordCloudModeration
+        from .results import words_with_counts
+        self._cast("froh", 3)
+        self._cast("gluecklich", 2)
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.q,
+            merges=[{"keys": ["froh", "gluecklich"], "label": "froh"}],
+        )
+        words = words_with_counts(self.run, self.q)
+        self.assertEqual(len(words), 1)
+        w = words[0]
+        self.assertEqual(w["text"], "froh")
+        self.assertEqual(w["count"], 5)
+        self.assertTrue(w["merged"])
+        self.assertEqual(sorted(w["keys"]), ["froh", "gluecklich"])
+
+    def test_no_overlay_is_unchanged_and_exposes_keys(self):
+        from .results import words_with_counts
+        self._cast("froh", 1)
+        [w] = words_with_counts(self.run, self.q)
+        self.assertEqual(w["text"], "froh")
+        self.assertEqual(w["keys"], ["froh"])
+        self.assertFalse(w["merged"])

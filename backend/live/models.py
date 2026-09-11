@@ -166,6 +166,19 @@ class Vote(models.Model):
         super().save(*args, **kwargs)
 
 
+class WordCloudModeration(TimeStampedModel):
+    """Reversible curation overlay for a word cloud, per run + question (#Wortwolke).
+    `hidden` holds casefold text_keys to drop; `merges` groups keys under a
+    display label. The raw votes are never touched."""
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="wc_moderations")
+    question = models.ForeignKey("rooms.Question", on_delete=models.CASCADE)
+    hidden = models.JSONField(default=list, blank=True)
+    merges = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        unique_together: ClassVar = [("run", "question")]
+
+
 class PriorityScore(models.Model):
     """One participant's points for one option of a ``priorities`` question
     (#58). A submission stores a row for every option of the question,
