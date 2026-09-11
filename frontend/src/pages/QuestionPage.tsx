@@ -393,20 +393,29 @@ export default function QuestionPage() {
   function likertOptions(): AnswerOption[] {
     const n = Math.min(7, Math.max(3, likertSteps));
     const preset = LIKERT_PRESETS.find((p) => p.key === likertPreset);
+    // Reuse the existing option rows by position so a re-save UPDATES them
+    // instead of delete+recreate — otherwise votes (which point at option ids)
+    // are orphaned on every edit (#86). `options` holds the loaded rows.
+    const existingScale = options.filter((o) => !o.is_abstention);
+    const existingAbstention = options.find((o) => o.is_abstention);
+    const withId = (i: number, rest: AnswerOption): AnswerOption =>
+      existingScale[i]?.id ? { id: existingScale[i].id, ...rest } : rest;
     let result: AnswerOption[];
     if (preset?.emoji) {
-      result = (LIKERT_EMOJI[n] ?? LIKERT_EMOJI[5]).map((e) => ({
-        text: { de: e, en: e },
-        is_correct: false,
-      }));
+      result = (LIKERT_EMOJI[n] ?? LIKERT_EMOJI[5]).map((e, i) =>
+        withId(i, { text: { de: e, en: e }, is_correct: false }),
+      );
     } else {
-      result = Array.from({ length: n }, (_, i) => ({
-        text: i === 0 ? likertLeft : i === n - 1 ? likertRight : emptyLoc,
-        is_correct: false,
-      }));
+      result = Array.from({ length: n }, (_, i) =>
+        withId(i, {
+          text: i === 0 ? likertLeft : i === n - 1 ? likertRight : emptyLoc,
+          is_correct: false,
+        }),
+      );
     }
     if (abstention) {
       result.push({
+        ...(existingAbstention?.id ? { id: existingAbstention.id } : {}),
         text: { de: ABSTENTION, en: "Abstain" },
         is_correct: false,
         is_abstention: true,
