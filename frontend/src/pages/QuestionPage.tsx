@@ -1156,7 +1156,9 @@ export default function QuestionPage() {
                       {t(preset.label)}
                     </option>
                   ))}
-                  <option value="custom">{t("Define your own")}</option>
+                  {/* A pencil makes the "define your own" entry stand out in
+                      the native option list (an <option> can't hold an SVG). */}
+                  <option value="custom">{`✏️ ${t("Define your own")}`}</option>
                 </select>
               </Field>
               <Field label={t("Steps")}>
