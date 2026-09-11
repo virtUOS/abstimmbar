@@ -3949,3 +3949,17 @@ class WordCloudModerationAggregationTests(LiveTestCase):
         self.assertEqual(w["text"], "froh")
         self.assertEqual(w["keys"], ["froh"])
         self.assertFalse(w["merged"])
+
+    def test_hidden_key_excluded_even_when_merged(self):
+        from .models import WordCloudModeration
+        from .results import words_with_counts
+        self._cast("zorn", 2)
+        self._cast("wut", 3)
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.q, hidden=["wut"],
+            merges=[{"keys": ["wut", "zorn"], "label": "zorn"}],
+        )
+        words = words_with_counts(self.run, self.q)
+        self.assertEqual(len(words), 1)
+        self.assertEqual(words[0]["text"], "zorn")
+        self.assertEqual(words[0]["count"], 2)  # wut's votes are NOT counted

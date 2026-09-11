@@ -166,6 +166,11 @@ def words_with_counts(run, question, limit=150):
     mod = WordCloudModeration.objects.filter(run=run, question=question).first()
     hidden = set(mod.hidden) if mod else set()
     merges = mod.merges if mod else []
+    # Hidden = excluded everywhere: drop hidden keys up front so neither the
+    # merge loop nor the singles loop below can see them. A partially-hidden
+    # merge then naturally counts only its visible keys via `combine()`.
+    for k in hidden:
+        groups.pop(k, None)
 
     def combine(keys):
         variants, onsite, recording = [], 0, 0
@@ -182,8 +187,6 @@ def words_with_counts(run, question, limit=150):
     for m in merges:
         keys = list(m.get("keys", []))
         merged_keys.update(keys)
-        if keys and all(k in hidden for k in keys):
-            continue  # whole group hidden
         variants, onsite, recording = combine(keys)
         if not variants:
             continue  # no votes for this group yet
@@ -193,8 +196,8 @@ def words_with_counts(run, question, limit=150):
             "keys": keys, "merged": True,
         })
     for key, group in groups.items():
-        if key in merged_keys or key in hidden:
-            continue
+        if key in merged_keys:
+            continue  # hidden keys are already gone from `groups`
         words.append({
             "text": Counter(group["variants"]).most_common(1)[0][0],
             "count": len(group["variants"]),
