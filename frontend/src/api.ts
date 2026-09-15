@@ -213,6 +213,13 @@ export interface GenerationJob {
   source_chars: number;
   notice: string;
   error: string;
+  pages: number;
+  density: number;
+  target_count: number;
+  reviewed: boolean;
+  /** Only present on the user-wide active-generation payload. */
+  set_id?: number;
+  set_title?: string;
 }
 
 /** Live free-text evaluation summary (presenter + stored results). The
@@ -634,6 +641,7 @@ export const api = {
     opts: {
       file?: File;
       text?: string;
+      density: number;
       kinds: string[];
       level: string;
       guidance?: string;
@@ -642,6 +650,7 @@ export const api = {
     const body = new FormData();
     if (opts.file) body.append("file", opts.file);
     if (opts.text) body.append("text", opts.text);
+    body.append("density", String(opts.density));
     body.append("kinds", opts.kinds.join(","));
     body.append("level", opts.level);
     if (opts.guidance?.trim()) body.append("guidance", opts.guidance.trim());
@@ -650,6 +659,18 @@ export const api = {
       { method: "POST", body },
     );
   },
+  /** The current user's most relevant generation job across all sets (running
+   *  first, then unreviewed done/failed), or {} — for the app-wide status bar. */
+  aiGenerateActiveForUser: () =>
+    request<GenerationJob | Record<string, never>>(
+      `/api/question-sets/active-generation/`,
+    ),
+  /** Mark a job reviewed (imported or discarded) so bar/hint stop showing it. */
+  aiGenerateReviewed: (setId: number, jobId: number) =>
+    request<{ status: string }>(
+      `/api/question-sets/${setId}/ai-generate/jobs/${jobId}/reviewed/`,
+      { method: "POST" },
+    ),
   /** Get a specific async question generation job by id. */
   aiGenerateJob: (setId: number, jobId: number) =>
     request<GenerationJob>(
