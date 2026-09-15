@@ -3908,6 +3908,17 @@ class GenerationJobModelTests(TestCase):
         job.status = GenerationJob.Status.DONE
         self.assertFalse(job.is_active)
 
+    def test_new_fields_defaults(self):
+        from .models import GenerationJob
+
+        qs = QuestionSet.objects.create(room=self.room, title="T2")
+        job = GenerationJob.objects.create(
+            question_set=qs, created_by=self.user, source_text="x")
+        self.assertEqual(job.pages, 0)
+        self.assertEqual(job.density, 1.0)
+        self.assertEqual(job.target_count, 0)
+        self.assertFalse(job.reviewed)
+
 
 class GenerationChunkingTests(TestCase):
     def test_chunk_splits_on_whitespace_and_caps(self):
