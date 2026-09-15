@@ -66,10 +66,11 @@ export default function GenerationStatusBar() {
               {job.total_chunks > 0 && (
                 <>
                   {" "}
-                  {t("Section {{done}} of {{total}}", {
-                    done: job.done_chunks,
-                    total: job.total_chunks,
+                  {t("{{percent}} % done", {
+                    percent: Math.round((job.done_chunks / job.total_chunks) * 100),
                   })}
+                  {" · "}
+                  {t("{{n}} questions so far", { n: job.drafts.length })}
                 </>
               )}
             </span>

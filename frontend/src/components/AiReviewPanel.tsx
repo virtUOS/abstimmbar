@@ -8,7 +8,7 @@
  * import or discard. Importing or discarding marks the job reviewed, so the
  * hint and status bar stop surfacing it. */
 import { Check } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, type GeneratedQuestion, type GenerationJob } from "../api";
 import AiAssistPanel from "./AiAssistPanel";
@@ -47,8 +47,6 @@ export default function AiReviewPanel({
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState("");
   const [pollError, setPollError] = useState("");
-  // Once the teacher touches the selection we stop auto-selecting new drafts.
-  const selectionTouched = useRef(false);
 
   // Attach to the set's latest un-reviewed job on open.
   useEffect(() => {
@@ -91,15 +89,10 @@ export default function AiReviewPanel({
     };
   }, [job?.id, job?.status, setId]);
 
-  // Pre-select every draft when the run finishes (unless already curated).
-  useEffect(() => {
-    if (job?.status === "done" && !selectionTouched.current) {
-      setSelected(new Set(job.drafts.map((_, index) => index)));
-    }
-  }, [job?.status, job?.id]);
+  // Start with nothing selected — the teacher picks what to keep (so the
+  // "Select all" action is meaningful and imports are deliberate).
 
   function toggleSelected(index: number) {
-    selectionTouched.current = true;
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(index)) next.delete(index);
@@ -109,7 +102,6 @@ export default function AiReviewPanel({
   }
 
   function toggleAll(drafts: GeneratedQuestion[]) {
-    selectionTouched.current = true;
     setSelected((current) =>
       current.size === drafts.length
         ? new Set()
@@ -271,11 +263,9 @@ export default function AiReviewPanel({
           <div className="space-y-1">
             <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-300">
               <span>
-                {total > 0
-                  ? t("Section {{done}} of {{total}}", { done, total })
-                  : t("Preparing …")}
+                {total > 0 ? t("{{percent}} % done", { percent: pct }) : t("Preparing …")}
               </span>
-              <span>{t("{{n}} suggestions", { n: job.drafts.length })}</span>
+              <span>{t("{{n}} questions so far", { n: job.drafts.length })}</span>
             </div>
             <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
               <div

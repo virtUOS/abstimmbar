@@ -664,8 +664,8 @@
 
   "Starting …": "Wird gestartet …",
   "Preparing …": "Wird vorbereitet …",
-  "Section {{done}} of {{total}}": "Abschnitt {{done}} von {{total}}",
-  "{{n}} suggestions": "{{n}} Vorschläge",
+  "{{percent}} % done": "{{percent}} % erledigt",
+  "{{n}} questions so far": "{{n}} Fragen bisher",
   "Cancel generation": "Erzeugung abbrechen",
   "Generation failed.": "Erzeugung fehlgeschlagen.",
   "Generation was cancelled.": "Erzeugung abgebrochen.",
