@@ -2780,6 +2780,66 @@ class GenerationEndpointTests(ApiTestCase):
             r = self.client.post(f"{self.url}jobs/{job.pk}/cancel/")
         self.assertEqual(r.status_code, 404)
 
+    def test_start_computes_target_from_density(self):
+        from .models import GenerationJob
+        with self.override_settings(**AI_ON), self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {"text": "w " * 4000, "density": "0.5"})
+        self.assertEqual(r.status_code, 201)
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.density, 0.5)
+        self.assertGreaterEqual(job.pages, 1)
+        self.assertEqual(job.target_count, max(1, round(0.5 * job.pages)))
+
+    def test_active_generation_is_user_scoped_and_prioritises_running(self):
+        from .models import GenerationJob
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE,
+        )
+        running = GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.RUNNING,
+        )
+        stranger = User.objects.create_user(username="zoe")
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=stranger, source_text="x",
+            status=GenerationJob.Status.RUNNING,
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get("/api/question-sets/active-generation/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["id"], running.id)  # running > done, only mine
+        self.assertIn("set_title", r.json())
+
+    def test_reviewed_endpoint_sets_flag_and_404s_foreign(self):
+        from .models import GenerationJob
+        job = GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE,
+        )
+        with self.override_settings(**AI_ON):
+            ok = self.client.post(f"{self.url}jobs/{job.pk}/reviewed/")
+        self.assertEqual(ok.status_code, 200)
+        job.refresh_from_db()
+        self.assertTrue(job.reviewed)
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        foreign = GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x")
+        with self.override_settings(**AI_ON):
+            r = self.client.post(f"{self.url}jobs/{foreign.pk}/reviewed/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_set_active_returns_only_unreviewed(self):
+        from .models import GenerationJob
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE, reviewed=True,
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get(f"{self.url}active/")
+        self.assertEqual(r.json(), {})  # reviewed job is not surfaced
+
 
 class OwnershipTests(ApiTestCase):
     """Besitzer, transfer and leave for shared rooms (#25/#26)."""
