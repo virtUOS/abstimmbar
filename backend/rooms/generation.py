@@ -52,9 +52,25 @@ def merge_drafts(existing, new):
 
 
 def fail_orphaned_jobs():
-    GenerationJob.objects.filter(status=GenerationJob.Status.RUNNING).update(
+    """Mark every RUNNING job FAILED — their worker threads died with the
+    previous process (crash/redeploy/reload). Returns the number swept."""
+    return GenerationJob.objects.filter(status=GenerationJob.Status.RUNNING).update(
         status=GenerationJob.Status.FAILED, error="Unterbrochen (Server-Neustart)."
     )
+
+
+def sweep_orphaned_jobs():
+    """Run the orphan sweep off the ASGI event loop. ``AppConfig.ready`` runs
+    inside uvicorn's event loop, where a synchronous ORM call raises
+    ``SynchronousOnlyOperation``; calling this from a plain thread gives it a
+    sync context (and its own pooled connection, released afterwards)."""
+    connections.close_all()
+    try:
+        fail_orphaned_jobs()
+    finally:
+        for conn in connections.all():
+            if not conn.in_atomic_block:
+                conn.close()
 
 
 def start_job(job):

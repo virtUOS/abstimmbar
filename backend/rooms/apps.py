@@ -21,8 +21,19 @@ class RoomsConfig(AppConfig):
         argv = sys.argv
         if len(argv) > 1 and argv[0].endswith("manage.py") and argv[1] != "runserver":
             return
+        # ready() runs inside uvicorn's ASGI event loop, where Django forbids
+        # synchronous ORM access (SynchronousOnlyOperation). Run the sweep in a
+        # short-lived thread — a sync context, as the error itself advises —
+        # which also keeps startup non-blocking. Never allowed to crash startup.
         try:
+            import threading
+
             from . import generation
-            generation.fail_orphaned_jobs()
+
+            threading.Thread(
+                target=generation.sweep_orphaned_jobs,
+                name="ai-gen-orphan-sweep",
+                daemon=True,
+            ).start()
         except Exception:
             pass

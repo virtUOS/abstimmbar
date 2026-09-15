@@ -3987,6 +3987,20 @@ class GenerationWorkerTests(TransactionTestCase):
         self.assertEqual(job.done_chunks, 2)
         self.assertEqual([d["text"] for d in job.drafts], ["Frage 1"])  # deduped
 
+    def test_sweep_orphaned_jobs_fails_running_jobs(self):
+        # A RUNNING job whose worker died with the previous process is
+        # reclaimed by the startup sweep (which runs in a thread off the ASGI
+        # loop, hence the connections.close_all() path this class requires).
+        from . import generation
+        job = self._job("x")
+        self.GenerationJob.objects.filter(pk=job.id).update(
+            status=self.GenerationJob.Status.RUNNING
+        )
+        generation.sweep_orphaned_jobs()
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.FAILED)
+        self.assertIn("Neustart", job.error)
+
     def test_truncation_sets_flag_and_notice(self):
         from unittest import mock
 
