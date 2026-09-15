@@ -3879,3 +3879,31 @@ class GenerationJobModelTests(TestCase):
         self.assertTrue(job.is_active)
         job.status = GenerationJob.Status.DONE
         self.assertFalse(job.is_active)
+
+
+class GenerationChunkingTests(TestCase):
+    def test_chunk_splits_on_whitespace_and_caps(self):
+        from .generation import chunk_text
+        text = " ".join(f"wort{i}" for i in range(1000))  # ~ many words
+        chunks, truncated = chunk_text(text, chunk_chars=50, max_chunks=3)
+        self.assertEqual(len(chunks), 3)
+        self.assertTrue(truncated)
+        self.assertTrue(all(len(c) <= 60 for c in chunks))  # ~chunk_chars, no mid-word cut
+        self.assertNotIn("  ", " ".join(chunks))
+
+    def test_chunk_no_truncation_when_it_fits(self):
+        from .generation import chunk_text
+        chunks, truncated = chunk_text("a b c", chunk_chars=1000, max_chunks=40)
+        self.assertEqual(chunks, ["a b c"])
+        self.assertFalse(truncated)
+
+    def test_merge_drafts_dedupes_by_normalised_text(self):
+        from .generation import merge_drafts
+        existing = [{"kind": "open_text", "text": "Was ist Usability?"}]
+        new = [
+            {"kind": "open_text", "text": "  was ist usability? "},  # dup (norm)
+            {"kind": "open_text", "text": "Was ist Ergonomie?"},     # new
+        ]
+        out = merge_drafts(existing, new)
+        self.assertEqual([d["text"] for d in out],
+                         ["Was ist Usability?", "Was ist Ergonomie?"])
