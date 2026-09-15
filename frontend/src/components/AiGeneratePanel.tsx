@@ -81,7 +81,9 @@ export default function AiGeneratePanel({
       try {
         const active = await api.aiGenerateActive(setId);
         if (!cancelled && active && "id" in active) {
-          setJob(active as GenerationJob);
+          // Don't overwrite a job the teacher started while this fetch was in
+          // flight — attach only when we're still on the empty form.
+          setJob((prev) => prev ?? (active as GenerationJob));
         }
       } catch {
         // No active job (or transient error) — start fresh from the form.
@@ -96,18 +98,23 @@ export default function AiGeneratePanel({
   useEffect(() => {
     if (!isActive(job)) return;
     const jobId = job!.id;
+    let stopped = false;
     const timer = setInterval(() => {
       void (async () => {
         try {
           const fresh = await api.aiGenerateJob(setId, jobId);
+          if (stopped) return; // unmounted / job changed while the request ran
           setJob(fresh);
           setPollError(""); // a transient poll blip self-heals on the next tick
         } catch (err) {
-          setPollError(aiErrorText(err));
+          if (!stopped) setPollError(aiErrorText(err));
         }
       })();
     }, 1500);
-    return () => clearInterval(timer);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }, [job?.id, job?.status, setId]);
 
   // When a run finishes, pre-select every draft (unless the teacher already
