@@ -555,14 +555,15 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         self.get_object()  # ownership check
         if not ai.is_enabled():
             return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+        max_chars = settings.AI_DOC_MAX_CHARS
         upload = request.FILES.get("file")
         if upload is not None:
             try:
-                text = documents.extract_text(upload, upload.name)
+                text = documents.extract_text(upload, upload.name, max_chars=max_chars)
             except documents.DocumentTextError as exc:
                 return Response({"detail": str(exc)}, status=400)
         else:
-            text = str(request.data.get("text") or "").strip()[: documents.MAX_CHARS]
+            text = str(request.data.get("text") or "").strip()[:max_chars]
         if not text:
             return Response(
                 {"detail": "Kein Text – bitte eine Datei hochladen oder Text einfügen."},

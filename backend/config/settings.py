@@ -210,6 +210,12 @@ AI_MODEL = os.environ.get("AI_MODEL", "")
 AI_TIMEOUT = _int_or_default("AI_TIMEOUT", 30)
 AI_MAX_TOKENS = _int_or_default("AI_MAX_TOKENS", 2000)
 AI_DISABLE_THINKING = os.environ.get("AI_DISABLE_THINKING", "1") == "1"
+# How much of an uploaded/pasted document reaches the question generator. The
+# extracted text is truncated to this many characters (~4 chars/token). Keep
+# input + AI_MAX_TOKENS (output) within the model's context window: raise this
+# for a large-context model (e.g. 400000 for a 128k+ window), lower it for a
+# small one. Was hard-coded at 12000 (only ~4 pages) before this was exposed.
+AI_DOC_MAX_CHARS = _int_or_default("AI_DOC_MAX_CHARS", 100000)
 
 # Optional machine translation for authored content (see
 # common/translation_service.py). Off by default; an institution can

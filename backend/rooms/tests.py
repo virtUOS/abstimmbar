@@ -2674,6 +2674,19 @@ class AiGenerateEndpointTests(ApiTestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn("Nur Alltagsbeispiele", chat.call_args.args[1])
 
+    def test_document_cap_is_configurable(self):
+        # The material fed to the model is truncated to AI_DOC_MAX_CHARS, so a
+        # large-context deployment can raise it (was hard-coded at 12000).
+        text = "ANFANG " + "x" * 100 + " GEHEIM_ENDE"
+        with self.override_settings(**AI_ON, AI_DOC_MAX_CHARS=20), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value={"questions": []}
+        ) as chat:
+            r = self.client.post(self.url, {"text": text})
+        self.assertEqual(r.status_code, 200)
+        prompt = chat.call_args.args[1]
+        self.assertIn("ANFANG", prompt)
+        self.assertNotIn("GEHEIM_ENDE", prompt)  # past the 20-char cap
+
     def test_no_text_returns_400(self):
         with self.override_settings(**AI_ON):
             r = self.client.post(self.url, {})
