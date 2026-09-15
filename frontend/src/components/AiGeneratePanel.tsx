@@ -96,6 +96,7 @@ export default function AiGeneratePanel({
         try {
           const fresh = await api.aiGenerateJob(setId, jobId);
           setJob(fresh);
+          setError(""); // a transient poll blip self-heals on the next tick
         } catch (err) {
           setError(aiErrorText(err));
         }
@@ -163,7 +164,10 @@ export default function AiGeneratePanel({
     try {
       await api.aiGenerateCancel(setId, job.id);
     } catch (err) {
+      // Keep the progress view (the job may still be running server-side) and
+      // surface the error, rather than silently dropping back to the form.
       setError(aiErrorText(err));
+      return;
     }
     resetToForm();
   }
@@ -418,7 +422,10 @@ export default function AiGeneratePanel({
         {truncationBanner()}
         {drafts.length === 0 ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {job.notice || t("No questions generated.")}
+            {/* When truncated, truncationBanner() already shows job.notice. */}
+            {job.truncated
+              ? t("No questions generated.")
+              : job.notice || t("No questions generated.")}
           </p>
         ) : (
           <p className="text-sm text-slate-500 dark:text-slate-400">
