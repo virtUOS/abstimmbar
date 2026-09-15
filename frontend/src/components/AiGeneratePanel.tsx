@@ -62,7 +62,12 @@ export default function AiGeneratePanel({
   const [guidance, setGuidance] = useState("");
   const [starting, setStarting] = useState(false);
   const [importing, setImporting] = useState(false);
+  // `error` holds user-facing failures that must persist until acted on
+  // (start/cancel/import); `pollError` is a transient polling blip that
+  // self-heals on the next successful tick — kept apart so a routine poll
+  // success can clear its own error without wiping a cancel/import error.
   const [error, setError] = useState("");
+  const [pollError, setPollError] = useState("");
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   // Once the teacher has touched the selection we stop auto-selecting new
@@ -96,9 +101,9 @@ export default function AiGeneratePanel({
         try {
           const fresh = await api.aiGenerateJob(setId, jobId);
           setJob(fresh);
-          setError(""); // a transient poll blip self-heals on the next tick
+          setPollError(""); // a transient poll blip self-heals on the next tick
         } catch (err) {
-          setError(aiErrorText(err));
+          setPollError(aiErrorText(err));
         }
       })();
     }, 1500);
@@ -134,6 +139,7 @@ export default function AiGeneratePanel({
   function resetToForm() {
     setJob(null);
     setError("");
+    setPollError("");
     setSelected(new Set());
     selectionTouched.current = false;
   }
@@ -141,6 +147,7 @@ export default function AiGeneratePanel({
   async function start() {
     setStarting(true);
     setError("");
+    setPollError("");
     selectionTouched.current = false;
     try {
       const { job_id } = await api.aiGenerateStart(setId, {
@@ -475,7 +482,9 @@ export default function AiGeneratePanel({
     <div className="mb-4">
       <AiAssistPanel title={t("Generate questions from document")}>
         {renderBody()}
-        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+        {(error || pollError) && (
+          <p className="mt-2 text-sm text-red-600">{error || pollError}</p>
+        )}
       </AiAssistPanel>
     </div>
   );
