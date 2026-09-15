@@ -6,7 +6,10 @@
 Starts with PDF (pypdf); presentation formats (PPTX/ODP) are added with the
 "generate questions from documents" feature. Text is collapsed and truncated
 so the prompt (and cost) stays bounded. No OCR — image-only files raise
-``DocumentTextError``."""
+``DocumentTextError``.
+
+Each extractor also returns the document's page/slide count (>= 1) so a
+later feature can size "questions per page" for AI generation."""
 import re
 
 MAX_CHARS = 12000
@@ -29,9 +32,10 @@ def extract_pdf_text(file, *, max_chars=MAX_CHARS):
     try:
         reader = PdfReader(file)
         parts = [page.extract_text() or "" for page in reader.pages]
+        pages = len(reader.pages)
     except Exception as exc:  # pypdf raises a variety of errors on bad input
         raise DocumentTextError(str(exc)) from exc
-    return _collapse(parts, max_chars)
+    return _collapse(parts, max_chars), max(1, pages)
 
 
 def extract_pptx_text(file, *, max_chars=MAX_CHARS):
@@ -40,7 +44,9 @@ def extract_pptx_text(file, *, max_chars=MAX_CHARS):
     try:
         presentation = Presentation(file)
         parts = []
+        pages = 0
         for slide in presentation.slides:
+            pages += 1
             for shape in slide.shapes:
                 if shape.has_text_frame:
                     parts.append(shape.text_frame.text)
@@ -49,20 +55,22 @@ def extract_pptx_text(file, *, max_chars=MAX_CHARS):
                         parts.extend(cell.text for cell in row.cells)
     except Exception as exc:
         raise DocumentTextError(str(exc)) from exc
-    return _collapse(parts, max_chars)
+    return _collapse(parts, max_chars), max(1, pages)
 
 
 def extract_odp_text(file, *, max_chars=MAX_CHARS):
     from odf import teletype
+    from odf.draw import Page
     from odf.opendocument import load
     from odf.text import P
 
     try:
         document = load(file)
         parts = [teletype.extractText(p) for p in document.getElementsByType(P)]
+        pages = len(document.getElementsByType(Page))
     except Exception as exc:
         raise DocumentTextError(str(exc)) from exc
-    return _collapse(parts, max_chars)
+    return _collapse(parts, max_chars), max(1, pages)
 
 
 _EXTRACTORS = {
@@ -72,9 +80,10 @@ _EXTRACTORS = {
 }
 
 
-def extract_text(file, filename, *, max_chars=MAX_CHARS):
-    """Dispatch on the file extension. Raises DocumentTextError for an
-    unsupported type or an unreadable/scanned file."""
+def extract_document(file, filename, *, max_chars=MAX_CHARS):
+    """Dispatch on the file extension. Returns (text, pages) with pages >= 1.
+    Raises DocumentTextError for an unsupported type or unreadable/scanned
+    file."""
     name = (filename or "").lower()
     for suffix, extractor in _EXTRACTORS.items():
         if name.endswith(suffix):
@@ -82,3 +91,9 @@ def extract_text(file, filename, *, max_chars=MAX_CHARS):
     raise DocumentTextError(
         "Nicht unterstütztes Format. Erlaubt sind PDF, PPTX und ODP."
     )
+
+
+def extract_text(file, filename, *, max_chars=MAX_CHARS):
+    """Dispatch on the file extension. Raises DocumentTextError for an
+    unsupported type or an unreadable/scanned file."""
+    return extract_document(file, filename, max_chars=max_chars)[0]
