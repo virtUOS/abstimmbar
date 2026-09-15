@@ -670,5 +670,7 @@
   "Restart": "Neu starten",
   "Generation failed.": "Erzeugung fehlgeschlagen.",
   "Generation was cancelled.": "Erzeugung abgebrochen.",
-  "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet."
+  "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet.",
+  "Questions per page": "Fragen pro Seite",
+  "Covers the whole document; more per page means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen."
 }

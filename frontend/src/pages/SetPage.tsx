@@ -17,7 +17,7 @@ import {
   type Section as SectionType,
 } from "../api";
 import { useEasyMode } from "../App";
-import AiGeneratePanel from "../components/AiGeneratePanel";
+import AiGenerateForm from "../components/AiGenerateForm";
 import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
@@ -1420,10 +1420,10 @@ export default function SetPage() {
 
       {generateOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
-          <AiGeneratePanel
+          <AiGenerateForm
             setId={id}
+            onStarted={() => setGenerateOpen(false)}
             onClose={() => setGenerateOpen(false)}
-            onImported={reloadQuestions}
           />
         </div>
       )}
