@@ -63,52 +63,90 @@ def start_job(job):
 
 def run_generation_job(job_id):
     connections.close_all()  # fresh DB connection for this worker thread
-    job = GenerationJob.objects.filter(pk=job_id).first()
-    if job is None or job.status == GenerationJob.Status.CANCELLED:
-        return
     try:
-        chunks, truncated = chunk_text(
-            job.source_text,
-            chunk_chars=settings.AI_CHUNK_CHARS,
-            max_chunks=settings.AI_GEN_MAX_CHUNKS,
-        )
-        job.total_chunks = len(chunks)
-        job.truncated = truncated
-        job.status = GenerationJob.Status.RUNNING
-        if truncated:
-            job.notice = (
-                f"Das Dokument ({job.source_chars or len(job.source_text)} Zeichen) "
-                f"überschreitet die Verarbeitungsgrenze — es wurden die ersten "
-                f"{len(chunks)} Abschnitte ausgewertet."
+        job = GenerationJob.objects.filter(pk=job_id).first()
+        if job is None or job.status == GenerationJob.Status.CANCELLED:
+            return
+        try:
+            chunks, truncated = chunk_text(
+                job.source_text,
+                chunk_chars=settings.AI_CHUNK_CHARS,
+                max_chunks=settings.AI_GEN_MAX_CHUNKS,
             )
-        job.save()
-        failed_chunks = 0
-        for chunk in chunks:
-            fresh = GenerationJob.objects.filter(pk=job_id).values_list("status", flat=True).first()
-            if fresh == GenerationJob.Status.CANCELLED:
-                return
-            per = settings.AI_GEN_PER_CHUNK
-            try:
-                data = ai.chat_json(
-                    ai_generate.generate_system(),
-                    ai_generate.build_generate_prompt(chunk, per, job.kinds, job.level, job.guidance),
+            notice = ""
+            if truncated:
+                notice = (
+                    f"Das Dokument ({job.source_chars or len(job.source_text)} Zeichen) "
+                    f"überschreitet die Verarbeitungsgrenze — es wurden die ersten "
+                    f"{len(chunks)} Abschnitte ausgewertet."
                 )
-                new = ai_generate.build_drafts(data, job.kinds, per)
-                job.drafts = merge_drafts(job.drafts, new)[: settings.AI_GEN_POOL_MAX]
-            except (ai.AIError, ValueError, KeyError, TypeError):
-                failed_chunks += 1
-            job.done_chunks += 1
-            job.save()
-            if len(job.drafts) >= settings.AI_GEN_POOL_MAX:
-                break
-        if failed_chunks:
-            extra = f" {failed_chunks} Abschnitt(e) konnten nicht ausgewertet werden."
-            job.notice = (job.notice + extra).strip()
-        if not job.drafts and not job.notice:
-            job.notice = "Aus dem Material ließen sich keine sinnvollen Fragen bilden."
-        job.status = GenerationJob.Status.DONE
-        job.save()
-    except Exception as exc:  # noqa: BLE001 -- never leave a job stuck in running
-        GenerationJob.objects.filter(pk=job_id).update(
-            status=GenerationJob.Status.FAILED, error=str(exc)[:2000]
-        )
+            # Move to RUNNING, but never resurrect a job the request thread has
+            # already CANCELLED (a full-row save would otherwise clobber it).
+            started = (
+                GenerationJob.objects.filter(pk=job_id)
+                .exclude(status=GenerationJob.Status.CANCELLED)
+                .update(
+                    status=GenerationJob.Status.RUNNING,
+                    total_chunks=len(chunks),
+                    truncated=truncated,
+                    notice=notice,
+                )
+            )
+            if not started:
+                return  # cancelled before we could start
+            failed_chunks = 0
+            done = 0
+            drafts = list(job.drafts)
+            for chunk in chunks:
+                status = (
+                    GenerationJob.objects.filter(pk=job_id)
+                    .values_list("status", flat=True)
+                    .first()
+                )
+                if status == GenerationJob.Status.CANCELLED:
+                    return
+                per = settings.AI_GEN_PER_CHUNK
+                try:
+                    data = ai.chat_json(
+                        ai_generate.generate_system(),
+                        ai_generate.build_generate_prompt(
+                            chunk, per, job.kinds, job.level, job.guidance
+                        ),
+                    )
+                    new = ai_generate.build_drafts(data, job.kinds, per)
+                    drafts = merge_drafts(drafts, new)[: settings.AI_GEN_POOL_MAX]
+                except (ai.AIError, ValueError, KeyError, TypeError):
+                    failed_chunks += 1
+                done += 1
+                # Progress write: never touches status, so a concurrent
+                # CANCELLED persists instead of being clobbered.
+                GenerationJob.objects.filter(pk=job_id).update(
+                    drafts=drafts, done_chunks=done
+                )
+                if len(drafts) >= settings.AI_GEN_POOL_MAX:
+                    break
+            if failed_chunks:
+                extra = f" {failed_chunks} Abschnitt(e) konnten nicht ausgewertet werden."
+                notice = (notice + extra).strip()
+            if not drafts and not notice:
+                notice = "Aus dem Material ließen sich keine sinnvollen Fragen bilden."
+            # Finish, unless the job was cancelled meanwhile — conditional so a
+            # CANCELLED status is never overwritten with DONE.
+            GenerationJob.objects.filter(pk=job_id).exclude(
+                status=GenerationJob.Status.CANCELLED
+            ).update(
+                status=GenerationJob.Status.DONE,
+                drafts=drafts,
+                done_chunks=done,
+                notice=notice,
+            )
+        except Exception as exc:  # noqa: BLE001 -- never leave a job stuck in running
+            GenerationJob.objects.filter(pk=job_id).exclude(
+                status=GenerationJob.Status.CANCELLED
+            ).update(status=GenerationJob.Status.FAILED, error=str(exc)[:2000])
+    finally:
+        # Return the worker's pooled connection (skip a mid-transaction one, as
+        # TestCase wraps each test in an atomic block).
+        for conn in connections.all():
+            if not conn.in_atomic_block:
+                conn.close()

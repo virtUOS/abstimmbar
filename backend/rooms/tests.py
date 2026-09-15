@@ -4020,3 +4020,43 @@ class GenerationWorkerTests(TransactionTestCase):
         self.assertEqual(job.status, self.GenerationJob.Status.DONE)
         self.assertEqual([d["text"] for d in job.drafts], ["F2"])
         self.assertEqual(job.done_chunks, 2)
+
+    def test_cancel_observed_mid_run_stays_cancelled(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)  # forces 2+ chunks at small chunk size
+
+        def cancel_then_reply(*args, **kwargs):
+            self.GenerationJob.objects.filter(pk=job.id).update(
+                status=self.GenerationJob.Status.CANCELLED
+            )
+            return {"questions": [{"kind": "open_text", "text": "Frage 1"}]}
+
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=50, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=cancel_then_reply):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
+
+    def test_cancel_during_last_chunk_not_overwritten_with_done(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A B C")  # a single chunk with a generous chunk size
+
+        def cancel_then_reply(*args, **kwargs):
+            self.GenerationJob.objects.filter(pk=job.id).update(
+                status=self.GenerationJob.Status.CANCELLED
+            )
+            return {"questions": [{"kind": "open_text", "text": "Frage 1"}]}
+
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=1000, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=cancel_then_reply):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
