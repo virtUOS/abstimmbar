@@ -313,3 +313,25 @@ class EasyModeMigrationTests(TestCase):
         self._run()
         a.refresh_from_db()
         self.assertFalse(a.easy_mode)  # staff explicit pro preserved
+
+
+class OidcCallbackReplayTests(TestCase):
+    """A Back press right after login replays the spent code/state, which
+    mozilla-django-oidc raises SuspiciousOperation for (a 400 page). The
+    project override redirects to the SPA instead."""
+
+    def test_replayed_callback_redirects_instead_of_erroring(self):
+        # A consumed state: oidc_states present in the session but without this
+        # state — exactly the state after the code was already exchanged once.
+        session = self.client.session
+        session["oidc_states"] = {}
+        session.save()
+        response = self.client.get("/oidc/callback/?code=abc&state=stale")
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response["Location"], settings.LOGIN_REDIRECT_URL)
+
+    def test_callback_without_states_uses_failure_redirect(self):
+        # No oidc_states at all → mozilla's own login_failure() redirect; still
+        # a redirect (never a 400/error page).
+        response = self.client.get("/oidc/callback/?code=abc&state=stale")
+        self.assertEqual(response.status_code, 302)

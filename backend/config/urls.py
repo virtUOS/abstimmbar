@@ -8,6 +8,7 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 
+from accounts.oidc import SafeOIDCCallbackView
 from accounts.views import logout_view, set_language, set_mode, whoami
 from live.urls import api_urlpatterns as live_api
 from live.urls import page_urlpatterns as live_pages
@@ -21,6 +22,14 @@ urlpatterns = [
         "oidc/backchannel-logout/",
         backchannel_logout,
         name="oidc-backchannel-logout",
+    ),
+    # Override the callback before mozilla's include: a Back press after login
+    # replays the spent code/state, which mozilla raises SuspiciousOperation for
+    # (a 400 page); redirect to the SPA instead. Same name so reverse() is stable.
+    path(
+        "oidc/callback/",
+        SafeOIDCCallbackView.as_view(),
+        name="oidc_authentication_callback",
     ),
     path("oidc/", include("mozilla_django_oidc.urls")),
     path("api/whoami/", whoami),
