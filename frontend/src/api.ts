@@ -202,6 +202,19 @@ export interface GeneratedQuestion {
   model_solution?: string;
 }
 
+/** Async question generation job state. */
+export interface GenerationJob {
+  id: number;
+  status: "pending" | "running" | "done" | "failed" | "cancelled";
+  done_chunks: number;
+  total_chunks: number;
+  drafts: GeneratedQuestion[];
+  truncated: boolean;
+  source_chars: number;
+  notice: string;
+  error: string;
+}
+
 /** Live free-text evaluation summary (presenter + stored results). The
  *  ``verdict`` is a category label from the question's chosen scale; groups
  *  come in the configured order. */
@@ -615,13 +628,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  /** Generate draft questions from an uploaded document or pasted text. */
-  aiGenerateQuestions: (
+  /** Start async question generation from an uploaded document or pasted text. */
+  aiGenerateStart: (
     setId: number,
     opts: {
       file?: File;
       text?: string;
-      count: number;
       kinds: string[];
       level: string;
       guidance?: string;
@@ -630,15 +642,30 @@ export const api = {
     const body = new FormData();
     if (opts.file) body.append("file", opts.file);
     if (opts.text) body.append("text", opts.text);
-    body.append("count", String(opts.count));
     body.append("kinds", opts.kinds.join(","));
     body.append("level", opts.level);
     if (opts.guidance?.trim()) body.append("guidance", opts.guidance.trim());
-    return request<{ questions: GeneratedQuestion[]; notice?: string }>(
+    return request<{ job_id: number }>(
       `/api/question-sets/${setId}/ai-generate/`,
       { method: "POST", body },
     );
   },
+  /** Get a specific async question generation job by id. */
+  aiGenerateJob: (setId: number, jobId: number) =>
+    request<GenerationJob>(
+      `/api/question-sets/${setId}/ai-generate/jobs/${jobId}/`,
+    ),
+  /** Get the active async question generation job for a question set, if any. */
+  aiGenerateActive: (setId: number) =>
+    request<GenerationJob | Record<string, never>>(
+      `/api/question-sets/${setId}/ai-generate/active/`,
+    ),
+  /** Cancel an async question generation job. */
+  aiGenerateCancel: (setId: number, jobId: number) =>
+    request<{ status: string }>(
+      `/api/question-sets/${setId}/ai-generate/jobs/${jobId}/cancel/`,
+      { method: "POST" },
+    ),
   updateQuestion: (id: number, data: Partial<Question>) =>
     request<Question>(`/api/questions/${id}/`, {
       method: "PATCH",
