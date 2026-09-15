@@ -217,6 +217,39 @@ class QuestionSet(TimeStampedModel):
         return self.title
 
 
+class GenerationJob(TimeStampedModel):
+    """A background question-generation run over a document (chunked). Holds
+    the input text, progress and accumulated (deduped) draft questions."""
+
+    class Status(models.TextChoices):
+        PENDING = "pending"
+        RUNNING = "running"
+        DONE = "done"
+        FAILED = "failed"
+        CANCELLED = "cancelled"
+
+    question_set = models.ForeignKey(
+        QuestionSet, on_delete=models.CASCADE, related_name="generation_jobs"
+    )
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
+    kinds = models.JSONField(default=list, blank=True)
+    level = models.CharField(max_length=16, default="mixed")
+    guidance = models.TextField(blank=True)
+    source_text = models.TextField()
+    total_chunks = models.PositiveIntegerField(default=0)
+    done_chunks = models.PositiveIntegerField(default=0)
+    drafts = models.JSONField(default=list, blank=True)
+    truncated = models.BooleanField(default=False)
+    source_chars = models.PositiveIntegerField(default=0)
+    notice = models.TextField(blank=True)
+    error = models.TextField(blank=True)
+
+    @property
+    def is_active(self):
+        return self.status in (self.Status.PENDING, self.Status.RUNNING)
+
+
 class Section(TimeStampedModel):
     """A named, ordered group of questions inside a set (concept §3.1, v2).
 

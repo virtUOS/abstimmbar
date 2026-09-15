@@ -211,6 +211,12 @@ AI_TIMEOUT = _int_or_default("AI_TIMEOUT", 30)
 AI_MAX_TOKENS = _int_or_default("AI_MAX_TOKENS", 2000)
 AI_DISABLE_THINKING = os.environ.get("AI_DISABLE_THINKING", "1") == "1"
 
+# Chunked async question generation over long documents (see rooms.GenerationJob).
+AI_CHUNK_CHARS = _int_or_default("AI_CHUNK_CHARS", 12000)
+AI_GEN_MAX_CHUNKS = _int_or_default("AI_GEN_MAX_CHUNKS", 40)
+AI_GEN_PER_CHUNK = _int_or_default("AI_GEN_PER_CHUNK", 3)
+AI_GEN_POOL_MAX = _int_or_default("AI_GEN_POOL_MAX", 50)
+
 # Optional machine translation for authored content (see
 # common/translation_service.py). Off by default; an institution can
 # self-host LibreTranslate (Apache-2.0) and point LIBRETRANSLATE_URL at it.

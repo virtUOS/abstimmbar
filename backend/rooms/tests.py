@@ -3859,3 +3859,23 @@ class SelfCheckPublishStatsApiTests(ApiTestCase):
         self.assertEqual(self.publish().status_code, 404)
         self.assertEqual(self.unpublish().status_code, 404)
         self.assertEqual(self.stats().status_code, 404)
+
+
+class GenerationJobModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username="frank")
+        self.room = Room.objects.create(title="Bio 101")
+
+    def test_defaults_and_is_active(self):
+        from .models import GenerationJob
+
+        qs = QuestionSet.objects.create(room=self.room, title="T")
+        job = GenerationJob.objects.create(
+            question_set=qs, created_by=self.user, source_text="Stoff", kinds=["open_text"],
+        )
+        self.assertEqual(job.status, GenerationJob.Status.PENDING)
+        self.assertEqual(job.drafts, [])
+        self.assertFalse(job.truncated)
+        self.assertTrue(job.is_active)
+        job.status = GenerationJob.Status.DONE
+        self.assertFalse(job.is_active)
