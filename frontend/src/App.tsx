@@ -20,6 +20,7 @@ import {
 import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami } from "./api";
 import { localizedText, setDefaultContentLang, setTranslationEnabled } from "@basicbar/ui";
 import Footer from "./components/Footer";
+import GenerationStatusBar from "./components/GenerationStatusBar";
 import JoinByCode from "./components/JoinByCode";
 import { LanguageOptions } from "./components/LanguageSwitcher";
 import RichText from "./components/RichText";
@@ -441,6 +442,7 @@ export default function App() {
       </header>
 
       {whoami?.authenticated && site && <AiNoticeBanner site={site} whoami={whoami} />}
+      {whoami?.authenticated && <GenerationStatusBar />}
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
         {error ? (

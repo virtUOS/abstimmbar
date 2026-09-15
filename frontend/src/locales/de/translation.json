@@ -680,5 +680,7 @@
   "Try again": "Erneut versuchen",
   "Questions are being generated …": "Fragen werden erzeugt …",
   "Question generation failed.": "Fragenerzeugung fehlgeschlagen.",
-  "{{n}} questions were generated — review and use them now.": "{{n}} Fragen wurden erzeugt – jetzt prüfen und übernehmen."
+  "{{n}} questions were generated — review and use them now.": "{{n}} Fragen wurden erzeugt – jetzt prüfen und übernehmen.",
+  "To the set": "Zum Set",
+  "{{n}} questions for “{{title}}” generated — review now.": "{{n}} Fragen für „{{title}}“ erzeugt – jetzt prüfen."
 }
