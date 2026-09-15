@@ -592,15 +592,14 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         # Optional free-text guidance from the teacher (#84), capped so it
         # can't crowd out the material in the prompt.
         guidance = str(request.data.get("guidance") or "").strip()[:1000]
-        # Cancel any still-active job for *this* set first — otherwise the
-        # orphan sweep below (system-wide, RUNNING -> FAILED) would race it
-        # and a normally-running job would end up FAILED instead of the
-        # more accurate CANCELLED (superseded by this new request).
+        # Cancel any still-active job for *this* set (superseded by this new
+        # request) — scoped to this set only, so it can't touch another
+        # user's legitimately RUNNING job (restart-orphan handling lives in
+        # rooms.apps.ready(), which runs once at process start).
         GenerationJob.objects.filter(
             question_set=self.get_object(), status__in=[
                 GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING]
         ).update(status=GenerationJob.Status.CANCELLED)
-        generation.fail_orphaned_jobs()
         job = GenerationJob.objects.create(
             question_set=self.get_object(), created_by=request.user,
             source_text=text, source_chars=len(text), kinds=kinds, level=level, guidance=guidance,
@@ -623,8 +622,9 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/cancel")
     def ai_generate_cancel(self, request, pk=None, job_id=None):
         self.get_object()
-        GenerationJob.objects.filter(pk=job_id, question_set_id=pk).update(
-            status=GenerationJob.Status.CANCELLED)
+        job = get_object_or_404(GenerationJob, pk=job_id, question_set_id=pk)
+        job.status = GenerationJob.Status.CANCELLED
+        job.save(update_fields=["status", "updated_at"])
         return Response({"status": "ok"})
 
     @action(detail=True, methods=["post"], url_path="ai-distractors")

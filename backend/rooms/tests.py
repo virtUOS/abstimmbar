@@ -2759,6 +2759,27 @@ class GenerationEndpointTests(ApiTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, GenerationJob.Status.CANCELLED)
 
+    def test_new_job_does_not_touch_other_sets_running_job(self):
+        from .models import GenerationJob
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        other = GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.RUNNING,
+        )
+        with self.override_settings(**AI_ON), self.mock.patch("rooms.views.generation.start_job"):
+            self.client.post(self.url, {"text": "neu"})
+        other.refresh_from_db()
+        self.assertEqual(other.status, GenerationJob.Status.RUNNING)  # untouched
+
+    def test_cancel_foreign_job_returns_404(self):
+        from .models import GenerationJob
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        job = GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x")
+        with self.override_settings(**AI_ON):
+            r = self.client.post(f"{self.url}jobs/{job.pk}/cancel/")
+        self.assertEqual(r.status_code, 404)
+
 
 class OwnershipTests(ApiTestCase):
     """Besitzer, transfer and leave for shared rooms (#25/#26)."""
