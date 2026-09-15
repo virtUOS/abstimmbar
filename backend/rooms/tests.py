@@ -6,7 +6,7 @@ from typing import ClassVar
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, TransactionTestCase
 from django.utils import translation
 from PIL import Image, ImageDraw
 from rest_framework import serializers
@@ -3916,3 +3916,79 @@ class GenerationChunkingTests(TestCase):
             {"kind": "open_text", "text": "Echte Frage?"}, # kept
         ])
         self.assertEqual([d["text"] for d in out], ["Echte Frage?"])
+
+
+class GenerationWorkerTests(TransactionTestCase):
+    """Uses TransactionTestCase (not TestCase) because run_generation_job()
+    calls connections.close_all() to get a fresh DB connection (needed when
+    it later runs on a worker thread) — inside the default TestCase's
+    wrapping transaction that raises "Cannot open a new connection in an
+    atomic block" (see ConcurrentStartRunTests in live/tests.py)."""
+
+    def setUp(self):
+        super().setUp()
+        from .models import GenerationJob
+        self.user = User.objects.create_user(username="frank")
+        self.room = Room.objects.create(title="Bio 101")
+        self.GenerationJob = GenerationJob
+        self.qs = QuestionSet.objects.create(room=self.room, title="T")
+
+    def _job(self, text):
+        return self.GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.user, source_text=text,
+            kinds=["open_text"], level="mixed",
+        )
+
+    def test_processes_all_chunks_and_dedupes(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)  # forces 2 chunks at small chunk size
+        replies = [
+            {"questions": [{"kind": "open_text", "text": "Frage 1"}]},
+            {"questions": [{"kind": "open_text", "text": "Frage 1"}]},  # dup across chunks
+        ]
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=replies):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(job.total_chunks, 2)
+        self.assertEqual(job.done_chunks, 2)
+        self.assertEqual([d["text"] for d in job.drafts], ["Frage 1"])  # deduped
+
+    def test_truncation_sets_flag_and_notice(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("x " * 500)  # many chunks
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=20, AI_GEN_MAX_CHUNKS=2), \
+             mock.patch("rooms.generation.ai.chat_json",
+                        return_value={"questions": [{"kind": "open_text", "text": "F"}]}):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertTrue(job.truncated)
+        self.assertEqual(job.total_chunks, 2)  # capped
+        self.assertIn("überschreit", job.notice.lower())
+
+    def test_chunk_error_is_skipped(self):
+        from unittest import mock
+
+        from basicbar_integrations.ai import AIError
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json",
+                        side_effect=[AIError("boom"),
+                                     {"questions": [{"kind": "open_text", "text": "F2"}]}]):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual([d["text"] for d in job.drafts], ["F2"])
+        self.assertEqual(job.done_chunks, 2)
