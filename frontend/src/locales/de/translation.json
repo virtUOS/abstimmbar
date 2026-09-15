@@ -661,5 +661,15 @@
   "Some fields could not be translated.": "Einige Felder konnten nicht übersetzt werden.",
   "Translating…": "Übersetze …",
   "Translation failed.": "Übersetzung fehlgeschlagen.",
-  "A value in {{language}} is required.": "Ein Wert auf {{language}} ist erforderlich."
+  "A value in {{language}} is required.": "Ein Wert auf {{language}} ist erforderlich.",
+
+  "Starting …": "Wird gestartet …",
+  "Preparing …": "Wird vorbereitet …",
+  "Section {{done}} of {{total}}": "Abschnitt {{done}} von {{total}}",
+  "{{n}} suggestions": "{{n}} Vorschläge",
+  "Cancel generation": "Erzeugung abbrechen",
+  "Restart": "Neu starten",
+  "Generation failed.": "Erzeugung fehlgeschlagen.",
+  "Generation was cancelled.": "Erzeugung abgebrochen.",
+  "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet."
 }
