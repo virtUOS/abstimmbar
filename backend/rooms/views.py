@@ -16,7 +16,7 @@ from basicbar_integrations import ai
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from django.db.models import Count, Exists, Max, OuterRef, Q, Sum
+from django.db.models import Case, Count, Exists, IntegerField, Max, OuterRef, Q, Sum, When
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import strip_tags
@@ -28,6 +28,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from common import documents
+from common.i18n_fields import resolve_translated_text, translated_map
 
 from . import ai_generate, ai_prompts, generation, set_types
 from .images import InvalidImageError, normalize_image
@@ -101,12 +102,21 @@ def _clamp_int(value, *, default, lo, hi):
         return default
 
 
+def _clamp_float(value, default, lo, hi):
+    try:
+        return max(lo, min(hi, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _job_payload(job):
     return {
         "id": job.id, "status": job.status,
         "done_chunks": job.done_chunks, "total_chunks": job.total_chunks,
         "drafts": job.drafts, "truncated": job.truncated,
         "source_chars": job.source_chars, "notice": job.notice, "error": job.error,
+        "pages": job.pages, "density": job.density,
+        "target_count": job.target_count, "reviewed": job.reviewed,
     }
 
 
@@ -568,14 +578,16 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         # This feature's own ceiling (independent of common.documents.MAX_CHARS):
         # enough material for AI_GEN_MAX_CHUNKS full chunks plus a bit of slack.
         max_chars = settings.AI_CHUNK_CHARS * (settings.AI_GEN_MAX_CHUNKS + 1)
+        density = _clamp_float(request.data.get("density"), settings.AI_GEN_DEFAULT_DENSITY, 0.1, 5.0)
         upload = request.FILES.get("file")
         if upload is not None:
             try:
-                text = documents.extract_text(upload, upload.name, max_chars=max_chars)
+                text, pages = documents.extract_document(upload, upload.name, max_chars=max_chars)
             except documents.DocumentTextError as exc:
                 return Response({"detail": str(exc)}, status=400)
         else:
             text = str(request.data.get("text") or "").strip()[:max_chars]
+            pages = max(1, round(len(text) / 2000))
         if not text:
             return Response(
                 {"detail": "Kein Text – bitte eine Datei hochladen oder Text einfügen."},
@@ -600,9 +612,11 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             question_set=self.get_object(), status__in=[
                 GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING]
         ).update(status=GenerationJob.Status.CANCELLED)
+        target = max(1, min(round(density * pages), settings.AI_GEN_MAX_QUESTIONS))
         job = GenerationJob.objects.create(
             question_set=self.get_object(), created_by=request.user,
             source_text=text, source_chars=len(text), kinds=kinds, level=level, guidance=guidance,
+            pages=pages, density=density, target_count=target,
         )
         generation.start_job(job)
         return Response({"job_id": job.id}, status=201)
@@ -616,8 +630,34 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["get"], url_path="ai-generate/active")
     def ai_generate_active(self, request, pk=None):
         self.get_object()
-        job = GenerationJob.objects.filter(question_set_id=pk).order_by("-created_at").first()
+        job = (
+            GenerationJob.objects.filter(question_set_id=pk, reviewed=False)
+            .order_by("-created_at")
+            .first()
+        )
         return Response(_job_payload(job) if job else {})
+
+    @action(detail=False, methods=["get"], url_path="active-generation")
+    def active_generation(self, request):
+        """The most relevant of the *current user's own* generation jobs
+        across all their sets — running/pending first, else the newest
+        unreviewed finished (done/failed) one — for a cross-set "you have a
+        generation to review" banner. Reviewed jobs never surface here."""
+        active = [GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING]
+        qs = GenerationJob.objects.filter(created_by=request.user).filter(
+            Q(status__in=active)
+            | Q(reviewed=False, status__in=[GenerationJob.Status.DONE, GenerationJob.Status.FAILED])
+        )
+        job = qs.order_by(
+            Case(When(status__in=active, then=0), default=1, output_field=IntegerField()),
+            "-created_at",
+        ).first()
+        if not job:
+            return Response({})
+        data = _job_payload(job)
+        data["set_id"] = job.question_set_id
+        data["set_title"] = resolve_translated_text(translated_map(job.question_set, "title"))
+        return Response(data)
 
     @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/cancel")
     def ai_generate_cancel(self, request, pk=None, job_id=None):
@@ -625,6 +665,14 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         job = get_object_or_404(GenerationJob, pk=job_id, question_set_id=pk)
         job.status = GenerationJob.Status.CANCELLED
         job.save(update_fields=["status", "updated_at"])
+        return Response({"status": "ok"})
+
+    @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/reviewed")
+    def ai_generate_reviewed(self, request, pk=None, job_id=None):
+        self.get_object()
+        job = get_object_or_404(GenerationJob, pk=job_id, question_set_id=pk)
+        job.reviewed = True
+        job.save(update_fields=["reviewed", "updated_at"])
         return Response({"status": "ok"})
 
     @action(detail=True, methods=["post"], url_path="ai-distractors")

@@ -295,6 +295,45 @@ class DocumentExtractionTests(TestCase):
         with self.assertRaises(DocumentTextError):
             extract_text(buf, "leer.pptx")
 
+    def test_extract_document_returns_text_and_slide_count(self):
+        import io
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from common.documents import extract_document
+
+        prs = Presentation()
+        for i in range(3):
+            slide = prs.slides.add_slide(prs.slide_layouts[6])  # blank
+            box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+            box.text_frame.text = f"Folie {i} Inhalt"
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        text, pages = extract_document(buf, "folien.pptx")
+        self.assertIn("Folie 1", text)
+        self.assertEqual(pages, 3)
+
+    def test_extract_text_still_returns_only_text(self):
+        import io
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from common.documents import extract_text
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Nur Text"
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        result = extract_text(buf, "folien.pptx")
+        self.assertIsInstance(result, str)
+        self.assertIn("Nur Text", result)
+
 
 LT_ON = {"CONTENT_TRANSLATION_PROVIDER": "libretranslate", "LIBRETRANSLATE_URL": "http://lt"}
 LT_OFF = {"CONTENT_TRANSLATION_PROVIDER": "none", "LIBRETRANSLATE_URL": ""}

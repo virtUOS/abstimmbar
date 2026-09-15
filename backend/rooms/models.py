@@ -244,6 +244,10 @@ class GenerationJob(TimeStampedModel):
     source_chars = models.PositiveIntegerField(default=0)
     notice = models.TextField(blank=True)
     error = models.TextField(blank=True)
+    pages = models.PositiveIntegerField(default=0)
+    density = models.FloatField(default=1.0)
+    target_count = models.PositiveIntegerField(default=0)
+    reviewed = models.BooleanField(default=False)
 
     @property
     def is_active(self):

@@ -2780,6 +2780,66 @@ class GenerationEndpointTests(ApiTestCase):
             r = self.client.post(f"{self.url}jobs/{job.pk}/cancel/")
         self.assertEqual(r.status_code, 404)
 
+    def test_start_computes_target_from_density(self):
+        from .models import GenerationJob
+        with self.override_settings(**AI_ON), self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {"text": "w " * 4000, "density": "0.5"})
+        self.assertEqual(r.status_code, 201)
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.density, 0.5)
+        self.assertGreaterEqual(job.pages, 1)
+        self.assertEqual(job.target_count, max(1, round(0.5 * job.pages)))
+
+    def test_active_generation_is_user_scoped_and_prioritises_running(self):
+        from .models import GenerationJob
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE,
+        )
+        running = GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.RUNNING,
+        )
+        stranger = User.objects.create_user(username="zoe")
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=stranger, source_text="x",
+            status=GenerationJob.Status.RUNNING,
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get("/api/question-sets/active-generation/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["id"], running.id)  # running > done, only mine
+        self.assertIn("set_title", r.json())
+
+    def test_reviewed_endpoint_sets_flag_and_404s_foreign(self):
+        from .models import GenerationJob
+        job = GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE,
+        )
+        with self.override_settings(**AI_ON):
+            ok = self.client.post(f"{self.url}jobs/{job.pk}/reviewed/")
+        self.assertEqual(ok.status_code, 200)
+        job.refresh_from_db()
+        self.assertTrue(job.reviewed)
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        foreign = GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x")
+        with self.override_settings(**AI_ON):
+            r = self.client.post(f"{self.url}jobs/{foreign.pk}/reviewed/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_set_active_returns_only_unreviewed(self):
+        from .models import GenerationJob
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE, reviewed=True,
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get(f"{self.url}active/")
+        self.assertEqual(r.json(), {})  # reviewed job is not surfaced
+
 
 class OwnershipTests(ApiTestCase):
     """Besitzer, transfer and leave for shared rooms (#25/#26)."""
@@ -3908,6 +3968,17 @@ class GenerationJobModelTests(TestCase):
         job.status = GenerationJob.Status.DONE
         self.assertFalse(job.is_active)
 
+    def test_new_fields_defaults(self):
+        from .models import GenerationJob
+
+        qs = QuestionSet.objects.create(room=self.room, title="T2")
+        job = GenerationJob.objects.create(
+            question_set=qs, created_by=self.user, source_text="x")
+        self.assertEqual(job.pages, 0)
+        self.assertEqual(job.density, 1.0)
+        self.assertEqual(job.target_count, 0)
+        self.assertFalse(job.reviewed)
+
 
 class GenerationChunkingTests(TestCase):
     def test_chunk_splits_on_whitespace_and_caps(self):
@@ -3916,7 +3987,7 @@ class GenerationChunkingTests(TestCase):
         chunks, truncated = chunk_text(text, chunk_chars=50, max_chunks=3)
         self.assertEqual(len(chunks), 3)
         self.assertTrue(truncated)
-        self.assertTrue(all(len(c) <= 60 for c in chunks))  # ~chunk_chars, no mid-word cut
+        self.assertTrue(all(len(c) <= 110 for c in chunks))  # grows up to 2*chunk_chars
         self.assertNotIn("  ", " ".join(chunks))
 
     def test_chunk_no_truncation_when_it_fits(self):
@@ -3924,6 +3995,25 @@ class GenerationChunkingTests(TestCase):
         chunks, truncated = chunk_text("a b c", chunk_chars=1000, max_chunks=40)
         self.assertEqual(chunks, ["a b c"])
         self.assertFalse(truncated)
+
+    def test_chunk_grows_to_cover_whole_doc_without_truncation(self):
+        from .generation import chunk_text
+        # 900 chars: more than max_chunks*chunk_chars (500) would hold at the
+        # base size, but within the 2*chunk_chars-grown budget (1000) — so
+        # growth is required, and is enough, to avoid truncation.
+        text = "w " * 450
+        chunks, truncated = chunk_text(text, chunk_chars=100, max_chunks=5)
+        self.assertFalse(truncated)
+        self.assertLessEqual(len(chunks), 5)
+        self.assertEqual("".join(c.replace(" ", "") for c in chunks),
+                         text.replace(" ", ""))  # nothing dropped
+
+    def test_chunk_truncates_only_beyond_grown_budget(self):
+        from .generation import chunk_text
+        text = "w " * 100000  # far over 2*chunk_chars*max_chunks
+        chunks, truncated = chunk_text(text, chunk_chars=100, max_chunks=5)
+        self.assertTrue(truncated)
+        self.assertEqual(len(chunks), 5)
 
     def test_merge_drafts_dedupes_by_normalised_text(self):
         from .generation import merge_drafts
@@ -4054,6 +4144,27 @@ class GenerationWorkerTests(TransactionTestCase):
             generation.run_generation_job(job.id)
         job.refresh_from_db()
         self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
+
+    def test_target_count_distributed_and_capped(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)  # 2 chunks at small size
+        job.target_count = 2
+        job.save(update_fields=["target_count"])
+        replies = [
+            {"questions": [{"kind": "open_text", "text": "F1"},
+                           {"kind": "open_text", "text": "F2"}]},
+            {"questions": [{"kind": "open_text", "text": "F3"}]},
+        ]
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=replies):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 2)  # capped at target_count
 
     def test_cancel_during_last_chunk_not_overwritten_with_done(self):
         from unittest import mock

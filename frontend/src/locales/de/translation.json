@@ -664,11 +664,22 @@
 
   "Starting …": "Wird gestartet …",
   "Preparing …": "Wird vorbereitet …",
-  "Section {{done}} of {{total}}": "Abschnitt {{done}} von {{total}}",
-  "{{n}} suggestions": "{{n}} Vorschläge",
+  "{{percent}} % done": "{{percent}} % erledigt",
+  "{{n}} questions so far": "{{n}} Fragen bisher",
   "Cancel generation": "Erzeugung abbrechen",
-  "Restart": "Neu starten",
   "Generation failed.": "Erzeugung fehlgeschlagen.",
   "Generation was cancelled.": "Erzeugung abgebrochen.",
-  "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet."
+  "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet.",
+  "Questions per page": "Fragen pro Seite",
+  "Covers the whole document; more per page means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen.",
+  "Covers the whole document; more per page means more questions (at most {{max}}).": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen (höchstens {{max}}).",
+  "Review generated questions": "Erzeugte Fragen prüfen",
+  "Nothing to review.": "Nichts zu prüfen.",
+  "Review": "Prüfen",
+  "Try again": "Erneut versuchen",
+  "Questions are being generated …": "Fragen werden erzeugt …",
+  "Question generation failed.": "Fragenerzeugung fehlgeschlagen.",
+  "{{n}} questions were generated — review and use them now.": "{{n}} Fragen wurden erzeugt – jetzt prüfen und übernehmen.",
+  "To the set": "Zum Set",
+  "{{n}} questions for “{{title}}” generated — review now.": "{{n}} Fragen für „{{title}}“ erzeugt – jetzt prüfen."
 }

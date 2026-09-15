@@ -27,6 +27,13 @@ def _int_or_default(name, default):
         return default
 
 
+def _float_or_default(name, default):
+    try:
+        return float(os.environ[name])
+    except (KeyError, ValueError):
+        return default
+
+
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-insecure-secret-key-change-me")
 
 DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
@@ -215,8 +222,8 @@ AI_DISABLE_THINKING = os.environ.get("AI_DISABLE_THINKING", "1") == "1"
 # AI_DOC_MAX_CHARS cap), so the effective ceiling is AI_CHUNK_CHARS * (AI_GEN_MAX_CHUNKS + 1).
 AI_CHUNK_CHARS = _int_or_default("AI_CHUNK_CHARS", 12000)
 AI_GEN_MAX_CHUNKS = _int_or_default("AI_GEN_MAX_CHUNKS", 40)
-AI_GEN_PER_CHUNK = _int_or_default("AI_GEN_PER_CHUNK", 3)
-AI_GEN_POOL_MAX = _int_or_default("AI_GEN_POOL_MAX", 50)
+AI_GEN_MAX_QUESTIONS = _int_or_default("AI_GEN_MAX_QUESTIONS", 150)
+AI_GEN_DEFAULT_DENSITY = _float_or_default("AI_GEN_DEFAULT_DENSITY", 1.0)
 
 # Optional machine translation for authored content (see
 # common/translation_service.py). Off by default; an institution can

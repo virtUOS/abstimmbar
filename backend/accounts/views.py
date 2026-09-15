@@ -78,6 +78,7 @@ def whoami(request):
             "easy_mode": user.effective_easy_mode,
             "csrf_token": csrf_token,
             "ai_enabled": ai.is_enabled(),
+            "ai_generate_max_questions": settings.AI_GEN_MAX_QUESTIONS,
             "content_default_language": content_default_language,
             "content_translation_enabled": content_translation_enabled,
         }
