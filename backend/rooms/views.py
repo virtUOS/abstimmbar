@@ -29,9 +29,9 @@ from rest_framework.views import APIView
 
 from common import documents
 
-from . import ai_generate, ai_prompts, set_types
+from . import ai_generate, ai_prompts, generation, set_types
 from .images import InvalidImageError, normalize_image
-from .models import Question, QuestionSet, Room, Section
+from .models import GenerationJob, Question, QuestionSet, Room, Section
 from .serializers import (
     QuestionSerializer,
     QuestionSetSerializer,
@@ -99,6 +99,15 @@ def _clamp_int(value, *, default, lo, hi):
         return max(lo, min(hi, int(value)))
     except (TypeError, ValueError):
         return default
+
+
+def _job_payload(job):
+    return {
+        "id": job.id, "status": job.status,
+        "done_chunks": job.done_chunks, "total_chunks": job.total_chunks,
+        "drafts": job.drafts, "truncated": job.truncated,
+        "source_chars": job.source_chars, "notice": job.notice, "error": job.error,
+    }
 
 
 def _ai_distractors_response(request, fallback_question=None):
@@ -549,26 +558,29 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         parser_classes=[parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser],
     )
     def ai_generate(self, request, pk=None):
-        """Generate draft questions from an uploaded document (PDF/PPTX/ODP)
-        or pasted text. Returns unsaved drafts for the teacher to review and
-        pick — nothing is persisted here (human in the loop)."""
+        """Kick off an async question-generation job over an uploaded document
+        (PDF/PPTX/ODP) or pasted text, chunked and processed in the
+        background (#Wortwolke-style worker); the drafts stay unsaved for
+        the teacher to review and pick (human in the loop)."""
         self.get_object()  # ownership check
         if not ai.is_enabled():
             return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+        # This feature's own ceiling (independent of common.documents.MAX_CHARS):
+        # enough material for AI_GEN_MAX_CHUNKS full chunks plus a bit of slack.
+        max_chars = settings.AI_CHUNK_CHARS * (settings.AI_GEN_MAX_CHUNKS + 1)
         upload = request.FILES.get("file")
         if upload is not None:
             try:
-                text = documents.extract_text(upload, upload.name)
+                text = documents.extract_text(upload, upload.name, max_chars=max_chars)
             except documents.DocumentTextError as exc:
                 return Response({"detail": str(exc)}, status=400)
         else:
-            text = str(request.data.get("text") or "").strip()[: documents.MAX_CHARS]
+            text = str(request.data.get("text") or "").strip()[:max_chars]
         if not text:
             return Response(
                 {"detail": "Kein Text – bitte eine Datei hochladen oder Text einfügen."},
                 status=400,
             )
-        count = _clamp_int(request.data.get("count"), default=5, lo=1, hi=15)
         raw_kinds = request.data.get("kinds") or ""
         kinds = [k.strip() for k in str(raw_kinds).split(",") if k.strip()]
         kinds = [k for k in kinds if k in ai_generate.ALLOWED_KINDS] or list(
@@ -580,16 +592,40 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         # Optional free-text guidance from the teacher (#84), capped so it
         # can't crowd out the material in the prompt.
         guidance = str(request.data.get("guidance") or "").strip()[:1000]
-        try:
-            data = ai.chat_json(
-                ai_generate.generate_system(),
-                ai_generate.build_generate_prompt(text, count, kinds, level, guidance),
-            )
-        except ai.AIError as exc:
-            return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
-        drafts = ai_generate.build_drafts(data, kinds, count)
-        notice = ai_generate.unsuitable_reason(data) if not drafts else ""
-        return Response({"questions": drafts, "notice": notice})
+        # Cancel any still-active job for *this* set first — otherwise the
+        # orphan sweep below (system-wide, RUNNING -> FAILED) would race it
+        # and a normally-running job would end up FAILED instead of the
+        # more accurate CANCELLED (superseded by this new request).
+        GenerationJob.objects.filter(
+            question_set=self.get_object(), status__in=[
+                GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING]
+        ).update(status=GenerationJob.Status.CANCELLED)
+        generation.fail_orphaned_jobs()
+        job = GenerationJob.objects.create(
+            question_set=self.get_object(), created_by=request.user,
+            source_text=text, source_chars=len(text), kinds=kinds, level=level, guidance=guidance,
+        )
+        generation.start_job(job)
+        return Response({"job_id": job.id}, status=201)
+
+    @action(detail=True, methods=["get"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)")
+    def ai_generate_job(self, request, pk=None, job_id=None):
+        self.get_object()
+        job = get_object_or_404(GenerationJob, pk=job_id, question_set_id=pk)
+        return Response(_job_payload(job))
+
+    @action(detail=True, methods=["get"], url_path="ai-generate/active")
+    def ai_generate_active(self, request, pk=None):
+        self.get_object()
+        job = GenerationJob.objects.filter(question_set_id=pk).order_by("-created_at").first()
+        return Response(_job_payload(job) if job else {})
+
+    @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/cancel")
+    def ai_generate_cancel(self, request, pk=None, job_id=None):
+        self.get_object()
+        GenerationJob.objects.filter(pk=job_id, question_set_id=pk).update(
+            status=GenerationJob.Status.CANCELLED)
+        return Response({"status": "ok"})
 
     @action(detail=True, methods=["post"], url_path="ai-distractors")
     def ai_distractors(self, request, pk=None):

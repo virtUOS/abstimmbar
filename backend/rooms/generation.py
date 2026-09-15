@@ -3,6 +3,7 @@
 
 """Chunking, dedup and the background worker for async question generation."""
 import re
+from concurrent.futures import ThreadPoolExecutor
 
 from basicbar_integrations import ai
 from django.conf import settings
@@ -10,6 +11,8 @@ from django.db import connections
 
 from . import ai_generate
 from .models import GenerationJob
+
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ai-gen")
 
 
 def chunk_text(text, *, chunk_chars, max_chunks):
@@ -52,6 +55,10 @@ def fail_orphaned_jobs():
     GenerationJob.objects.filter(status=GenerationJob.Status.RUNNING).update(
         status=GenerationJob.Status.FAILED, error="Unterbrochen (Server-Neustart)."
     )
+
+
+def start_job(job):
+    _executor.submit(run_generation_job, job.id)
 
 
 def run_generation_job(job_id):

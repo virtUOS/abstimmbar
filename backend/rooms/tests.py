@@ -2635,44 +2635,31 @@ class AiGenerateEndpointTests(ApiTestCase):
         self.assertEqual(r.status_code, 503)
 
     def test_generates_from_pasted_text(self):
-        reply = {"questions": [{"kind": "open_text", "text": "Was ist X?"}]}
+        from .models import GenerationJob
         with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json", return_value=reply
-        ) as chat:
+            "rooms.views.generation.start_job"
+        ) as start:
             r = self.client.post(
                 self.url,
-                {"text": "Ein längerer Materialtext.", "count": 3, "kinds": "open_text"},
+                {"text": "Ein längerer Materialtext.", "kinds": "open_text"},
             )
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["questions"][0]["text"], "Was ist X?")
-        self.assertIn("open_text", chat.call_args.args[1])
+        self.assertEqual(r.status_code, 201)
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.source_text, "Ein längerer Materialtext.")
+        self.assertEqual(job.kinds, ["open_text"])
+        start.assert_called_once()
 
-    def test_open_text_model_solution_passes_through(self):
-        reply = {"questions": [{
-            "kind": "open_text", "text": "Was ist X?",
-            "model_solution": "X ist Y.",
-        }]}
+    def test_guidance_is_stored_on_the_job(self):
+        from .models import GenerationJob
         with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json", return_value=reply
+            "rooms.views.generation.start_job"
         ):
-            r = self.client.post(
-                self.url,
-                {"text": "Ein längerer Materialtext.", "count": 3, "kinds": "open_text"},
-            )
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["questions"][0]["model_solution"], "X ist Y.")
-
-    def test_guidance_is_passed_into_the_prompt(self):
-        reply = {"questions": [{"kind": "open_text", "text": "Was ist X?"}]}
-        with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json", return_value=reply
-        ) as chat:
             r = self.client.post(
                 self.url,
                 {"text": "Ein längerer Materialtext.", "guidance": "Nur Alltagsbeispiele"},
             )
-        self.assertEqual(r.status_code, 200)
-        self.assertIn("Nur Alltagsbeispiele", chat.call_args.args[1])
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.guidance, "Nur Alltagsbeispiele")
 
     def test_no_text_returns_400(self):
         with self.override_settings(**AI_ON):
@@ -2691,66 +2678,86 @@ class AiGenerateEndpointTests(ApiTestCase):
         upload = io.BytesIO(b"plain notes")
         upload.name = "notes.txt"
         with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json"
-        ) as chat:
+            "rooms.views.generation.start_job"
+        ) as start:
             r = self.client.post(self.url, {"file": upload})
         self.assertEqual(r.status_code, 400)
-        chat.assert_not_called()
+        start.assert_not_called()
 
-    def test_level_reaches_prompt_and_notice_returned_when_empty(self):
-        reply = {"questions": [], "unsuitable_reason": "kein Lehrinhalt"}
+    def test_level_is_stored_on_the_job(self):
+        from .models import GenerationJob
         with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json", return_value=reply
-        ) as chat:
-            r = self.client.post(
-                self.url,
-                {
-                    "text": "asdfghjkl", "count": 3, "kinds": "single_choice",
-                    "level": "deep",
-                },
-            )
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["questions"], [])
-        self.assertEqual(r.json()["notice"], "kein Lehrinhalt")
-        prompt = chat.call_args.args[1]
-        self.assertIn("Analyse", prompt)  # the "deep" level hint reached the prompt
-
-    def test_notice_empty_when_questions_present(self):
-        reply = {
-            "questions": [
-                {
-                    "kind": "single_choice", "text": "Frage?",
-                    "options": [
-                        {"text": "a", "is_correct": True},
-                        {"text": "b", "is_correct": False},
-                    ],
-                }
-            ],
-            "unsuitable_reason": "ignored when questions exist",
-        }
-        with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json", return_value=reply
+            "rooms.views.generation.start_job"
         ):
             r = self.client.post(
                 self.url,
-                {"text": "Guter Stoff", "count": 3, "kinds": "single_choice"},
+                {"text": "asdfghjkl", "kinds": "single_choice", "level": "deep"},
             )
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(len(r.json()["questions"]), 1)
-        self.assertEqual(r.json()["notice"], "")
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.level, "deep")
 
     def test_unknown_level_falls_back_to_mixed(self):
-        reply = {"questions": [], "unsuitable_reason": ""}
+        from .models import GenerationJob
         with self.override_settings(**AI_ON), self.mock.patch(
-            "rooms.views.ai.chat_json", return_value=reply
-        ) as chat:
+            "rooms.views.generation.start_job"
+        ):
             r = self.client.post(
                 self.url,
-                {"text": "x", "count": 3, "kinds": "single_choice", "level": "bogus"},
+                {"text": "x", "kinds": "single_choice", "level": "bogus"},
             )
-        self.assertEqual(r.status_code, 200)
-        prompt = chat.call_args.args[1]
-        self.assertIn("Mische die kognitiven Ebenen", prompt)  # fell back to mixed
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.level, "mixed")
+
+
+class GenerationEndpointTests(ApiTestCase):
+    """Job create / status / active / cancel actions (worker itself mocked out)."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+
+        from django.test import override_settings
+        self.mock, self.override_settings = mock, override_settings
+        self.qs = QuestionSet.objects.create(room=self.room, title="T")
+        self.url = f"/api/question-sets/{self.qs.pk}/ai-generate/"
+
+    def test_post_creates_job_and_returns_id(self):
+        from .models import GenerationJob
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job") as start:
+            r = self.client.post(self.url, {"text": "Ein Materialtext.", "kinds": "open_text"})
+        self.assertEqual(r.status_code, 201)
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.source_text, "Ein Materialtext.")
+        start.assert_called_once()
+
+    def test_new_job_cancels_previous_active(self):
+        from .models import GenerationJob
+        old = GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.RUNNING,
+        )
+        with self.override_settings(**AI_ON), self.mock.patch("rooms.views.generation.start_job"):
+            self.client.post(self.url, {"text": "neu"})
+        old.refresh_from_db()
+        self.assertEqual(old.status, GenerationJob.Status.CANCELLED)
+
+    def test_status_and_active_and_cancel(self):
+        from .models import GenerationJob
+        job = GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            total_chunks=4, done_chunks=1, drafts=[{"kind": "open_text", "text": "F"}],
+            status=GenerationJob.Status.RUNNING,
+        )
+        with self.override_settings(**AI_ON):
+            s = self.client.get(f"{self.url}jobs/{job.pk}/")
+            a = self.client.get(f"{self.url}active/")
+            c = self.client.post(f"{self.url}jobs/{job.pk}/cancel/")
+        self.assertEqual(s.json()["done_chunks"], 1)
+        self.assertEqual(a.json()["id"], job.pk)
+        self.assertEqual(c.status_code, 200)
+        job.refresh_from_db()
+        self.assertEqual(job.status, GenerationJob.Status.CANCELLED)
 
 
 class OwnershipTests(ApiTestCase):
