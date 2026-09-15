@@ -27,7 +27,7 @@ _PUNCT = re.compile(r"[^\w\s]", re.UNICODE)
 
 
 def norm_question(text):
-    return _PUNCT.sub("", (text or "")).casefold().split().__str__()
+    return " ".join(_PUNCT.sub("", (text or "")).casefold().split())
 
 
 def merge_drafts(existing, new):

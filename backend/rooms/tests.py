@@ -3907,3 +3907,12 @@ class GenerationChunkingTests(TestCase):
         out = merge_drafts(existing, new)
         self.assertEqual([d["text"] for d in out],
                          ["Was ist Usability?", "Was ist Ergonomie?"])
+
+    def test_merge_drafts_skips_empty_text(self):
+        from .generation import merge_drafts, norm_question
+        self.assertEqual(norm_question(""), "")          # empty -> falsy key
+        out = merge_drafts([], [
+            {"kind": "open_text", "text": "   "},          # blank -> skipped
+            {"kind": "open_text", "text": "Echte Frage?"}, # kept
+        ])
+        self.assertEqual([d["text"] for d in out], ["Echte Frage?"])
