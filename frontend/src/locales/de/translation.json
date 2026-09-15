@@ -672,5 +672,13 @@
   "Generation was cancelled.": "Erzeugung abgebrochen.",
   "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet.",
   "Questions per page": "Fragen pro Seite",
-  "Covers the whole document; more per page means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen."
+  "Covers the whole document; more per page means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen.",
+  "Covers the whole document; more per page means more questions (at most {{max}}).": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen (höchstens {{max}}).",
+  "Review generated questions": "Erzeugte Fragen prüfen",
+  "Nothing to review.": "Nichts zu prüfen.",
+  "Review": "Prüfen",
+  "Try again": "Erneut versuchen",
+  "Questions are being generated …": "Fragen werden erzeugt …",
+  "Question generation failed.": "Fragenerzeugung fehlgeschlagen.",
+  "{{n}} questions were generated — review and use them now.": "{{n}} Fragen wurden erzeugt – jetzt prüfen und übernehmen."
 }

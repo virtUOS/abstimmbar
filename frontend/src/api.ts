@@ -20,6 +20,8 @@ export interface Whoami {
   language?: string;
   csrf_token?: string;
   ai_enabled?: boolean;
+  /** Safety cap on questions per generation run (AI_GEN_MAX_QUESTIONS). */
+  ai_generate_max_questions?: number;
   /** Content-i18n (#33 MR2): the deployment's canonical authoring language
    * and whether machine-translation pre-fill (LibreTranslate) is on. */
   content_default_language: string;

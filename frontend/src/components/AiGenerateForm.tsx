@@ -37,10 +37,13 @@ export default function AiGenerateForm({
   setId,
   onStarted,
   onClose,
+  maxQuestions,
 }: {
   setId: number;
   onStarted: () => void;
   onClose: () => void;
+  /** Safety cap on questions per run, shown so authors can gauge the amount. */
+  maxQuestions?: number;
 }) {
   const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(null);
@@ -139,7 +142,12 @@ export default function AiGenerateForm({
             </label>
           </div>
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            {t("Covers the whole document; more per page means more questions.")}
+            {maxQuestions
+              ? t(
+                  "Covers the whole document; more per page means more questions (at most {{max}}).",
+                  { max: maxQuestions },
+                )
+              : t("Covers the whole document; more per page means more questions.")}
           </p>
           <div className="flex flex-wrap items-center gap-3">
             {KIND_OPTIONS.map((option) => (

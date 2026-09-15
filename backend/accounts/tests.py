@@ -51,6 +51,9 @@ class WhoamiTests(TestCase):
             payload["content_default_language"], settings.MODELTRANSLATION_DEFAULT_LANGUAGE
         )
         self.assertFalse(payload["content_translation_enabled"])
+        self.assertEqual(
+            payload["ai_generate_max_questions"], settings.AI_GEN_MAX_QUESTIONS
+        )
 
     @override_settings(
         CONTENT_TRANSLATION_PROVIDER="libretranslate", LIBRETRANSLATE_URL="http://lt"
