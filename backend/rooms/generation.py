@@ -17,10 +17,11 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ai-gen")
 
 
 def chunk_text(text, *, chunk_chars, max_chunks):
-    """Split text at whitespace so the WHOLE document is covered: chunk size
-    grows (up to 2*chunk_chars) so everything fits in max_chunks. Returns
-    (chunks, truncated); truncated is True only when even the grown size
-    overflows max_chunks."""
+    """Split text at whitespace, growing the chunk size (up to 2*chunk_chars)
+    so a document up to roughly 2*chunk_chars*max_chunks is covered in one pass.
+    Returns (chunks, truncated); truncated is True when the (greedy) packing
+    still needs more than max_chunks chunks, in which case the tail is dropped
+    and the caller surfaces a notice — nothing is ever dropped silently."""
     words = text.split()
     total = sum(len(w) for w in words) + max(0, len(words) - 1)
     size = 2 * chunk_chars
