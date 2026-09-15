@@ -2,6 +2,7 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """Chunking, dedup and the background worker for async question generation."""
+import math
 import re
 from concurrent.futures import ThreadPoolExecutor
 
@@ -16,13 +17,18 @@ _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ai-gen")
 
 
 def chunk_text(text, *, chunk_chars, max_chunks):
-    """Split text into ~chunk_chars pieces at whitespace boundaries. Returns
-    (chunks, truncated); truncated is True when more than max_chunks pieces
-    would result (only the first max_chunks are returned)."""
+    """Split text at whitespace so the WHOLE document is covered: chunk size
+    grows (up to 2*chunk_chars) so everything fits in max_chunks. Returns
+    (chunks, truncated); truncated is True only when even the grown size
+    overflows max_chunks."""
     words = text.split()
+    total = sum(len(w) for w in words) + max(0, len(words) - 1)
+    size = 2 * chunk_chars
+    if max_chunks:
+        size = min(2 * chunk_chars, max(chunk_chars, math.ceil(total / max_chunks)))
     chunks, current, length = [], [], 0
     for word in words:
-        if current and length + 1 + len(word) > chunk_chars:
+        if current and length + 1 + len(word) > size:
             chunks.append(" ".join(current))
             current, length = [], 0
         current.append(word)
@@ -113,6 +119,9 @@ def run_generation_job(job_id):
             failed_chunks = 0
             done = 0
             drafts = list(job.drafts)
+            target = job.target_count or settings.AI_GEN_MAX_QUESTIONS
+            num = max(1, len(chunks))
+            per = max(1, round(target / num))
             for chunk in chunks:
                 status = (
                     GenerationJob.objects.filter(pk=job_id)
@@ -121,7 +130,6 @@ def run_generation_job(job_id):
                 )
                 if status == GenerationJob.Status.CANCELLED:
                     return
-                per = settings.AI_GEN_PER_CHUNK
                 try:
                     data = ai.chat_json(
                         ai_generate.generate_system(),
@@ -130,7 +138,7 @@ def run_generation_job(job_id):
                         ),
                     )
                     new = ai_generate.build_drafts(data, job.kinds, per)
-                    drafts = merge_drafts(drafts, new)[: settings.AI_GEN_POOL_MAX]
+                    drafts = merge_drafts(drafts, new)[:target]
                 except (ai.AIError, ValueError, KeyError, TypeError):
                     failed_chunks += 1
                 done += 1
@@ -139,7 +147,7 @@ def run_generation_job(job_id):
                 GenerationJob.objects.filter(pk=job_id).update(
                     drafts=drafts, done_chunks=done
                 )
-                if len(drafts) >= settings.AI_GEN_POOL_MAX:
+                if len(drafts) >= target:
                     break
             if failed_chunks:
                 extra = f" {failed_chunks} Abschnitt(e) konnten nicht ausgewertet werden."

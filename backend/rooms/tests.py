@@ -3927,7 +3927,7 @@ class GenerationChunkingTests(TestCase):
         chunks, truncated = chunk_text(text, chunk_chars=50, max_chunks=3)
         self.assertEqual(len(chunks), 3)
         self.assertTrue(truncated)
-        self.assertTrue(all(len(c) <= 60 for c in chunks))  # ~chunk_chars, no mid-word cut
+        self.assertTrue(all(len(c) <= 110 for c in chunks))  # grows up to 2*chunk_chars
         self.assertNotIn("  ", " ".join(chunks))
 
     def test_chunk_no_truncation_when_it_fits(self):
@@ -3935,6 +3935,25 @@ class GenerationChunkingTests(TestCase):
         chunks, truncated = chunk_text("a b c", chunk_chars=1000, max_chunks=40)
         self.assertEqual(chunks, ["a b c"])
         self.assertFalse(truncated)
+
+    def test_chunk_grows_to_cover_whole_doc_without_truncation(self):
+        from .generation import chunk_text
+        # 900 chars: more than max_chunks*chunk_chars (500) would hold at the
+        # base size, but within the 2*chunk_chars-grown budget (1000) — so
+        # growth is required, and is enough, to avoid truncation.
+        text = "w " * 450
+        chunks, truncated = chunk_text(text, chunk_chars=100, max_chunks=5)
+        self.assertFalse(truncated)
+        self.assertLessEqual(len(chunks), 5)
+        self.assertEqual("".join(c.replace(" ", "") for c in chunks),
+                         text.replace(" ", ""))  # nothing dropped
+
+    def test_chunk_truncates_only_beyond_grown_budget(self):
+        from .generation import chunk_text
+        text = "w " * 100000  # far over 2*chunk_chars*max_chunks
+        chunks, truncated = chunk_text(text, chunk_chars=100, max_chunks=5)
+        self.assertTrue(truncated)
+        self.assertEqual(len(chunks), 5)
 
     def test_merge_drafts_dedupes_by_normalised_text(self):
         from .generation import merge_drafts
@@ -4065,6 +4084,27 @@ class GenerationWorkerTests(TransactionTestCase):
             generation.run_generation_job(job.id)
         job.refresh_from_db()
         self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
+
+    def test_target_count_distributed_and_capped(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)  # 2 chunks at small size
+        job.target_count = 2
+        job.save(update_fields=["target_count"])
+        replies = [
+            {"questions": [{"kind": "open_text", "text": "F1"},
+                           {"kind": "open_text", "text": "F2"}]},
+            {"questions": [{"kind": "open_text", "text": "F3"}]},
+        ]
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=replies):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 2)  # capped at target_count
 
     def test_cancel_during_last_chunk_not_overwritten_with_done(self):
         from unittest import mock
