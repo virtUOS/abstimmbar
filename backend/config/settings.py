@@ -210,8 +210,9 @@ AI_MODEL = os.environ.get("AI_MODEL", "")
 AI_TIMEOUT = _int_or_default("AI_TIMEOUT", 30)
 AI_MAX_TOKENS = _int_or_default("AI_MAX_TOKENS", 2000)
 AI_DISABLE_THINKING = os.environ.get("AI_DISABLE_THINKING", "1") == "1"
-
 # Chunked async question generation over long documents (see rooms.GenerationJob).
+# The whole document is processed in chunks (superseding the old single-shot
+# AI_DOC_MAX_CHARS cap), so the effective ceiling is AI_CHUNK_CHARS * (AI_GEN_MAX_CHUNKS + 1).
 AI_CHUNK_CHARS = _int_or_default("AI_CHUNK_CHARS", 12000)
 AI_GEN_MAX_CHUNKS = _int_or_default("AI_GEN_MAX_CHUNKS", 40)
 AI_GEN_PER_CHUNK = _int_or_default("AI_GEN_PER_CHUNK", 3)
