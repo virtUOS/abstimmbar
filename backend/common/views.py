@@ -119,6 +119,28 @@ class SiteLogoView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class AdminStatsView(APIView):
+    """Staff-only JSON metrics for the React admin stats page (task 3 of the
+    admin-stats-prometheus feature). Thin wrapper around ``common.stats``."""
+
+    permission_classes: ClassVar = [IsAdmin]
+
+    def get(self, request):
+        import datetime
+
+        from django.utils import timezone
+
+        from . import stats
+
+        try:
+            days = int(request.query_params.get("days", 30))
+        except (TypeError, ValueError):
+            days = 30
+        days = max(1, min(365, days))
+        since = timezone.localdate() - datetime.timedelta(days=days - 1)
+        return Response({"totals": stats.totals(), "daily": stats.daily(since), "days": days})
+
+
 class ManagePageViewSet(viewsets.ModelViewSet):
     queryset = Page.objects.all()
     serializer_class = PageManageSerializer

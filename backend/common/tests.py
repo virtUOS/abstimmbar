@@ -636,3 +636,36 @@ class StatsDailyTests(TestCase):
         self.assertEqual(d["runs_by_type"][-1]["self_check"], 0)
         self.assertEqual(d["sessions_by_mode"][-1]["easy"], 2)
         self.assertEqual(d["sessions_by_mode"][-1]["pro"], 1)
+
+
+class AdminStatsEndpointTests(TestCase):
+    """GET /api/admin/stats/ — staff-only wrapper around common.stats."""
+
+    def test_requires_staff(self):
+        r = self.client.get("/api/admin/stats/")
+        self.assertIn(r.status_code, (401, 403))
+
+        user = User.objects.create_user(username="plain")
+        self.client.force_login(user)
+        self.assertEqual(self.client.get("/api/admin/stats/").status_code, 403)
+
+    def test_staff_gets_totals_and_daily(self):
+        staff = User.objects.create_user(username="chef", is_staff=True)
+        self.client.force_login(staff)
+        body = self.client.get("/api/admin/stats/?days=7").json()
+        self.assertIn("totals", body)
+        self.assertIn("daily", body)
+        self.assertEqual(len(body["daily"]["rooms"]), 7)
+        self.assertEqual(body["days"], 7)
+
+    def test_days_clamped_to_max(self):
+        staff = User.objects.create_user(username="chef2", is_staff=True)
+        self.client.force_login(staff)
+        body = self.client.get("/api/admin/stats/?days=9999").json()
+        self.assertEqual(body["days"], 365)
+
+    def test_invalid_days_falls_back_to_default(self):
+        staff = User.objects.create_user(username="chef3", is_staff=True)
+        self.client.force_login(staff)
+        body = self.client.get("/api/admin/stats/?days=abc").json()
+        self.assertEqual(body["days"], 30)
