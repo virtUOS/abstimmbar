@@ -349,6 +349,8 @@ export interface SessionsPoint {
 }
 export interface AdminStats {
   days: number;
+  from: string;
+  to: string;
   totals: {
     rooms: number;
     rooms_lti: number;
@@ -358,6 +360,7 @@ export interface AdminStats {
     runs_by_type: Record<string, number>;
     participants: number;
     questions_run: number;
+    sessions_by_mode: { easy: number; pro: number };
   };
   daily: {
     rooms: DailyPoint[];
@@ -486,9 +489,18 @@ export const api = {
   getDataCollection: () => request<DataCollection>("/api/data-collection/"),
 
   // --- site content (staff management) ---
-  /** Admin usage statistics (staff-only); `days` window for the time series. */
-  adminStats: (days = 30) =>
-    request<AdminStats>(`/api/admin/stats/?days=${days}`),
+  /** Admin usage statistics (staff-only). Pass `{days}` for a window ending
+   *  today, or an explicit `{from, to}` ISO date range. */
+  adminStats: (opts: { days?: number; from?: string; to?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.from) {
+      params.set("from", opts.from);
+      if (opts.to) params.set("to", opts.to);
+    } else {
+      params.set("days", String(opts.days ?? 30));
+    }
+    return request<AdminStats>(`/api/admin/stats/?${params.toString()}`);
+  },
   getManageSite: () => request<ManageSite>("/api/manage/site/"),
   updateSite: (patch: {
     landing_text: LocalizedText;

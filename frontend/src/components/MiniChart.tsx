@@ -1,105 +1,86 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-/** Tiny inline-SVG chart (bars or lines) for the admin statistics — no chart
- * library. Series carry literal Tailwind fill-/stroke- classes so the JIT
- * picks them up and they stay theme-aware. */
+/** Inline-SVG bar chart for the admin statistics — no chart library. One
+ * series draws plain daily bars; several series draw stacked bars (with a
+ * legend). Colours come from literal Tailwind fill-/bg- classes so the JIT
+ * emits them and they stay theme-aware. */
 import { useTranslation } from "react-i18next";
 
 export interface ChartSeries {
   label: string;
-  /** Literal Tailwind classes, e.g. "fill-brand-500" (bar) or "stroke-brand-500" (line). */
-  className: string;
+  /** Literal Tailwind bar fill, e.g. "fill-brand-500". */
+  fillClass: string;
+  /** Literal Tailwind legend-dot background, e.g. "bg-brand-500". */
+  dotClass: string;
   points: { date: string; value: number }[];
 }
-
-const VIEW_W = 300;
-
-// Literal legend-dot classes per line color (so Tailwind's JIT emits them —
-// a runtime string replace would produce classes it never sees in source).
-const DOT_CLASS: Record<string, string> = {
-  "stroke-brand-500": "bg-brand-500",
-  "stroke-sky-500": "bg-sky-500",
-  "stroke-amber-500": "bg-amber-500",
-};
 
 export default function MiniChart({
   title,
   series,
-  type,
-  height = 110,
+  height = 130,
 }: {
   title: string;
   series: ChartSeries[];
-  type: "bar" | "line";
   height?: number;
 }) {
   const { t } = useTranslation();
   const n = Math.max(1, series[0]?.points.length ?? 0);
-  const max = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
+  const dayTotals = Array.from({ length: n }, (_, i) =>
+    series.reduce((sum, s) => sum + (s.points[i]?.value ?? 0), 0),
+  );
+  const max = Math.max(1, ...dayTotals);
+  const VIEW_W = 600;
   const pad = 3;
   const innerW = VIEW_W - pad * 2;
   const innerH = height - pad * 2;
-  const xAt = (i: number) => pad + (n <= 1 ? innerW / 2 : (i / (n - 1)) * innerW);
-  const yAt = (v: number) => pad + innerH - (v / max) * innerH;
+  const slot = innerW / n;
+  const bw = slot * 0.72;
   const first = series[0]?.points[0]?.date ?? "";
   const last = series[0]?.points[n - 1]?.date ?? "";
-  const latestTotal = series.reduce((sum, s) => sum + (s.points[n - 1]?.value ?? 0), 0);
+  const grandTotal = dayTotals.reduce((a, b) => a + b, 0);
 
   return (
     <div>
       <div className="mb-1 flex items-baseline justify-between">
         <span className="text-sm font-medium text-slate-700 dark:text-slate-200">{title}</span>
-        <span className="text-xs text-slate-400">max {max}</span>
+        <span className="text-xs text-slate-400">
+          {t("total {{n}}", { n: grandTotal })} · max {max}
+        </span>
       </div>
       <svg
         viewBox={`0 0 ${VIEW_W} ${height}`}
         preserveAspectRatio="none"
-        className="h-[110px] w-full"
+        className="w-full"
         style={{ height }}
         role="img"
         aria-label={title}
       >
-        {type === "bar"
-          ? series[0]?.points.map((p, i) => {
-              const bw = (innerW / n) * 0.7;
-              const bx = pad + (i / n) * innerW + (innerW / n - bw) / 2;
-              const by = yAt(p.value);
-              return (
-                <rect
-                  key={i}
-                  x={bx}
-                  y={by}
-                  width={bw}
-                  height={height - pad - by}
-                  className={series[0].className}
-                  rx={1}
-                />
-              );
-            })
-          : series.map((s, si) => (
-              <polyline
-                key={si}
-                points={s.points.map((p, i) => `${xAt(i)},${yAt(p.value)}`).join(" ")}
-                className={`${s.className} fill-none`}
-                strokeWidth={2}
-                vectorEffect="non-scaling-stroke"
-              />
-            ))}
+        {Array.from({ length: n }).map((_, i) => {
+          const bx = pad + i * slot + (slot - bw) / 2;
+          let yBottom = height - pad;
+          return series.map((s, si) => {
+            const v = s.points[i]?.value ?? 0;
+            const h = (v / max) * innerH;
+            yBottom -= h;
+            return h > 0 ? (
+              <rect key={`${i}-${si}`} x={bx} y={yBottom} width={bw} height={h} className={s.fillClass} rx={0.5} />
+            ) : null;
+          });
+        })}
       </svg>
       <div className="mt-1 flex items-center justify-between text-xs text-slate-400">
         <span>{first?.slice(5)}</span>
-        {type === "line" && series.length > 1 ? (
-          <span className="flex gap-3">
+        {series.length > 1 && (
+          <span className="flex flex-wrap justify-center gap-x-3 gap-y-0.5">
             {series.map((s) => (
               <span key={s.label} className="flex items-center gap-1">
-                <span className={`inline-block h-2 w-2 rounded-full ${DOT_CLASS[s.className] ?? "bg-slate-400"}`} />
+                <span className={`inline-block h-2 w-2 rounded-full ${s.dotClass}`} />
                 {s.label}
               </span>
             ))}
           </span>
-        ) : (
-          <span>{t("Σ today {{n}}", { n: latestTotal })}</span>
         )}
         <span>{last?.slice(5)}</span>
       </div>

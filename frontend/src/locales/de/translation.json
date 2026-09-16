@@ -706,5 +706,12 @@
   "Participants per day": "Teilnehmende pro Tag",
   "Presented sets per day": "Durchgeführte Sets pro Tag",
   "Sessions per day by mode": "Sessions pro Tag nach Modus",
-  "Σ today {{n}}": "Σ heute {{n}}"
+  "Σ today {{n}}": "Σ heute {{n}}",
+  "Admin section": "Admin-Bereich",
+  "Overview (all time)": "Überblick (gesamt)",
+  "Over time": "Zeitverlauf",
+  "Sessions by mode": "Sessions nach Modus",
+  "From": "Von",
+  "To": "Bis",
+  "total {{n}}": "gesamt {{n}}"
 }
