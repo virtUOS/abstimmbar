@@ -331,6 +331,44 @@ export interface DataCollection {
   not_collected: string[];
 }
 
+/** Admin usage statistics (staff-only). */
+export interface DailyPoint {
+  date: string;
+  n: number;
+}
+export interface RunsByTypePoint {
+  date: string;
+  live_poll: number;
+  self_paced: number;
+  self_check: number;
+}
+export interface SessionsPoint {
+  date: string;
+  easy: number;
+  pro: number;
+}
+export interface AdminStats {
+  days: number;
+  totals: {
+    rooms: number;
+    rooms_lti: number;
+    users: number;
+    sets_by_type: Record<string, number>;
+    questions_by_kind: Record<string, number>;
+    runs_by_type: Record<string, number>;
+    participants: number;
+    questions_run: number;
+  };
+  daily: {
+    rooms: DailyPoint[];
+    users: DailyPoint[];
+    participants: DailyPoint[];
+    questions_run: DailyPoint[];
+    runs_by_type: RunsByTypePoint[];
+    sessions_by_mode: SessionsPoint[];
+  };
+}
+
 export interface ManageSite {
   landing_text: LocalizedText;
   /** Sanitized HTML shown to participants on every room's closing screen (#24). */
@@ -448,6 +486,9 @@ export const api = {
   getDataCollection: () => request<DataCollection>("/api/data-collection/"),
 
   // --- site content (staff management) ---
+  /** Admin usage statistics (staff-only); `days` window for the time series. */
+  adminStats: (days = 30) =>
+    request<AdminStats>(`/api/admin/stats/?days=${days}`),
   getManageSite: () => request<ManageSite>("/api/manage/site/"),
   updateSite: (patch: {
     landing_text: LocalizedText;
