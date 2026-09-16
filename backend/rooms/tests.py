@@ -2790,6 +2790,24 @@ class GenerationEndpointTests(ApiTestCase):
         self.assertGreaterEqual(job.pages, 1)
         self.assertEqual(job.target_count, max(1, round(0.5 * job.pages)))
 
+    def test_start_stores_focus_within_kinds_and_drops_if_all(self):
+        from .models import GenerationJob
+        with self.override_settings(**AI_ON), self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {
+                "text": "Stoff", "kinds": "single_choice,multiple_choice,open_text",
+                "focus": "single_choice,open_text,likert",  # likert not a kind → dropped
+            })
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(sorted(job.focus_kinds), ["open_text", "single_choice"])
+        # Focus covering all selected kinds is dropped (no priority).
+        with self.override_settings(**AI_ON), self.mock.patch("rooms.views.generation.start_job"):
+            r2 = self.client.post(self.url, {
+                "text": "Stoff", "kinds": "single_choice,open_text",
+                "focus": "single_choice,open_text",
+            })
+        job2 = GenerationJob.objects.get(pk=r2.json()["job_id"])
+        self.assertEqual(job2.focus_kinds, [])
+
     def test_active_generation_is_user_scoped_and_prioritises_running(self):
         from .models import GenerationJob
         other_qs = QuestionSet.objects.create(room=self.room, title="Other")
@@ -3341,6 +3359,26 @@ class AiGenerateLevelsTests(TestCase):
     def test_prompt_declares_unsuitable_reason_contract(self):
         p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
         self.assertIn("unsuitable_reason", p)
+
+    def test_prompt_focus_emphasises_marked_types(self):
+        kinds = ["single_choice", "multiple_choice", "open_text"]
+        p = ai_generate.build_generate_prompt(
+            "Stoff", 5, kinds, "mixed", focus_kinds=["single_choice", "open_text"]
+        )
+        self.assertIn("Schwerpunkt", p)
+        self.assertIn("Single Choice", p)
+        self.assertIn("Freitext", p)
+
+    def test_prompt_focus_ignored_when_it_covers_all_kinds(self):
+        kinds = ["single_choice", "open_text"]
+        p = ai_generate.build_generate_prompt(
+            "Stoff", 5, kinds, "mixed", focus_kinds=kinds
+        )
+        self.assertNotIn("Lege den Schwerpunkt", p)
+
+    def test_prompt_without_focus_has_no_focus_sentence(self):
+        p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
+        self.assertNotIn("Lege den Schwerpunkt", p)
 
     def test_true_false_draft_normalised_to_single_choice(self):
         data = {"questions": [

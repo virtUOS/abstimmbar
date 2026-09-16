@@ -17,6 +17,13 @@ KIND_LABELS = {
     ),
     "open_text": "Freitext (offene Antwort, keine Optionen)",
 }
+# Short names for the focus/priority sentence (KIND_LABELS are too verbose there).
+KIND_SHORT = {
+    "single_choice": "Single Choice",
+    "multiple_choice": "Multiple Choice",
+    "true_false": "Wahr/Falsch",
+    "open_text": "Freitext",
+}
 TEXT_MAX = 1000
 OPTION_MAX = 500
 MAX_OPTIONS = 8
@@ -61,10 +68,23 @@ def generate_system():
     )
 
 
-def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
+def build_generate_prompt(
+    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=()
+):
     allowed = [k for k in ALLOWED_KINDS if k in kinds] or list(ALLOWED_KINDS)
     kind_lines = "\n".join(f"- {k}: {KIND_LABELS[k]}" for k in allowed)
     hint = _LEVEL_HINTS.get(level, _LEVEL_HINTS[DEFAULT_LEVEL])
+    # Optional focus (#…): the teacher can mark some allowed types as the
+    # priority. Only a *soft* emphasis, and only when at least one allowed type
+    # stays non-focus (an all-focus set carries no priority, so it's ignored).
+    focus = [k for k in allowed if k in (focus_kinds or ())]
+    focus_block = ""
+    if focus and len(focus) < len(allowed):
+        names = ", ".join(KIND_SHORT[k] for k in focus)
+        focus_block = (
+            f"Lege den Schwerpunkt auf folgende Fragetypen: {names}. Erzeuge "
+            "überwiegend diese; die übrigen erlaubten Typen nur ergänzend.\n\n"
+        )
     # Optional free-text wishes from the teacher (#84). They steer emphasis
     # and style but must not override the material-fidelity and JSON rules
     # above, so they are framed explicitly as subordinate.
@@ -77,6 +97,7 @@ def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
         )
     return (
         f"Erzeuge bis zu {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
+        f"{focus_block}"
         f"Kognitive Ausrichtung: {hint}\n\n"
         f"{guidance_block}"
         "Material:\n"

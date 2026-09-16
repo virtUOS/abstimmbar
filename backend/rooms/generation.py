@@ -135,7 +135,8 @@ def run_generation_job(job_id):
                     data = ai.chat_json(
                         ai_generate.generate_system(),
                         ai_generate.build_generate_prompt(
-                            chunk, per, job.kinds, job.level, job.guidance
+                            chunk, per, job.kinds, job.level, job.guidance,
+                            focus_kinds=job.focus_kinds,
                         ),
                     )
                     new = ai_generate.build_drafts(data, job.kinds, per)

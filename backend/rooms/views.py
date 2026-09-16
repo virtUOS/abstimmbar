@@ -598,6 +598,14 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         kinds = [k for k in kinds if k in ai_generate.ALLOWED_KINDS] or list(
             ai_generate.ALLOWED_KINDS
         )
+        # Optional priority (#…): a subset of the chosen kinds to emphasise.
+        # Constrained to the selected kinds; dropped if it would cover all of
+        # them (an all-focus set carries no priority).
+        raw_focus = request.data.get("focus") or ""
+        focus_kinds = [k.strip() for k in str(raw_focus).split(",") if k.strip()]
+        focus_kinds = [k for k in focus_kinds if k in kinds]
+        if len(focus_kinds) >= len(kinds):
+            focus_kinds = []
         level = request.data.get("level")
         if level not in ai_generate.LEVELS:
             level = ai_generate.DEFAULT_LEVEL
@@ -615,7 +623,8 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         target = max(1, min(round(density * pages), settings.AI_GEN_MAX_QUESTIONS))
         job = GenerationJob.objects.create(
             question_set=self.get_object(), created_by=request.user,
-            source_text=text, source_chars=len(text), kinds=kinds, level=level, guidance=guidance,
+            source_text=text, source_chars=len(text), kinds=kinds, focus_kinds=focus_kinds,
+            level=level, guidance=guidance,
             pages=pages, density=density, target_count=target,
         )
         generation.start_job(job)

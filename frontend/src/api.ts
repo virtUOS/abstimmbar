@@ -645,6 +645,8 @@ export const api = {
       text?: string;
       density: number;
       kinds: string[];
+      /** Subset of `kinds` to emphasise (soft priority in the AI prompt). */
+      focus?: string[];
       level: string;
       guidance?: string;
     },
@@ -654,6 +656,7 @@ export const api = {
     if (opts.text) body.append("text", opts.text);
     body.append("density", String(opts.density));
     body.append("kinds", opts.kinds.join(","));
+    if (opts.focus && opts.focus.length) body.append("focus", opts.focus.join(","));
     body.append("level", opts.level);
     if (opts.guidance?.trim()) body.append("guidance", opts.guidance.trim());
     return request<{ job_id: number }>(

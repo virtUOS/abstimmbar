@@ -681,5 +681,10 @@
   "Question generation failed.": "Fragenerzeugung fehlgeschlagen.",
   "{{n}} questions were generated — review and use them now.": "{{n}} Fragen wurden erzeugt – jetzt prüfen und übernehmen.",
   "To the set": "Zum Set",
-  "{{n}} questions for “{{title}}” generated — review now.": "{{n}} Fragen für „{{title}}“ erzeugt – jetzt prüfen."
+  "{{n}} questions for “{{title}}” generated — review now.": "{{n}} Fragen für „{{title}}“ erzeugt – jetzt prüfen.",
+  "Set as focus": "Als Schwerpunkt setzen",
+  "Remove focus": "Schwerpunkt entfernen",
+  "At least one question type must stay without focus.": "Mindestens ein Fragetyp muss ohne Schwerpunkt bleiben.",
+  "★ marks a focus type — the AI then generates preferentially those.": "★ markiert einen Schwerpunkt-Typ — die KI erzeugt dann bevorzugt diese.",
+  "★ marks a focus type (generated preferentially). At least one type must stay without focus.": "★ markiert einen Schwerpunkt-Typ (wird bevorzugt erzeugt). Mindestens ein Typ muss ohne Schwerpunkt bleiben."
 }
