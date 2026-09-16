@@ -700,3 +700,28 @@ class AdminStatsEndpointTests(TestCase):
         self.client.force_login(staff)
         body = self.client.get("/api/admin/stats/?days=abc").json()
         self.assertEqual(body["days"], 30)
+
+    def test_explicit_from_to_range(self):
+        import datetime
+        from django.utils import timezone
+        staff = User.objects.create_user(username="chef4", is_staff=True)
+        self.client.force_login(staff)
+        to = timezone.localdate()
+        frm = to - datetime.timedelta(days=9)
+        body = self.client.get(
+            f"/api/admin/stats/?from={frm.isoformat()}&to={to.isoformat()}"
+        ).json()
+        self.assertEqual(body["from"], frm.isoformat())
+        self.assertEqual(body["to"], to.isoformat())
+        self.assertEqual(body["days"], 10)
+        self.assertEqual(len(body["daily"]["rooms"]), 10)
+
+    def test_totals_sessions_by_mode(self):
+        from accounts.models import DailyModeSession
+        from django.utils import timezone
+        from common import stats
+        today = timezone.localdate()
+        DailyModeSession.objects.create(session_key="a", date=today, mode="easy")
+        DailyModeSession.objects.create(session_key="b", date=today, mode="pro")
+        DailyModeSession.objects.create(session_key="c", date=today, mode="easy")
+        self.assertEqual(stats.totals()["sessions_by_mode"], {"easy": 2, "pro": 1})

@@ -135,13 +135,37 @@ class AdminStatsView(APIView):
 
         from . import stats
 
-        try:
-            days = int(request.query_params.get("days", 30))
-        except (TypeError, ValueError):
-            days = 30
-        days = max(1, min(365, days))
-        since = timezone.localdate() - datetime.timedelta(days=days - 1)
-        return Response({"totals": stats.totals(), "daily": stats.daily(since), "days": days})
+        today = timezone.localdate()
+
+        def _parse(value):
+            try:
+                return datetime.date.fromisoformat(value)
+            except (TypeError, ValueError):
+                return None
+
+        # Explicit from/to range wins; otherwise a `days` window ending today.
+        frm = _parse(request.query_params.get("from"))
+        to = _parse(request.query_params.get("to"))
+        if frm:
+            until = min(to or today, today)
+            since = min(frm, until)
+            # Cap the window so a huge range can't hammer the DB.
+            since = max(since, until - datetime.timedelta(days=365))
+        else:
+            try:
+                days = int(request.query_params.get("days", 30))
+            except (TypeError, ValueError):
+                days = 30
+            days = max(1, min(365, days))
+            until = today
+            since = today - datetime.timedelta(days=days - 1)
+        return Response({
+            "totals": stats.totals(),
+            "daily": stats.daily(since, until),
+            "from": since.isoformat(),
+            "to": until.isoformat(),
+            "days": (until - since).days + 1,
+        })
 
 
 def _esc(label_value):
