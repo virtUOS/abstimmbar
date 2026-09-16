@@ -110,6 +110,8 @@ services:
       AI_TIMEOUT: ${AI_TIMEOUT:-30}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
       AI_DISABLE_THINKING: ${AI_DISABLE_THINKING:-1}
+      # Prometheus /metrics scrape token (unset = endpoint off / 404).
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
       # Content translation (#33 MR2). Canonical language of authored content;
       # optional LibreTranslate pre-fill in the editor (off unless configured).
       CONTENT_DEFAULT_LANGUAGE: ${CONTENT_DEFAULT_LANGUAGE:-de}

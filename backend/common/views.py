@@ -3,6 +3,7 @@
 
 """Site-content API: public reads (branding, landing text, footer pages,
 data-collection registry) and staff-only management."""
+import hmac
 from typing import ClassVar
 
 from django.conf import settings
@@ -205,7 +206,7 @@ class MetricsView(APIView):
         if not token:
             raise Http404()
         header = request.META.get("HTTP_AUTHORIZATION", "")
-        if header != f"Bearer {token}":
+        if not hmac.compare_digest(header, f"Bearer {token}"):
             return HttpResponse(status=401)
         return HttpResponse(
             render_prometheus(),
