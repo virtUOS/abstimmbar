@@ -353,6 +353,23 @@ class DailyModeSessionTests(TestCase):
         self.client.get("/api/whoami/")
         self.assertEqual(DailyModeSession.objects.get().mode, "easy")
 
+    @override_settings(**LT_OFF)
+    def test_stores_hash_not_raw_session_key(self):
+        # Privacy: the raw session key is a live credential — we store only a
+        # one-way SHA-256 hash so the stats table can never re-authenticate a
+        # session, while (hash, date) stays unique for the per-day count.
+        import hashlib
+
+        from accounts.models import DailyModeSession
+        user = User.objects.create_user(username="stat4")
+        self.client.force_login(user)
+        self.client.get("/api/whoami/")
+        raw_key = self.client.session.session_key
+        stored = DailyModeSession.objects.get().session_hash
+        self.assertNotEqual(stored, raw_key)
+        self.assertEqual(stored, hashlib.sha256(raw_key.encode()).hexdigest())
+        self.assertEqual(len(stored), 64)
+
 
 class OidcCallbackReplayTests(TestCase):
     """A Back press right after login replays the spent code/state, which
@@ -374,3 +391,49 @@ class OidcCallbackReplayTests(TestCase):
         # a redirect (never a 400/error page).
         response = self.client.get("/oidc/callback/?code=abc&state=stale")
         self.assertEqual(response.status_code, 302)
+
+
+class PruneModeSessionsCommandTests(TestCase):
+    """The ``prune_mode_sessions`` retention command drops stats rows older
+    than the cutoff so the table never grows unbounded (one row per session
+    per day)."""
+
+    def _make(self, days_ago, suffix):
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        from accounts.models import DailyModeSession
+        return DailyModeSession.objects.create(
+            session_hash=f"hash-{suffix}",
+            date=timezone.localdate() - timedelta(days=days_ago),
+            mode="pro",
+        )
+
+    def test_deletes_rows_older_than_default_cutoff(self):
+        from django.core.management import call_command
+
+        from accounts.models import DailyModeSession
+        self._make(401, "old")     # beyond default 400-day window → pruned
+        self._make(399, "recent")  # inside the window → kept
+        call_command("prune_mode_sessions")
+        remaining = list(DailyModeSession.objects.values_list("session_hash", flat=True))
+        self.assertEqual(remaining, ["hash-recent"])
+
+    def test_boundary_row_at_cutoff_is_kept(self):
+        from django.core.management import call_command
+
+        from accounts.models import DailyModeSession
+        self._make(400, "edge")  # exactly N days old → kept (strictly older is pruned)
+        call_command("prune_mode_sessions")
+        self.assertEqual(DailyModeSession.objects.count(), 1)
+
+    def test_days_option_overrides_default(self):
+        from django.core.management import call_command
+
+        from accounts.models import DailyModeSession
+        self._make(31, "old")
+        self._make(29, "recent")
+        call_command("prune_mode_sessions", days=30)
+        remaining = list(DailyModeSession.objects.values_list("session_hash", flat=True))
+        self.assertEqual(remaining, ["hash-recent"])

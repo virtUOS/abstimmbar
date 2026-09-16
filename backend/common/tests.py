@@ -630,9 +630,9 @@ class StatsDailyTests(TestCase):
         self.assertEqual(Vote.objects.count(), 4)  # raw > both distinct counts below
 
         today = timezone.localdate()
-        DailyModeSession.objects.create(session_key="s1", date=today, mode="easy")
-        DailyModeSession.objects.create(session_key="s2", date=today, mode="easy")
-        DailyModeSession.objects.create(session_key="s3", date=today, mode="pro")
+        DailyModeSession.objects.create(session_hash="s1", date=today, mode="easy")
+        DailyModeSession.objects.create(session_hash="s2", date=today, mode="easy")
+        DailyModeSession.objects.create(session_hash="s3", date=today, mode="pro")
 
         since = today - datetime.timedelta(days=6)
         d = stats.daily(since)
@@ -733,7 +733,7 @@ class AdminStatsEndpointTests(TestCase):
         from django.utils import timezone
         from common import stats
         today = timezone.localdate()
-        DailyModeSession.objects.create(session_key="a", date=today, mode="easy")
-        DailyModeSession.objects.create(session_key="b", date=today, mode="pro")
-        DailyModeSession.objects.create(session_key="c", date=today, mode="easy")
+        DailyModeSession.objects.create(session_hash="a", date=today, mode="easy")
+        DailyModeSession.objects.create(session_hash="b", date=today, mode="pro")
+        DailyModeSession.objects.create(session_hash="c", date=today, mode="easy")
         self.assertEqual(stats.totals()["sessions_by_mode"], {"easy": 2, "pro": 1})

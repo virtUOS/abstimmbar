@@ -320,6 +320,35 @@ Start im **neuen Fenster**. Nur für iframe-Betrieb in `.env`
   Neustart.
 - **DB-Verbindungen:** Der psycopg-Pool (settings.py) deckelt bei 20
   Verbindungen; PostgreSQLs Default (100) braucht keine Anpassung.
+- **Modus-Statistik (Datenschutz):** Für die Kennzahl „Sitzungen pro Tag
+  nach Easy/Pro-Modus“ legt `whoami` je Sitzung und Tag eine Zeile in
+  `DailyModeSession` an — gespeichert wird nur ein SHA-256-Hash des
+  Session-Keys (nie der rohe Key), passend zur Anonymitäts-Zusage. Die
+  Tabelle wächst dadurch pro Tag um grob eine Zeile je aktiver Sitzung;
+  siehe „Retention“ unten.
+
+## Retention der Modus-Statistik
+
+Die Tabelle `DailyModeSession` wächst kontinuierlich. Ein
+Management-Command löscht Zeilen, die älter als N Tage sind (Default 400,
+also gut ein akademisches Jahr Vorlauf):
+
+```bash
+cd /opt/abstimmbar
+P="sudo docker compose -f docker-compose.prod.yml"
+$P exec backend python manage.py prune_mode_sessions            # Default: 400 Tage
+$P exec backend python manage.py prune_mode_sessions --days 180 # kürzeres Fenster
+```
+
+Empfohlen als wöchentlicher Cron-Job auf dem Host, z. B. in
+`/etc/cron.d/abstimmbar-prune` (Sonntag 03:30):
+
+```cron
+30 3 * * 0 root cd /opt/abstimmbar && docker compose -f docker-compose.prod.yml exec -T backend python manage.py prune_mode_sessions >/dev/null 2>&1
+```
+
+Der Job ist optional — er hält nur die Tabelle klein; ohne ihn bleibt die
+Anwendung funktionsfähig, sammelt aber unbegrenzt (gehashte) Zeilen.
 
 ## Alltagskommandos
 
@@ -334,8 +363,9 @@ $P down               # alles stoppen
 $P up -d --build      # starten / Änderungen übernehmen
 ```
 
-Geplante Cron-Jobs braucht Abstimmbar nicht — es gibt keine periodischen
-Wartungsaufgaben.
+Einen periodischen Job gibt es: die optionale Retention der
+Modus-Statistik (siehe Abschnitt „Retention der Modus-Statistik“). Sonst
+braucht Abstimmbar keine geplanten Wartungsaufgaben.
 
 ## Updates einspielen
 
