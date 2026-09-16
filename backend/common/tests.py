@@ -465,3 +465,90 @@ class RenderMarkdownAllowlistTests(TestCase):
 
     def test_markdown_empty_returns_empty(self):
         self.assertEqual(render_markdown(""), "")
+
+
+class StatsTotalsTests(TestCase):
+    """common.stats.totals() — current counts across the domain models."""
+
+    def test_totals_counts(self):
+        from basicbar_lti.models import LtiPlatform
+        from lti.models import LtiContextLink
+        from live.models import ParticipantToken, Run, Vote
+        from rooms.models import Question, QuestionSet, Room
+
+        from common import stats
+
+        lti_room = Room.objects.create(title="LTI room")
+        plain_room = Room.objects.create(title="Plain room")
+
+        platform = LtiPlatform.objects.create(
+            name="LMS", issuer="https://lms.example.org", client_id="c",
+            auth_login_url="https://lms.example.org/auth",
+            auth_token_url="https://lms.example.org/token",
+            key_set={"keys": []}, deployment_ids=["d1"],
+        )
+        LtiContextLink.objects.create(platform=platform, context_id="ctx1", room=lti_room)
+
+        User.objects.create_user(username="lecturer")
+
+        live_set = QuestionSet.objects.create(
+            room=lti_room, title="Live set", type=QuestionSet.SetType.LIVE_POLL
+        )
+        QuestionSet.objects.create(
+            room=plain_room, title="Self-paced set", type=QuestionSet.SetType.SELF_PACED
+        )
+
+        questions = {}
+        for kind in Question.Kind.values:
+            questions[kind] = Question.objects.create(
+                question_set=live_set, kind=kind, text=f"Question ({kind})"
+            )
+
+        run = Run.objects.create(question_set=live_set)
+
+        token1 = ParticipantToken.objects.create(room=lti_room)
+        token2 = ParticipantToken.objects.create(room=lti_room)
+
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.SINGLE_CHOICE], token=token1
+        )
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.MULTIPLE_CHOICE], token=token2
+        )
+
+        t = stats.totals()
+        self.assertEqual(t["rooms"], 2)
+        self.assertEqual(t["rooms_lti"], 1)
+        self.assertEqual(t["users"], 1)
+        self.assertEqual(t["sets_by_type"]["live_poll"], 1)
+        self.assertEqual(t["sets_by_type"]["self_paced"], 1)
+        self.assertEqual(t["sets_by_type"]["self_check"], 0)
+        self.assertEqual(set(t["questions_by_kind"]), set(Question.Kind.values))
+        self.assertEqual(t["questions_by_kind"]["single_choice"], 1)
+        self.assertEqual(t["runs_by_type"]["live_poll"], 1)
+        self.assertEqual(t["participants"], 2)
+        self.assertEqual(t["questions_run"], 2)
+
+
+class StatsDailyTests(TestCase):
+    """common.stats.daily(since) — dense per-day time series."""
+
+    def test_daily_rooms_bucketed_and_dense(self):
+        import datetime
+
+        from django.utils import timezone
+
+        from rooms.models import Room
+
+        from common import stats
+
+        Room.objects.create(title="Room A")
+        Room.objects.create(title="Room B")
+
+        since = timezone.localdate() - datetime.timedelta(days=6)
+        d = stats.daily(since)
+
+        self.assertEqual(len(d["rooms"]), 7)
+        self.assertEqual(d["rooms"][-1]["n"], 2)
+        self.assertTrue(all("date" in row for row in d["rooms"]))
+        self.assertEqual(d["rooms"][-1]["date"], timezone.localdate().isoformat())
