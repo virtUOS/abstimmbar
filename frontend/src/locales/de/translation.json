@@ -705,5 +705,6 @@
   "Questions run per day": "Durchgeführte Fragen pro Tag",
   "Participants per day": "Teilnehmende pro Tag",
   "Presented sets per day": "Durchgeführte Sets pro Tag",
-  "Sessions per day by mode": "Sessions pro Tag nach Modus"
+  "Sessions per day by mode": "Sessions pro Tag nach Modus",
+  "Σ today {{n}}": "Σ heute {{n}}"
 }

@@ -4,6 +4,8 @@
 /** Tiny inline-SVG chart (bars or lines) for the admin statistics — no chart
  * library. Series carry literal Tailwind fill-/stroke- classes so the JIT
  * picks them up and they stay theme-aware. */
+import { useTranslation } from "react-i18next";
+
 export interface ChartSeries {
   label: string;
   /** Literal Tailwind classes, e.g. "fill-brand-500" (bar) or "stroke-brand-500" (line). */
@@ -12,6 +14,14 @@ export interface ChartSeries {
 }
 
 const VIEW_W = 300;
+
+// Literal legend-dot classes per line color (so Tailwind's JIT emits them —
+// a runtime string replace would produce classes it never sees in source).
+const DOT_CLASS: Record<string, string> = {
+  "stroke-brand-500": "bg-brand-500",
+  "stroke-sky-500": "bg-sky-500",
+  "stroke-amber-500": "bg-amber-500",
+};
 
 export default function MiniChart({
   title,
@@ -24,6 +34,7 @@ export default function MiniChart({
   type: "bar" | "line";
   height?: number;
 }) {
+  const { t } = useTranslation();
   const n = Math.max(1, series[0]?.points.length ?? 0);
   const max = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
   const pad = 3;
@@ -82,13 +93,13 @@ export default function MiniChart({
           <span className="flex gap-3">
             {series.map((s) => (
               <span key={s.label} className="flex items-center gap-1">
-                <span className={`inline-block h-2 w-2 rounded-full ${s.className.replace("stroke-", "bg-")}`} />
+                <span className={`inline-block h-2 w-2 rounded-full ${DOT_CLASS[s.className] ?? "bg-slate-400"}`} />
                 {s.label}
               </span>
             ))}
           </span>
         ) : (
-          <span>Σ heute {latestTotal}</span>
+          <span>{t("Σ today {{n}}", { n: latestTotal })}</span>
         )}
         <span>{last?.slice(5)}</span>
       </div>
