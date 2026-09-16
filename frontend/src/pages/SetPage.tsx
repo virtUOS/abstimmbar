@@ -3,12 +3,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Square, Timer, Trash2, TriangleAlert } from "lucide-react";
 import {
   api,
   results,
   selfCheck,
+  type GenerationJob,
   type Question,
   type QuestionKind,
   type QuestionSet,
@@ -17,7 +18,9 @@ import {
   type Section as SectionType,
 } from "../api";
 import { useEasyMode } from "../App";
-import AiGeneratePanel from "../components/AiGeneratePanel";
+import AiGenerateForm from "../components/AiGenerateForm";
+import AiReviewPanel from "../components/AiReviewPanel";
+import FileDropzone from "../components/FileDropzone";
 import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
@@ -542,6 +545,70 @@ function SectionTitleField({
   );
 }
 
+/** Inline hint above the question list when this set has an un-reviewed
+ * generation job: shows running progress or a "N questions ready — review"
+ * call to action, and is the entry point to the review panel. */
+function GenerationReviewHint({
+  job,
+  onReview,
+  onRestart,
+  onDiscard,
+}: {
+  job: GenerationJob;
+  onReview: () => void;
+  onRestart: () => void;
+  onDiscard: () => void | Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const running = job.status === "pending" || job.status === "running";
+  if (job.status === "cancelled") return null;
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 dark:border-brand-900 dark:bg-brand-950/30">
+      <div className="min-w-0 text-sm text-slate-700 dark:text-slate-200">
+        {running ? (
+          <span>
+            {t("Questions are being generated …")}
+            {job.total_chunks > 0 && (
+              <>
+                {" "}
+                {t("{{percent}} % done", {
+                  percent: Math.round((job.done_chunks / job.total_chunks) * 100),
+                })}
+                {" · "}
+                {t("{{n}} questions so far", { n: job.drafts.length })}
+              </>
+            )}
+          </span>
+        ) : job.status === "failed" ? (
+          <span>{t("Question generation failed.")}</span>
+        ) : (
+          <span>
+            {t("{{n}} questions were generated — review and use them now.", {
+              n: job.drafts.length,
+            })}
+          </span>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center gap-2">
+        {job.status === "failed" ? (
+          <>
+            <Button variant="primary" onClick={onRestart}>
+              {t("Try again")}
+            </Button>
+            <Button variant="ghost" onClick={() => void onDiscard()}>
+              {t("Discard")}
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" onClick={onReview}>
+            {t("Review")}
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /** Question-set editor: summarized settings (editable behind a pencil),
  * sortable question list, and a ⋮ menu for duplicate/export/share. */
 export default function SetPage() {
@@ -567,7 +634,15 @@ export default function SetPage() {
   const [archivedNotice, setArchivedNotice] = useState(false);
   const [whoamiName, setWhoamiName] = useState("");
   const [aiEnabled, setAiEnabled] = useState(false);
+  const [maxQuestions, setMaxQuestions] = useState<number | undefined>(undefined);
   const [generateOpen, setGenerateOpen] = useState(false);
+  // A file dropped onto the empty-set upload box, pre-loaded into the form.
+  const [pendingUpload, setPendingUpload] = useState<File | null>(null);
+  // The set's latest un-reviewed generation job drives the review hint; the
+  // review panel opens on top of it.
+  const [reviewJob, setReviewJob] = useState<GenerationJob | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const location = useLocation();
   // Move/copy a single question to another set (#87) — shared target-set
   // picker, ported from QuestionPage's move modal.
   const [xfer, setXfer] = useState<{ id: number; mode: "move" | "copy" } | null>(null);
@@ -621,8 +696,35 @@ export default function SetPage() {
           "",
       );
       setAiEnabled(!!who.ai_enabled);
+      setMaxQuestions(who.ai_generate_max_questions);
     });
+    void refreshReviewHint();
+    // Deep link from the app-wide status bar → open the review panel directly.
+    if ((location.state as { openReview?: boolean } | null)?.openReview) {
+      setReviewOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  async function refreshReviewHint() {
+    try {
+      const active = await api.aiGenerateActive(id);
+      setReviewJob("id" in active ? (active as GenerationJob) : null);
+    } catch {
+      setReviewJob(null);
+    }
+  }
+
+  // Keep the hint's progress fresh while a run is in flight and the panel is
+  // closed (the open panel polls itself; the app-wide bar is suppressed here).
+  useEffect(() => {
+    if (reviewOpen) return;
+    if (!reviewJob || !(reviewJob.status === "pending" || reviewJob.status === "running"))
+      return;
+    const timer = setInterval(() => void refreshReviewHint(), 2500);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reviewOpen, reviewJob?.id, reviewJob?.status]);
 
   const rows = buildRows(questions ?? [], sections);
 
@@ -1420,12 +1522,48 @@ export default function SetPage() {
 
       {generateOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
-          <AiGeneratePanel
+          <AiGenerateForm
             setId={id}
-            onClose={() => setGenerateOpen(false)}
+            maxQuestions={maxQuestions}
+            initialFile={pendingUpload}
+            onStarted={() => {
+              setGenerateOpen(false);
+              setPendingUpload(null);
+              void refreshReviewHint();
+            }}
+            onClose={() => {
+              setGenerateOpen(false);
+              setPendingUpload(null);
+            }}
+          />
+        </div>
+      )}
+
+      {aiEnabled && reviewOpen && (
+        <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
+          <AiReviewPanel
+            setId={id}
+            onClose={() => {
+              setReviewOpen(false);
+              void refreshReviewHint();
+            }}
             onImported={reloadQuestions}
           />
         </div>
+      )}
+
+      {aiEnabled && !reviewOpen && reviewJob && (
+        <GenerationReviewHint
+          job={reviewJob}
+          onReview={() => setReviewOpen(true)}
+          onRestart={() => {
+            setGenerateOpen(true);
+          }}
+          onDiscard={async () => {
+            await api.aiGenerateReviewed(id, reviewJob.id);
+            void refreshReviewHint();
+          }}
+        />
       )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
@@ -1550,7 +1688,7 @@ export default function SetPage() {
           {t(
             "Create the first question above — Single Choice starts with three empty answer fields.",
           )}
-          <div className="mt-4">
+          <div className="mx-auto mt-4 flex max-w-sm flex-col items-center gap-3">
             <Button
               variant="primary"
               onClick={() => void openPull()}
@@ -1559,6 +1697,18 @@ export default function SetPage() {
               <CopyPlus aria-hidden className="h-4 w-4" />
               {t("Add questions from another set …")}
             </Button>
+            {aiVisible && (
+              <FileDropzone
+                accept=".pdf,.pptx,.odp"
+                file={null}
+                onFile={(f) => {
+                  setPendingUpload(f);
+                  setGenerateOpen(true);
+                }}
+                hint={t("Generate questions from a document (PDF, PPTX or ODP)")}
+                className="w-full"
+              />
+            )}
           </div>
         </EmptyState>
       ) : (

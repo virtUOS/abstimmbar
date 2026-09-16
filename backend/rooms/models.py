@@ -234,6 +234,9 @@ class GenerationJob(TimeStampedModel):
     created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     status = models.CharField(max_length=12, choices=Status.choices, default=Status.PENDING)
     kinds = models.JSONField(default=list, blank=True)
+    # Subset of ``kinds`` the teacher marked as the priority/focus (#…); a soft
+    # emphasis in the prompt. Empty = no priority (all allowed types equal).
+    focus_kinds = models.JSONField(default=list, blank=True)
     level = models.CharField(max_length=16, default="mixed")
     guidance = models.TextField(blank=True)
     source_text = models.TextField()
@@ -244,6 +247,10 @@ class GenerationJob(TimeStampedModel):
     source_chars = models.PositiveIntegerField(default=0)
     notice = models.TextField(blank=True)
     error = models.TextField(blank=True)
+    pages = models.PositiveIntegerField(default=0)
+    density = models.FloatField(default=1.0)
+    target_count = models.PositiveIntegerField(default=0)
+    reviewed = models.BooleanField(default=False)
 
     @property
     def is_active(self):

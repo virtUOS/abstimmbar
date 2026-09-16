@@ -17,12 +17,22 @@ KIND_LABELS = {
     ),
     "open_text": "Freitext (offene Antwort, keine Optionen)",
 }
+# Short names for the focus/priority sentence (KIND_LABELS are too verbose there).
+KIND_SHORT = {
+    "single_choice": "Single Choice",
+    "multiple_choice": "Multiple Choice",
+    "true_false": "Wahr/Falsch",
+    "open_text": "Freitext",
+}
 TEXT_MAX = 1000
 OPTION_MAX = 500
 MAX_OPTIONS = 8
 
 LEVELS = ("mixed", "basics", "deep")
 DEFAULT_LEVEL = "mixed"
+# How much heavier a focused (priority) type weighs than a normal one in the
+# target type distribution. 3 makes one focus among four types ~50 % / ~17 %.
+FOCUS_WEIGHT = 3
 
 # Prompt guidance per cognitive level (Bloom-inspired). German, since the
 # generator prompt and canonical content language are German.
@@ -61,10 +71,29 @@ def generate_system():
     )
 
 
-def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
+def build_generate_prompt(
+    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=()
+):
     allowed = [k for k in ALLOWED_KINDS if k in kinds] or list(ALLOWED_KINDS)
     kind_lines = "\n".join(f"- {k}: {KIND_LABELS[k]}" for k in allowed)
     hint = _LEVEL_HINTS.get(level, _LEVEL_HINTS[DEFAULT_LEVEL])
+    # Type distribution: give the model an explicit target ratio (it follows a
+    # concrete percentage far better than a vague "mostly X"). A focused type
+    # (the teacher's priority) weighs FOCUS_WEIGHT, others weigh 1 — so one focus
+    # among four types lands at ~50 %, the rest ~17 % each. An all-focus set
+    # carries no priority, so it falls back to an even split.
+    focus = [k for k in allowed if k in (focus_kinds or ())]
+    if len(focus) >= len(allowed):
+        focus = []
+    weights = {k: (FOCUS_WEIGHT if k in focus else 1) for k in allowed}
+    total_weight = sum(weights.values())
+    mix = ", ".join(
+        f"{KIND_SHORT[k]} ~{round(100 * weights[k] / total_weight)} %" for k in allowed
+    )
+    focus_block = (
+        "Verteile die Fragetypen in deiner Antwort möglichst nach diesem "
+        f"Verhältnis: {mix}.\n\n"
+    )
     # Optional free-text wishes from the teacher (#84). They steer emphasis
     # and style but must not override the material-fidelity and JSON rules
     # above, so they are framed explicitly as subordinate.
@@ -77,6 +106,7 @@ def build_generate_prompt(text, count, kinds, level=DEFAULT_LEVEL, guidance=""):
         )
     return (
         f"Erzeuge bis zu {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
+        f"{focus_block}"
         f"Kognitive Ausrichtung: {hint}\n\n"
         f"{guidance_block}"
         "Material:\n"
