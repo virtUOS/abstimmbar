@@ -20,6 +20,7 @@ import {
 import { useEasyMode } from "../App";
 import AiGenerateForm from "../components/AiGenerateForm";
 import AiReviewPanel from "../components/AiReviewPanel";
+import FileDropzone from "../components/FileDropzone";
 import HomeCrumb from "../components/HomeCrumb";
 import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
@@ -635,6 +636,8 @@ export default function SetPage() {
   const [aiEnabled, setAiEnabled] = useState(false);
   const [maxQuestions, setMaxQuestions] = useState<number | undefined>(undefined);
   const [generateOpen, setGenerateOpen] = useState(false);
+  // A file dropped onto the empty-set upload box, pre-loaded into the form.
+  const [pendingUpload, setPendingUpload] = useState<File | null>(null);
   // The set's latest un-reviewed generation job drives the review hint; the
   // review panel opens on top of it.
   const [reviewJob, setReviewJob] = useState<GenerationJob | null>(null);
@@ -1522,11 +1525,16 @@ export default function SetPage() {
           <AiGenerateForm
             setId={id}
             maxQuestions={maxQuestions}
+            initialFile={pendingUpload}
             onStarted={() => {
               setGenerateOpen(false);
+              setPendingUpload(null);
               void refreshReviewHint();
             }}
-            onClose={() => setGenerateOpen(false)}
+            onClose={() => {
+              setGenerateOpen(false);
+              setPendingUpload(null);
+            }}
           />
         </div>
       )}
@@ -1680,15 +1688,27 @@ export default function SetPage() {
           {t(
             "Create the first question above — Single Choice starts with three empty answer fields.",
           )}
-          <div className="mt-4">
+          <div className="mx-auto mt-4 flex max-w-2xl flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
             <Button
               variant="primary"
               onClick={() => void openPull()}
-              className="inline-flex items-center gap-1.5"
+              className="inline-flex items-center justify-center gap-1.5"
             >
               <CopyPlus aria-hidden className="h-4 w-4" />
               {t("Add questions from another set …")}
             </Button>
+            {aiVisible && (
+              <FileDropzone
+                accept=".pdf,.pptx,.odp"
+                file={null}
+                onFile={(f) => {
+                  setPendingUpload(f);
+                  setGenerateOpen(true);
+                }}
+                hint={t("Generate questions from a document (PDF, PPTX or ODP)")}
+                className="sm:min-w-[18rem]"
+              />
+            )}
           </div>
         </EmptyState>
       ) : (

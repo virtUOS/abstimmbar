@@ -686,5 +686,8 @@
   "Remove focus": "Schwerpunkt entfernen",
   "At least one question type must stay without focus.": "Mindestens ein Fragetyp muss ohne Schwerpunkt bleiben.",
   "★ marks a focus type — the AI then generates preferentially those.": "★ markiert einen Schwerpunkt-Typ — die KI erzeugt dann bevorzugt diese.",
-  "★ marks a focus type (generated preferentially). At least one type must stay without focus.": "★ markiert einen Schwerpunkt-Typ (wird bevorzugt erzeugt). Mindestens ein Typ muss ohne Schwerpunkt bleiben."
+  "★ marks a focus type (generated preferentially). At least one type must stay without focus.": "★ markiert einen Schwerpunkt-Typ (wird bevorzugt erzeugt). Mindestens ein Typ muss ohne Schwerpunkt bleiben.",
+  "Drag a file here or click to choose": "Datei hierher ziehen oder klicken zum Auswählen",
+  "PDF, PPTX or ODP": "PDF, PPTX oder ODP",
+  "Generate questions from a document (PDF, PPTX or ODP)": "Fragen aus einem Dokument erzeugen (PDF, PPTX oder ODP)"
 }

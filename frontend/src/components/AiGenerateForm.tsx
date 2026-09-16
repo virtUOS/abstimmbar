@@ -11,6 +11,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api } from "../api";
 import AiAssistPanel from "./AiAssistPanel";
+import FileDropzone from "./FileDropzone";
 import { Button, TextInput } from "./ui";
 
 // Labels are English source strings, translated with t() at the render site.
@@ -39,15 +40,18 @@ export default function AiGenerateForm({
   onStarted,
   onClose,
   maxQuestions,
+  initialFile = null,
 }: {
   setId: number;
   onStarted: () => void;
   onClose: () => void;
   /** Safety cap on questions per run, shown so authors can gauge the amount. */
   maxQuestions?: number;
+  /** Pre-loaded file (e.g. dropped onto the empty-set upload box). */
+  initialFile?: File | null;
 }) {
   const { t } = useTranslation();
-  const [file, setFile] = useState<File | null>(null);
+  const [file, setFile] = useState<File | null>(initialFile);
   const [text, setText] = useState("");
   const [density, setDensity] = useState(1);
   const [kinds, setKinds] = useState<string[]>(KIND_OPTIONS.map((k) => k.value));
@@ -114,11 +118,11 @@ export default function AiGenerateForm({
             <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
               {t("Document (PDF, PPTX or ODP)")}
             </label>
-            <input
-              type="file"
+            <FileDropzone
               accept=".pdf,.pptx,.odp"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-              className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-100 file:px-3 file:py-1.5 file:text-brand-800 hover:file:bg-brand-200 dark:text-slate-300 dark:file:bg-brand-900 dark:file:text-brand-200"
+              file={file}
+              onFile={setFile}
+              hint={t("PDF, PPTX or ODP")}
             />
           </div>
           <div>
