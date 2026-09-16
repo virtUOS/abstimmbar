@@ -10,12 +10,16 @@ from django.urls import include, path
 
 from accounts.oidc import SafeOIDCCallbackView
 from accounts.views import logout_view, set_language, set_mode, whoami
+from common.views import MetricsView
 from live.urls import api_urlpatterns as live_api
 from live.urls import page_urlpatterns as live_pages
 from lti.api_urls import urlpatterns as lti_api
 
 urlpatterns = [
     path("admin/", admin.site.urls),
+    # Top-level, not under /api/ — a Prometheus scrape target, not an app API
+    # route. Token-guarded inside the view itself (see MetricsView).
+    path("metrics", MetricsView.as_view()),
     path("oidc/logout-redirect/", logout_view, name="spa-logout"),
     path("oidc/silent/", SilentLoginView.as_view(), name="oidc-silent"),
     path(

@@ -638,6 +638,37 @@ class StatsDailyTests(TestCase):
         self.assertEqual(d["sessions_by_mode"][-1]["pro"], 1)
 
 
+class MetricsEndpointTests(TestCase):
+    """GET /metrics — token-guarded Prometheus text exporter (top-level, not /api/)."""
+
+    def test_404_without_token_configured(self):
+        with override_settings(METRICS_TOKEN=""):
+            self.assertEqual(self.client.get("/metrics").status_code, 404)
+
+    def test_401_with_wrong_token(self):
+        with override_settings(METRICS_TOKEN="secret"):
+            r = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer nope")
+            self.assertEqual(r.status_code, 401)
+
+    def test_200_and_format_with_token(self):
+        with override_settings(METRICS_TOKEN="secret"):
+            r = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer secret")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/plain", r["Content-Type"])
+        body = r.content.decode()
+        self.assertIn("# TYPE abstimmbar_rooms gauge", body)
+        self.assertIn('abstimmbar_question_sets{type="live_poll"}', body)
+
+    def test_label_value_escaping(self):
+        # Sanity check on the labeled-gauge path: quotes/backslashes in a
+        # label value must not break the exposition format.
+        with override_settings(METRICS_TOKEN="secret"):
+            r = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer secret")
+        body = r.content.decode()
+        self.assertIn('abstimmbar_sessions_today{mode="easy"}', body)
+        self.assertIn('abstimmbar_sessions_today{mode="pro"}', body)
+
+
 class AdminStatsEndpointTests(TestCase):
     """GET /api/admin/stats/ — staff-only wrapper around common.stats."""
 
