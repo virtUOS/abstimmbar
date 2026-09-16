@@ -494,6 +494,13 @@ class StatsTotalsTests(TestCase):
         live_set = QuestionSet.objects.create(
             room=lti_room, title="Live set", type=QuestionSet.SetType.LIVE_POLL
         )
+        # A SECOND live_poll set + an extra single_choice question + a second
+        # live_poll run, so the per-type/kind counts are > 1. This guards
+        # against the Meta.ordering GROUP BY trap (which collapses every group
+        # to a count of 1) — a 1-per-group seed would not catch it.
+        live_set_2 = QuestionSet.objects.create(
+            room=lti_room, title="Live set 2", type=QuestionSet.SetType.LIVE_POLL
+        )
         QuestionSet.objects.create(
             room=plain_room, title="Self-paced set", type=QuestionSet.SetType.SELF_PACED
         )
@@ -503,8 +510,12 @@ class StatsTotalsTests(TestCase):
             questions[kind] = Question.objects.create(
                 question_set=live_set, kind=kind, text=f"Question ({kind})"
             )
+        Question.objects.create(
+            question_set=live_set, kind=Question.Kind.SINGLE_CHOICE, text="Second SC"
+        )
 
         run = Run.objects.create(question_set=live_set)
+        Run.objects.create(question_set=live_set_2)  # second live_poll run
 
         # Vote has no uniqueness constraint (live.0006 removed it — recording
         # viewers may vote on the same question twice), so the seed must make
@@ -540,12 +551,13 @@ class StatsTotalsTests(TestCase):
         self.assertEqual(t["rooms"], 2)
         self.assertEqual(t["rooms_lti"], 1)
         self.assertEqual(t["users"], 1)
-        self.assertEqual(t["sets_by_type"]["live_poll"], 1)
+        self.assertEqual(t["sets_by_type"]["live_poll"], 2)
         self.assertEqual(t["sets_by_type"]["self_paced"], 1)
         self.assertEqual(t["sets_by_type"]["self_check"], 0)
         self.assertEqual(set(t["questions_by_kind"]), set(Question.Kind.values))
-        self.assertEqual(t["questions_by_kind"]["single_choice"], 1)
-        self.assertEqual(t["runs_by_type"]["live_poll"], 1)
+        self.assertEqual(t["questions_by_kind"]["single_choice"], 2)
+        self.assertEqual(t["questions_by_kind"]["word_cloud"], 1)
+        self.assertEqual(t["runs_by_type"]["live_poll"], 2)
         self.assertEqual(t["participants"], 3)
         self.assertEqual(t["questions_run"], 3)
 

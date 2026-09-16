@@ -37,7 +37,10 @@ def totals():
     from rooms.models import Question, QuestionSet, Room
 
     def _by(qs, field, all_values):
-        counts = {r[field]: r["n"] for r in qs.values(field).annotate(n=Count("id"))}
+        # order_by() strips the model's Meta.ordering — otherwise its column is
+        # added to the GROUP BY and every group collapses to a count of 1.
+        counts = {r[field]: r["n"]
+                  for r in qs.order_by().values(field).annotate(n=Count("id"))}
         return {v: int(counts.get(v, 0)) for v in all_values}
 
     # All-time sessions by effective mode (for the whole-period pie).
@@ -90,7 +93,8 @@ def daily(since, until=None):
                                         output_field=CharField()), distinct=True)))
     questions_run = {r["day"].isoformat(): {"n": r["n"]} for r in qr_rows if r["day"]}
 
-    run_rows = (_window(Run.objects, "created_at").annotate(day=TruncDate("created_at"))
+    run_rows = (_window(Run.objects, "created_at").order_by()
+                .annotate(day=TruncDate("created_at"))
                 .values("day", "question_set__type").annotate(n=Count("id")))
     runs_by_type = {}
     for r in run_rows:
