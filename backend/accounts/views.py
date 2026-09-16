@@ -63,6 +63,7 @@ def whoami(request):
             user.refresh_from_db()
         except Exception:
             logger.exception("Onboarding seed failed for user %s", user.pk)
+    _record_mode_session(request, user)
     return JsonResponse(
         {
             "authenticated": True,
@@ -83,6 +84,28 @@ def whoami(request):
             "content_translation_enabled": content_translation_enabled,
         }
     )
+
+
+def _record_mode_session(request, user):
+    """Record one DailyModeSession row per browser session per day, tagged
+    with the caller's effective Easy/Pro mode — feeds the "sessions per day
+    by mode" admin statistic. Best-effort: whoami must never break because
+    of this."""
+    try:
+        key = request.session.session_key
+        if not key:
+            return
+        from django.utils import timezone
+
+        from .models import DailyModeSession
+
+        DailyModeSession.objects.update_or_create(
+            session_key=key,
+            date=timezone.localdate(),
+            defaults={"mode": "easy" if user.effective_easy_mode else "pro"},
+        )
+    except Exception:
+        logger.exception("Failed to record mode session")
 
 
 def logout_view(request):
