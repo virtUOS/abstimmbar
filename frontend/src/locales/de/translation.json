@@ -713,5 +713,10 @@
   "Sessions by mode": "Sessions nach Modus",
   "From": "Von",
   "To": "Bis",
-  "total {{n}}": "gesamt {{n}}"
+  "total {{n}}": "gesamt {{n}}",
+  "Sets": "Sets",
+  "created": "angelegt",
+  "conducted": "durchgeführt",
+  "Created sets by type": "Angelegte Sets nach Typ",
+  "Created questions by kind": "Angelegte Fragen nach Typ"
 }

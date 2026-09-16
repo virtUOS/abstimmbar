@@ -107,6 +107,37 @@ function Tile({ label, value, sub }: { label: string; value: number; sub?: strin
   );
 }
 
+/** Tile showing two related counts (created vs conducted). */
+function DualTile({
+  label,
+  a,
+  aLabel,
+  b,
+  bLabel,
+}: {
+  label: string;
+  a: number;
+  aLabel: string;
+  b: number;
+  bLabel: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/60 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+      <div className="mb-1 text-sm font-medium text-slate-600 dark:text-slate-300">{label}</div>
+      <div className="flex gap-5">
+        <div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{a}</div>
+          <div className="text-xs text-slate-400">{aLabel}</div>
+        </div>
+        <div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{b}</div>
+          <div className="text-xs text-slate-400">{bLabel}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function toSegments(
   data: Record<string, number>,
   labels: Record<string, string>,
@@ -134,7 +165,10 @@ function StatsSection() {
 
   if (!stats) return null;
   const { totals, daily } = stats;
-  const presentedSets = Object.values(totals.runs_by_type).reduce((a, b) => a + b, 0);
+  const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+  const createdSets = sum(totals.sets_by_type);
+  const presentedSets = sum(totals.runs_by_type);
+  const createdQuestions = sum(totals.questions_by_kind);
 
   const bar = (points: { date: string; n: number }[], c = PALETTE[0]): ChartSeries[] => [
     { label: "", fillClass: c.fill, dotClass: c.dot, points: points.map((p) => ({ date: p.date, value: p.n })) },
@@ -148,13 +182,25 @@ function StatsSection() {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
           <Tile label={t("Rooms")} value={totals.rooms} sub={t("of which via LTI: {{n}}", { n: totals.rooms_lti })} />
           <Tile label={t("Users")} value={totals.users} />
-          <Tile label={t("Presented sets")} value={presentedSets} />
-          <Tile label={t("Questions run")} value={totals.questions_run} />
+          <DualTile
+            label={t("Sets")}
+            a={createdSets}
+            aLabel={t("created")}
+            b={presentedSets}
+            bLabel={t("conducted")}
+          />
+          <DualTile
+            label={t("Questions")}
+            a={createdQuestions}
+            aLabel={t("created")}
+            b={totals.questions_run}
+            bLabel={t("conducted")}
+          />
           <Tile label={t("Participants")} value={totals.participants} />
         </div>
         <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
-          <Donut title={t("Sets by type")} segments={toSegments(totals.sets_by_type, SET_TYPE_LABELS, t)} />
-          <Donut title={t("Questions by kind")} segments={toSegments(totals.questions_by_kind, KIND_LABELS, t)} />
+          <Donut title={t("Created sets by type")} segments={toSegments(totals.sets_by_type, SET_TYPE_LABELS, t)} />
+          <Donut title={t("Created questions by kind")} segments={toSegments(totals.questions_by_kind, KIND_LABELS, t)} />
           <Donut title={t("Presented sets by type")} segments={toSegments(totals.runs_by_type, SET_TYPE_LABELS, t)} />
           <Donut
             title={t("Sessions by mode")}
