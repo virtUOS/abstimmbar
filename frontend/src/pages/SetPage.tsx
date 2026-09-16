@@ -1688,11 +1688,11 @@ export default function SetPage() {
           {t(
             "Create the first question above — Single Choice starts with three empty answer fields.",
           )}
-          <div className="mx-auto mt-4 flex max-w-2xl flex-col items-stretch gap-3 sm:flex-row sm:justify-center">
+          <div className="mx-auto mt-4 flex max-w-sm flex-col items-center gap-3">
             <Button
               variant="primary"
               onClick={() => void openPull()}
-              className="inline-flex items-center justify-center gap-1.5"
+              className="inline-flex items-center gap-1.5"
             >
               <CopyPlus aria-hidden className="h-4 w-4" />
               {t("Add questions from another set …")}
@@ -1706,7 +1706,7 @@ export default function SetPage() {
                   setGenerateOpen(true);
                 }}
                 hint={t("Generate questions from a document (PDF, PPTX or ODP)")}
-                className="sm:min-w-[18rem]"
+                className="w-full"
               />
             )}
           </div>
