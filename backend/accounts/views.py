@@ -95,12 +95,19 @@ def _record_mode_session(request, user):
         key = request.session.session_key
         if not key:
             return
+        import hashlib
+
         from django.utils import timezone
 
         from .models import DailyModeSession
 
+        # Store only a one-way hash: the raw key is a live session credential,
+        # and this stats table must never be able to re-authenticate a session
+        # (participant anonymity / least-privilege, see CLAUDE.md). The hash is
+        # still stable per session, so (hash, date) keeps the per-day count.
+        session_hash = hashlib.sha256(key.encode()).hexdigest()
         DailyModeSession.objects.update_or_create(
-            session_key=key,
+            session_hash=session_hash,
             date=timezone.localdate(),
             defaults={"mode": "easy" if user.effective_easy_mode else "pro"},
         )

@@ -46,11 +46,14 @@ class User(AbstractUser):
 
 class DailyModeSession(models.Model):
     """One row per browser session per day, tagged with the effective Easy/Pro
-    mode — for the "sessions per day by mode" statistic. Stores only the
-    session key (no user reference)."""
-    session_key = models.CharField(max_length=40)
+    mode — for the "sessions per day by mode" statistic. Stores no user
+    reference and only a one-way SHA-256 hash of the session key (never the
+    raw key itself), so this stats table can never be used to re-authenticate
+    a live session. Uniqueness on (session_hash, date) is all the statistic
+    needs; see the ``prune_mode_sessions`` command for retention."""
+    session_hash = models.CharField(max_length=64)  # sha256 hexdigest
     date = models.DateField()
     mode = models.CharField(max_length=4)  # "easy" | "pro"
 
     class Meta:
-        unique_together = (("session_key", "date"),)
+        unique_together = (("session_hash", "date"),)
