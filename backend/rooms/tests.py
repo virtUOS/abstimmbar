@@ -3360,25 +3360,31 @@ class AiGenerateLevelsTests(TestCase):
         p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
         self.assertIn("unsuitable_reason", p)
 
-    def test_prompt_focus_emphasises_marked_types(self):
-        kinds = ["single_choice", "multiple_choice", "open_text"]
+    def test_prompt_focus_gives_priority_type_a_higher_share(self):
+        # One focus among four types → ~50 % focus, ~17 % each of the rest.
+        kinds = ["single_choice", "multiple_choice", "true_false", "open_text"]
         p = ai_generate.build_generate_prompt(
-            "Stoff", 5, kinds, "mixed", focus_kinds=["single_choice", "open_text"]
+            "Stoff", 5, kinds, "mixed", focus_kinds=["multiple_choice"]
         )
-        self.assertIn("Schwerpunkt", p)
-        self.assertIn("Single Choice", p)
-        self.assertIn("Freitext", p)
+        self.assertIn("Multiple Choice ~50 %", p)
+        self.assertIn("Single Choice ~17 %", p)
+        self.assertIn("Freitext ~17 %", p)
 
-    def test_prompt_focus_ignored_when_it_covers_all_kinds(self):
+    def test_prompt_no_focus_is_even_split(self):
+        p = ai_generate.build_generate_prompt(
+            "Stoff", 5, ["single_choice", "open_text"], "mixed"
+        )
+        self.assertIn("Single Choice ~50 %", p)
+        self.assertIn("Freitext ~50 %", p)
+
+    def test_prompt_all_focus_falls_back_to_even_split(self):
         kinds = ["single_choice", "open_text"]
         p = ai_generate.build_generate_prompt(
             "Stoff", 5, kinds, "mixed", focus_kinds=kinds
         )
-        self.assertNotIn("Lege den Schwerpunkt", p)
-
-    def test_prompt_without_focus_has_no_focus_sentence(self):
-        p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
-        self.assertNotIn("Lege den Schwerpunkt", p)
+        # All-focus carries no priority → even split, same as no focus.
+        self.assertIn("Single Choice ~50 %", p)
+        self.assertIn("Freitext ~50 %", p)
 
     def test_true_false_draft_normalised_to_single_choice(self):
         data = {"questions": [
