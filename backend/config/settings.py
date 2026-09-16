@@ -225,6 +225,10 @@ AI_GEN_MAX_CHUNKS = _int_or_default("AI_GEN_MAX_CHUNKS", 40)
 AI_GEN_MAX_QUESTIONS = _int_or_default("AI_GEN_MAX_QUESTIONS", 150)
 AI_GEN_DEFAULT_DENSITY = _float_or_default("AI_GEN_DEFAULT_DENSITY", 1.0)
 
+# Bearer token protecting the Prometheus metrics endpoint (admin stats).
+# Empty by default (disabled); set in production to enable scraping.
+METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
+
 # Optional machine translation for authored content (see
 # common/translation_service.py). Off by default; an institution can
 # self-host LibreTranslate (Apache-2.0) and point LIBRETRANSLATE_URL at it.

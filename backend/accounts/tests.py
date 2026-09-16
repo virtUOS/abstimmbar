@@ -318,6 +318,42 @@ class EasyModeMigrationTests(TestCase):
         self.assertFalse(a.easy_mode)  # staff explicit pro preserved
 
 
+class DailyModeSessionTests(TestCase):
+    @override_settings(**LT_OFF)
+    def test_whoami_records_session_for_authenticated_user(self):
+        from accounts.models import DailyModeSession
+        from django.utils import timezone
+        user = User.objects.create_user(username="stat", is_staff=True)  # staff → pro default
+        self.client.force_login(user)
+        self.client.get("/api/whoami/")
+        row = DailyModeSession.objects.get()
+        self.assertEqual(row.date, timezone.localdate())
+        self.assertEqual(row.mode, "pro")
+
+    @override_settings(**LT_OFF)
+    def test_whoami_is_idempotent_per_session_and_day(self):
+        from accounts.models import DailyModeSession
+        user = User.objects.create_user(username="stat2")
+        self.client.force_login(user)
+        self.client.get("/api/whoami/")
+        self.client.get("/api/whoami/")
+        self.assertEqual(DailyModeSession.objects.count(), 1)
+
+    @override_settings(**LT_OFF)
+    def test_anonymous_whoami_records_nothing(self):
+        from accounts.models import DailyModeSession
+        self.client.get("/api/whoami/")
+        self.assertEqual(DailyModeSession.objects.count(), 0)
+
+    @override_settings(**LT_OFF)
+    def test_mode_reflects_effective_mode(self):
+        from accounts.models import DailyModeSession
+        user = User.objects.create_user(username="stat3")  # non-staff → easy default
+        self.client.force_login(user)
+        self.client.get("/api/whoami/")
+        self.assertEqual(DailyModeSession.objects.get().mode, "easy")
+
+
 class OidcCallbackReplayTests(TestCase):
     """A Back press right after login replays the spent code/state, which
     mozilla-django-oidc raises SuspiciousOperation for (a 400 page). The

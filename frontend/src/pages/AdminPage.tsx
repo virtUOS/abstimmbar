@@ -7,12 +7,39 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ChevronDown, ChevronUp, FileText, Lock, Radio, Trash2 } from "lucide-react";
-import { api, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSite } from "../api";
+import { api, type AdminStats, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSite } from "../api";
 import { useApp } from "../App";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
+import Donut, { type DonutSegment } from "../components/Donut";
 import HomeCrumb from "../components/HomeCrumb";
+import MiniChart, { type ChartSeries } from "../components/MiniChart";
 import TranslatableField from "../components/TranslatableField";
-import { Button, ConfirmInline, EmptyState, Field, InfoHint, Select, TextInput } from "../components/ui";
+import { Button, ConfirmInline, EmptyState, Field, InfoHint, Select, SegmentedControl, TextInput } from "../components/ui";
+
+const SET_TYPE_LABELS: Record<string, string> = {
+  live_poll: "Live poll",
+  self_paced: "Self-paced quiz",
+  self_check: "Self-check",
+};
+const KIND_LABELS: Record<string, string> = {
+  single_choice: "Single Choice",
+  multiple_choice: "Multiple Choice",
+  word_cloud: "Word cloud",
+  likert: "Likert scale",
+  open_text: "Free text",
+  priorities: "Priorities",
+  ordering: "Ordering",
+};
+// Literal Tailwind colour classes (so the JIT emits them) for chart segments.
+const PALETTE = [
+  { stroke: "stroke-brand-500", dot: "bg-brand-500", fill: "fill-brand-500" },
+  { stroke: "stroke-sky-500", dot: "bg-sky-500", fill: "fill-sky-500" },
+  { stroke: "stroke-amber-500", dot: "bg-amber-500", fill: "fill-amber-500" },
+  { stroke: "stroke-violet-500", dot: "bg-violet-500", fill: "fill-violet-500" },
+  { stroke: "stroke-rose-500", dot: "bg-rose-500", fill: "fill-rose-500" },
+  { stroke: "stroke-emerald-500", dot: "bg-emerald-500", fill: "fill-emerald-500" },
+  { stroke: "stroke-orange-500", dot: "bg-orange-500", fill: "fill-orange-500" },
+];
 
 function slugify(value: string) {
   return value
@@ -34,17 +61,212 @@ export default function AdminPage() {
       </EmptyState>
     );
   }
+  return <AdminTabs />;
+}
+
+function AdminTabs() {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<"stats" | "settings">("stats");
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
       <div>
         <nav className="mb-4 text-sm text-slate-500 dark:text-slate-400">
           <HomeCrumb /> / {t("Manage website")}
         </nav>
-        <h1 className="text-2xl font-bold">{t("Manage website")}</h1>
+        <h1 className="mb-4 text-2xl font-bold">{t("Manage website")}</h1>
+        <SegmentedControl
+          ariaLabel={t("Admin section")}
+          value={tab}
+          onChange={(v) => setTab(v)}
+          options={[
+            { value: "stats", label: t("Statistics") },
+            { value: "settings", label: t("Settings") },
+          ]}
+        />
       </div>
-      <BrandingSection />
-      <PagesSection />
-      <LtiPlatformsSection />
+      {tab === "stats" ? (
+        <StatsSection />
+      ) : (
+        <div className="space-y-12">
+          <BrandingSection />
+          <PagesSection />
+          <LtiPlatformsSection />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Tile({ label, value, sub }: { label: string; value: number; sub?: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/60 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+      <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{value}</div>
+      <div className="text-sm text-slate-600 dark:text-slate-300">{label}</div>
+      {sub && <div className="text-xs text-slate-400">{sub}</div>}
+    </div>
+  );
+}
+
+/** Tile showing two related counts (created vs conducted). */
+function DualTile({
+  label,
+  a,
+  aLabel,
+  b,
+  bLabel,
+}: {
+  label: string;
+  a: number;
+  aLabel: string;
+  b: number;
+  bLabel: string;
+}) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white/60 p-4 dark:border-slate-700 dark:bg-slate-900/40">
+      <div className="mb-1 text-sm font-medium text-slate-600 dark:text-slate-300">{label}</div>
+      <div className="flex gap-5">
+        <div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{a}</div>
+          <div className="text-xs text-slate-400">{aLabel}</div>
+        </div>
+        <div>
+          <div className="text-2xl font-bold text-slate-900 dark:text-slate-100">{b}</div>
+          <div className="text-xs text-slate-400">{bLabel}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function toSegments(
+  data: Record<string, number>,
+  labels: Record<string, string>,
+  t: (k: string) => string,
+): DonutSegment[] {
+  return Object.entries(data).map(([key, value], i) => ({
+    label: labels[key] ? t(labels[key]) : key,
+    value,
+    strokeClass: PALETTE[i % PALETTE.length].stroke,
+    dotClass: PALETTE[i % PALETTE.length].dot,
+  }));
+}
+
+function StatsSection() {
+  const { t } = useTranslation();
+  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [days, setDays] = useState(30);
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  useEffect(() => {
+    const opts = from ? { from, to: to || undefined } : { days };
+    void api.adminStats(opts).then(setStats).catch(() => setStats(null));
+  }, [days, from, to]);
+
+  if (!stats) return null;
+  const { totals, daily } = stats;
+  const sum = (o: Record<string, number>) => Object.values(o).reduce((a, b) => a + b, 0);
+  const createdSets = sum(totals.sets_by_type);
+  const presentedSets = sum(totals.runs_by_type);
+  const createdQuestions = sum(totals.questions_by_kind);
+
+  const bar = (points: { date: string; n: number }[], c = PALETTE[0]): ChartSeries[] => [
+    { label: "", fillClass: c.fill, dotClass: c.dot, points: points.map((p) => ({ date: p.date, value: p.n })) },
+  ];
+
+  return (
+    <div className="space-y-8">
+      {/* All-time totals — not affected by the time range below. */}
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">{t("Overview (all time)")}</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          <Tile label={t("Rooms")} value={totals.rooms} sub={t("of which via LTI: {{n}}", { n: totals.rooms_lti })} />
+          <Tile label={t("Users")} value={totals.users} />
+          <DualTile
+            label={t("Sets")}
+            a={createdSets}
+            aLabel={t("created")}
+            b={presentedSets}
+            bLabel={t("conducted")}
+          />
+          <DualTile
+            label={t("Questions")}
+            a={createdQuestions}
+            aLabel={t("created")}
+            b={totals.questions_run}
+            bLabel={t("conducted")}
+          />
+          <Tile label={t("Participants")} value={totals.participants} />
+        </div>
+        <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2 lg:grid-cols-4">
+          <Donut title={t("Created sets by type")} segments={toSegments(totals.sets_by_type, SET_TYPE_LABELS, t)} />
+          <Donut title={t("Created questions by kind")} segments={toSegments(totals.questions_by_kind, KIND_LABELS, t)} />
+          <Donut title={t("Presented sets by type")} segments={toSegments(totals.runs_by_type, SET_TYPE_LABELS, t)} />
+          <Donut
+            title={t("Sessions by mode")}
+            segments={[
+              { label: t("Simple"), value: totals.sessions_by_mode.easy, strokeClass: PALETTE[0].stroke, dotClass: PALETTE[0].dot },
+              { label: t("Expert"), value: totals.sessions_by_mode.pro, strokeClass: PALETTE[1].stroke, dotClass: PALETTE[1].dot },
+            ]}
+          />
+        </div>
+      </section>
+
+      {/* Time series — windowed by the range control. */}
+      <section>
+        <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+          <h2 className="text-lg font-semibold">{t("Over time")}</h2>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {[30, 90].map((d) => (
+              <Button
+                key={d}
+                variant={!from && days === d ? "primary" : "ghost"}
+                onClick={() => {
+                  setFrom("");
+                  setTo("");
+                  setDays(d);
+                }}
+              >
+                {t("Last {{days}} days", { days: d })}
+              </Button>
+            ))}
+            <label className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+              {t("From")}
+              <input
+                type="date"
+                value={from}
+                max={to || undefined}
+                onChange={(e) => setFrom(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+              />
+            </label>
+            <label className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+              {t("To")}
+              <input
+                type="date"
+                value={to}
+                min={from || undefined}
+                onChange={(e) => setTo(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+              />
+            </label>
+          </div>
+        </div>
+        <div className="space-y-6">
+          <MiniChart title={t("New rooms per day")} series={bar(daily.rooms, PALETTE[0])} />
+          <MiniChart title={t("New users per day")} series={bar(daily.users, PALETTE[1])} />
+          <MiniChart title={t("Questions run per day")} series={bar(daily.questions_run, PALETTE[2])} />
+          <MiniChart title={t("Participants per day")} series={bar(daily.participants, PALETTE[3])} />
+          <MiniChart
+            title={t("Presented sets per day")}
+            series={[
+              { label: t("Live poll"), fillClass: PALETTE[0].fill, dotClass: PALETTE[0].dot, points: daily.runs_by_type.map((p) => ({ date: p.date, value: p.live_poll })) },
+              { label: t("Self-paced quiz"), fillClass: PALETTE[1].fill, dotClass: PALETTE[1].dot, points: daily.runs_by_type.map((p) => ({ date: p.date, value: p.self_paced })) },
+              { label: t("Self-check"), fillClass: PALETTE[2].fill, dotClass: PALETTE[2].dot, points: daily.runs_by_type.map((p) => ({ date: p.date, value: p.self_check })) },
+            ]}
+          />
+        </div>
+      </section>
     </div>
   );
 }

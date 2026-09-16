@@ -42,3 +42,15 @@ class User(AbstractUser):
         if self.easy_mode is not None:
             return self.easy_mode
         return not self.is_staff
+
+
+class DailyModeSession(models.Model):
+    """One row per browser session per day, tagged with the effective Easy/Pro
+    mode — for the "sessions per day by mode" statistic. Stores only the
+    session key (no user reference)."""
+    session_key = models.CharField(max_length=40)
+    date = models.DateField()
+    mode = models.CharField(max_length=4)  # "easy" | "pro"
+
+    class Meta:
+        unique_together = (("session_key", "date"),)

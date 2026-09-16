@@ -331,6 +331,47 @@ export interface DataCollection {
   not_collected: string[];
 }
 
+/** Admin usage statistics (staff-only). */
+export interface DailyPoint {
+  date: string;
+  n: number;
+}
+export interface RunsByTypePoint {
+  date: string;
+  live_poll: number;
+  self_paced: number;
+  self_check: number;
+}
+export interface SessionsPoint {
+  date: string;
+  easy: number;
+  pro: number;
+}
+export interface AdminStats {
+  days: number;
+  from: string;
+  to: string;
+  totals: {
+    rooms: number;
+    rooms_lti: number;
+    users: number;
+    sets_by_type: Record<string, number>;
+    questions_by_kind: Record<string, number>;
+    runs_by_type: Record<string, number>;
+    participants: number;
+    questions_run: number;
+    sessions_by_mode: { easy: number; pro: number };
+  };
+  daily: {
+    rooms: DailyPoint[];
+    users: DailyPoint[];
+    participants: DailyPoint[];
+    questions_run: DailyPoint[];
+    runs_by_type: RunsByTypePoint[];
+    sessions_by_mode: SessionsPoint[];
+  };
+}
+
 export interface ManageSite {
   landing_text: LocalizedText;
   /** Sanitized HTML shown to participants on every room's closing screen (#24). */
@@ -448,6 +489,18 @@ export const api = {
   getDataCollection: () => request<DataCollection>("/api/data-collection/"),
 
   // --- site content (staff management) ---
+  /** Admin usage statistics (staff-only). Pass `{days}` for a window ending
+   *  today, or an explicit `{from, to}` ISO date range. */
+  adminStats: (opts: { days?: number; from?: string; to?: string } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.from) {
+      params.set("from", opts.from);
+      if (opts.to) params.set("to", opts.to);
+    } else {
+      params.set("days", String(opts.days ?? 30));
+    }
+    return request<AdminStats>(`/api/admin/stats/?${params.toString()}`);
+  },
   getManageSite: () => request<ManageSite>("/api/manage/site/"),
   updateSite: (patch: {
     landing_text: LocalizedText;

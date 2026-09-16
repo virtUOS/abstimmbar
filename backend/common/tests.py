@@ -465,3 +465,275 @@ class RenderMarkdownAllowlistTests(TestCase):
 
     def test_markdown_empty_returns_empty(self):
         self.assertEqual(render_markdown(""), "")
+
+
+class StatsTotalsTests(TestCase):
+    """common.stats.totals() — current counts across the domain models."""
+
+    def test_totals_counts(self):
+        from basicbar_lti.models import LtiPlatform
+        from lti.models import LtiContextLink
+        from live.models import ParticipantToken, Run, Vote
+        from rooms.models import Question, QuestionSet, Room
+
+        from common import stats
+
+        lti_room = Room.objects.create(title="LTI room")
+        plain_room = Room.objects.create(title="Plain room")
+
+        platform = LtiPlatform.objects.create(
+            name="LMS", issuer="https://lms.example.org", client_id="c",
+            auth_login_url="https://lms.example.org/auth",
+            auth_token_url="https://lms.example.org/token",
+            key_set={"keys": []}, deployment_ids=["d1"],
+        )
+        LtiContextLink.objects.create(platform=platform, context_id="ctx1", room=lti_room)
+
+        User.objects.create_user(username="lecturer")
+
+        live_set = QuestionSet.objects.create(
+            room=lti_room, title="Live set", type=QuestionSet.SetType.LIVE_POLL
+        )
+        # A SECOND live_poll set + an extra single_choice question + a second
+        # live_poll run, so the per-type/kind counts are > 1. This guards
+        # against the Meta.ordering GROUP BY trap (which collapses every group
+        # to a count of 1) — a 1-per-group seed would not catch it.
+        live_set_2 = QuestionSet.objects.create(
+            room=lti_room, title="Live set 2", type=QuestionSet.SetType.LIVE_POLL
+        )
+        QuestionSet.objects.create(
+            room=plain_room, title="Self-paced set", type=QuestionSet.SetType.SELF_PACED
+        )
+
+        questions = {}
+        for kind in Question.Kind.values:
+            questions[kind] = Question.objects.create(
+                question_set=live_set, kind=kind, text=f"Question ({kind})"
+            )
+        Question.objects.create(
+            question_set=live_set, kind=Question.Kind.SINGLE_CHOICE, text="Second SC"
+        )
+
+        run = Run.objects.create(question_set=live_set)
+        Run.objects.create(question_set=live_set_2)  # second live_poll run
+
+        # Vote has no uniqueness constraint (live.0006 removed it — recording
+        # viewers may vote on the same question twice), so the seed must make
+        # the distinct-vs-raw distinction actually matter:
+        #  - token_a votes twice (two different questions) -> counted ONCE
+        #    as a participant, but contributes two rows to questions_run.
+        #  - token_b and token_c both vote on the SAME question -> that
+        #    (run, question) pair is counted ONCE in questions_run, but both
+        #    tokens count towards participants.
+        token_a = ParticipantToken.objects.create(room=lti_room)
+        token_b = ParticipantToken.objects.create(room=lti_room)
+        token_c = ParticipantToken.objects.create(room=lti_room)
+
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.SINGLE_CHOICE], token=token_a
+        )
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.MULTIPLE_CHOICE], token=token_a
+        )
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.WORD_CLOUD], token=token_b
+        )
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.WORD_CLOUD], token=token_c
+        )
+
+        # 4 raw votes; 3 distinct tokens; 3 distinct (run, question) pairs —
+        # both distinct expectations below are strictly less than the raw
+        # vote count, so a non-distinct implementation would fail here.
+        self.assertEqual(Vote.objects.count(), 4)
+
+        t = stats.totals()
+        self.assertEqual(t["rooms"], 2)
+        self.assertEqual(t["rooms_lti"], 1)
+        self.assertEqual(t["users"], 1)
+        self.assertEqual(t["sets_by_type"]["live_poll"], 2)
+        self.assertEqual(t["sets_by_type"]["self_paced"], 1)
+        self.assertEqual(t["sets_by_type"]["self_check"], 0)
+        self.assertEqual(set(t["questions_by_kind"]), set(Question.Kind.values))
+        self.assertEqual(t["questions_by_kind"]["single_choice"], 2)
+        self.assertEqual(t["questions_by_kind"]["word_cloud"], 1)
+        self.assertEqual(t["runs_by_type"]["live_poll"], 2)
+        self.assertEqual(t["participants"], 3)
+        self.assertEqual(t["questions_run"], 3)
+
+
+class StatsDailyTests(TestCase):
+    """common.stats.daily(since) — dense per-day time series."""
+
+    def test_daily_rooms_bucketed_and_dense(self):
+        import datetime
+
+        from django.utils import timezone
+
+        from rooms.models import Room
+
+        from common import stats
+
+        Room.objects.create(title="Room A")
+        Room.objects.create(title="Room B")
+
+        since = timezone.localdate() - datetime.timedelta(days=6)
+        d = stats.daily(since)
+
+        self.assertEqual(len(d["rooms"]), 7)
+        self.assertEqual(d["rooms"][-1]["n"], 2)
+        self.assertTrue(all("date" in row for row in d["rooms"]))
+        self.assertEqual(d["rooms"][-1]["date"], timezone.localdate().isoformat())
+
+    def test_daily_all_series_dense_and_correct_for_today(self):
+        import datetime
+
+        from django.utils import timezone
+
+        from accounts.models import DailyModeSession
+        from live.models import ParticipantToken, Run, Vote
+        from rooms.models import Question, QuestionSet, Room
+
+        from common import stats
+
+        room = Room.objects.create(title="Room")
+        live_set = QuestionSet.objects.create(
+            room=room, title="Live set", type=QuestionSet.SetType.LIVE_POLL
+        )
+        self_paced_set = QuestionSet.objects.create(
+            room=room, title="Self-paced set", type=QuestionSet.SetType.SELF_PACED
+        )
+
+        q1 = Question.objects.create(
+            question_set=live_set, kind=Question.Kind.SINGLE_CHOICE, text="Q1"
+        )
+        q2 = Question.objects.create(
+            question_set=live_set, kind=Question.Kind.MULTIPLE_CHOICE, text="Q2"
+        )
+        q3 = Question.objects.create(
+            question_set=live_set, kind=Question.Kind.WORD_CLOUD, text="Q3"
+        )
+
+        run_live = Run.objects.create(question_set=live_set)
+        Run.objects.create(question_set=self_paced_set)  # bumps runs_by_type only
+
+        # Same distinct-vs-raw scenario as StatsTotalsTests, seeded "today":
+        # token_a votes twice (two questions) -> 1 participant, 2 vote rows;
+        # token_b/token_c both vote on q3 -> 1 (run, question) pair, 2 tokens.
+        token_a = ParticipantToken.objects.create(room=room)
+        token_b = ParticipantToken.objects.create(room=room)
+        token_c = ParticipantToken.objects.create(room=room)
+        Vote.objects.create(run=run_live, question=q1, token=token_a)
+        Vote.objects.create(run=run_live, question=q2, token=token_a)
+        Vote.objects.create(run=run_live, question=q3, token=token_b)
+        Vote.objects.create(run=run_live, question=q3, token=token_c)
+        self.assertEqual(Vote.objects.count(), 4)  # raw > both distinct counts below
+
+        today = timezone.localdate()
+        DailyModeSession.objects.create(session_key="s1", date=today, mode="easy")
+        DailyModeSession.objects.create(session_key="s2", date=today, mode="easy")
+        DailyModeSession.objects.create(session_key="s3", date=today, mode="pro")
+
+        since = today - datetime.timedelta(days=6)
+        d = stats.daily(since)
+
+        for key in ("participants", "questions_run", "runs_by_type", "sessions_by_mode"):
+            self.assertEqual(len(d[key]), 7, key)
+            self.assertEqual(d[key][-1]["date"], today.isoformat(), key)
+
+        self.assertEqual(d["participants"][-1]["n"], 3)
+        self.assertEqual(d["questions_run"][-1]["n"], 3)
+        self.assertEqual(d["runs_by_type"][-1]["live_poll"], 1)
+        self.assertEqual(d["runs_by_type"][-1]["self_paced"], 1)
+        self.assertEqual(d["runs_by_type"][-1]["self_check"], 0)
+        self.assertEqual(d["sessions_by_mode"][-1]["easy"], 2)
+        self.assertEqual(d["sessions_by_mode"][-1]["pro"], 1)
+
+
+class MetricsEndpointTests(TestCase):
+    """GET /metrics — token-guarded Prometheus text exporter (top-level, not /api/)."""
+
+    def test_404_without_token_configured(self):
+        with override_settings(METRICS_TOKEN=""):
+            self.assertEqual(self.client.get("/metrics").status_code, 404)
+
+    def test_401_with_wrong_token(self):
+        with override_settings(METRICS_TOKEN="secret"):
+            r = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer nope")
+            self.assertEqual(r.status_code, 401)
+
+    def test_200_and_format_with_token(self):
+        with override_settings(METRICS_TOKEN="secret"):
+            r = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer secret")
+        self.assertEqual(r.status_code, 200)
+        self.assertIn("text/plain", r["Content-Type"])
+        body = r.content.decode()
+        self.assertIn("# TYPE abstimmbar_rooms gauge", body)
+        self.assertIn('abstimmbar_question_sets{type="live_poll"}', body)
+
+    def test_label_value_escaping(self):
+        # Sanity check on the labeled-gauge path: quotes/backslashes in a
+        # label value must not break the exposition format.
+        with override_settings(METRICS_TOKEN="secret"):
+            r = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer secret")
+        body = r.content.decode()
+        self.assertIn('abstimmbar_sessions_today{mode="easy"}', body)
+        self.assertIn('abstimmbar_sessions_today{mode="pro"}', body)
+
+
+class AdminStatsEndpointTests(TestCase):
+    """GET /api/admin/stats/ — staff-only wrapper around common.stats."""
+
+    def test_requires_staff(self):
+        r = self.client.get("/api/admin/stats/")
+        self.assertIn(r.status_code, (401, 403))
+
+        user = User.objects.create_user(username="plain")
+        self.client.force_login(user)
+        self.assertEqual(self.client.get("/api/admin/stats/").status_code, 403)
+
+    def test_staff_gets_totals_and_daily(self):
+        staff = User.objects.create_user(username="chef", is_staff=True)
+        self.client.force_login(staff)
+        body = self.client.get("/api/admin/stats/?days=7").json()
+        self.assertIn("totals", body)
+        self.assertIn("daily", body)
+        self.assertEqual(len(body["daily"]["rooms"]), 7)
+        self.assertEqual(body["days"], 7)
+
+    def test_days_clamped_to_max(self):
+        staff = User.objects.create_user(username="chef2", is_staff=True)
+        self.client.force_login(staff)
+        body = self.client.get("/api/admin/stats/?days=9999").json()
+        self.assertEqual(body["days"], 365)
+
+    def test_invalid_days_falls_back_to_default(self):
+        staff = User.objects.create_user(username="chef3", is_staff=True)
+        self.client.force_login(staff)
+        body = self.client.get("/api/admin/stats/?days=abc").json()
+        self.assertEqual(body["days"], 30)
+
+    def test_explicit_from_to_range(self):
+        import datetime
+        from django.utils import timezone
+        staff = User.objects.create_user(username="chef4", is_staff=True)
+        self.client.force_login(staff)
+        to = timezone.localdate()
+        frm = to - datetime.timedelta(days=9)
+        body = self.client.get(
+            f"/api/admin/stats/?from={frm.isoformat()}&to={to.isoformat()}"
+        ).json()
+        self.assertEqual(body["from"], frm.isoformat())
+        self.assertEqual(body["to"], to.isoformat())
+        self.assertEqual(body["days"], 10)
+        self.assertEqual(len(body["daily"]["rooms"]), 10)
+
+    def test_totals_sessions_by_mode(self):
+        from accounts.models import DailyModeSession
+        from django.utils import timezone
+        from common import stats
+        today = timezone.localdate()
+        DailyModeSession.objects.create(session_key="a", date=today, mode="easy")
+        DailyModeSession.objects.create(session_key="b", date=today, mode="pro")
+        DailyModeSession.objects.create(session_key="c", date=today, mode="easy")
+        self.assertEqual(stats.totals()["sessions_by_mode"], {"easy": 2, "pro": 1})

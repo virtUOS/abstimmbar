@@ -6,6 +6,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    AdminStatsView,
     DataCollectionView,
     FooterPagesView,
     ManagePageViewSet,
@@ -25,6 +26,7 @@ urlpatterns = [
     path("pages/<slug:slug>/", PageDetailView.as_view()),
     path("manage/site/", SiteManageView.as_view()),
     path("manage/site/logo/", SiteLogoView.as_view()),
+    path("admin/stats/", AdminStatsView.as_view()),
     path("translate/", TranslateView.as_view()),
     path("", include(router.urls)),
 ]
