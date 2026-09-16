@@ -506,15 +506,35 @@ class StatsTotalsTests(TestCase):
 
         run = Run.objects.create(question_set=live_set)
 
-        token1 = ParticipantToken.objects.create(room=lti_room)
-        token2 = ParticipantToken.objects.create(room=lti_room)
+        # Vote has no uniqueness constraint (live.0006 removed it — recording
+        # viewers may vote on the same question twice), so the seed must make
+        # the distinct-vs-raw distinction actually matter:
+        #  - token_a votes twice (two different questions) -> counted ONCE
+        #    as a participant, but contributes two rows to questions_run.
+        #  - token_b and token_c both vote on the SAME question -> that
+        #    (run, question) pair is counted ONCE in questions_run, but both
+        #    tokens count towards participants.
+        token_a = ParticipantToken.objects.create(room=lti_room)
+        token_b = ParticipantToken.objects.create(room=lti_room)
+        token_c = ParticipantToken.objects.create(room=lti_room)
 
         Vote.objects.create(
-            run=run, question=questions[Question.Kind.SINGLE_CHOICE], token=token1
+            run=run, question=questions[Question.Kind.SINGLE_CHOICE], token=token_a
         )
         Vote.objects.create(
-            run=run, question=questions[Question.Kind.MULTIPLE_CHOICE], token=token2
+            run=run, question=questions[Question.Kind.MULTIPLE_CHOICE], token=token_a
         )
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.WORD_CLOUD], token=token_b
+        )
+        Vote.objects.create(
+            run=run, question=questions[Question.Kind.WORD_CLOUD], token=token_c
+        )
+
+        # 4 raw votes; 3 distinct tokens; 3 distinct (run, question) pairs —
+        # both distinct expectations below are strictly less than the raw
+        # vote count, so a non-distinct implementation would fail here.
+        self.assertEqual(Vote.objects.count(), 4)
 
         t = stats.totals()
         self.assertEqual(t["rooms"], 2)
@@ -526,8 +546,8 @@ class StatsTotalsTests(TestCase):
         self.assertEqual(set(t["questions_by_kind"]), set(Question.Kind.values))
         self.assertEqual(t["questions_by_kind"]["single_choice"], 1)
         self.assertEqual(t["runs_by_type"]["live_poll"], 1)
-        self.assertEqual(t["participants"], 2)
-        self.assertEqual(t["questions_run"], 2)
+        self.assertEqual(t["participants"], 3)
+        self.assertEqual(t["questions_run"], 3)
 
 
 class StatsDailyTests(TestCase):
@@ -552,3 +572,67 @@ class StatsDailyTests(TestCase):
         self.assertEqual(d["rooms"][-1]["n"], 2)
         self.assertTrue(all("date" in row for row in d["rooms"]))
         self.assertEqual(d["rooms"][-1]["date"], timezone.localdate().isoformat())
+
+    def test_daily_all_series_dense_and_correct_for_today(self):
+        import datetime
+
+        from django.utils import timezone
+
+        from accounts.models import DailyModeSession
+        from live.models import ParticipantToken, Run, Vote
+        from rooms.models import Question, QuestionSet, Room
+
+        from common import stats
+
+        room = Room.objects.create(title="Room")
+        live_set = QuestionSet.objects.create(
+            room=room, title="Live set", type=QuestionSet.SetType.LIVE_POLL
+        )
+        self_paced_set = QuestionSet.objects.create(
+            room=room, title="Self-paced set", type=QuestionSet.SetType.SELF_PACED
+        )
+
+        q1 = Question.objects.create(
+            question_set=live_set, kind=Question.Kind.SINGLE_CHOICE, text="Q1"
+        )
+        q2 = Question.objects.create(
+            question_set=live_set, kind=Question.Kind.MULTIPLE_CHOICE, text="Q2"
+        )
+        q3 = Question.objects.create(
+            question_set=live_set, kind=Question.Kind.WORD_CLOUD, text="Q3"
+        )
+
+        run_live = Run.objects.create(question_set=live_set)
+        Run.objects.create(question_set=self_paced_set)  # bumps runs_by_type only
+
+        # Same distinct-vs-raw scenario as StatsTotalsTests, seeded "today":
+        # token_a votes twice (two questions) -> 1 participant, 2 vote rows;
+        # token_b/token_c both vote on q3 -> 1 (run, question) pair, 2 tokens.
+        token_a = ParticipantToken.objects.create(room=room)
+        token_b = ParticipantToken.objects.create(room=room)
+        token_c = ParticipantToken.objects.create(room=room)
+        Vote.objects.create(run=run_live, question=q1, token=token_a)
+        Vote.objects.create(run=run_live, question=q2, token=token_a)
+        Vote.objects.create(run=run_live, question=q3, token=token_b)
+        Vote.objects.create(run=run_live, question=q3, token=token_c)
+        self.assertEqual(Vote.objects.count(), 4)  # raw > both distinct counts below
+
+        today = timezone.localdate()
+        DailyModeSession.objects.create(session_key="s1", date=today, mode="easy")
+        DailyModeSession.objects.create(session_key="s2", date=today, mode="easy")
+        DailyModeSession.objects.create(session_key="s3", date=today, mode="pro")
+
+        since = today - datetime.timedelta(days=6)
+        d = stats.daily(since)
+
+        for key in ("participants", "questions_run", "runs_by_type", "sessions_by_mode"):
+            self.assertEqual(len(d[key]), 7, key)
+            self.assertEqual(d[key][-1]["date"], today.isoformat(), key)
+
+        self.assertEqual(d["participants"][-1]["n"], 3)
+        self.assertEqual(d["questions_run"][-1]["n"], 3)
+        self.assertEqual(d["runs_by_type"][-1]["live_poll"], 1)
+        self.assertEqual(d["runs_by_type"][-1]["self_paced"], 1)
+        self.assertEqual(d["runs_by_type"][-1]["self_check"], 0)
+        self.assertEqual(d["sessions_by_mode"][-1]["easy"], 2)
+        self.assertEqual(d["sessions_by_mode"][-1]["pro"], 1)
