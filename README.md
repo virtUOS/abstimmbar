@@ -33,8 +33,17 @@ sharing its design language and stack. Released under the
 
 - 🎓 **Teacher-paced live quizzes** — start/stop each question from a
   distraction-free presenter view (beamer-friendly, keyboard shortcuts),
-  live vote counter, results as bar charts. A **self-paced mode** lets
-  students work through a set at their own speed with instant feedback.
+  live vote counter, results as bar charts.
+- 🗂️ **Three set types, each with its own purpose** — chosen at creation and
+  fixed afterwards, the type decides how a set is run and which question
+  formats it allows:
+  - **Live poll** — presenter-driven on the beamer, you start and stop each
+    question; all question types.
+  - **Self-paced quiz** — participants work through the set at their own pace
+    in class; you start it and watch the results come in. All question types.
+  - **Self-check** — learners practise on their own via a standing link with
+    immediate feedback (auto-checkable formats: single/multiple choice,
+    ordering, open text).
 - 📱 **Anonymous participation** — join via QR code, short URL or room code;
   an ultra-lightweight, framework-free participant page that loads instantly
   on phones in a packed lecture hall. No account, no IP logging on votes.
@@ -56,6 +65,13 @@ sharing its design language and stack. Released under the
 - 🖼️ **Robust image handling** — drag-and-drop images in questions are
   normalized on upload (downscaled, re-encoded to WebP) so they stay sharp
   on beamer and phone without bloating storage.
+- 📈 **Usage statistics & monitoring** — a staff-only statistics page in the
+  admin area shows totals (rooms, users, sets & questions *created* and
+  *conducted*, participants), breakdowns by type as donut charts and time
+  series over a selectable date range. An optional, token-guarded
+  Prometheus `/metrics` endpoint feeds the same figures into Grafana. Only
+  aggregated, anonymous data — no per-user tracking; session keys are hashed
+  and pruned.
 
 ## Screenshots
 
@@ -121,10 +137,13 @@ invent numbers.
   <em>Generate draft questions from a slide deck — you choose which to keep.</em>
 </p>
 
-- 🧠 **Generate questions from your slides** — upload a PDF, PPTX or ODP
-  (or paste text) and get draft single/multiple-choice and open-text
-  questions, with adjustable count and cognitive level (Bloom-inspired).
-  You pick which drafts to keep; nothing is imported automatically.
+- 🧠 **Generate questions from your slides** — drag-and-drop (or pick) a PDF,
+  PPTX or ODP, or paste text, and get draft questions across all supported
+  types. Coverage spans the *whole* document; you set the density (questions
+  per page) and cognitive level (Bloom-inspired), and can prioritise one
+  question type. Large documents are processed as a resumable background job
+  with a live progress indicator, then you review the drafts and pick which
+  to keep — nothing is imported automatically.
 - ✏️ **Authoring assists** — one click to suggest plausible distractors for
   a choice question, or to rephrase a question more clearly. Suggestions are
   proposed, never auto-applied.
