@@ -33,8 +33,17 @@ sharing its design language and stack. Released under the
 
 - 🎓 **Teacher-paced live quizzes** — start/stop each question from a
   distraction-free presenter view (beamer-friendly, keyboard shortcuts),
-  live vote counter, results as bar charts. A **self-paced mode** lets
-  students work through a set at their own speed with instant feedback.
+  live vote counter, results as bar charts.
+- 🗂️ **Three set types, each with its own purpose** — chosen at creation and
+  fixed afterwards, the type decides how a set is run and which question
+  formats it allows:
+  - **Live poll** — presenter-driven on the beamer, you start and stop each
+    question; all question types.
+  - **Self-paced quiz** — participants work through the set at their own pace
+    in class; you start it and watch the results come in. All question types.
+  - **Self-check** — learners practise on their own via a standing link with
+    immediate feedback (auto-checkable formats: single/multiple choice,
+    ordering, open text).
 - 📱 **Anonymous participation** — join via QR code, short URL or room code;
   an ultra-lightweight, framework-free participant page that loads instantly
   on phones in a packed lecture hall. No account, no IP logging on votes.
