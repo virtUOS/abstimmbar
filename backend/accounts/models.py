@@ -31,6 +31,11 @@ class User(AbstractUser):
     # room? default=False so existing users get it too, on their next
     # whoami — see accounts.views.whoami and rooms.onboarding.
     onboarded = models.BooleanField(default=False)
+    # Guided-tour onboarding: has the user seen or dismissed the first-login
+    # tour offer? Separate from ``onboarded`` (which fires on the first whoami
+    # to seed the example room and is thus always true by the time the UI
+    # renders). default=False so existing users get the tour offer once.
+    onboarding_tour_seen = models.BooleanField(default=False)
 
     def __str__(self):
         return self.get_username()

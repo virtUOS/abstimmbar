@@ -77,6 +77,7 @@ def whoami(request):
             # Effective Easy/Pro mode: explicit choice, else role default
             # (non-staff = simple, staff = pro) — see User.effective_easy_mode.
             "easy_mode": user.effective_easy_mode,
+            "onboarding_tour_seen": user.onboarding_tour_seen,
             "csrf_token": csrf_token,
             "ai_enabled": ai.is_enabled(),
             "ai_generate_max_questions": settings.AI_GEN_MAX_QUESTIONS,
@@ -169,3 +170,15 @@ def set_mode(request):
     request.user.easy_mode = easy
     request.user.save(update_fields=["easy_mode"])
     return JsonResponse({"easy_mode": request.user.effective_easy_mode})
+
+
+@require_POST
+def set_tour_seen(request):
+    """POST /api/whoami/tour-seen/ — mark the first-login guided tour as seen
+    or dismissed (idempotent). Plain Django view, matching ``set_mode``."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Not authenticated."}, status=403)
+    if not request.user.onboarding_tour_seen:
+        request.user.onboarding_tour_seen = True
+        request.user.save(update_fields=["onboarding_tour_seen"])
+    return JsonResponse({"onboarding_tour_seen": True})

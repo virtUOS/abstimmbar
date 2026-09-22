@@ -437,3 +437,27 @@ class PruneModeSessionsCommandTests(TestCase):
         call_command("prune_mode_sessions", days=30)
         remaining = list(DailyModeSession.objects.values_list("session_hash", flat=True))
         self.assertEqual(remaining, ["hash-recent"])
+
+
+class SetTourSeenTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="tia", password="x")
+
+    def test_defaults_false_and_reported_by_whoami(self):
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/whoami/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["onboarding_tour_seen"])
+
+    def test_marks_seen_idempotently(self):
+        self.client.force_login(self.user)
+        for _ in range(2):
+            resp = self.client.post("/api/whoami/tour-seen/", content_type="application/json")
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.json()["onboarding_tour_seen"])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.onboarding_tour_seen)
+
+    def test_requires_authentication(self):
+        resp = self.client.post("/api/whoami/tour-seen/", content_type="application/json")
+        self.assertEqual(resp.status_code, 403)
