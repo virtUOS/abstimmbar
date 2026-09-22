@@ -1,0 +1,144 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Universität Osnabrück (virtUOS) */
+
+/* Restyles driver.js's popover to match Abstimmbar's cards (radius, shadow,
+ * slate text, brand primary button) in both themes. The app toggles a
+ * `dark` class on <html> (@basicbar/ui ThemeProvider) — see
+ * document.documentElement. Colors reference the same `brand`/`slate` OKLCH
+ * ramps as tailwind.config.js (via Tailwind's theme() function) rather than
+ * hardcoding hex, since the app does not expose them as CSS variables.
+ */
+@import "driver.js/dist/driver.css";
+
+.driver-popover {
+  background: theme("colors.white");
+  color: theme("colors.slate.900");
+  border: 1px solid theme("colors.slate.200");
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px -12px theme("colors.slate.950 / 35%");
+  max-width: 320px;
+  padding: 1rem;
+  font-family: inherit;
+}
+
+.driver-popover-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: theme("colors.slate.900");
+}
+
+.driver-popover-description {
+  color: theme("colors.slate.700");
+  font-size: 0.875rem;
+}
+
+.driver-popover-progress-text {
+  color: theme("colors.slate.500");
+}
+
+.driver-popover-footer-btn {
+  color: theme("colors.slate.700");
+  background: theme("colors.white");
+  border: 1px solid theme("colors.slate.300");
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.driver-popover-footer-btn:hover,
+.driver-popover-footer-btn:focus {
+  background: theme("colors.slate.100");
+}
+
+.driver-popover-navigation-btns button.driver-popover-next-btn,
+.driver-popover-navigation-btns button.driver-popover-done-btn {
+  background: theme("colors.brand.600");
+  color: theme("colors.white");
+  border-color: theme("colors.brand.600");
+}
+
+.driver-popover-navigation-btns button.driver-popover-next-btn:hover,
+.driver-popover-navigation-btns button.driver-popover-done-btn:hover,
+.driver-popover-navigation-btns button.driver-popover-next-btn:focus,
+.driver-popover-navigation-btns button.driver-popover-done-btn:focus {
+  background: theme("colors.brand.700");
+}
+
+.driver-popover-close-btn {
+  color: theme("colors.slate.400");
+}
+
+.driver-popover-close-btn:hover,
+.driver-popover-close-btn:focus {
+  color: theme("colors.slate.700");
+}
+
+.driver-popover-arrow {
+  border-color: theme("colors.white");
+}
+
+/* Dark mode: the app toggles `.dark` on <html> (@basicbar/ui ThemeProvider). */
+.dark .driver-popover {
+  background: theme("colors.slate.900");
+  color: theme("colors.slate.200");
+  border-color: theme("colors.slate.800");
+}
+
+.dark .driver-popover-title {
+  color: theme("colors.slate.50");
+}
+
+.dark .driver-popover-description {
+  color: theme("colors.slate.300");
+}
+
+.dark .driver-popover-progress-text {
+  color: theme("colors.slate.400");
+}
+
+.dark .driver-popover-footer-btn {
+  color: theme("colors.slate.200");
+  background: theme("colors.slate.800");
+  border-color: theme("colors.slate.700");
+}
+
+.dark .driver-popover-footer-btn:hover,
+.dark .driver-popover-footer-btn:focus {
+  background: theme("colors.slate.700");
+}
+
+.dark .driver-popover-navigation-btns button.driver-popover-next-btn,
+.dark .driver-popover-navigation-btns button.driver-popover-done-btn {
+  background: theme("colors.brand.500");
+  border-color: theme("colors.brand.500");
+  color: theme("colors.slate.950");
+}
+
+.dark .driver-popover-navigation-btns button.driver-popover-next-btn:hover,
+.dark .driver-popover-navigation-btns button.driver-popover-done-btn:hover,
+.dark .driver-popover-navigation-btns button.driver-popover-next-btn:focus,
+.dark .driver-popover-navigation-btns button.driver-popover-done-btn:focus {
+  background: theme("colors.brand.400");
+}
+
+.dark .driver-popover-close-btn {
+  color: theme("colors.slate.500");
+}
+
+.dark .driver-popover-close-btn:hover,
+.dark .driver-popover-close-btn:focus {
+  color: theme("colors.slate.200");
+}
+
+.dark .driver-popover-arrow {
+  border-color: theme("colors.slate.900");
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .driver-popover,
+  .driver-active-element,
+  .driver-overlay {
+    animation: none !important;
+    transition: none !important;
+  }
+}

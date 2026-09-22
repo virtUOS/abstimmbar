@@ -26,6 +26,8 @@ export interface Whoami {
    * and whether machine-translation pre-fill (LibreTranslate) is on. */
   content_default_language: string;
   content_translation_enabled: boolean;
+  /** First-login guided tour: already seen/dismissed once. */
+  onboarding_tour_seen?: boolean;
 }
 
 export interface Room {
@@ -480,6 +482,11 @@ export const api = {
     request<{ easy_mode: boolean }>("/api/whoami/mode/", {
       method: "POST",
       body: JSON.stringify({ easy_mode: easyMode }),
+    }),
+
+  markTourSeen: () =>
+    request<{ onboarding_tour_seen: boolean }>("/api/whoami/tour-seen/", {
+      method: "POST",
     }),
 
   // --- site content (public reads) ---
