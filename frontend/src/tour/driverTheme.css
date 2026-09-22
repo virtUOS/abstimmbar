@@ -73,8 +73,24 @@
   color: theme("colors.slate.700");
 }
 
-.driver-popover-arrow {
-  border-color: theme("colors.white");
+/* driver.js's own base rule sets `border: 5px solid #fff` on
+ * `.driver-popover-arrow`, then each `.driver-popover-arrow-side-*` class
+ * zeroes out three of the four border-color edges so only one edge stays
+ * visible, forming a directional triangle. A blanket `border-color`
+ * shorthand on the base class would stomp those per-side transparents and
+ * turn the pointer into a solid square — so we recolor the same single
+ * visible edge each side class relies on instead, mirroring driver.css. */
+.driver-popover-arrow-side-left {
+  border-left-color: theme("colors.white");
+}
+.driver-popover-arrow-side-right {
+  border-right-color: theme("colors.white");
+}
+.driver-popover-arrow-side-top {
+  border-top-color: theme("colors.white");
+}
+.driver-popover-arrow-side-bottom {
+  border-bottom-color: theme("colors.white");
 }
 
 /* Dark mode: the app toggles `.dark` on <html> (@basicbar/ui ThemeProvider). */
@@ -130,8 +146,17 @@
   color: theme("colors.slate.200");
 }
 
-.dark .driver-popover-arrow {
-  border-color: theme("colors.slate.900");
+.dark .driver-popover-arrow-side-left {
+  border-left-color: theme("colors.slate.900");
+}
+.dark .driver-popover-arrow-side-right {
+  border-right-color: theme("colors.slate.900");
+}
+.dark .driver-popover-arrow-side-top {
+  border-top-color: theme("colors.slate.900");
+}
+.dark .driver-popover-arrow-side-bottom {
+  border-bottom-color: theme("colors.slate.900");
 }
 
 @media (prefers-reduced-motion: reduce) {
