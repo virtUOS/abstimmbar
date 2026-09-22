@@ -415,15 +415,17 @@ export default function App() {
                   <Settings aria-hidden className="h-5 w-5" />
                 </Link>
               )}
-              <SegmentedControl
-                ariaLabel={t("Mode")}
-                value={whoami.easy_mode ? "simple" : "pro"}
-                onChange={(v) => setEasyMode(v === "simple")}
-                options={[
-                  { value: "simple", label: t("Simple") },
-                  { value: "pro", label: t("Expert") },
-                ]}
-              />
+              <div data-tour="header.mode">
+                <SegmentedControl
+                  ariaLabel={t("Mode")}
+                  value={whoami.easy_mode ? "simple" : "pro"}
+                  onChange={(v) => setEasyMode(v === "simple")}
+                  options={[
+                    { value: "simple", label: t("Simple") },
+                    { value: "pro", label: t("Expert") },
+                  ]}
+                />
+              </div>
               <UserMenu whoami={whoami} />
             </div>
           ) : (

@@ -2370,7 +2370,10 @@ function Footer(props: {
     "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50";
   const isSection = props.variant === "section";
   return (
-    <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
+    <footer
+      data-tour="present.controls"
+      className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500"
+    >
       {/* Left cluster: the question indicator, and — next to it — the
        * Frage/Ergebnis/Lösung reveal pill (it belongs to the current
        * question, so it reads better beside "Frage x/Y" than over on the

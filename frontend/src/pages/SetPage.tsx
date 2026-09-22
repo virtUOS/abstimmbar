@@ -1188,10 +1188,12 @@ export default function SetPage() {
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>
               {/* Pulling in questions is core authoring — available in both
                   modes, unlike the Pro-only actions below (#87). */}
-              <MenuItem onClick={() => void openPull()}>
-                <CopyPlus aria-hidden className="h-4 w-4" />
-                {t("Add questions from another set …")}
-              </MenuItem>
+              <div data-tour="set.copy">
+                <MenuItem onClick={() => void openPull()}>
+                  <CopyPlus aria-hidden className="h-4 w-4" />
+                  {t("Add questions from another set …")}
+                </MenuItem>
+              </div>
               {/* Easy mode (#52): hide duplicate / export / share / archive. */}
               {!easyMode && (
                 <>
@@ -1639,20 +1641,24 @@ export default function SetPage() {
             </Button>
           )}
           {aiVisible && (
-            <Button
-              onClick={() => {
-                setGenerateOpen(true);
-                setEditingSections(false);
-              }}
-              className="inline-flex items-center gap-1.5"
-            >
-              <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
-            </Button>
+            <div data-tour="set.ai-generate">
+              <Button
+                onClick={() => {
+                  setGenerateOpen(true);
+                  setEditingSections(false);
+                }}
+                className="inline-flex items-center gap-1.5"
+              >
+                <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
+              </Button>
+            </div>
           )}
-          <NewQuestionMenu
-            onPick={(kind, template) => void addQuestion(kind, template)}
-            allowedKinds={allowedKindsFor(set.type)}
-          />
+          <div data-tour="set.add-question">
+            <NewQuestionMenu
+              onPick={(kind, template) => void addQuestion(kind, template)}
+              allowedKinds={allowedKindsFor(set.type)}
+            />
+          </div>
         </div>
       </div>
 

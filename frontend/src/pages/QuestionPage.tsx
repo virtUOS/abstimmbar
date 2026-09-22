@@ -943,30 +943,32 @@ export default function QuestionPage() {
 
       {tab === "edit" && (
       <div className="grid gap-5">
-        <TranslatableField
-          variant="rich"
-          label={t("Question text")}
-          value={text}
-          onChange={setText}
-          stale={liveStaleLangs(
-            textBaseline,
-            text,
-            question?.translation_stale?.text ?? [],
-            syncedFields.has("text"),
-          )}
-          onTranslated={(lang, value) => {
-            // The translation just made both languages match again: move the
-            // baseline to the new state so it's no longer flagged live, and
-            // record the sync on the next save.
-            setTextBaseline(setLocalizedLang(text, lang, value));
-            markSynced("text");
-          }}
-          onMarkSynced={() => {
-            setTextBaseline(text);
-            markSynced("text");
-            void save({ stay: true, extraSynced: ["text"] });
-          }}
-        />
+        <div data-tour="question.lang-tabs">
+          <TranslatableField
+            variant="rich"
+            label={t("Question text")}
+            value={text}
+            onChange={setText}
+            stale={liveStaleLangs(
+              textBaseline,
+              text,
+              question?.translation_stale?.text ?? [],
+              syncedFields.has("text"),
+            )}
+            onTranslated={(lang, value) => {
+              // The translation just made both languages match again: move the
+              // baseline to the new state so it's no longer flagged live, and
+              // record the sync on the next save.
+              setTextBaseline(setLocalizedLang(text, lang, value));
+              markSynced("text");
+            }}
+            onMarkSynced={() => {
+              setTextBaseline(text);
+              markSynced("text");
+              void save({ stay: true, extraSynced: ["text"] });
+            }}
+          />
+        </div>
         {textMissing && (
           <p className="mt-1 text-sm text-red-600 dark:text-red-400">
             {t("Question text is required.")}

@@ -437,15 +437,17 @@ export default function RoomsPage() {
               "A room is the permanent access point for participants — typically a course. Its code stays the same across all quizzes.",
             )}
           />
-          <Button
-            variant="primary"
-            onClick={() => {
-              setCreateError("");
-              setNewRoom(NEW_ROOM_DEFAULTS);
-            }}
-          >
-            + {t("New room")}
-          </Button>
+          <div data-tour="rooms.new-room">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setCreateError("");
+                setNewRoom(NEW_ROOM_DEFAULTS);
+              }}
+            >
+              + {t("New room")}
+            </Button>
+          </div>
         </div>
       </div>
       )}
@@ -516,7 +518,7 @@ export default function RoomsPage() {
           </EmptyState>
         )
       ) : (
-        <>
+        <div data-tour="rooms.list">
           {favorites.length > 0 && (
             <section className="mb-6">
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -625,7 +627,7 @@ export default function RoomsPage() {
               </ul>
             </section>
           )}
-        </>
+        </div>
       )}
     </div>
   );

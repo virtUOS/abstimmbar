@@ -418,7 +418,10 @@ export default function ResultsPage() {
         {runs.length > 0 && current && (
           <div className="flex flex-wrap items-center gap-3">
             {/* Export as one visibly grouped unit: scope + download. */}
-            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
+            <div
+              data-tour="results.export"
+              className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-900/40"
+            >
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 {t("Export")}
               </span>

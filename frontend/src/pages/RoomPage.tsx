@@ -861,7 +861,9 @@ export default function RoomPage() {
           <InfoHint
             text={t("A question set is a single quiz — e.g. for one lecture session.")}
           />
-          <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
+          <div data-tour="room.new-set">
+            <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
+          </div>
         </div>
       </div>
       {importError && <p className="mb-4 text-sm text-red-600">{importError}</p>}
