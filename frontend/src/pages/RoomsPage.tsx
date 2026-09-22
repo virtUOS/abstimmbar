@@ -503,7 +503,12 @@ export default function RoomsPage() {
 
       {searching ? (
         <SearchView results={results} query={term} />
-      ) : rooms.length === 0 ? (
+      ) : (
+        // Always-present tour anchor: wraps BOTH the empty state and the
+        // populated list, so `rooms.list` exists even for zero-room users (the
+        // onboarding audience). Layout-neutral — the parent is a plain block div.
+        <div data-tour="rooms.list">
+          {rooms.length === 0 ? (
         roomFilter === "archived" ? (
           <EmptyState icon={Archive} title={t("No archived rooms")}>
             {t(
@@ -517,8 +522,8 @@ export default function RoomsPage() {
             )}
           </EmptyState>
         )
-      ) : (
-        <div data-tour="rooms.list">
+          ) : (
+            <>
           {favorites.length > 0 && (
             <section className="mb-6">
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -626,6 +631,8 @@ export default function RoomsPage() {
                 ))}
               </ul>
             </section>
+          )}
+            </>
           )}
         </div>
       )}

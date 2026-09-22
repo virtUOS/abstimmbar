@@ -207,6 +207,7 @@ export function TourProvider({
       }
 
       if (current.target === null) {
+        if (cancelled) return;
         highlight(current, undefined);
         return;
       }
@@ -236,6 +237,7 @@ export function TourProvider({
       timeoutTimer = window.setTimeout(() => {
         if (cancelled) return;
         clearWaiters();
+        destroyDriver(); // no stale overlay behind the paused pill
         setPaused(true);
       }, TARGET_TIMEOUT_MS);
     };
@@ -245,8 +247,14 @@ export function TourProvider({
     return () => {
       cancelled = true;
       clearWaiters();
+      // Tear down THIS step's driver overlay before the next step's run() begins
+      // its (possibly async) navigate/target-wait, so a stale dark backdrop +
+      // popover (pointing at a now-unmounted element) never lingers over a wait
+      // or the paused pill. driver.js appends to <body> outside React, so
+      // nothing else removes it.
+      destroyDriver();
     };
-  }, [active, paused, step, navigate, resolveRoute, highlight]);
+  }, [active, paused, step, navigate, resolveRoute, highlight, destroyDriver]);
 
   // --- Effect B: auto-advance an action step when its milestone matches.
   useEffect(() => {
