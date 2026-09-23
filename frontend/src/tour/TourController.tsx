@@ -301,8 +301,10 @@ export function TourProvider({
           // auto-positions.
           ...(s.popoverSide ? { side: s.popoverSide } : {}),
           // Next is always enabled. On action steps it performs the step's
-          // action for the user (handleAuto); the element/route milestone
-          // still auto-advances when the user does it themselves.
+          // action for the user (handleAuto). If the user does the step
+          // themselves while the tour is running, its milestone advances it
+          // (Effect B for routes, B2 for elements). While paused, B2 is off;
+          // a navigation then re-syncs the tour to the new page (Effect C).
           disableButtons: [],
           nextBtnText: isLast ? t("Finish") : t("Next"),
           onNextClick: () => (isAction ? void handleAuto(s) : advance()),
@@ -435,10 +437,24 @@ export function TourProvider({
   }, [active, paused, step, advance]);
 
   // --- Effect C: pause recovery — a location change re-attempts the step.
+  // If the user left the paused step's page (e.g. did the step themselves after
+  // a failed autoPerform: saved the room → /rooms/5), re-sync to the first step
+  // of the page they're on instead of waiting for a target that isn't there.
+  // Only in the paused branch, so it never fights a navigateTo step's own
+  // navigation (the tour isn't paused then). Declared after Effect B: on the
+  // same commit B's functional advance() is queued first and this plain
+  // setIndex(entry) wins.
   useEffect(() => {
-    if (paused) setPaused(false);
-    // Only react to path changes; `paused` is intentionally NOT a dep so that
-    // setting paused=true (from the timeout) does not immediately clear it.
+    if (!paused) return;
+    if (active && step?.page !== pageFor(location.pathname)) {
+      const entry = entryIndexFor(steps, location.pathname);
+      if (entry >= 0) setIndex(entry);
+    }
+    setPaused(false);
+    // Only react to path changes; `paused` (and active/step/steps, read from
+    // this render's closure, which is current when the effect runs) are
+    // intentionally NOT deps so that setting paused=true (from the timeout)
+    // does not immediately clear it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
