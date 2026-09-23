@@ -87,6 +87,11 @@ export function TourProvider({
   pathRef.current = location.pathname;
 
   const [active, setActive] = useState(false);
+  // Live `active` for async callbacks: an autoPerform resolving after the user
+  // ended the tour must not re-sync/navigate. Also set synchronously in
+  // startTour/end so it's correct before the next render.
+  const activeRef = useRef(active);
+  activeRef.current = active;
   const [mode, setMode] = useState<TourMode>("pro");
   const [aiEnabled, setAiEnabled] = useState(false);
   const [index, setIndex] = useState(0);
@@ -134,11 +139,13 @@ export function TourProvider({
     setIndex(entry < 0 ? 0 : entry);
     setPaused(false);
     setToast(null);
+    activeRef.current = true;
     setActive(true);
   }, [navigate]);
 
   const end = useCallback(() => {
     destroyDriver();
+    activeRef.current = false;
     setActive(false);
     setPaused(false);
     onEndRef.current?.();
@@ -177,7 +184,13 @@ export function TourProvider({
    *  simulated clicks) and return the destination path. Throws on failure. */
   const runAutoPerform = useCallback(
     async (ap: AutoPerform, pathname: string): Promise<string> => {
-      const stamp = new Date().toISOString().slice(0, 10);
+      // Local "YYYY-MM-DD HH:MM:SS": the time keeps titles unique per run — the
+      // server rejects duplicate room titles per user / set titles per room.
+      const now = new Date();
+      const p2 = (n: number) => String(n).padStart(2, "0");
+      const stamp =
+        `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ` +
+        `${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
       switch (ap.kind) {
         case "createRoom": {
           const room = await api.createRoom({
@@ -227,6 +240,7 @@ export function TourProvider({
       }
       try {
         const dest = await runAutoPerform(s.autoPerform, pathRef.current);
+        if (!activeRef.current) return; // tour ended meanwhile — stay put
         const destPath = stripQuery(dest);
         // Re-sync BEFORE the router commits so the outgoing step's watchers
         // (Effect A/B/B2) are torn down first; then navigate. Fallback: plain
@@ -235,6 +249,7 @@ export function TourProvider({
         setIndex(entry >= 0 ? entry : (i) => Math.min(i + 1, steps.length - 1));
         navigate(dest);
       } catch {
+        if (!activeRef.current) return; // tour ended meanwhile — nothing to pause
         destroyDriver(); // no stale overlay behind the pill
         setPaused(true);
         setToast(t("Couldn’t do that automatically — try it yourself, or skip the step."));
