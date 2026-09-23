@@ -8,8 +8,17 @@ import { useTranslation } from "react-i18next";
 import { driver } from "driver.js";
 import type { Driver } from "driver.js";
 import "./driverTheme.css";
-import { type NavigateTarget, type TourMode, type TourStep, tourFor } from "./steps";
+import {
+  PAGE_PATTERNS,
+  type AutoPerform,
+  type NavigateTarget,
+  type TourMode,
+  type TourPage,
+  type TourStep,
+  tourFor,
+} from "./steps";
 import { resolveExampleSetId } from "./resolveExampleSet";
+import { api } from "../api";
 
 /** How long to wait for a step's target element to appear before pausing. */
 const TARGET_TIMEOUT_MS = 6000;
@@ -28,6 +37,31 @@ export function useTour(): TourApi {
   if (!ctx) throw new Error("useTour must be used within a <TourProvider>");
   return ctx;
 }
+
+/** Which tour page a pathname is on, or null for unknown routes. */
+function pageFor(pathname: string): TourPage | null {
+  for (const [page, pattern] of Object.entries(PAGE_PATTERNS) as [TourPage, string][]) {
+    if (matchPath(pattern, pathname)) return page;
+  }
+  return null;
+}
+
+/** First step index for the page a pathname is on, or -1. */
+function entryIndexFor(steps: TourStep[], pathname: string): number {
+  const page = pageFor(pathname);
+  if (!page) return -1;
+  return steps.findIndex((s) => s.page === page);
+}
+
+const stripQuery = (path: string) => path.split("?")[0];
+
+/** Route pattern of each `navigateTo` target — lets Effect A skip navigating
+ *  when the user is already there (e.g. a tour started in context). */
+const DEST_PATTERN: Record<NavigateTarget, string> = {
+  exampleSetPresent: "/sets/:id/present",
+  exampleSetResults: "/sets/:id/results",
+  roomsHome: "/",
+};
 
 function matchesMilestone(step: TourStep, pathname: string): boolean {
   if (step.kind !== "action" || !step.milestone) return false;
@@ -48,6 +82,9 @@ export function TourProvider({
   const { t } = useTranslation();
   const navigate = useNavigate();
   const location = useLocation();
+  // Current pathname for async callbacks (startTour, autoPerform, Effect A).
+  const pathRef = useRef(location.pathname);
+  pathRef.current = location.pathname;
 
   const [active, setActive] = useState(false);
   const [mode, setMode] = useState<TourMode>("pro");
@@ -85,11 +122,17 @@ export function TourProvider({
     // TourProvider sits above <App/> (TourHost), so it can't read App's whoami
     // context — the entry points (WelcomeDialog/HelpMenu) pass ai_enabled in.
     setAiEnabled(!!opts.aiEnabled);
-    setIndex(0);
+    // Start in context: jump to the first step of the page the user is on.
+    // Built from the arguments (the `steps` memo still reflects the old mode);
+    // `tourFor` is the same function the memo uses, so indices agree.
+    const list = tourFor(m, { aiEnabled: !!opts.aiEnabled });
+    const entry = entryIndexFor(list, pathRef.current);
+    if (entry < 0) navigate("/"); // unknown page → start from the overview
+    setIndex(entry < 0 ? 0 : entry);
     setPaused(false);
     setToast(null);
     setActive(true);
-  }, []);
+  }, [navigate]);
 
   const end = useCallback(() => {
     destroyDriver();
@@ -111,11 +154,6 @@ export function TourProvider({
     });
   }, [steps.length, end]);
 
-  const back = useCallback(() => {
-    setPaused(false);
-    setIndex((i) => Math.max(0, i - 1));
-  }, []);
-
   /** Resolve a `navigateTo` target to a concrete route (async for the example
    *  set). Falls back to rooms home when no example set can be resolved. */
   const resolveRoute = useCallback(async (target: NavigateTarget): Promise<string> => {
@@ -132,24 +170,82 @@ export function TourProvider({
     return target === "exampleSetPresent" ? `/sets/${id}/present` : `/sets/${id}/results`;
   }, []);
 
+  /** Perform a step's action through the app's APIs/navigation (never
+   *  simulated clicks) and return the destination path. Throws on failure. */
+  const runAutoPerform = useCallback(
+    async (ap: AutoPerform, pathname: string): Promise<string> => {
+      const stamp = new Date().toISOString().slice(0, 10);
+      switch (ap.kind) {
+        case "createRoom": {
+          const room = await api.createRoom({
+            title: { de: `Rundgang-Beispiel ${stamp}`, en: `Tour example ${stamp}` },
+          });
+          return `/rooms/${room.id}`;
+        }
+        case "createSet": {
+          const m = matchPath("/rooms/:id", pathname);
+          if (!m?.params.id) throw new Error("createSet: not on a room page");
+          const set = await api.createQuestionSet({
+            room: Number(m.params.id),
+            title: { de: `Rundgang-Set ${stamp}`, en: `Tour set ${stamp}` },
+            type: "live_poll",
+          });
+          return `/sets/${set.id}`;
+        }
+        case "newQuestion": {
+          const m = matchPath("/sets/:id", pathname);
+          if (!m?.params.id) throw new Error("newQuestion: not on a set page");
+          // Same route SetPage.addQuestion() builds.
+          return `/sets/${m.params.id}/questions/new?kind=single_choice`;
+        }
+        case "navigate":
+          return await resolveRoute(ap.to);
+      }
+    },
+    [resolveRoute],
+  );
+
+  /** "Next" on an action step: perform its action, then re-sync the tour to
+   *  the first step of the page it lands on. Failure → paused pill + toast. */
+  const handleAuto = useCallback(
+    async (s: TourStep) => {
+      if (!s.autoPerform) return advance();
+      try {
+        const dest = await runAutoPerform(s.autoPerform, pathRef.current);
+        const destPath = stripQuery(dest);
+        // Re-sync BEFORE the router commits so the outgoing step's watchers
+        // (Effect A/B/B2) are torn down first; then navigate. Fallback: plain
+        // advance if the destination page is unknown.
+        const entry = entryIndexFor(steps, destPath);
+        setIndex(entry >= 0 ? entry : (i) => Math.min(i + 1, steps.length - 1));
+        navigate(dest);
+      } catch {
+        destroyDriver(); // no stale overlay behind the pill
+        setPaused(true);
+        setToast(t("Couldn’t do that automatically — try it yourself, or skip the step."));
+        window.setTimeout(() => setToast(null), 6000);
+      }
+    },
+    [advance, runAutoPerform, steps, navigate, destroyDriver, t],
+  );
+
   /** Build + show the driver popover for the current step against `element`
    *  (undefined → centered, element-less popover). */
   const highlight = useCallback(
     (s: TourStep, element: Element | undefined) => {
       destroyDriver();
-      const isFirst = index === 0;
       const isLast = index === steps.length - 1;
       const isAction = s.kind === "action";
 
-      const showButtons: ("next" | "previous" | "close")[] = [];
-      if (!isFirst) showButtons.push("previous");
-      showButtons.push("next", "close");
+      // No Back: the tour is forward-only (earlier steps may have created
+      // things / navigated away); the user ends it via ✕ or Esc.
+      const showButtons: ("next" | "close")[] = ["next", "close"];
 
       let description = t(s.bodyKey);
       if (isAction) {
         // Inline-styled so we don't depend on classes outside driverTheme.css.
         description += `<div style="margin-top:0.5rem;font-size:0.75rem;opacity:0.7">${t(
-          "Do this and the tour continues on its own — or click Next.",
+          "Do this yourself — or click Next and we’ll do it for you.",
         )}</div>`;
       }
 
@@ -183,20 +279,20 @@ export function TourProvider({
           title: t(s.titleKey),
           description,
           showButtons,
-          // Next is always enabled — even on action steps — so the user can
-          // always advance manually (e.g. if the popover covers the target on a
-          // short viewport). onNextClick calls advance(); the element/route
-          // milestone still auto-advances the happy path.
+          // Explicit side only where a step needs it; otherwise driver
+          // auto-positions.
+          ...(s.popoverSide ? { side: s.popoverSide } : {}),
+          // Next is always enabled. On action steps it performs the step's
+          // action for the user (handleAuto); the element/route milestone
+          // still auto-advances when the user does it themselves.
           disableButtons: [],
           nextBtnText: isLast ? t("Finish") : t("Next"),
-          prevBtnText: t("Back"),
-          onNextClick: () => advance(),
-          onPrevClick: () => back(),
+          onNextClick: () => (isAction ? void handleAuto(s) : advance()),
           onCloseClick: () => end(),
         },
       });
     },
-    [destroyDriver, index, steps.length, t, advance, back, end],
+    [destroyDriver, index, steps.length, t, advance, handleAuto, end],
   );
 
   // --- Effect A: present the current step (navigate → wait for target → show).
@@ -219,13 +315,17 @@ export function TourProvider({
 
     const run = async () => {
       if (current.navigateTo) {
-        const route = await resolveRoute(current.navigateTo);
-        if (cancelled) return;
-        navigate(route);
-        // Let the router commit + the destination mount before we hunt for the
-        // target (which usually lives on that new page).
-        await new Promise((r) => window.setTimeout(r, 0));
-        if (cancelled) return;
+        // Already there (e.g. tour started in context) → don't navigate again.
+        const already = matchPath(DEST_PATTERN[current.navigateTo], pathRef.current) != null;
+        if (!already) {
+          const route = await resolveRoute(current.navigateTo);
+          if (cancelled) return;
+          navigate(route);
+          // Let the router commit + the destination mount before we hunt for
+          // the target (which usually lives on that new page).
+          await new Promise((r) => window.setTimeout(r, 0));
+          if (cancelled) return;
+        }
       }
 
       if (current.target === null) {
