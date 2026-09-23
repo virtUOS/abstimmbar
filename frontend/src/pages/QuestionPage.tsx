@@ -942,7 +942,7 @@ export default function QuestionPage() {
       )}
 
       {tab === "edit" && (
-      <div className="grid gap-5">
+      <div className="grid gap-5" data-tour="question.editor">
         <div data-tour="question.lang-tabs">
           <TranslatableField
             variant="rich"

@@ -1577,6 +1577,7 @@ export default function SetPage() {
         />
       )}
 
+      <div data-tour="set.questions">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold">{t("Questions")}</h2>
@@ -1948,6 +1949,7 @@ export default function SetPage() {
           )}
         </>
       )}
+      </div>
       {toastMessage && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900">
           {toastMessage}
