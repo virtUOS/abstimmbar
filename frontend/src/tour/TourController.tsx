@@ -149,7 +149,7 @@ export function TourProvider({
       if (isAction) {
         // Inline-styled so we don't depend on classes outside driverTheme.css.
         description += `<div style="margin-top:0.5rem;font-size:0.75rem;opacity:0.7">${t(
-          "Do this to continue — the tour advances on its own.",
+          "Do this and the tour continues on its own — or click Next.",
         )}</div>`;
       }
 
@@ -183,7 +183,11 @@ export function TourProvider({
           title: t(s.titleKey),
           description,
           showButtons,
-          disableButtons: isAction ? ["next"] : [],
+          // Next is always enabled — even on action steps — so the user can
+          // always advance manually (e.g. if the popover covers the target on a
+          // short viewport). onNextClick calls advance(); the element/route
+          // milestone still auto-advances the happy path.
+          disableButtons: [],
           nextBtnText: isLast ? t("Finish") : t("Next"),
           prevBtnText: t("Back"),
           onNextClick: () => advance(),
