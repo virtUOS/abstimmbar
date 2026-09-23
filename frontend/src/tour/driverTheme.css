@@ -159,6 +159,26 @@
   border-bottom-color: theme("colors.slate.900");
 }
 
+/* Action steps (#onboarding): the tour asks the user to complete a task that
+ * spans elements OUTSIDE the spotlight — e.g. the "New room" trigger opens an
+ * inline form whose fields and submit button sit in the dimmed area. By default
+ * driver.js makes the whole page inert (`.driver-active *{pointer-events:none}`,
+ * driver.css) and its overlay <svg> mask (a painted <path>, which captures
+ * pointer events) swallows every click in the dimmed region — so an action step
+ * can never be completed. When TourController adds `tour-action` to <body> (only
+ * while an action step is active), re-enable the entire page and let the overlay
+ * pass clicks through. The `.driver-popover` is a separate <body> child (NOT
+ * inside `.driver-overlay`), so its Next/Back/✕ buttons stay clickable; the
+ * spotlight backdrop still paints (pointer-events does not affect rendering).
+ * INFO steps keep driver's normal blocking-modal behavior. */
+body.tour-action.driver-active * {
+  pointer-events: auto !important;
+}
+body.tour-action .driver-overlay,
+body.tour-action .driver-overlay * {
+  pointer-events: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .driver-popover,
   .driver-active-element,

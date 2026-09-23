@@ -71,6 +71,10 @@ export function TourProvider({
       /* driver already torn down */
     }
     driverRef.current = null;
+    // Single source of truth for the action-step interactivity class: always
+    // cleared on teardown so it can never leak across a step change, pause,
+    // end (Esc/✕), or unmount. highlight() re-adds it only for action steps.
+    document.body.classList.remove("tour-action");
   }, []);
 
   const startTour = useCallback((m: TourMode) => {
@@ -155,6 +159,15 @@ export function TourProvider({
         stageRadius: 8,
       });
       driverRef.current = d;
+
+      // Action steps: the user must reach elements OUTSIDE the spotlight (e.g. an
+      // inline form the trigger opens, whose submit button sits in the dimmed
+      // area). driver.js otherwise inerts the whole page (`.driver-active *` →
+      // pointer-events:none) and its overlay <svg> mask captures clicks. This
+      // class (see driverTheme.css) re-enables the page and lets the overlay pass
+      // clicks through, while the popover stays clickable and the spotlight stays
+      // visible. destroyDriver() removes it; info steps keep the blocking modal.
+      if (isAction) document.body.classList.add("tour-action");
 
       d.highlight({
         element,
