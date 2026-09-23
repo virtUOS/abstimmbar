@@ -97,6 +97,9 @@ export function TourProvider({
   const step: TourStep | undefined = active ? steps[index] : undefined;
 
   const driverRef = useRef<Driver | null>(null);
+  // True while an action step's autoPerform is in flight — a second Next click
+  // must not create a duplicate room/set.
+  const autoBusyRef = useRef(false);
   // Cache the resolved example-set id for the whole run (one lookup, reused by
   // the present + results steps).
   const exampleSetIdRef = useRef<number | null | undefined>(undefined);
@@ -210,6 +213,18 @@ export function TourProvider({
   const handleAuto = useCallback(
     async (s: TourStep) => {
       if (!s.autoPerform) return advance();
+      if (autoBusyRef.current) return; // already performing — ignore repeat clicks
+      autoBusyRef.current = true;
+      // Visual cue: grey out the popover's Next while busy. The popover is torn
+      // down on both success (step change) and failure (destroyDriver), so this
+      // never needs undoing.
+      const nextBtn = driverRef.current?.getState("popover")?.nextButton as
+        | HTMLButtonElement
+        | undefined;
+      if (nextBtn) {
+        nextBtn.disabled = true;
+        nextBtn.classList.add("driver-popover-btn-disabled");
+      }
       try {
         const dest = await runAutoPerform(s.autoPerform, pathRef.current);
         const destPath = stripQuery(dest);
@@ -224,6 +239,9 @@ export function TourProvider({
         setPaused(true);
         setToast(t("Couldn’t do that automatically — try it yourself, or skip the step."));
         window.setTimeout(() => setToast(null), 6000);
+      } finally {
+        // Always release, so a failed attempt can be retried after Resume.
+        autoBusyRef.current = false;
       }
     },
     [advance, runAutoPerform, steps, navigate, destroyDriver, t],
@@ -485,7 +503,9 @@ export function TourProvider({
       )}
       {toast && (
         <div
-          className="fixed inset-x-0 bottom-4 z-[10000] flex justify-center px-4"
+          // Stack above the paused pill (also bottom-4) so it never covers
+          // the pill's Resume / Skip step / End buttons.
+          className={`fixed inset-x-0 ${active && paused ? "bottom-20" : "bottom-4"} z-[10000] flex justify-center px-4`}
           role="status"
           aria-live="polite"
         >
