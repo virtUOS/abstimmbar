@@ -9,10 +9,12 @@
 export type TourMode = "easy" | "pro";
 export type StepKind = "info" | "action";
 
-/** A milestone is resolved by the controller against the react-router location. */
+/** A milestone is resolved by the controller — route/present against the
+ *  react-router location, element against the DOM. */
 export type Milestone =
   | { type: "route"; pattern: string } // e.g. "/rooms/:id", "/sets/:id"
-  | { type: "present" }; // "/sets/:setId/present" reached
+  | { type: "present" } // "/sets/:setId/present" reached
+  | { type: "element"; anchor: string }; // a `[data-tour="<anchor>"]` element appears
 
 /** Where the controller navigates before showing a guided step.
  *  - exampleSetPresent  → the resolved example set's /present view
@@ -60,13 +62,24 @@ export const proTour: TourStep[] = [
     titleKey: "These are your rooms",
     bodyKey: "A room is a reusable space for a group or semester.",
   },
+  // Room creation is a multi-part task, so it's split across two coachmarks:
+  // clicking ‘New room’ replaces the button with an inline form (advance on the
+  // form's submit button appearing), then the form is saved (advance on route).
   {
     id: "rooms.new-room",
     target: "rooms.new-room",
     kind: "action",
-    milestone: { type: "route", pattern: "/rooms/:id" },
+    milestone: { type: "element", anchor: "room.create" },
     titleKey: "Create your first room",
-    bodyKey: "Click ‘New room’, give it a title and save.",
+    bodyKey: "Click ‘New room’ to open the form.",
+  },
+  {
+    id: "room.create",
+    target: "room.create",
+    kind: "action",
+    milestone: { type: "route", pattern: "/rooms/:id" },
+    titleKey: "Give it a title and save",
+    bodyKey: "Type a title above, then click ‘Create’.",
   },
   {
     id: "room.new-set",

@@ -483,7 +483,7 @@ export default function RoomsPage() {
             easyMode={easyMode}
           />
           <div className="mt-3 flex gap-2">
-            <Button type="submit" variant="primary">
+            <Button type="submit" variant="primary" data-tour="room.create">
               {t("Create")}
             </Button>
             <Button

@@ -32,6 +32,7 @@ export function useTour(): TourApi {
 function matchesMilestone(step: TourStep, pathname: string): boolean {
   if (step.kind !== "action" || !step.milestone) return false;
   const m = step.milestone;
+  if (m.type === "element") return false; // DOM-based; handled by its own effect
   const pattern = m.type === "present" ? "/sets/:setId/present" : m.pattern;
   return matchPath(pattern, pathname) != null;
 }
@@ -273,11 +274,43 @@ export function TourProvider({
     };
   }, [active, paused, step, navigate, resolveRoute, highlight, destroyDriver]);
 
-  // --- Effect B: auto-advance an action step when its milestone matches.
+  // --- Effect B: auto-advance an action step when its ROUTE milestone matches.
   useEffect(() => {
     if (!active || !step) return;
     if (matchesMilestone(step, location.pathname)) advance();
   }, [active, step, location.pathname, advance]);
+
+  // --- Effect B2: auto-advance an action step with an ELEMENT milestone when a
+  // `[data-tour="<anchor>"]` element appears (e.g. clicking ‘New room’ opens the
+  // inline form → its ‘Create’ button mounts). Mirrors the target-wait watcher
+  // (MutationObserver + poll), but waits indefinitely like a route milestone (no
+  // timeout/pause). Cleaned up on step change / pause / end / unmount.
+  useEffect(() => {
+    if (!active || paused || !step) return;
+    const milestone = step.milestone;
+    if (step.kind !== "action" || milestone?.type !== "element") return;
+    const selector = `[data-tour="${milestone.anchor}"]`;
+
+    let advanced = false;
+    const tryAdvance = () => {
+      if (advanced) return;
+      if (document.querySelector(selector)) {
+        advanced = true;
+        advance();
+      }
+    };
+
+    tryAdvance(); // already present → advance right away
+    if (advanced) return;
+
+    const observer = new MutationObserver(tryAdvance);
+    observer.observe(document.body, { childList: true, subtree: true });
+    const poll = window.setInterval(tryAdvance, TARGET_POLL_MS);
+    return () => {
+      observer.disconnect();
+      window.clearInterval(poll);
+    };
+  }, [active, paused, step, advance]);
 
   // --- Effect C: pause recovery — a location change re-attempts the step.
   useEffect(() => {
