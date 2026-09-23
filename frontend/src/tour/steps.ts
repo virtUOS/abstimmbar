@@ -62,40 +62,47 @@ export const proTour: TourStep[] = [
     titleKey: "These are your rooms",
     bodyKey: "A room is a reusable space for a group or semester.",
   },
-  // Room creation is a multi-part task, so it's split across two coachmarks:
-  // clicking ‘New room’ replaces the button with an inline form (advance on the
-  // form's submit button appearing), then the form is saved (advance on route).
+  // Room creation is a multi-part inline-form task, so it's two ACTION steps:
+  // (A) click ‘New room’ to open the form (advance when the Name field appears),
+  // then (B) spotlight the Name field itself (advance on the /rooms/:id route
+  // once the form is saved). Spotlighting the trigger button alone left a stale
+  // coachmark on empty space after the form replaced it.
   {
     id: "rooms.new-room",
     target: "rooms.new-room",
     kind: "action",
-    milestone: { type: "element", anchor: "room.create" },
+    milestone: { type: "element", anchor: "room.name" },
     titleKey: "Create your first room",
     bodyKey: "Click ‘New room’ to open the form.",
   },
   {
     id: "room.create",
-    target: "room.create",
+    target: "room.name",
     kind: "action",
     milestone: { type: "route", pattern: "/rooms/:id" },
     titleKey: "Give it a title and save",
     bodyKey: "Type a title above, then click ‘Create’.",
   },
+  // Set creation mirrors room creation: two ACTION steps, no standalone "Next"
+  // info step. (A) click ‘New set’ to open the inline form (advance when the
+  // Title field appears), then (B) spotlight the Title field (advance on
+  // /sets/:id). The set-type explanation is folded into step A's body.
   {
     id: "room.new-set",
     target: "room.new-set",
-    kind: "info",
+    kind: "action",
+    milestone: { type: "element", anchor: "set.title" },
     titleKey: "Content lives in sets",
     bodyKey:
-      "Each set has a type that fixes how it runs: Live poll (presenter-driven), Self-paced quiz (own pace in class) or Self-check (a standing self-study link).",
+      "Each set has a type — Live poll (presenter-driven), Self-paced quiz (own pace in class) or Self-check (a standing self-study link). Click ‘New set’ to start one.",
   },
   {
-    id: "room.new-set.action",
-    target: "room.new-set",
+    id: "set.create",
+    target: "set.title",
     kind: "action",
     milestone: { type: "route", pattern: "/sets/:id" },
-    titleKey: "Add a set",
-    bodyKey: "Create a set — pick ‘Live poll’ to follow along.",
+    titleKey: "Give your set a title and save",
+    bodyKey: "Pick a type, enter a title, then click ‘Save’.",
   },
   {
     id: "set.editor",

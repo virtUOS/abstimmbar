@@ -480,10 +480,11 @@ export default function RoomsPage() {
             draft={newRoom}
             onChange={(patch) => setNewRoom({ ...newRoom, ...patch })}
             titlePlaceholder={t("e.g. “Bio 101 lecture”")}
+            titleAnchor="room.name"
             easyMode={easyMode}
           />
           <div className="mt-3 flex gap-2">
-            <Button type="submit" variant="primary" data-tour="room.create">
+            <Button type="submit" variant="primary">
               {t("Create")}
             </Button>
             <Button

@@ -210,24 +210,31 @@ export function RoomSettingsForm({
   draft,
   onChange,
   titlePlaceholder,
+  titleAnchor,
   easyMode = false,
 }: {
   draft: RoomSettings;
   onChange: (patch: Partial<RoomSettings>) => void;
   titlePlaceholder?: string;
+  /** Optional `data-tour` value wrapped around the Name field (guided tour):
+   *  only the new-room create form sets it, so the anchor is scoped to that. */
+  titleAnchor?: string;
   /** Easy mode (#52): only title + description; hide presentation features
    * and the participant closing info. Existing values stay stored. */
   easyMode?: boolean;
 }) {
   const { t } = useTranslation();
+  const titleField = (
+    <TranslatableField
+      label={t("Name")}
+      value={draft.title}
+      onChange={(title) => onChange({ title })}
+      placeholder={titlePlaceholder ?? t("Room title")}
+    />
+  );
   return (
     <div className="grid max-w-2xl gap-8">
-      <TranslatableField
-        label={t("Name")}
-        value={draft.title}
-        onChange={(title) => onChange({ title })}
-        placeholder={titlePlaceholder ?? t("Room title")}
-      />
+      {titleAnchor ? <div data-tour={titleAnchor}>{titleField}</div> : titleField}
       <TranslatableField
         variant="rich"
         label={t("Description")}
@@ -874,6 +881,7 @@ export default function RoomPage() {
           <SetSettingsForm
             draft={newSet}
             onChange={(patch) => setNewSet({ ...newSet, ...patch })}
+            titleAnchor="set.title"
             easyMode={easyMode}
           />
           <div className="mt-3 flex gap-2">

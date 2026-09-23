@@ -131,10 +131,14 @@ export interface SetSettings {
 export function SetSettingsForm({
   draft,
   onChange,
+  titleAnchor,
   easyMode = false,
 }: {
   draft: SetSettings;
   onChange: (patch: Partial<SetSettings>) => void;
+  /** Optional `data-tour` value wrapped around the Title field (guided tour):
+   *  only the new-set create form sets it, so the anchor is scoped to that. */
+  titleAnchor?: string;
   /** Easy mode (#52): only title + description; hide reveal/answer-flow
    * options. Existing values stay stored. */
   easyMode?: boolean;
@@ -161,12 +165,17 @@ export function SetSettingsForm({
           );
         })()}
       </div>
-      <TranslatableField
-        label={t("Title")}
-        value={draft.title}
-        onChange={(title) => onChange({ title })}
-        placeholder={t("Question set title")}
-      />
+      {(() => {
+        const titleField = (
+          <TranslatableField
+            label={t("Title")}
+            value={draft.title}
+            onChange={(title) => onChange({ title })}
+            placeholder={t("Question set title")}
+          />
+        );
+        return titleAnchor ? <div data-tour={titleAnchor}>{titleField}</div> : titleField;
+      })()}
       <TranslatableField
         variant="rich"
         label={t("Description")}
