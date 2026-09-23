@@ -9,7 +9,13 @@ import { useTranslation } from "react-i18next";
 import { HelpCircle } from "lucide-react";
 import { useTour } from "../tour/TourController";
 
-export default function HelpMenu({ easyMode }: { easyMode: boolean }) {
+export default function HelpMenu({
+  easyMode,
+  aiEnabled,
+}: {
+  easyMode: boolean;
+  aiEnabled: boolean;
+}) {
   const { t } = useTranslation();
   const { startTour } = useTour();
   const [open, setOpen] = useState(false);
@@ -54,7 +60,7 @@ export default function HelpMenu({ easyMode }: { easyMode: boolean }) {
             type="button"
             role="menuitem"
             onClick={() => {
-              startTour(easyMode ? "easy" : "pro");
+              startTour(easyMode ? "easy" : "pro", { aiEnabled });
               setOpen(false);
             }}
             className="block w-full px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"

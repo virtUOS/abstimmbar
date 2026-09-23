@@ -414,7 +414,7 @@ export default function ResultsPage() {
       </nav>
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">{t("Results — {{title}}", { title: localizedText(set.title) })}</h1>
+        <h1 data-tour="results.view" className="text-2xl font-bold">{t("Results — {{title}}", { title: localizedText(set.title) })}</h1>
         {runs.length > 0 && current && (
           <div className="flex flex-wrap items-center gap-3">
             {/* Export as one visibly grouped unit: scope + download. */}

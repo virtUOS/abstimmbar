@@ -32,6 +32,10 @@ export interface TourStep {
   milestone?: Milestone;
   /** Only include this step in these modes (default: both). */
   modes?: TourMode[];
+  /** Drop this step unless AI is enabled for the deployment/user — its target
+   *  (e.g. the AI-generate shortcut) is only rendered when AI is on, so keeping
+   *  it on an AI-off deployment would dead-end the tour at a missing element. */
+  requiresAi?: boolean;
   /** Before showing, the controller navigates here (guided steps). */
   navigateTo?: NavigateTarget;
 }
@@ -92,6 +96,7 @@ export const proTour: TourStep[] = [
     target: "set.ai-generate",
     kind: "info",
     modes: ["pro"],
+    requiresAi: true, // anchor only mounts when AI is enabled (SetPage aiVisible)
     titleKey: "Shortcuts",
     bodyKey: "Generate draft questions from your slides with AI, or copy from another set.",
   },
@@ -122,7 +127,11 @@ export const proTour: TourStep[] = [
   },
   {
     id: "results.export",
-    target: "results.export",
+    // Anchored to the always-rendered results header (`results.view`), NOT the
+    // export controls (`results.export`), which ResultsPage renders only when the
+    // set has runs. The seeded example set has zero runs, so targeting the export
+    // controls would dead-end the tour; the header is always present.
+    target: "results.view",
     kind: "info",
     navigateTo: "exampleSetResults", // routes to the example set's /results page
     titleKey: "Results",
@@ -143,4 +152,12 @@ export const easyTour: TourStep[] = proTour
   .filter((s) => !s.modes || s.modes.includes("easy"))
   .filter((s) => !["set.ai-generate", "question.lang-tabs"].includes(s.id));
 
-export const tourFor = (mode: TourMode): TourStep[] => (mode === "easy" ? easyTour : proTour);
+/** Steps for a mode, minus any that can't be shown for this user. `aiEnabled`
+ *  gates `requiresAi` steps so a normal run never pauses on a missing target. */
+export const tourFor = (
+  mode: TourMode,
+  opts: { aiEnabled?: boolean } = {},
+): TourStep[] => {
+  const base = mode === "easy" ? easyTour : proTour;
+  return opts.aiEnabled ? base : base.filter((s) => !s.requiresAi);
+};

@@ -386,7 +386,7 @@ export default function App() {
   }, [tourActive]);
 
   const handleWelcomeStart = () => {
-    startTour(easyMode ? "easy" : "pro");
+    startTour(easyMode ? "easy" : "pro", { aiEnabled: whoami?.ai_enabled });
     setShowWelcome(false);
     markTourSeen();
   };
@@ -461,7 +461,7 @@ export default function App() {
                   <Settings aria-hidden className="h-5 w-5" />
                 </Link>
               )}
-              <HelpMenu easyMode={easyMode} />
+              <HelpMenu easyMode={easyMode} aiEnabled={whoami.ai_enabled ?? false} />
               <div data-tour="header.mode">
                 <SegmentedControl
                   ariaLabel={t("Mode")}

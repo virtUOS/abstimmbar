@@ -18,7 +18,7 @@ const TARGET_POLL_MS = 200;
 
 interface TourApi {
   active: boolean;
-  startTour: (mode: TourMode) => void;
+  startTour: (mode: TourMode, opts?: { aiEnabled?: boolean }) => void;
 }
 
 export const TourContext = createContext<TourApi | null>(null);
@@ -50,11 +50,12 @@ export function TourProvider({
 
   const [active, setActive] = useState(false);
   const [mode, setMode] = useState<TourMode>("pro");
+  const [aiEnabled, setAiEnabled] = useState(false);
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const steps = useMemo(() => tourFor(mode), [mode]);
+  const steps = useMemo(() => tourFor(mode, { aiEnabled }), [mode, aiEnabled]);
   const step: TourStep | undefined = active ? steps[index] : undefined;
 
   const driverRef = useRef<Driver | null>(null);
@@ -77,9 +78,12 @@ export function TourProvider({
     document.body.classList.remove("tour-action");
   }, []);
 
-  const startTour = useCallback((m: TourMode) => {
+  const startTour = useCallback((m: TourMode, opts: { aiEnabled?: boolean } = {}) => {
     exampleSetIdRef.current = undefined; // force a fresh lookup per run
     setMode(m);
+    // TourProvider sits above <App/> (TourHost), so it can't read App's whoami
+    // context — the entry points (WelcomeDialog/HelpMenu) pass ai_enabled in.
+    setAiEnabled(!!opts.aiEnabled);
     setIndex(0);
     setPaused(false);
     setToast(null);
@@ -318,6 +322,19 @@ export function TourProvider({
               onClick={() => setPaused(false)}
             >
               {t("Resume")}
+            </button>
+            {/* Safety net: always advance past an unexpectedly missing target so
+                the tour can never dead-end before the final step. Clear paused so
+                Effect A presents the next step (its guard returns while paused). */}
+            <button
+              type="button"
+              className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+              onClick={() => {
+                setPaused(false);
+                advance();
+              }}
+            >
+              {t("Skip step")}
             </button>
             <button
               type="button"
