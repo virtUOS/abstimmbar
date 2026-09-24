@@ -28,7 +28,7 @@ export type Milestone =
  *  - roomsHome          → the rooms overview ("/")
  *  - exampleRoom        → /rooms/<example room>
  *  - exampleSet         → /sets/<example set>
- *  - exampleSetPresent  → /sets/<example set>/present
+ *  - exampleSetPresent  → /sets/<example set>/present?resume=continue
  *  - exampleSetResults  → /sets/<example set>/results
  *  - exampleQuestion    → /sets/<example set>/questions/<first question of that kind> */
 export type NavigateTarget =
@@ -116,11 +116,11 @@ export const proTour: TourStep[] = [
     titleKey: "The set editor", bodyKey: "This example set holds one question of every type — let’s look at each." },
   { id: "set.ai-generate", page: "set", target: "set.ai-generate", kind: "info", modes: ["pro"], requiresAi: true,
     titleKey: "Shortcuts", bodyKey: "Generate draft questions from your slides with AI, or copy from another set." },
-  q("single_choice", "Single choice", "Exactly one answer is correct — tick its checkbox. Below, choose when the correct answer is revealed."),
-  q("multiple_choice", "Multiple choice", "Several answers can be correct — tick each one. Participants may select more than one."),
+  q("single_choice", "Single Choice", "Exactly one answer is correct — its checkbox marks it. Below you choose when the correct answer is revealed."),
+  q("multiple_choice", "Multiple Choice", "Several answers can be correct — tick each one. Participants may select more than one."),
   q("likert", "Likert scale", "An agreement scale with an optional abstention — there is no ‘correct’ answer, you see the distribution."),
-  q("word_cloud", "Word cloud", "Participants type free words; spelling variants are merged and shown as a live cloud."),
-  q("open_text", "Open text", "A free-text answer. You can add a model solution to compare against."),
+  q("word_cloud", "Word cloud", "Participants type free words; upper/lower-case variants are merged and shown as a live cloud."),
+  q("open_text", "Free text", "A free-text answer (up to 500 characters), shown as a list. In Expert mode with AI enabled, answers can be evaluated against a model solution."),
   q("priorities", "Priorities", "Participants rank the items by their personal priority — the result shows the aggregated order."),
   q("ordering", "Ordering", "The order you save here is the solution; participants see the items shuffled and sort them."),
   { id: "question.lang-tabs", page: "question", target: "question.lang-tabs", kind: "info", modes: ["pro"],

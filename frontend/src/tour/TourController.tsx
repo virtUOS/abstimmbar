@@ -83,10 +83,12 @@ function destPattern(target: NavigateTarget): string {
 
 /** Already on exactly `route`? The pattern alone isn't enough: consecutive
  *  exampleQuestion steps (and a context start on some other set) share a
- *  pattern but not the ids, so compare the concrete route. `matchPath` with the
- *  literal route tolerates a trailing slash. */
+ *  pattern but not the ids, so compare the concrete route's PATHNAME (its query,
+ *  e.g. the present step's `?resume=continue`, is stripped — `pathname` never
+ *  carries one). `matchPath` with the literal path tolerates a trailing slash. */
 function isAt(target: NavigateTarget, route: string, pathname: string): boolean {
-  return matchPath(destPattern(target), pathname) != null && matchPath(route, pathname) != null;
+  const routePath = route.split("?")[0];
+  return matchPath(destPattern(target), pathname) != null && matchPath(routePath, pathname) != null;
 }
 
 function matchesMilestone(step: TourStep, pathname: string): boolean {
@@ -243,7 +245,10 @@ export function TourProvider({
       case "exampleSet":
         return `/sets/${set}`;
       case "exampleSetPresent":
-        return `/sets/${set}/present`;
+        // resume=continue pre-answers PresentPage's "there are already
+        // results" dialog (keep counting — no data loss), which would
+        // otherwise hide present.controls and pause the tour.
+        return `/sets/${set}/present?resume=continue`;
       case "exampleSetResults":
         return `/sets/${set}/results`;
     }

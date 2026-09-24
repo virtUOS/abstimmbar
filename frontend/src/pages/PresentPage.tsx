@@ -100,6 +100,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const recording = searchParams.get("recording") === "1" && mode !== "self_paced";
   // Deep link (#7): jump straight to a specific question.
   const targetQuestionId = Number(searchParams.get("question")) || null;
+  // ?resume=continue|archive|delete (guided tour): answer the "existing
+  // results" dialog up front, as if that button had been clicked. Invalid or
+  // absent values leave the dialog behaviour unchanged.
+  const resumeParam = searchParams.get("resume");
+  const resume =
+    resumeParam === "continue" || resumeParam === "archive" || resumeParam === "delete"
+      ? resumeParam
+      : null;
   const [code, setCode] = useState<string | null>(null);
   const [state, setState] = useState<LiveState | null>(null);
   const [dialog, setDialog] = useState(false);
@@ -173,7 +181,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         !status.recently_started &&
         ((status.has_votes && !status.active_run) || status.active_run_has_votes)
       ) {
-        setDialog(true); // ask before touching stored results
+        if (resume) await startAfterDialog(resume); // pre-answered via ?resume=
+        else setDialog(true); // ask before touching stored results
       } else {
         const started = await live.startRun(
           id, easyMode ? undefined : "continue", mode, recording,

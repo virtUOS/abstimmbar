@@ -506,3 +506,25 @@ class ExampleRoomTests(TestCase):
         self.client.logout()
         resp = self.client.post("/api/whoami/example-room/", content_type="application/json")
         self.assertEqual(resp.status_code, 403)
+
+    def test_whoami_ids_null_when_room_has_no_set(self):
+        from rooms.models import QuestionSet, Room
+        self.client.get("/api/whoami/")
+        room = Room.objects.get(owner=self.user, is_example=True)
+        QuestionSet.objects.filter(room=room).delete()
+        data = self.client.get("/api/whoami/").json()
+        self.assertIsNone(data["example_room_id"])
+        self.assertIsNone(data["example_set_id"])
+
+    def test_0048_backfill_flags_seeded_title_only(self):
+        mod = importlib.import_module("rooms.migrations.0048_room_is_example")
+        seeded = Room.objects.create(
+            owner=self.user, title_de="Beispielraum – zum Ausprobieren", title_en="Example"
+        )
+        other = Room.objects.create(owner=self.user, title_de="Beispielraum", title_en="Other")
+        Room.objects.filter(pk__in=[seeded.pk, other.pk]).update(is_example=False)
+        mod.backfill(django_apps, None)
+        seeded.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(seeded.is_example)
+        self.assertFalse(other.is_example)

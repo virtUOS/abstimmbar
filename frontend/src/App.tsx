@@ -385,12 +385,31 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tourActive]);
 
-  const handleWelcomeStart = () => {
-    startTour(easyMode ? "easy" : "pro", {
-      aiEnabled: whoami?.ai_enabled,
-      exampleRoomId: whoami?.example_room_id ?? null,
-      exampleSetId: whoami?.example_set_id ?? null,
+  /** Start the tour with FRESH example-room ids: the user may have deleted
+   *  (or the tour restored) the example since whoami was loaded on mount.
+   *  Falls back to the current whoami if the refetch fails. Used by both entry
+   *  points (welcome dialog, ? menu). */
+  const startTourFresh = async (mode: "easy" | "pro") => {
+    const opts = (w: Whoami | null) => ({
+      aiEnabled: w?.ai_enabled,
+      exampleRoomId: w?.example_room_id ?? null,
+      exampleSetId: w?.example_set_id ?? null,
     });
+    try {
+      const w = await api.whoami();
+      // Keep a locally-set "tour seen" flag: the welcome dialog's markTourSeen
+      // POST may not have landed yet, and a stale `false` would reopen it.
+      setWhoami((prev) =>
+        prev?.onboarding_tour_seen ? { ...w, onboarding_tour_seen: true } : w,
+      );
+      startTour(mode, opts(w));
+    } catch {
+      startTour(mode, opts(whoami));
+    }
+  };
+
+  const handleWelcomeStart = () => {
+    void startTourFresh(easyMode ? "easy" : "pro");
     setShowWelcome(false);
     markTourSeen();
   };
@@ -467,9 +486,7 @@ export default function App() {
               )}
               <HelpMenu
                 easyMode={easyMode}
-                aiEnabled={whoami.ai_enabled ?? false}
-                exampleRoomId={whoami.example_room_id ?? null}
-                exampleSetId={whoami.example_set_id ?? null}
+                onStartTour={(mode) => void startTourFresh(mode)}
               />
               <div data-tour="header.mode">
                 <SegmentedControl
