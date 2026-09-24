@@ -206,6 +206,14 @@ def render_prometheus():
           [({"type": k}, v) for k, v in t["runs_by_type"].items()])
     gauge("abstimmbar_participants", "Distinct participants who voted", t["participants"])
     gauge("abstimmbar_questions_run", "Distinct questions voted on", t["questions_run"])
+    tour = t["tour"]
+    gauge("abstimmbar_tour_events", "Guided-tour events by kind and mode", None,
+          [({"kind": k, "mode": m}, tour[k][m])
+           for k in ("started", "completed", "aborted") for m in ("easy", "pro")])
+    gauge("abstimmbar_tour_starts", "Guided-tour starts by source", None,
+          [({"source": s}, v) for s, v in tour["by_source"].items()])
+    gauge("abstimmbar_tour_users_seen", "Users who finished or dismissed the guided tour",
+          tour["users_seen"])
     today = timezone.localdate()
     sess = {r["mode"]: r["n"] for r in
             DailyModeSession.objects.filter(date=today).values("mode").annotate(n=Count("id"))}

@@ -21,11 +21,14 @@ import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami 
 import { localizedText, setDefaultContentLang, setTranslationEnabled } from "@basicbar/ui";
 import Footer from "./components/Footer";
 import GenerationStatusBar from "./components/GenerationStatusBar";
+import HelpMenu from "./components/HelpMenu";
 import JoinByCode from "./components/JoinByCode";
 import { LanguageOptions } from "./components/LanguageSwitcher";
 import RichText from "./components/RichText";
 import { EmptyState, SegmentedControl } from "./components/ui";
 import RoomsPage from "./pages/RoomsPage";
+import { useTour } from "./tour/TourController";
+import WelcomeDialog from "./tour/WelcomeDialog";
 import {
   useTheme,
   type Appearance,
@@ -340,6 +343,10 @@ export default function App() {
   const [site, setSite] = useState<SitePublic | null>(null);
   const [error, setError] = useState(false);
   const navigate = useNavigate();
+  const { active: tourActive, startTour } = useTour();
+  const [showWelcome, setShowWelcome] = useState(false);
+  const wasTourActiveRef = useRef(false);
+  const easyMode = whoami?.easy_mode ?? false;
 
   const setEasyMode = (easyMode: boolean) => {
     void api
@@ -348,6 +355,70 @@ export default function App() {
         setWhoami((prev) => (prev ? { ...prev, easy_mode: res.easy_mode } : prev));
       })
       .catch(() => {});
+  };
+
+  /** First-login onboarding (#onboarding): mark the tour seen — backend POST
+   *  plus a local flag update so neither the welcome dialog nor this effect
+   *  re-triggers within the session. */
+  const markTourSeen = () => {
+    void api.markTourSeen().catch(() => {});
+    setWhoami((prev) => (prev ? { ...prev, onboarding_tour_seen: true } : prev));
+  };
+
+  // Show the welcome dialog once per session for a signed-in user who has
+  // never seen the tour. Once `markTourSeen` flips the flag locally, this
+  // condition no longer holds, so it cannot reopen.
+  useEffect(() => {
+    if (whoami?.authenticated && whoami.onboarding_tour_seen === false) {
+      setShowWelcome(true);
+    }
+  }, [whoami?.authenticated, whoami?.onboarding_tour_seen]);
+
+  // The tour's own end (Finish / Esc / ✕) also counts as "seen", even when
+  // started straight from the ? menu without the welcome dialog ever
+  // showing. TourProvider is mounted above App (TourHost, main.tsx) so its
+  // `onEnd` prop isn't reachable from here — watching the active→inactive
+  // transition of useTour() achieves the same thing.
+  useEffect(() => {
+    if (wasTourActiveRef.current && !tourActive) markTourSeen();
+    wasTourActiveRef.current = tourActive;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourActive]);
+
+  /** Start the tour with FRESH example-room ids: the user may have deleted
+   *  (or the tour restored) the example since whoami was loaded on mount.
+   *  Falls back to the current whoami if the refetch fails. Used by both entry
+   *  points (welcome dialog, ? menu), which pass their `source` for the usage
+   *  statistics. */
+  const startTourFresh = async (mode: "easy" | "pro", source: "welcome" | "help") => {
+    const opts = (w: Whoami | null) => ({
+      aiEnabled: w?.ai_enabled,
+      exampleRoomId: w?.example_room_id ?? null,
+      exampleSetId: w?.example_set_id ?? null,
+      source,
+    });
+    try {
+      const w = await api.whoami();
+      // Keep a locally-set "tour seen" flag: the welcome dialog's markTourSeen
+      // POST may not have landed yet, and a stale `false` would reopen it.
+      setWhoami((prev) =>
+        prev?.onboarding_tour_seen ? { ...w, onboarding_tour_seen: true } : w,
+      );
+      startTour(mode, opts(w));
+    } catch {
+      startTour(mode, opts(whoami));
+    }
+  };
+
+  const handleWelcomeStart = () => {
+    void startTourFresh(easyMode ? "easy" : "pro", "welcome");
+    setShowWelcome(false);
+    markTourSeen();
+  };
+
+  const handleWelcomeSkip = () => {
+    setShowWelcome(false);
+    markTourSeen();
   };
 
   useEffect(() => {
@@ -415,15 +486,21 @@ export default function App() {
                   <Settings aria-hidden className="h-5 w-5" />
                 </Link>
               )}
-              <SegmentedControl
-                ariaLabel={t("Mode")}
-                value={whoami.easy_mode ? "simple" : "pro"}
-                onChange={(v) => setEasyMode(v === "simple")}
-                options={[
-                  { value: "simple", label: t("Simple") },
-                  { value: "pro", label: t("Expert") },
-                ]}
+              <HelpMenu
+                easyMode={easyMode}
+                onStartTour={(mode) => void startTourFresh(mode, "help")}
               />
+              <div data-tour="header.mode">
+                <SegmentedControl
+                  ariaLabel={t("Mode")}
+                  value={whoami.easy_mode ? "simple" : "pro"}
+                  onChange={(v) => setEasyMode(v === "simple")}
+                  options={[
+                    { value: "simple", label: t("Simple") },
+                    { value: "pro", label: t("Expert") },
+                  ]}
+                />
+              </div>
               <UserMenu whoami={whoami} />
             </div>
           ) : (
@@ -458,6 +535,10 @@ export default function App() {
       </main>
 
       <Footer />
+
+      {showWelcome && (
+        <WelcomeDialog onStart={handleWelcomeStart} onSkip={handleWelcomeSkip} />
+      )}
     </div>
   );
 }

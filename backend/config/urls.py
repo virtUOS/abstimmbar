@@ -9,7 +9,15 @@ from django.contrib import admin
 from django.urls import include, path
 
 from accounts.oidc import SafeOIDCCallbackView
-from accounts.views import logout_view, set_language, set_mode, whoami
+from accounts.views import (
+    ensure_example_room,
+    logout_view,
+    record_tour_event,
+    set_language,
+    set_mode,
+    set_tour_seen,
+    whoami,
+)
 from common.views import MetricsView
 from live.urls import api_urlpatterns as live_api
 from live.urls import page_urlpatterns as live_pages
@@ -39,6 +47,9 @@ urlpatterns = [
     path("api/whoami/", whoami),
     path("api/whoami/language/", set_language),
     path("api/whoami/mode/", set_mode),
+    path("api/whoami/tour-seen/", set_tour_seen),
+    path("api/whoami/tour-event/", record_tour_event),
+    path("api/whoami/example-room/", ensure_example_room),
     path("api/", include((live_api, "live"))),
     path("api/", include("rooms.urls")),
     path("api/", include("common.urls")),

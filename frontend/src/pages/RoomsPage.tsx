@@ -437,34 +437,38 @@ export default function RoomsPage() {
               "A room is the permanent access point for participants — typically a course. Its code stays the same across all quizzes.",
             )}
           />
-          <Button
-            variant="primary"
-            onClick={() => {
-              setCreateError("");
-              setNewRoom(NEW_ROOM_DEFAULTS);
-            }}
-          >
-            + {t("New room")}
-          </Button>
+          <div data-tour="rooms.new-room">
+            <Button
+              variant="primary"
+              onClick={() => {
+                setCreateError("");
+                setNewRoom(NEW_ROOM_DEFAULTS);
+              }}
+            >
+              + {t("New room")}
+            </Button>
+          </div>
         </div>
       </div>
       )}
 
       {!newRoom && (
-      <SegmentedControl
-        className="mb-6 w-full sm:w-max"
-        ariaLabel={t("Show rooms")}
-        value={roomFilter}
-        onChange={(v) => {
-          setRoomFilter(v);
-          setPage(1);
-        }}
-        options={[
-          { value: "active", label: t("Active rooms") },
-          { value: "archived", label: t("Archived rooms") },
-          { value: "all", label: t("All rooms") },
-        ]}
-      />
+        <div data-tour="rooms.filter" className="mb-6 w-full sm:w-max">
+          <SegmentedControl
+            className="w-full"
+            ariaLabel={t("Show rooms")}
+            value={roomFilter}
+            onChange={(v) => {
+              setRoomFilter(v);
+              setPage(1);
+            }}
+            options={[
+              { value: "active", label: t("Active rooms") },
+              { value: "archived", label: t("Archived rooms") },
+              { value: "all", label: t("All rooms") },
+            ]}
+          />
+        </div>
       )}
 
       {/* Single-step create dialog: name, description and features (#2). */}
@@ -478,6 +482,7 @@ export default function RoomsPage() {
             draft={newRoom}
             onChange={(patch) => setNewRoom({ ...newRoom, ...patch })}
             titlePlaceholder={t("e.g. “Bio 101 lecture”")}
+            titleAnchor="room.name"
             easyMode={easyMode}
           />
           <div className="mt-3 flex gap-2">
@@ -501,7 +506,12 @@ export default function RoomsPage() {
 
       {searching ? (
         <SearchView results={results} query={term} />
-      ) : rooms.length === 0 ? (
+      ) : (
+        // Always-present tour anchor: wraps BOTH the empty state and the
+        // populated list, so `rooms.list` exists even for zero-room users (the
+        // onboarding audience). Layout-neutral — the parent is a plain block div.
+        <div data-tour="rooms.list">
+          {rooms.length === 0 ? (
         roomFilter === "archived" ? (
           <EmptyState icon={Archive} title={t("No archived rooms")}>
             {t(
@@ -515,8 +525,8 @@ export default function RoomsPage() {
             )}
           </EmptyState>
         )
-      ) : (
-        <>
+          ) : (
+            <>
           {favorites.length > 0 && (
             <section className="mb-6">
               <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
@@ -625,7 +635,9 @@ export default function RoomsPage() {
               </ul>
             </section>
           )}
-        </>
+            </>
+          )}
+        </div>
       )}
     </div>
   );

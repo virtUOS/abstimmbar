@@ -210,24 +210,31 @@ export function RoomSettingsForm({
   draft,
   onChange,
   titlePlaceholder,
+  titleAnchor,
   easyMode = false,
 }: {
   draft: RoomSettings;
   onChange: (patch: Partial<RoomSettings>) => void;
   titlePlaceholder?: string;
+  /** Optional `data-tour` value wrapped around the Name field (guided tour):
+   *  only the new-room create form sets it, so the anchor is scoped to that. */
+  titleAnchor?: string;
   /** Easy mode (#52): only title + description; hide presentation features
    * and the participant closing info. Existing values stay stored. */
   easyMode?: boolean;
 }) {
   const { t } = useTranslation();
+  const titleField = (
+    <TranslatableField
+      label={t("Name")}
+      value={draft.title}
+      onChange={(title) => onChange({ title })}
+      placeholder={titlePlaceholder ?? t("Room title")}
+    />
+  );
   return (
     <div className="grid max-w-2xl gap-8">
-      <TranslatableField
-        label={t("Name")}
-        value={draft.title}
-        onChange={(title) => onChange({ title })}
-        placeholder={titlePlaceholder ?? t("Room title")}
-      />
+      {titleAnchor ? <div data-tour={titleAnchor}>{titleField}</div> : titleField}
       <TranslatableField
         variant="rich"
         label={t("Description")}
@@ -861,7 +868,9 @@ export default function RoomPage() {
           <InfoHint
             text={t("A question set is a single quiz — e.g. for one lecture session.")}
           />
-          <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
+          <div data-tour="room.new-set">
+            <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
+          </div>
         </div>
       </div>
       {importError && <p className="mb-4 text-sm text-red-600">{importError}</p>}
@@ -872,6 +881,7 @@ export default function RoomPage() {
           <SetSettingsForm
             draft={newSet}
             onChange={(patch) => setNewSet({ ...newSet, ...patch })}
+            titleAnchor="set.title"
             easyMode={easyMode}
           />
           <div className="mt-3 flex gap-2">
@@ -1001,7 +1011,7 @@ export default function RoomPage() {
                     </p>
                   </Link>
                 </div>
-                <div className="relative z-10 mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                <div data-tour="room.set-actions" className="relative z-10 mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
                   {set.has_results && (
                     <Link
                       to={`/sets/${set.id}/results`}

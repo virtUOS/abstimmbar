@@ -414,9 +414,9 @@ export default function ResultsPage() {
       </nav>
 
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">{t("Results — {{title}}", { title: localizedText(set.title) })}</h1>
+        <h1 data-tour="results.view" className="text-2xl font-bold">{t("Results — {{title}}", { title: localizedText(set.title) })}</h1>
         {runs.length > 0 && current && (
-          <div className="flex flex-wrap items-center gap-3">
+          <div data-tour="results.export" className="flex flex-wrap items-center gap-3">
             {/* Export as one visibly grouped unit: scope + download. */}
             <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
@@ -475,6 +475,7 @@ export default function ResultsPage() {
                 {/* The Termin picker doubles as the block heading (#17-Feedback). */}
                 <div className="flex flex-wrap items-center gap-2">
                   <select
+                    data-tour="results.runs"
                     aria-label={t("Select session")}
                     value={run.run}
                     onChange={(event) => setSelected(Number(event.target.value))}

@@ -942,31 +942,33 @@ export default function QuestionPage() {
       )}
 
       {tab === "edit" && (
-      <div className="grid gap-5">
-        <TranslatableField
-          variant="rich"
-          label={t("Question text")}
-          value={text}
-          onChange={setText}
-          stale={liveStaleLangs(
-            textBaseline,
-            text,
-            question?.translation_stale?.text ?? [],
-            syncedFields.has("text"),
-          )}
-          onTranslated={(lang, value) => {
-            // The translation just made both languages match again: move the
-            // baseline to the new state so it's no longer flagged live, and
-            // record the sync on the next save.
-            setTextBaseline(setLocalizedLang(text, lang, value));
-            markSynced("text");
-          }}
-          onMarkSynced={() => {
-            setTextBaseline(text);
-            markSynced("text");
-            void save({ stay: true, extraSynced: ["text"] });
-          }}
-        />
+      <div className="grid gap-5" data-tour="question.editor">
+        <div data-tour="question.lang-tabs">
+          <TranslatableField
+            variant="rich"
+            label={t("Question text")}
+            value={text}
+            onChange={setText}
+            stale={liveStaleLangs(
+              textBaseline,
+              text,
+              question?.translation_stale?.text ?? [],
+              syncedFields.has("text"),
+            )}
+            onTranslated={(lang, value) => {
+              // The translation just made both languages match again: move the
+              // baseline to the new state so it's no longer flagged live, and
+              // record the sync on the next save.
+              setTextBaseline(setLocalizedLang(text, lang, value));
+              markSynced("text");
+            }}
+            onMarkSynced={() => {
+              setTextBaseline(text);
+              markSynced("text");
+              void save({ stay: true, extraSynced: ["text"] });
+            }}
+          />
+        </div>
         {textMissing && (
           <p className="mt-1 text-sm text-red-600 dark:text-red-400">
             {t("Question text is required.")}
@@ -1148,18 +1150,6 @@ export default function QuestionPage() {
                     + {t("Add answer")}
                   </Button>
                 )}
-                {/* Offer random order for choice and priorities questions —
-                    the listed order shouldn't nudge participants toward a
-                    ranking (#96). Ordering is excluded: the server always
-                    shuffles it (finding the right order is the task). */}
-                {!isOrdering && (
-                  <ToggleSwitch
-                    checked={shuffle}
-                    onChange={setShuffle}
-                    icon={Shuffle}
-                    label={t("Show answer options to participants in random order")}
-                  />
-                )}
               </div>
               {optionsMissing && (
                 <p className="mt-2 text-sm text-red-600 dark:text-red-400">
@@ -1167,46 +1157,66 @@ export default function QuestionPage() {
                 </p>
               )}
 
-              {/* Per-question reveal of the correct answer (#28); only for
-                  kinds that have a correct answer. */}
-              {hasCorrect && (
-                <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-                  {t("Reveal correct answer:")}
-                  <select
-                    value={reveal}
-                    onChange={(event) =>
-                      setReveal(event.target.value as "inherit" | RevealAnswers)
-                    }
-                    className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
-                  >
-                    <option value="inherit">
-                      {t("As in the set")}
-                      {set ? ` (${t(REVEAL_LABEL[set.reveal_answers])})` : ""}
-                    </option>
-                    <option value="immediately">{t(REVEAL_LABEL.immediately)}</option>
-                    <option value="after_close">{t(REVEAL_LABEL.after_close)}</option>
-                    <option value="never">{t(REVEAL_LABEL.never)}</option>
-                  </select>
-                  {/* #75: the per-question reveal only matters for live polls —
-                      the self-paced and self-check flows use the set's own
-                      rule. Keep the option (questions get copied between sets)
-                      but say so. */}
-                  {set?.type === "self_check" && (
-                    <InfoHint
-                      text={t(
-                        "In a self-check this has no effect — the correct answer or model solution is always shown right away. The setting is kept in case the question is copied to another set.",
-                      )}
+              {/* Settings every question kind shares: random order + when the
+                  correct answer is revealed (#onboarding question.settings
+                  anchor — kept as a plain block so the tour can spotlight it). */}
+              <div data-tour="question.settings">
+                {/* Offer random order for choice and priorities questions —
+                    the listed order shouldn't nudge participants toward a
+                    ranking (#96). Ordering is excluded: the server always
+                    shuffles it (finding the right order is the task). */}
+                {!isOrdering && (
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <ToggleSwitch
+                      checked={shuffle}
+                      onChange={setShuffle}
+                      icon={Shuffle}
+                      label={t("Show answer options to participants in random order")}
                     />
-                  )}
-                  {set?.type === "self_paced" && (
-                    <InfoHint
-                      text={t(
-                        "In a self-paced quiz the set's own setting (show correct answers right after answering) applies; this per-question option has no effect there. It is kept in case the question is copied to a live poll.",
-                      )}
-                    />
-                  )}
-                </label>
-              )}
+                  </div>
+                )}
+
+                {/* Per-question reveal of the correct answer (#28); only for
+                    kinds that have a correct answer. */}
+                {hasCorrect && (
+                  <label className="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    {t("Reveal correct answer:")}
+                    <select
+                      value={reveal}
+                      onChange={(event) =>
+                        setReveal(event.target.value as "inherit" | RevealAnswers)
+                      }
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                    >
+                      <option value="inherit">
+                        {t("As in the set")}
+                        {set ? ` (${t(REVEAL_LABEL[set.reveal_answers])})` : ""}
+                      </option>
+                      <option value="immediately">{t(REVEAL_LABEL.immediately)}</option>
+                      <option value="after_close">{t(REVEAL_LABEL.after_close)}</option>
+                      <option value="never">{t(REVEAL_LABEL.never)}</option>
+                    </select>
+                    {/* #75: the per-question reveal only matters for live polls —
+                        the self-paced and self-check flows use the set's own
+                        rule. Keep the option (questions get copied between sets)
+                        but say so. */}
+                    {set?.type === "self_check" && (
+                      <InfoHint
+                        text={t(
+                          "In a self-check this has no effect — the correct answer or model solution is always shown right away. The setting is kept in case the question is copied to another set.",
+                        )}
+                      />
+                    )}
+                    {set?.type === "self_paced" && (
+                      <InfoHint
+                        text={t(
+                          "In a self-paced quiz the set's own setting (show correct answers right after answering) applies; this per-question option has no effect there. It is kept in case the question is copied to a live poll.",
+                        )}
+                      />
+                    )}
+                  </label>
+                )}
+              </div>
 
               {aiEnabled && hasCorrect && !binaryChoice && (
                 <div className="mt-3">
@@ -1551,44 +1561,47 @@ export default function QuestionPage() {
           </AiAssistPanel>
         )}
 
-        <Field label={t("Time limit")}>
-          <div className="flex flex-wrap items-center gap-1.5">
-            {TIME_PRESETS.map((preset) => {
-              const active = timeLimit === preset.value;
-              return (
-                <button
-                  key={preset.label}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => setTimeLimit(preset.value)}
-                  className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
-                    active
-                      ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
-                      : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
-                  }`}
-                >
-                  {t(preset.label)}
-                </button>
-              );
-            })}
-            <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
-              {t("or")}
-            </span>
-            <TextInput
-              type="number"
-              min={1}
-              max={3600}
-              value={timeLimit}
-              onChange={(event) => setTimeLimit(event.target.value)}
-              placeholder={t("e.g. 90")}
-              aria-label={t("Time limit in seconds")}
-              className="!w-28"
-            />
-            <span className="text-sm text-slate-500 dark:text-slate-400">
-              {t("Seconds")}
-            </span>
-          </div>
-        </Field>
+        {/* #onboarding question.timer anchor; plain block, layout-neutral. */}
+        <div data-tour="question.timer">
+          <Field label={t("Time limit")}>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {TIME_PRESETS.map((preset) => {
+                const active = timeLimit === preset.value;
+                return (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setTimeLimit(preset.value)}
+                    className={`rounded-lg border px-3 py-1.5 text-sm transition-colors ${
+                      active
+                        ? "border-slate-400 bg-slate-200 font-semibold text-slate-900 dark:border-slate-500 dark:bg-slate-700 dark:text-slate-100"
+                        : "border-slate-300 text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-900/60"
+                    }`}
+                  >
+                    {t(preset.label)}
+                  </button>
+                );
+              })}
+              <span className="ml-1 text-sm text-slate-500 dark:text-slate-400">
+                {t("or")}
+              </span>
+              <TextInput
+                type="number"
+                min={1}
+                max={3600}
+                value={timeLimit}
+                onChange={(event) => setTimeLimit(event.target.value)}
+                placeholder={t("e.g. 90")}
+                aria-label={t("Time limit in seconds")}
+                className="!w-28"
+              />
+              <span className="text-sm text-slate-500 dark:text-slate-400">
+                {t("Seconds")}
+              </span>
+            </div>
+          </Field>
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
         {confirmNoCorrect && missingSolutionForSelfCheck && (

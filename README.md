@@ -67,11 +67,12 @@ sharing its design language and stack. Released under the
   on beamer and phone without bloating storage.
 - 📈 **Usage statistics & monitoring** — a staff-only statistics page in the
   admin area shows totals (rooms, users, sets & questions *created* and
-  *conducted*, participants), breakdowns by type as donut charts and time
-  series over a selectable date range. An optional, token-guarded
-  Prometheus `/metrics` endpoint feeds the same figures into Grafana. Only
-  aggregated, anonymous data — no per-user tracking; session keys are hashed
-  and pruned.
+  *conducted*, participants, guided-tour usage), breakdowns by type as donut
+  charts and time series over a selectable date range. An optional,
+  token-guarded Prometheus `/metrics` endpoint feeds the same figures into
+  Grafana. Only aggregated, anonymous data — no per-user tracking; session
+  keys are hashed and pruned; example rooms are excluded from usage figures;
+  tour usage is stored only as daily counters.
 
 ## Screenshots
 

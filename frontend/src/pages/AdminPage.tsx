@@ -15,12 +15,15 @@ import HomeCrumb from "../components/HomeCrumb";
 import MiniChart, { type ChartSeries } from "../components/MiniChart";
 import TranslatableField from "../components/TranslatableField";
 import { Button, ConfirmInline, EmptyState, Field, InfoHint, Select, SegmentedControl, TextInput } from "../components/ui";
+import { proTour, RESTORE_STEP } from "../tour/steps";
 
 const SET_TYPE_LABELS: Record<string, string> = {
   live_poll: "Live poll",
   self_paced: "Self-paced quiz",
   self_check: "Self-check",
 };
+/** Tour step id → title key, for the "aborted at step" table. */
+const TOUR_STEP_TITLES = new Map([...proTour, RESTORE_STEP].map((s) => [s.id, s.titleKey]));
 const KIND_LABELS: Record<string, string> = {
   single_choice: "Single Choice",
   multiple_choice: "Multiple Choice",
@@ -169,6 +172,8 @@ function StatsSection() {
   const createdSets = sum(totals.sets_by_type);
   const presentedSets = sum(totals.runs_by_type);
   const createdQuestions = sum(totals.questions_by_kind);
+  const tourStarts = sum(totals.tour.started);
+  const tourCompleted = sum(totals.tour.completed);
 
   const bar = (points: { date: string; n: number }[], c = PALETTE[0]): ChartSeries[] => [
     { label: "", fillClass: c.fill, dotClass: c.dot, points: points.map((p) => ({ date: p.date, value: p.n })) },
@@ -209,6 +214,54 @@ function StatsSection() {
               { label: t("Expert"), value: totals.sessions_by_mode.pro, strokeClass: PALETTE[1].stroke, dotClass: PALETTE[1].dot },
             ]}
           />
+        </div>
+      </section>
+
+      {/* Guided tour usage (all time) — anonymous TourEvent counts. */}
+      <section>
+        <h2 className="mb-3 text-lg font-semibold">{t("Guided tour")}</h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <Tile
+            label={t("Starts")}
+            value={tourStarts}
+            sub={t("Simple {{easy}} · Expert {{pro}}", totals.tour.started)}
+          />
+          <Tile
+            label={t("Completed")}
+            value={tourCompleted}
+            sub={tourStarts > 0 ? t("{{percent}} % of starts", { percent: Math.round((100 * tourCompleted) / tourStarts) }) : undefined}
+          />
+          <Tile label={t("Aborted")} value={sum(totals.tour.aborted)} />
+          <Tile label={t("Users who know the tour")} value={totals.tour.users_seen} sub={t("started or dismissed")} />
+        </div>
+        <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">
+          <Donut
+            title={t("Tour starts by source")}
+            segments={[
+              { label: t("Welcome dialog"), value: totals.tour.by_source.welcome, strokeClass: PALETTE[0].stroke, dotClass: PALETTE[0].dot },
+              { label: t("? menu"), value: totals.tour.by_source.help, strokeClass: PALETTE[1].stroke, dotClass: PALETTE[1].dot },
+            ]}
+          />
+          <div>
+            <h3 className="mb-2 text-sm font-semibold text-slate-600 dark:text-slate-300">{t("Tour aborted at step")}</h3>
+            {totals.tour.aborted_at.length === 0 ? (
+              <p className="text-sm text-slate-500 dark:text-slate-400">{t("No aborts yet")}</p>
+            ) : (
+              <table className="w-full text-sm">
+                <tbody>
+                  {totals.tour.aborted_at.map((row) => {
+                    const titleKey = TOUR_STEP_TITLES.get(row.step);
+                    return (
+                      <tr key={row.step} className="border-t border-slate-100 dark:border-slate-800">
+                        <td className="py-1.5">{titleKey ? t(titleKey) : row.step}</td>
+                        <td className="py-1.5 text-right tabular-nums">{row.n}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </section>
 
@@ -263,6 +316,14 @@ function StatsSection() {
               { label: t("Live poll"), fillClass: PALETTE[0].fill, dotClass: PALETTE[0].dot, points: daily.runs_by_type.map((p) => ({ date: p.date, value: p.live_poll })) },
               { label: t("Self-paced quiz"), fillClass: PALETTE[1].fill, dotClass: PALETTE[1].dot, points: daily.runs_by_type.map((p) => ({ date: p.date, value: p.self_paced })) },
               { label: t("Self-check"), fillClass: PALETTE[2].fill, dotClass: PALETTE[2].dot, points: daily.runs_by_type.map((p) => ({ date: p.date, value: p.self_check })) },
+            ]}
+          />
+          <MiniChart
+            title={t("Guided tour per day")}
+            series={[
+              // Stacked: completed + started-not-completed = starts (header total).
+              { label: t("Completed"), fillClass: PALETTE[1].fill, dotClass: PALETTE[1].dot, points: daily.tour.map((p) => ({ date: p.date, value: p.completed })) },
+              { label: t("Started, not completed"), fillClass: PALETTE[0].fill, dotClass: PALETTE[0].dot, points: daily.tour.map((p) => ({ date: p.date, value: Math.max(0, p.started - p.completed) })) },
             ]}
           />
         </div>

@@ -22,6 +22,7 @@ import {
 import { localizedText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
 import RichText from "../components/RichText";
+import { useTourSignal } from "../tour/signals";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -100,6 +101,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const recording = searchParams.get("recording") === "1" && mode !== "self_paced";
   // Deep link (#7): jump straight to a specific question.
   const targetQuestionId = Number(searchParams.get("question")) || null;
+  // ?resume=continue|archive|delete (guided tour): answer the "existing
+  // results" dialog up front, as if that button had been clicked. Invalid or
+  // absent values leave the dialog behaviour unchanged.
+  const resumeParam = searchParams.get("resume");
+  const resume =
+    resumeParam === "continue" || resumeParam === "archive" || resumeParam === "delete"
+      ? resumeParam
+      : null;
   const [code, setCode] = useState<string | null>(null);
   const [state, setState] = useState<LiveState | null>(null);
   const [dialog, setDialog] = useState(false);
@@ -173,7 +182,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         !status.recently_started &&
         ((status.has_votes && !status.active_run) || status.active_run_has_votes)
       ) {
-        setDialog(true); // ask before touching stored results
+        if (resume) await startAfterDialog(resume); // pre-answered via ?resume=
+        else setDialog(true); // ask before touching stored results
       } else {
         const started = await live.startRun(
           id, easyMode ? undefined : "continue", mode, recording,
@@ -481,6 +491,22 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       go();
     }
   }, [suppressLeaveWarn, phase, state?.ends_at, requestGoto, questions.length, startFromLobby]);
+
+  // Guided tour: show the first question (so the voting/reveal controls are
+  // visible), and return to the lobby before the tour leaves the page, so a
+  // later real presentation starts on the start screen. Always as a PREVIEW
+  // (not startFromLobby, which honours "open on show"): the tour explains
+  // Start and must not open voting itself.
+  useTourSignal("present-first", () => {
+    if (runId && phase === "lobby" && questions.length > 0) {
+      void live.control(runId, { phase: "preview", question: questions[0].id });
+    }
+  });
+  useTourSignal("present-lobby", () => {
+    if (runId && phase !== "lobby" && phase !== "finished") {
+      void live.control(runId, { phase: "lobby", question: null });
+    }
+  });
 
   // Prompt actions.
   function dismissWarn() {
@@ -1032,7 +1058,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         </div>
       )}
       {phase === "lobby" && (
-        <div className="flex min-h-full flex-col items-center justify-center gap-6 text-center">
+        <div
+          data-tour="present.join"
+          className="flex min-h-full flex-col items-center justify-center gap-6 text-center"
+        >
           <h1 className="text-4xl font-bold">{localizedText(state.set_title)}</h1>
           <img
             src={live.qrUrl(state.room.code)}
@@ -2370,7 +2399,9 @@ function Footer(props: {
     "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50";
   const isSection = props.variant === "section";
   return (
-    <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
+    <footer
+      className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500"
+    >
       {/* Left cluster: the question indicator, and — next to it — the
        * Frage/Ergebnis/Lösung reveal pill (it belongs to the current
        * question, so it reads better beside "Frage x/Y" than over on the
@@ -2402,6 +2433,7 @@ function Footer(props: {
         )}
         {!isSection && props.onShowResults && props.phase !== "lobby" && (
           <div
+            data-tour="present.reveal"
             className="grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
             role="group"
             aria-label={t("View")}
@@ -2461,25 +2493,27 @@ function Footer(props: {
       <div className="flex gap-2">
         {/* Starting/results only make sense on a question, not a section. */}
         {!isSection && props.onToggle && (
-          <button className={btn} onClick={props.onToggle}>
+          <button data-tour="present.toggle" className={btn} onClick={props.onToggle}>
             {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}
             <Kbd>S</Kbd>
           </button>
         )}
-        <button className={`${btn} text-red-700`} onClick={props.onFinish}>
-          {t("End")} <Kbd>Esc</Kbd>
-        </button>
-        {props.onCloseWindow && (
-          <button className={btn} onClick={props.onCloseWindow}>
-            {t("Close window")}
+        <div data-tour="present.nav" className="flex gap-2">
+          <button className={`${btn} text-red-700`} onClick={props.onFinish}>
+            {t("End")} <Kbd>Esc</Kbd>
           </button>
-        )}
-        <button className={btn} onClick={props.onPrev} aria-label={t("Back (←)")}>
-          <ChevronLeft aria-hidden className="h-5 w-5" />
-        </button>
-        <button className={btn} onClick={props.onNext} aria-label={t("Next (→)")}>
-          <ChevronRight aria-hidden className="h-5 w-5" />
-        </button>
+          {props.onCloseWindow && (
+            <button className={btn} onClick={props.onCloseWindow}>
+              {t("Close window")}
+            </button>
+          )}
+          <button className={btn} onClick={props.onPrev} aria-label={t("Back (←)")}>
+            <ChevronLeft aria-hidden className="h-5 w-5" />
+          </button>
+          <button className={btn} onClick={props.onNext} aria-label={t("Next (→)")}>
+            <ChevronRight aria-hidden className="h-5 w-5" />
+          </button>
+        </div>
       </div>
     </footer>
   );

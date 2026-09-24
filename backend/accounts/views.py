@@ -4,22 +4,40 @@
 """Session/identity endpoints for the SPA."""
 import json
 import logging
+import re
 
 from basicbar_auth.oidc import provider_logout_url
 from basicbar_integrations import ai, translation_service
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth import logout as django_logout
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from rooms.onboarding import seed_example_room
 
+from .models import TourDailyCount
+
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+def _example_ids(user):
+    """(room_id, set_id) of the user's complete example room, else (None, None).
+    Complete = owned is_example room whose first set has >= 1 question."""
+    from rooms.models import QuestionSet, Room
+    room = Room.objects.filter(owner=user, is_example=True).order_by("-id").first()
+    if not room:
+        return None, None
+    qs = QuestionSet.objects.filter(room=room).order_by("id").first()
+    if not qs or not qs.questions.exists():
+        return None, None
+    return room.id, qs.id
 
 
 def whoami(request):
@@ -64,6 +82,7 @@ def whoami(request):
         except Exception:
             logger.exception("Onboarding seed failed for user %s", user.pk)
     _record_mode_session(request, user)
+    ex_room, ex_set = _example_ids(user)
     return JsonResponse(
         {
             "authenticated": True,
@@ -77,11 +96,14 @@ def whoami(request):
             # Effective Easy/Pro mode: explicit choice, else role default
             # (non-staff = simple, staff = pro) — see User.effective_easy_mode.
             "easy_mode": user.effective_easy_mode,
+            "onboarding_tour_seen": user.onboarding_tour_seen,
             "csrf_token": csrf_token,
             "ai_enabled": ai.is_enabled(),
             "ai_generate_max_questions": settings.AI_GEN_MAX_QUESTIONS,
             "content_default_language": content_default_language,
             "content_translation_enabled": content_translation_enabled,
+            "example_room_id": ex_room,
+            "example_set_id": ex_set,
         }
     )
 
@@ -169,3 +191,81 @@ def set_mode(request):
     request.user.easy_mode = easy
     request.user.save(update_fields=["easy_mode"])
     return JsonResponse({"easy_mode": request.user.effective_easy_mode})
+
+
+@require_POST
+def set_tour_seen(request):
+    """POST /api/whoami/tour-seen/ — mark the first-login guided tour as seen
+    or dismissed (idempotent). Plain Django view, matching ``set_mode``."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Not authenticated."}, status=403)
+    if not request.user.onboarding_tour_seen:
+        request.user.onboarding_tour_seen = True
+        request.user.save(update_fields=["onboarding_tour_seen"])
+    return JsonResponse({"onboarding_tour_seen": True})
+
+
+# Tour step ids are short dotted slugs (e.g. "q.word_cloud", "example.restore").
+TOUR_STEP_RE = re.compile(r"^[a-z0-9_.-]{1,60}$")
+
+
+@require_POST
+def record_tour_event(request):
+    """POST /api/whoami/tour-event/ — count one anonymous guided-tour event
+    for the admin statistics: {"kind": "started"|"completed"|"aborted",
+    "mode": "easy"|"pro", "source": "welcome"|"help" (started only),
+    "step": "<step id>" (aborted only)}. Fields that don't belong to the kind
+    are dropped. The event only increments today's ``TourDailyCount`` bucket
+    (no per-event row, no timestamp). Plain Django view, matching
+    ``set_tour_seen``."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Not authenticated."}, status=403)
+    try:
+        data = json.loads(request.body or b"{}")
+    except ValueError:
+        data = None
+    if not isinstance(data, dict):
+        return JsonResponse({"detail": "Invalid JSON."}, status=400)
+    kind, mode = data.get("kind"), data.get("mode")
+    if kind not in TourDailyCount.Kind.values or mode not in ("easy", "pro"):
+        return JsonResponse({"detail": "Invalid kind or mode."}, status=400)
+    source = step = ""
+    if kind == TourDailyCount.Kind.STARTED:
+        source = data.get("source")
+        if source not in TourDailyCount.Source.values:
+            return JsonResponse({"detail": "Invalid source."}, status=400)
+    elif kind == TourDailyCount.Kind.ABORTED:
+        step = data.get("step")
+        if not isinstance(step, str) or not TOUR_STEP_RE.match(step):
+            return JsonResponse({"detail": "Invalid step."}, status=400)
+    bucket = {"date": timezone.localdate(), "kind": kind, "mode": mode, "source": source, "step": step}
+    counts = TourDailyCount.objects.filter(**bucket)
+    if not counts.update(n=F("n") + 1):
+        try:
+            with transaction.atomic():
+                TourDailyCount.objects.create(**bucket, n=1)
+        except IntegrityError:  # created concurrently — count on the winner's row
+            counts.update(n=F("n") + 1)
+    return JsonResponse({"status": "ok"}, status=201)
+
+
+@require_POST
+def ensure_example_room(request):
+    """POST /api/whoami/example-room/ — return the user's example room/set ids,
+    (re)creating the example room via the onboarding seeder when missing or
+    incomplete. Idempotent. Plain Django view, matching ``set_mode``."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Not authenticated."}, status=403)
+    room_id, set_id = _example_ids(request.user)
+    if room_id is None:
+        # Guard against two near-simultaneous POSTs (double-click / retry)
+        # both seeing (None, None) and each creating an example room — same
+        # race whoami guards above with select_for_update + a re-check under
+        # the lock.
+        with transaction.atomic():
+            locked = User.objects.select_for_update().get(pk=request.user.pk)
+            room_id, set_id = _example_ids(locked)
+            if room_id is None:
+                seed_example_room(locked)
+                room_id, set_id = _example_ids(locked)
+    return JsonResponse({"example_room_id": room_id, "example_set_id": set_id})

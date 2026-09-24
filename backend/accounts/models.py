@@ -9,6 +9,8 @@ accounts — participants stay anonymous by design (concept §9) and never get a
 ``is_staff``/``is_superuser``; anyone authenticated may create rooms
 (review decision, July 2026), restrictable later via claims/groups.
 """
+from typing import ClassVar
+
 from django.contrib.auth.models import AbstractUser
 from django.db import models
 
@@ -31,6 +33,11 @@ class User(AbstractUser):
     # room? default=False so existing users get it too, on their next
     # whoami — see accounts.views.whoami and rooms.onboarding.
     onboarded = models.BooleanField(default=False)
+    # Guided-tour onboarding: has the user seen or dismissed the first-login
+    # tour offer? Separate from ``onboarded`` (which fires on the first whoami
+    # to seed the example room and is thus always true by the time the UI
+    # renders). default=False so existing users get the tour offer once.
+    onboarding_tour_seen = models.BooleanField(default=False)
 
     def __str__(self):
         return self.get_username()
@@ -57,3 +64,34 @@ class DailyModeSession(models.Model):
 
     class Meta:
         unique_together = (("session_hash", "date"),)
+
+
+class TourDailyCount(models.Model):
+    """Guided-tour usage for the admin statistics, as anonymous per-day
+    counters: how often the tour was started (and from where), completed, or
+    aborted (and on which step), per mode. No user/session reference and no
+    timestamps or per-event rows — only a day and a count — so individual
+    events can't be linked back to a person (cf. DailyModeSession)."""
+
+    class Kind(models.TextChoices):
+        STARTED = "started", "Started"
+        COMPLETED = "completed", "Completed"
+        ABORTED = "aborted", "Aborted"
+
+    class Source(models.TextChoices):
+        WELCOME = "welcome", "Welcome dialog"
+        HELP = "help", "Help menu"
+
+    date = models.DateField(db_index=True)
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    mode = models.CharField(max_length=4)  # "easy" | "pro"
+    source = models.CharField(max_length=10, choices=Source.choices, blank=True)
+    step = models.CharField(max_length=60, blank=True)
+    n = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["date", "kind", "mode", "source", "step"], name="one_tour_count_per_bucket"
+            )
+        ]

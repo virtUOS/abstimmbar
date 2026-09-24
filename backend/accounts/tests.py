@@ -437,3 +437,186 @@ class PruneModeSessionsCommandTests(TestCase):
         call_command("prune_mode_sessions", days=30)
         remaining = list(DailyModeSession.objects.values_list("session_hash", flat=True))
         self.assertEqual(remaining, ["hash-recent"])
+
+
+class SetTourSeenTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="tia", password="x")
+
+    def test_defaults_false_and_reported_by_whoami(self):
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/whoami/")
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["onboarding_tour_seen"])
+
+    def test_marks_seen_idempotently(self):
+        self.client.force_login(self.user)
+        for _ in range(2):
+            resp = self.client.post("/api/whoami/tour-seen/", content_type="application/json")
+            self.assertEqual(resp.status_code, 200)
+            self.assertTrue(resp.json()["onboarding_tour_seen"])
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.onboarding_tour_seen)
+
+    def test_requires_authentication(self):
+        resp = self.client.post("/api/whoami/tour-seen/", content_type="application/json")
+        self.assertEqual(resp.status_code, 403)
+
+
+class ExampleRoomTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="ex", password="x")
+        self.client.force_login(self.user)
+
+    def test_whoami_ids_after_seed(self):
+        resp = self.client.get("/api/whoami/")  # first whoami seeds (#78)
+        data = resp.json()
+        self.assertIsNotNone(data["example_room_id"])
+        self.assertIsNotNone(data["example_set_id"])
+        from rooms.models import Room
+        room = Room.objects.get(pk=data["example_room_id"])
+        self.assertTrue(room.is_example)
+        self.assertEqual(room.owner, self.user)
+
+    def test_whoami_ids_null_when_missing_or_incomplete(self):
+        from rooms.models import Question, Room
+        self.client.get("/api/whoami/")
+        Room.objects.filter(owner=self.user, is_example=True).delete()
+        self.assertIsNone(self.client.get("/api/whoami/").json()["example_room_id"])
+        # incomplete: room + set exist but the set has no questions
+        room = self.client.post(
+            "/api/whoami/example-room/", content_type="application/json"
+        ).json()
+        Question.objects.filter(question_set_id=room["example_set_id"]).delete()
+        data = self.client.get("/api/whoami/").json()
+        self.assertIsNone(data["example_room_id"])
+        self.assertIsNone(data["example_set_id"])
+
+    def test_restore_creates_when_missing_and_is_idempotent(self):
+        from rooms.models import Room
+        self.client.get("/api/whoami/")
+        Room.objects.filter(owner=self.user, is_example=True).delete()
+        first = self.client.post("/api/whoami/example-room/", content_type="application/json")
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post("/api/whoami/example-room/", content_type="application/json")
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(Room.objects.filter(owner=self.user, is_example=True).count(), 1)
+
+    def test_restore_requires_auth(self):
+        self.client.logout()
+        resp = self.client.post("/api/whoami/example-room/", content_type="application/json")
+        self.assertEqual(resp.status_code, 403)
+
+    def test_whoami_ids_null_when_room_has_no_set(self):
+        from rooms.models import QuestionSet, Room
+        self.client.get("/api/whoami/")
+        room = Room.objects.get(owner=self.user, is_example=True)
+        QuestionSet.objects.filter(room=room).delete()
+        data = self.client.get("/api/whoami/").json()
+        self.assertIsNone(data["example_room_id"])
+        self.assertIsNone(data["example_set_id"])
+
+    def test_0048_backfill_flags_seeded_title_only(self):
+        mod = importlib.import_module("rooms.migrations.0048_room_is_example")
+        seeded = Room.objects.create(
+            owner=self.user, title_de="Beispielraum – zum Ausprobieren", title_en="Example"
+        )
+        other = Room.objects.create(owner=self.user, title_de="Beispielraum", title_en="Other")
+        Room.objects.filter(pk__in=[seeded.pk, other.pk]).update(is_example=False)
+        mod.backfill(django_apps, None)
+        seeded.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(seeded.is_example)
+        self.assertFalse(other.is_example)
+
+
+class TourEventTests(TestCase):
+    """POST /api/whoami/tour-event/ — anonymous guided-tour usage, counted in
+    per-day TourDailyCount buckets."""
+
+    URL = "/api/whoami/tour-event/"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="tomas", password="x")
+
+    def post(self, payload):
+        import json
+
+        return self.client.post(self.URL, json.dumps(payload), content_type="application/json")
+
+    def test_requires_authentication(self):
+        self.assertEqual(self.post({"kind": "started", "mode": "pro", "source": "help"}).status_code, 403)
+
+    def test_records_start_with_source(self):
+        from django.utils import timezone
+
+        from accounts.models import TourDailyCount
+
+        self.client.force_login(self.user)
+        resp = self.post({"kind": "started", "mode": "easy", "source": "welcome"})
+        self.assertEqual(resp.status_code, 201)
+        row = TourDailyCount.objects.get()
+        self.assertEqual(
+            (row.date, row.kind, row.mode, row.source, row.step, row.n),
+            (timezone.localdate(), "started", "easy", "welcome", "", 1),
+        )
+
+    def test_records_abort_with_step_and_drops_source(self):
+        from accounts.models import TourDailyCount
+
+        self.client.force_login(self.user)
+        resp = self.post({"kind": "aborted", "mode": "pro", "source": "help", "step": "q.word_cloud"})
+        self.assertEqual(resp.status_code, 201)
+        row = TourDailyCount.objects.get()
+        self.assertEqual((row.kind, row.source, row.step, row.n), ("aborted", "", "q.word_cloud", 1))
+
+    def test_completed_drops_step(self):
+        from accounts.models import TourDailyCount
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.post({"kind": "completed", "mode": "pro", "step": "final"}).status_code, 201)
+        row = TourDailyCount.objects.get()
+        self.assertEqual((row.step, row.n), ("", 1))
+
+    def test_same_event_twice_increments_one_bucket(self):
+        from accounts.models import TourDailyCount
+
+        self.client.force_login(self.user)
+        for _ in range(2):
+            self.assertEqual(self.post({"kind": "started", "mode": "pro", "source": "help"}).status_code, 201)
+        row = TourDailyCount.objects.get()
+        self.assertEqual(row.n, 2)
+        # A different bucket (other source) gets its own row.
+        self.post({"kind": "started", "mode": "pro", "source": "welcome"})
+        self.assertEqual(TourDailyCount.objects.count(), 2)
+
+    def test_rejects_invalid_input(self):
+        from accounts.models import TourDailyCount
+
+        self.client.force_login(self.user)
+        for payload in (
+            {"kind": "bogus", "mode": "pro"},
+            {"kind": "completed", "mode": "admin"},
+            {"kind": "started", "mode": "pro", "source": "email"},
+            {"kind": "started", "mode": "pro"},
+            {"kind": "aborted", "mode": "pro"},
+            {"kind": "aborted", "mode": "pro", "step": "<script>"},
+            {"kind": "aborted", "mode": "pro", "step": "x" * 61},
+        ):
+            self.assertEqual(self.post(payload).status_code, 400, payload)
+        self.assertEqual(
+            self.client.post(self.URL, "not json", content_type="application/json").status_code, 400
+        )
+        self.assertEqual(TourDailyCount.objects.count(), 0)
+
+    def test_event_has_no_user_reference(self):
+        from django.db import models
+
+        from accounts.models import TourDailyCount
+
+        fields = TourDailyCount._meta.get_fields()
+        field_names = {f.name for f in fields}
+        self.assertFalse(field_names & {"user", "owner", "created_by", "session", "session_hash"})
+        # Only a day, never a timestamp — events must not be linkable in time.
+        self.assertFalse([f.name for f in fields if isinstance(f, models.DateTimeField)])
+

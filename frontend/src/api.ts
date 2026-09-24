@@ -26,6 +26,11 @@ export interface Whoami {
    * and whether machine-translation pre-fill (LibreTranslate) is on. */
   content_default_language: string;
   content_translation_enabled: boolean;
+  /** First-login guided tour: already seen/dismissed once. */
+  onboarding_tour_seen?: boolean;
+  /** The user's seeded example room/set (null = missing or incomplete). */
+  example_room_id?: number | null;
+  example_set_id?: number | null;
 }
 
 export interface Room {
@@ -347,6 +352,25 @@ export interface SessionsPoint {
   easy: number;
   pro: number;
 }
+/** Guided-tour usage aggregation (anonymous TourEvent counts). */
+export interface TourStats {
+  started: { easy: number; pro: number };
+  completed: { easy: number; pro: number };
+  aborted: { easy: number; pro: number };
+  by_source: { welcome: number; help: number };
+  aborted_at: { step: string; n: number }[];
+  users_seen: number;
+}
+export interface TourPoint {
+  date: string;
+  started: number;
+  completed: number;
+}
+/** Body of `POST /api/whoami/tour-event/` (anonymous, best-effort). */
+export type TourEventPayload =
+  | { kind: "started"; mode: "easy" | "pro"; source: "welcome" | "help" }
+  | { kind: "completed"; mode: "easy" | "pro" }
+  | { kind: "aborted"; mode: "easy" | "pro"; step: string };
 export interface AdminStats {
   days: number;
   from: string;
@@ -361,6 +385,7 @@ export interface AdminStats {
     participants: number;
     questions_run: number;
     sessions_by_mode: { easy: number; pro: number };
+    tour: TourStats;
   };
   daily: {
     rooms: DailyPoint[];
@@ -369,6 +394,7 @@ export interface AdminStats {
     questions_run: DailyPoint[];
     runs_by_type: RunsByTypePoint[];
     sessions_by_mode: SessionsPoint[];
+    tour: TourPoint[];
   };
 }
 
@@ -481,6 +507,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ easy_mode: easyMode }),
     }),
+
+  markTourSeen: () =>
+    request<{ onboarding_tour_seen: boolean }>("/api/whoami/tour-seen/", {
+      method: "POST",
+    }),
+
+  /** Anonymous guided-tour usage event (for the admin statistics). */
+  trackTourEvent: (event: TourEventPayload) =>
+    request<{ status: string }>("/api/whoami/tour-event/", {
+      method: "POST",
+      body: JSON.stringify(event),
+    }),
+
+  ensureExampleRoom: () =>
+    request<{ example_room_id: number; example_set_id: number }>(
+      "/api/whoami/example-room/", { method: "POST" },
+    ),
 
   // --- site content (public reads) ---
   getSite: () => request<SitePublic>("/api/site/"),

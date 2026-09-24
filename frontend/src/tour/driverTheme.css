@@ -1,0 +1,189 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright 2026 Universität Osnabrück (virtUOS) */
+
+/* Restyles driver.js's popover to match Abstimmbar's cards (radius, shadow,
+ * slate text, brand primary button) in both themes. The app toggles a
+ * `dark` class on <html> (@basicbar/ui ThemeProvider) — see
+ * document.documentElement. Colors reference the same `brand`/`slate` OKLCH
+ * ramps as tailwind.config.js (via Tailwind's theme() function) rather than
+ * hardcoding hex, since the app does not expose them as CSS variables.
+ */
+@import "driver.js/dist/driver.css";
+
+.driver-popover {
+  background: theme("colors.white");
+  color: theme("colors.slate.900");
+  border: 1px solid theme("colors.slate.200");
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px -12px theme("colors.slate.950 / 35%");
+  max-width: 320px;
+  padding: 1rem;
+  font-family: inherit;
+}
+
+.driver-popover-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: theme("colors.slate.900");
+}
+
+.driver-popover-description {
+  color: theme("colors.slate.700");
+  font-size: 0.875rem;
+}
+
+.driver-popover-progress-text {
+  color: theme("colors.slate.500");
+}
+
+.driver-popover-footer-btn {
+  color: theme("colors.slate.700");
+  background: theme("colors.white");
+  border: 1px solid theme("colors.slate.300");
+  border-radius: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.8125rem;
+}
+
+.driver-popover-footer-btn:hover,
+.driver-popover-footer-btn:focus {
+  background: theme("colors.slate.100");
+}
+
+.driver-popover-navigation-btns button.driver-popover-next-btn,
+.driver-popover-navigation-btns button.driver-popover-done-btn {
+  background: theme("colors.brand.600");
+  color: theme("colors.white");
+  border-color: theme("colors.brand.600");
+}
+
+.driver-popover-navigation-btns button.driver-popover-next-btn:hover,
+.driver-popover-navigation-btns button.driver-popover-done-btn:hover,
+.driver-popover-navigation-btns button.driver-popover-next-btn:focus,
+.driver-popover-navigation-btns button.driver-popover-done-btn:focus {
+  background: theme("colors.brand.700");
+}
+
+.driver-popover-close-btn {
+  color: theme("colors.slate.400");
+}
+
+.driver-popover-close-btn:hover,
+.driver-popover-close-btn:focus {
+  color: theme("colors.slate.700");
+}
+
+/* driver.js's own base rule sets `border: 5px solid #fff` on
+ * `.driver-popover-arrow`, then each `.driver-popover-arrow-side-*` class
+ * zeroes out three of the four border-color edges so only one edge stays
+ * visible, forming a directional triangle. A blanket `border-color`
+ * shorthand on the base class would stomp those per-side transparents and
+ * turn the pointer into a solid square — so we recolor the same single
+ * visible edge each side class relies on instead, mirroring driver.css. */
+.driver-popover-arrow-side-left {
+  border-left-color: theme("colors.white");
+}
+.driver-popover-arrow-side-right {
+  border-right-color: theme("colors.white");
+}
+.driver-popover-arrow-side-top {
+  border-top-color: theme("colors.white");
+}
+.driver-popover-arrow-side-bottom {
+  border-bottom-color: theme("colors.white");
+}
+
+/* Dark mode: the app toggles `.dark` on <html> (@basicbar/ui ThemeProvider). */
+.dark .driver-popover {
+  background: theme("colors.slate.900");
+  color: theme("colors.slate.200");
+  border-color: theme("colors.slate.800");
+}
+
+.dark .driver-popover-title {
+  color: theme("colors.slate.50");
+}
+
+.dark .driver-popover-description {
+  color: theme("colors.slate.300");
+}
+
+.dark .driver-popover-progress-text {
+  color: theme("colors.slate.400");
+}
+
+.dark .driver-popover-footer-btn {
+  color: theme("colors.slate.200");
+  background: theme("colors.slate.800");
+  border-color: theme("colors.slate.700");
+}
+
+.dark .driver-popover-footer-btn:hover,
+.dark .driver-popover-footer-btn:focus {
+  background: theme("colors.slate.700");
+}
+
+.dark .driver-popover-navigation-btns button.driver-popover-next-btn,
+.dark .driver-popover-navigation-btns button.driver-popover-done-btn {
+  background: theme("colors.brand.500");
+  border-color: theme("colors.brand.500");
+  color: theme("colors.slate.950");
+}
+
+.dark .driver-popover-navigation-btns button.driver-popover-next-btn:hover,
+.dark .driver-popover-navigation-btns button.driver-popover-done-btn:hover,
+.dark .driver-popover-navigation-btns button.driver-popover-next-btn:focus,
+.dark .driver-popover-navigation-btns button.driver-popover-done-btn:focus {
+  background: theme("colors.brand.400");
+}
+
+.dark .driver-popover-close-btn {
+  color: theme("colors.slate.500");
+}
+
+.dark .driver-popover-close-btn:hover,
+.dark .driver-popover-close-btn:focus {
+  color: theme("colors.slate.200");
+}
+
+.dark .driver-popover-arrow-side-left {
+  border-left-color: theme("colors.slate.900");
+}
+.dark .driver-popover-arrow-side-right {
+  border-right-color: theme("colors.slate.900");
+}
+.dark .driver-popover-arrow-side-top {
+  border-top-color: theme("colors.slate.900");
+}
+.dark .driver-popover-arrow-side-bottom {
+  border-bottom-color: theme("colors.slate.900");
+}
+
+/* Action steps (#onboarding): the tour asks the user to complete a task that
+ * spans elements OUTSIDE the spotlight — e.g. the "New room" trigger opens an
+ * inline form whose fields and submit button sit in the dimmed area. By default
+ * driver.js makes the whole page inert (`.driver-active *{pointer-events:none}`,
+ * driver.css) and its overlay <svg> mask (a painted <path>, which captures
+ * pointer events) swallows every click in the dimmed region — so an action step
+ * can never be completed. When TourController adds `tour-action` to <body> (only
+ * while an action step is active), re-enable the entire page and let the overlay
+ * pass clicks through. The `.driver-popover` is a separate <body> child (NOT
+ * inside `.driver-overlay`), so its Next/Back/✕ buttons stay clickable; the
+ * spotlight backdrop still paints (pointer-events does not affect rendering).
+ * INFO steps keep driver's normal blocking-modal behavior. */
+body.tour-action.driver-active * {
+  pointer-events: auto !important;
+}
+body.tour-action .driver-overlay,
+body.tour-action .driver-overlay * {
+  pointer-events: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .driver-popover,
+  .driver-active-element,
+  .driver-overlay {
+    animation: none !important;
+    transition: none !important;
+  }
+}

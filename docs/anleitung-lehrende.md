@@ -16,6 +16,9 @@ AbstimmBar ist ein anonymes Live-Abstimmungssystem für Ihre Lehre. Sie stellen
 Fragen, Ihre Teilnehmenden antworten mit dem eigenen Smartphone oder Laptop —
 ganz ohne Anmeldung — und die Ergebnisse erscheinen sofort auf dem Beamer.
 
+Als angemeldete Lehrperson können Sie jederzeit einen geführten Rundgang durch
+die Oberfläche starten — über das **?**-Symbol oben rechts in der Kopfzeile.
+
 ## 1. Anmelden
 
 Melden Sie sich mit Ihrer gewohnten Uni-Kennung an (Single Sign-on). Wenn Ihre

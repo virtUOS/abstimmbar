@@ -10,7 +10,7 @@ module-level import of those apps here would create an import cycle.
 """
 import datetime
 
-from django.db.models import CharField, Count, Exists, OuterRef, Value
+from django.db.models import CharField, Count, Exists, OuterRef, Sum, Value
 from django.db.models.functions import Concat, TruncDate
 from django.utils import timezone
 
@@ -31,7 +31,7 @@ def _fill(rows_by_date, since, today, keys=("n",)):
 
 
 def totals():
-    from accounts.models import DailyModeSession, User
+    from accounts.models import DailyModeSession, TourDailyCount, User
     from live.models import Run, Vote
     from lti.models import LtiContextLink
     from rooms.models import Question, QuestionSet, Room
@@ -47,6 +47,28 @@ def totals():
     sess = {r["mode"]: r["n"] for r in
             DailyModeSession.objects.values("mode").annotate(n=Count("id"))}
 
+    # Guided-tour usage (anonymous TourDailyCount buckets, summed over ``n``)
+    # + accounts that started or dismissed the tour.
+    tour_counts = {(r["kind"], r["mode"]): r["total"] for r in
+                   TourDailyCount.objects.order_by().values("kind", "mode")
+                   .annotate(total=Sum("n"))}
+    aborted_at = (TourDailyCount.objects.filter(kind=TourDailyCount.Kind.ABORTED).order_by()
+                  .values("step").annotate(total=Sum("n")).order_by("-total", "step")[:10])
+    tour = {kind: {m: int(tour_counts.get((kind, m)) or 0) for m in ("easy", "pro")}
+            for kind in TourDailyCount.Kind.values}
+    source_counts = {r["source"]: r["total"] for r in
+                     TourDailyCount.objects.filter(kind=TourDailyCount.Kind.STARTED)
+                     .order_by().values("source").annotate(total=Sum("n"))}
+    tour["by_source"] = {v: int(source_counts.get(v) or 0) for v in TourDailyCount.Source.values}
+    tour["aborted_at"] = [{"step": r["step"], "n": int(r["total"])} for r in aborted_at]
+    tour["users_seen"] = User.objects.filter(onboarding_tour_seen=True).count()
+
+    # Runs/votes in example rooms don't count as usage: every new user gets
+    # seeded example results (finished runs with invented votes), and the
+    # guided tour presents from the example room — neither is real usage.
+    runs = Run.objects.exclude(question_set__room__is_example=True)
+    votes = Vote.objects.exclude(run__question_set__room__is_example=True)
+
     return {
         "rooms": Room.objects.count(),
         "rooms_lti": Room.objects.filter(
@@ -55,17 +77,18 @@ def totals():
         "users": User.objects.count(),
         "sets_by_type": _by(QuestionSet.objects, "type", QuestionSet.SetType.values),
         "questions_by_kind": _by(Question.objects, "kind", Question.Kind.values),
-        "runs_by_type": _by(Run.objects, "question_set__type", QuestionSet.SetType.values),
-        "participants": Vote.objects.values("token").distinct().count(),
-        "questions_run": Vote.objects.values("run", "question").distinct().count(),
+        "runs_by_type": _by(runs, "question_set__type", QuestionSet.SetType.values),
+        "participants": votes.values("token").distinct().count(),
+        "questions_run": votes.values("run", "question").distinct().count(),
         "sessions_by_mode": {"easy": int(sess.get("easy", 0)), "pro": int(sess.get("pro", 0))},
+        "tour": tour,
     }
 
 
 def daily(since, until=None):
     """Dense per-day series for the inclusive window ``since``..``until``
     (``until`` defaults to today)."""
-    from accounts.models import DailyModeSession, User
+    from accounts.models import DailyModeSession, TourDailyCount, User
     from live.models import Run, Vote
     from rooms.models import QuestionSet, Room
 
@@ -83,7 +106,9 @@ def daily(since, until=None):
     rooms = _count_by_day(_window(Room.objects, "created_at"), "created_at")
     users = _count_by_day(_window(User.objects, "date_joined"), "date_joined")
 
-    votes = _window(Vote.objects, "created_at")
+    # Example rooms excluded from run/vote usage — seeded example results and
+    # the tour's presentation runs are not real usage (see totals()).
+    votes = _window(Vote.objects.exclude(run__question_set__room__is_example=True), "created_at")
     part_rows = (votes.annotate(day=TruncDate("created_at")).values("day")
                  .annotate(n=Count("token", distinct=True)))
     participants = {r["day"].isoformat(): {"n": r["n"]} for r in part_rows if r["day"]}
@@ -93,7 +118,8 @@ def daily(since, until=None):
                                         output_field=CharField()), distinct=True)))
     questions_run = {r["day"].isoformat(): {"n": r["n"]} for r in qr_rows if r["day"]}
 
-    run_rows = (_window(Run.objects, "created_at").order_by()
+    run_rows = (_window(Run.objects.exclude(question_set__room__is_example=True), "created_at")
+                .order_by()
                 .annotate(day=TruncDate("created_at"))
                 .values("day", "question_set__type").annotate(n=Count("id")))
     runs_by_type = {}
@@ -108,6 +134,13 @@ def daily(since, until=None):
     for r in sess_rows:
         sessions.setdefault(r["date"].isoformat(), {})[r["mode"]] = r["n"]
 
+    tour_rows = (TourDailyCount.objects.filter(date__gte=since, date__lte=until).order_by()
+                 .filter(kind__in=(TourDailyCount.Kind.STARTED, TourDailyCount.Kind.COMPLETED))
+                 .values("date", "kind").annotate(total=Sum("n")))
+    tour = {}
+    for r in tour_rows:
+        tour.setdefault(r["date"].isoformat(), {})[r["kind"]] = r["total"] or 0
+
     return {
         "rooms": _fill(rooms, since, until),
         "users": _fill(users, since, until),
@@ -115,4 +148,5 @@ def daily(since, until=None):
         "questions_run": _fill(questions_run, since, until),
         "runs_by_type": _fill(runs_by_type, since, until, keys=QuestionSet.SetType.values),
         "sessions_by_mode": _fill(sessions, since, until, keys=("easy", "pro")),
+        "tour": _fill(tour, since, until, keys=("started", "completed")),
     }

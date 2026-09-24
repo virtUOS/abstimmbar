@@ -39,6 +39,7 @@ import {
   TextInput,
 } from "../components/ui";
 import { LICENSE_OPTIONS, licenseNeedsHolder } from "../licenses";
+import { useTourSignal } from "../tour/signals";
 
 // Values are English source strings, translated with t() at each render site
 // (this Record lives at module scope, outside any component).
@@ -131,10 +132,14 @@ export interface SetSettings {
 export function SetSettingsForm({
   draft,
   onChange,
+  titleAnchor,
   easyMode = false,
 }: {
   draft: SetSettings;
   onChange: (patch: Partial<SetSettings>) => void;
+  /** Optional `data-tour` value wrapped around the Title field (guided tour):
+   *  only the new-set create form sets it, so the anchor is scoped to that. */
+  titleAnchor?: string;
   /** Easy mode (#52): only title + description; hide reveal/answer-flow
    * options. Existing values stay stored. */
   easyMode?: boolean;
@@ -161,12 +166,17 @@ export function SetSettingsForm({
           );
         })()}
       </div>
-      <TranslatableField
-        label={t("Title")}
-        value={draft.title}
-        onChange={(title) => onChange({ title })}
-        placeholder={t("Question set title")}
-      />
+      {(() => {
+        const titleField = (
+          <TranslatableField
+            label={t("Title")}
+            value={draft.title}
+            onChange={(title) => onChange({ title })}
+            placeholder={t("Question set title")}
+          />
+        );
+        return titleAnchor ? <div data-tour={titleAnchor}>{titleField}</div> : titleField;
+      })()}
       <TranslatableField
         variant="rich"
         label={t("Description")}
@@ -470,6 +480,9 @@ function NewQuestionMenu({
     };
   }, [open]);
 
+  // Guided tour: the "Question types" step opens this menu to spotlight it.
+  useTourSignal("open-question-menu", () => setOpen(true));
+
   return (
     <div className="relative" ref={ref}>
       <Button
@@ -489,6 +502,7 @@ function NewQuestionMenu({
       {open && (
         <div
           role="menu"
+          data-tour="set.type-list"
           className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
           {QUESTION_TYPES.filter((type) => allowedKinds.includes(type.kind)).map((type) => (
@@ -1188,10 +1202,12 @@ export default function SetPage() {
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>
               {/* Pulling in questions is core authoring — available in both
                   modes, unlike the Pro-only actions below (#87). */}
-              <MenuItem onClick={() => void openPull()}>
-                <CopyPlus aria-hidden className="h-4 w-4" />
-                {t("Add questions from another set …")}
-              </MenuItem>
+              <div data-tour="set.copy">
+                <MenuItem onClick={() => void openPull()}>
+                  <CopyPlus aria-hidden className="h-4 w-4" />
+                  {t("Add questions from another set …")}
+                </MenuItem>
+              </div>
               {/* Easy mode (#52): hide duplicate / export / share / archive. */}
               {!easyMode && (
                 <>
@@ -1566,6 +1582,7 @@ export default function SetPage() {
         />
       )}
 
+      <div data-tour="set.questions">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-6 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="text-lg font-semibold">{t("Questions")}</h2>
@@ -1573,29 +1590,33 @@ export default function SetPage() {
             <>
               {/* #75: only the run action matching the set's type is offered. */}
               {SET_TYPES[set.type].runAction === "present" && (
-                <Button
-                  variant="primary"
-                  onClick={() =>
-                    navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
-                  }
-                  className="inline-flex items-center gap-1.5"
-                >
-                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
-                </Button>
+                <div data-tour="set.present">
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
+                    }
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <Play aria-hidden className="h-4 w-4" />{t("Present")}
+                  </Button>
+                </div>
               )}
               {/* A self_paced-typed set has no other run action, so it is
                   always offered regardless of easy mode (#75). */}
               {SET_TYPES[set.type].runAction === "self_paced" && (
-                <Button
-                  variant="primary"
-                  title={t(
-                    "Participants answer all questions at their own pace, with immediate feedback",
-                  )}
-                  onClick={() => navigate(`/sets/${id}/quiz`)}
-                  className="inline-flex items-center gap-1.5"
-                >
-                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
-                </Button>
+                <div data-tour="set.present">
+                  <Button
+                    variant="primary"
+                    title={t(
+                      "Participants answer all questions at their own pace, with immediate feedback",
+                    )}
+                    onClick={() => navigate(`/sets/${id}/quiz`)}
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <Play aria-hidden className="h-4 w-4" />{t("Present")}
+                  </Button>
+                </div>
               )}
               {/* Lernkontrolle (#75 phase 3): "run" means publishing the
                   standing link once; once published the panel below carries
@@ -1612,9 +1633,11 @@ export default function SetPage() {
               {/* A Lernkontrolle has no run results — it's per-question
                   attempt stats instead, shown in the publish panel. */}
               {SET_TYPES[set.type].runAction !== "self_check" && (
-                <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
-                  <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
-                </Button>
+                <div data-tour="set.results">
+                  <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
+                    <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
+                  </Button>
+                </div>
               )}
             </>
           )}
@@ -1639,20 +1662,24 @@ export default function SetPage() {
             </Button>
           )}
           {aiVisible && (
-            <Button
-              onClick={() => {
-                setGenerateOpen(true);
-                setEditingSections(false);
-              }}
-              className="inline-flex items-center gap-1.5"
-            >
-              <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
-            </Button>
+            <div data-tour="set.ai-generate">
+              <Button
+                onClick={() => {
+                  setGenerateOpen(true);
+                  setEditingSections(false);
+                }}
+                className="inline-flex items-center gap-1.5"
+              >
+                <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
+              </Button>
+            </div>
           )}
-          <NewQuestionMenu
-            onPick={(kind, template) => void addQuestion(kind, template)}
-            allowedKinds={allowedKindsFor(set.type)}
-          />
+          <div data-tour="set.add-question">
+            <NewQuestionMenu
+              onPick={(kind, template) => void addQuestion(kind, template)}
+              allowedKinds={allowedKindsFor(set.type)}
+            />
+          </div>
         </div>
       </div>
 
@@ -1933,6 +1960,7 @@ export default function SetPage() {
           )}
         </>
       )}
+      </div>
       {toastMessage && (
         <div className="fixed bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-slate-900 px-4 py-2 text-sm text-white shadow-lg dark:bg-slate-100 dark:text-slate-900">
           {toastMessage}
