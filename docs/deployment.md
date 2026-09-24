@@ -326,6 +326,11 @@ Start im **neuen Fenster**. Nur für iframe-Betrieb in `.env`
   Session-Keys (nie der rohe Key), passend zur Anonymitäts-Zusage. Die
   Tabelle wächst dadurch pro Tag um grob eine Zeile je aktiver Sitzung;
   siehe „Retention“ unten.
+- **Rundgang-Statistik (Datenschutz):** Starts, Abschlüsse und Abbrüche des
+  Rundgangs werden nur als Tageszähler in `TourDailyCount` erfasst (Tag,
+  Modus, Startquelle bzw. Abbruchschritt, Anzahl) — ohne Personen- oder
+  Sitzungsbezug und ohne Zeitstempel. Die Tabelle bleibt klein (wenige
+  Zeilen pro Tag). Beispielräume zählen nicht in die Nutzungszahlen.
 
 ## Retention der Modus-Statistik
 
