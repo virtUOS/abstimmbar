@@ -453,22 +453,22 @@ export default function RoomsPage() {
       )}
 
       {!newRoom && (
-      <div data-tour="rooms.filter">
-      <SegmentedControl
-        className="mb-6 w-full sm:w-max"
-        ariaLabel={t("Show rooms")}
-        value={roomFilter}
-        onChange={(v) => {
-          setRoomFilter(v);
-          setPage(1);
-        }}
-        options={[
-          { value: "active", label: t("Active rooms") },
-          { value: "archived", label: t("Archived rooms") },
-          { value: "all", label: t("All rooms") },
-        ]}
-      />
-      </div>
+        <div data-tour="rooms.filter" className="mb-6 w-full sm:w-max">
+          <SegmentedControl
+            className="w-full"
+            ariaLabel={t("Show rooms")}
+            value={roomFilter}
+            onChange={(v) => {
+              setRoomFilter(v);
+              setPage(1);
+            }}
+            options={[
+              { value: "active", label: t("Active rooms") },
+              { value: "archived", label: t("Archived rooms") },
+              { value: "all", label: t("All rooms") },
+            ]}
+          />
+        </div>
       )}
 
       {/* Single-step create dialog: name, description and features (#2). */}

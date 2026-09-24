@@ -232,7 +232,7 @@ function StatsSection() {
             sub={tourStarts > 0 ? t("{{percent}} % of starts", { percent: Math.round((100 * tourCompleted) / tourStarts) }) : undefined}
           />
           <Tile label={t("Aborted")} value={sum(totals.tour.aborted)} />
-          <Tile label={t("Users who know the tour")} value={totals.tour.users_seen} sub={t("completed or dismissed")} />
+          <Tile label={t("Users who know the tour")} value={totals.tour.users_seen} sub={t("started or dismissed")} />
         </div>
         <div className="mt-6 grid gap-x-8 gap-y-6 sm:grid-cols-2">
           <Donut
@@ -321,8 +321,9 @@ function StatsSection() {
           <MiniChart
             title={t("Guided tour per day")}
             series={[
-              { label: t("Started"), fillClass: PALETTE[0].fill, dotClass: PALETTE[0].dot, points: daily.tour.map((p) => ({ date: p.date, value: p.started })) },
+              // Stacked: completed + started-not-completed = starts (header total).
               { label: t("Completed"), fillClass: PALETTE[1].fill, dotClass: PALETTE[1].dot, points: daily.tour.map((p) => ({ date: p.date, value: p.completed })) },
+              { label: t("Started, not completed"), fillClass: PALETTE[0].fill, dotClass: PALETTE[0].dot, points: daily.tour.map((p) => ({ date: p.date, value: Math.max(0, p.started - p.completed) })) },
             ]}
           />
         </div>

@@ -553,15 +553,20 @@ export function TourProvider({
   }, [location.pathname]);
 
   /** Resume from the paused pill: if the user is on another page meanwhile,
-   *  continue with that page's first step instead of re-waiting for a target
-   *  that isn't there. Unknown page → re-attempt the current step. */
+   *  continue with the next step on the page they're on (the first step of
+   *  that page after the current one — the tour keeps moving forward),
+   *  falling back to that page's entry step only if no later step is on it,
+   *  instead of re-waiting for a target that isn't there. Unknown page →
+   *  re-attempt the current step. */
   const resume = useCallback(() => {
-    if (step?.page && step.page !== pageFor(pathRef.current)) {
-      const entry = entryIndexFor(steps, pathRef.current);
+    const page = pageFor(pathRef.current);
+    if (step?.page && page && step.page !== page) {
+      const later = steps.findIndex((s, i) => i > index && s.page === page);
+      const entry = later >= 0 ? later : entryIndexFor(steps, pathRef.current);
       if (entry >= 0) setIndex(entry);
     }
     setPaused(false);
-  }, [step, steps]);
+  }, [step, steps, index]);
 
   // --- Esc ends the tour (driver's own keyboard control is disabled) — unless
   // an app menu/dialog is open: then Esc belongs to it (the ‘New question’ menu,

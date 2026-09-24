@@ -809,7 +809,7 @@
   "→ moves to the next question, ← goes back. End (Esc) closes the run and stores the results.": "→ wechselt zur nächsten Frage, ← zurück. Beenden (Esc) schließt die Durchführung und speichert die Ergebnisse.",
   "Where to find results": "Hier finden Sie die Ergebnisse",
   "Open this set’s results any time with ‘Results’ — every presentation is stored there.": "Über „Ergebnisse“ öffnen Sie jederzeit die Auswertung dieses Sets — jede Präsentation wird dort gespeichert.",
-  "These are the example set’s results — one chart, word cloud or list per question.": "Das sind die Ergebnisse des Beispiel-Sets — je Frage als Diagramm, Wortwolke oder Liste.",
+  "Results of this set appear here — one chart, word cloud or list per question.": "Hier erscheinen die Ergebnisse dieses Sets — je Frage als Diagramm, Wortwolke oder Liste.",
   "Earlier runs": "Frühere Durchführungen",
   "Every presentation is stored as its own run. Pick earlier, archived runs here.": "Jede Präsentation wird als eigene Durchführung gespeichert. Hier wählen Sie frühere, archivierte Durchführungen aus.",
   "Export and delete": "Exportieren und löschen",
@@ -821,12 +821,12 @@
   "{{percent}} % of starts": "{{percent}} % der Starts",
   "Aborted": "Abgebrochen",
   "Users who know the tour": "Personen, die den Rundgang kennen",
-  "completed or dismissed": "abgeschlossen oder weggeklickt",
+  "started or dismissed": "gestartet oder weggeklickt",
   "Tour starts by source": "Rundgang-Starts nach Quelle",
   "Welcome dialog": "Willkommensdialog",
   "? menu": "?-Menü",
   "Tour aborted at step": "Abgebrochen bei Schritt",
   "No aborts yet": "Noch keine Abbrüche",
   "Guided tour per day": "Rundgang pro Tag",
-  "Started": "Gestartet"
+  "Started, not completed": "Gestartet, nicht abgeschlossen"
 }
