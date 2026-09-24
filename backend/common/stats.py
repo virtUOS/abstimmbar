@@ -31,7 +31,7 @@ def _fill(rows_by_date, since, today, keys=("n",)):
 
 
 def totals():
-    from accounts.models import DailyModeSession, User
+    from accounts.models import DailyModeSession, TourEvent, User
     from live.models import Run, Vote
     from lti.models import LtiContextLink
     from rooms.models import Question, QuestionSet, Room
@@ -47,6 +47,19 @@ def totals():
     sess = {r["mode"]: r["n"] for r in
             DailyModeSession.objects.values("mode").annotate(n=Count("id"))}
 
+    # Guided-tour usage (anonymous TourEvent rows) + accounts that finished or
+    # dismissed the tour.
+    tour_counts = {(r["kind"], r["mode"]): r["n"] for r in
+                   TourEvent.objects.order_by().values("kind", "mode").annotate(n=Count("id"))}
+    aborted_at = (TourEvent.objects.filter(kind=TourEvent.Kind.ABORTED).order_by()
+                  .values("step").annotate(n=Count("id")).order_by("-n", "step")[:10])
+    tour = {kind: {m: int(tour_counts.get((kind, m), 0)) for m in ("easy", "pro")}
+            for kind in TourEvent.Kind.values}
+    tour["by_source"] = _by(TourEvent.objects.filter(kind=TourEvent.Kind.STARTED),
+                            "source", TourEvent.Source.values)
+    tour["aborted_at"] = [{"step": r["step"], "n": int(r["n"])} for r in aborted_at]
+    tour["users_seen"] = User.objects.filter(onboarding_tour_seen=True).count()
+
     return {
         "rooms": Room.objects.count(),
         "rooms_lti": Room.objects.filter(
@@ -59,13 +72,14 @@ def totals():
         "participants": Vote.objects.values("token").distinct().count(),
         "questions_run": Vote.objects.values("run", "question").distinct().count(),
         "sessions_by_mode": {"easy": int(sess.get("easy", 0)), "pro": int(sess.get("pro", 0))},
+        "tour": tour,
     }
 
 
 def daily(since, until=None):
     """Dense per-day series for the inclusive window ``since``..``until``
     (``until`` defaults to today)."""
-    from accounts.models import DailyModeSession, User
+    from accounts.models import DailyModeSession, TourEvent, User
     from live.models import Run, Vote
     from rooms.models import QuestionSet, Room
 
@@ -108,6 +122,15 @@ def daily(since, until=None):
     for r in sess_rows:
         sessions.setdefault(r["date"].isoformat(), {})[r["mode"]] = r["n"]
 
+    tour_rows = (_window(TourEvent.objects, "created_at").order_by()
+                 .filter(kind__in=(TourEvent.Kind.STARTED, TourEvent.Kind.COMPLETED))
+                 .annotate(day=TruncDate("created_at")).values("day", "kind")
+                 .annotate(n=Count("id")))
+    tour = {}
+    for r in tour_rows:
+        if r["day"]:
+            tour.setdefault(r["day"].isoformat(), {})[r["kind"]] = r["n"]
+
     return {
         "rooms": _fill(rooms, since, until),
         "users": _fill(users, since, until),
@@ -115,4 +138,5 @@ def daily(since, until=None):
         "questions_run": _fill(questions_run, since, until),
         "runs_by_type": _fill(runs_by_type, since, until, keys=QuestionSet.SetType.values),
         "sessions_by_mode": _fill(sessions, since, until, keys=("easy", "pro")),
+        "tour": _fill(tour, since, until, keys=("started", "completed")),
     }

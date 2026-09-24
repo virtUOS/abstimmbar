@@ -528,3 +528,70 @@ class ExampleRoomTests(TestCase):
         other.refresh_from_db()
         self.assertTrue(seeded.is_example)
         self.assertFalse(other.is_example)
+
+
+class TourEventTests(TestCase):
+    """POST /api/whoami/tour-event/ — anonymous guided-tour usage events."""
+
+    URL = "/api/whoami/tour-event/"
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="tomas", password="x")
+
+    def post(self, payload):
+        import json
+
+        return self.client.post(self.URL, json.dumps(payload), content_type="application/json")
+
+    def test_requires_authentication(self):
+        self.assertEqual(self.post({"kind": "started", "mode": "pro", "source": "help"}).status_code, 403)
+
+    def test_records_start_with_source(self):
+        from accounts.models import TourEvent
+
+        self.client.force_login(self.user)
+        resp = self.post({"kind": "started", "mode": "easy", "source": "welcome"})
+        self.assertEqual(resp.status_code, 201)
+        event = TourEvent.objects.get()
+        self.assertEqual((event.kind, event.mode, event.source, event.step), ("started", "easy", "welcome", ""))
+
+    def test_records_abort_with_step_and_drops_source(self):
+        from accounts.models import TourEvent
+
+        self.client.force_login(self.user)
+        resp = self.post({"kind": "aborted", "mode": "pro", "source": "help", "step": "q.word_cloud"})
+        self.assertEqual(resp.status_code, 201)
+        event = TourEvent.objects.get()
+        self.assertEqual((event.kind, event.source, event.step), ("aborted", "", "q.word_cloud"))
+
+    def test_completed_drops_step(self):
+        from accounts.models import TourEvent
+
+        self.client.force_login(self.user)
+        self.assertEqual(self.post({"kind": "completed", "mode": "pro", "step": "final"}).status_code, 201)
+        self.assertEqual(TourEvent.objects.get().step, "")
+
+    def test_rejects_invalid_input(self):
+        from accounts.models import TourEvent
+
+        self.client.force_login(self.user)
+        for payload in (
+            {"kind": "bogus", "mode": "pro"},
+            {"kind": "completed", "mode": "admin"},
+            {"kind": "started", "mode": "pro", "source": "email"},
+            {"kind": "started", "mode": "pro"},
+            {"kind": "aborted", "mode": "pro"},
+            {"kind": "aborted", "mode": "pro", "step": "<script>"},
+            {"kind": "aborted", "mode": "pro", "step": "x" * 61},
+        ):
+            self.assertEqual(self.post(payload).status_code, 400, payload)
+        self.assertEqual(
+            self.client.post(self.URL, "not json", content_type="application/json").status_code, 400
+        )
+        self.assertEqual(TourEvent.objects.count(), 0)
+
+    def test_event_has_no_user_reference(self):
+        from accounts.models import TourEvent
+
+        field_names = {f.name for f in TourEvent._meta.get_fields()}
+        self.assertFalse(field_names & {"user", "owner", "created_by", "session", "session_hash"})

@@ -62,3 +62,25 @@ class DailyModeSession(models.Model):
 
     class Meta:
         unique_together = (("session_hash", "date"),)
+
+
+class TourEvent(models.Model):
+    """One guided-tour event for the admin statistics: started (with where it
+    was started from), completed, or aborted (with the step id it was ended
+    on). Anonymous by design — no user or session reference, only the mode —
+    so it is not personal data. Counting starts with its deployment."""
+
+    class Kind(models.TextChoices):
+        STARTED = "started", "Started"
+        COMPLETED = "completed", "Completed"
+        ABORTED = "aborted", "Aborted"
+
+    class Source(models.TextChoices):
+        WELCOME = "welcome", "Welcome dialog"
+        HELP = "help", "Help menu"
+
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    mode = models.CharField(max_length=4)  # "easy" | "pro"
+    source = models.CharField(max_length=10, choices=Source.choices, blank=True)
+    step = models.CharField(max_length=60, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)

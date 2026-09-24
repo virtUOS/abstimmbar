@@ -737,3 +737,55 @@ class AdminStatsEndpointTests(TestCase):
         DailyModeSession.objects.create(session_hash="b", date=today, mode="pro")
         DailyModeSession.objects.create(session_hash="c", date=today, mode="easy")
         self.assertEqual(stats.totals()["sessions_by_mode"], {"easy": 2, "pro": 1})
+
+
+class TourStatsTests(TestCase):
+    """Guided-tour usage in common.stats and the Prometheus export."""
+
+    def setUp(self):
+        from accounts.models import TourEvent
+
+        make = TourEvent.objects.create
+        make(kind="started", mode="easy", source="welcome")
+        make(kind="started", mode="easy", source="help")
+        make(kind="started", mode="pro", source="help")
+        make(kind="completed", mode="easy")
+        make(kind="aborted", mode="pro", step="q.likert")
+        make(kind="aborted", mode="easy", step="q.likert")
+        make(kind="aborted", mode="easy", step="set.editor")
+        User.objects.create_user(username="seen", onboarding_tour_seen=True)
+        User.objects.create_user(username="unseen")
+
+    def test_totals(self):
+        from common import stats
+
+        tour = stats.totals()["tour"]
+        self.assertEqual(tour["started"], {"easy": 2, "pro": 1})
+        self.assertEqual(tour["completed"], {"easy": 1, "pro": 0})
+        self.assertEqual(tour["aborted"], {"easy": 2, "pro": 1})
+        self.assertEqual(tour["by_source"], {"welcome": 1, "help": 2})
+        self.assertEqual(
+            tour["aborted_at"], [{"step": "q.likert", "n": 2}, {"step": "set.editor", "n": 1}]
+        )
+        self.assertEqual(tour["users_seen"], 1)
+
+    def test_daily(self):
+        import datetime
+
+        from django.utils import timezone
+
+        from common import stats
+
+        since = timezone.localdate() - datetime.timedelta(days=2)
+        series = stats.daily(since)["tour"]
+        self.assertEqual(len(series), 3)
+        self.assertEqual(series[-1], {"date": timezone.localdate().isoformat(), "started": 3, "completed": 1})
+        self.assertEqual(series[0]["started"], 0)
+
+    def test_prometheus(self):
+        with override_settings(METRICS_TOKEN="secret"):
+            body = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer secret").content.decode()
+        self.assertIn('abstimmbar_tour_events{kind="started",mode="easy"} 2', body)
+        self.assertIn('abstimmbar_tour_events{kind="aborted",mode="pro"} 1', body)
+        self.assertIn('abstimmbar_tour_starts{source="help"} 2', body)
+        self.assertIn("abstimmbar_tour_users_seen 1", body)
