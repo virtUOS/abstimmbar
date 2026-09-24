@@ -19,7 +19,7 @@ import {
   tourFor,
 } from "./steps";
 import { api } from "../api";
-import type { Question } from "../api";
+import type { Question, TourEventPayload } from "../api";
 import { emitTourSignal } from "./signals";
 
 /** How long to wait for a step's target element to appear before pausing. */
@@ -42,6 +42,8 @@ export interface StartTourOptions {
    *  the tour starts with RESTORE_STEP. */
   exampleRoomId?: number | null;
   exampleSetId?: number | null;
+  /** Where the tour was started from — for the usage statistics. */
+  source?: "welcome" | "help";
 }
 
 export const TourContext = createContext<TourApi | null>(null);
@@ -123,6 +125,8 @@ export function TourProvider({
   // startTour/end so it's correct before the next render.
   const activeRef = useRef(active);
   activeRef.current = active;
+  // Current step for end(): an abort records the step it happened on.
+  const stepRef = useRef<TourStep | undefined>(undefined);
   const [mode, setMode] = useState<TourMode>("pro");
   const [aiEnabled, setAiEnabled] = useState(false);
   const [index, setIndex] = useState(0);
@@ -138,6 +142,7 @@ export function TourProvider({
     [stepsOverride, mode, aiEnabled],
   );
   const step: TourStep | undefined = active ? steps[index] : undefined;
+  stepRef.current = step;
 
   const driverRef = useRef<Driver | null>(null);
   // Re-measures the spotlight when the highlighted element resizes: consecutive
@@ -155,6 +160,11 @@ export function TourProvider({
   const questionsRef = useRef<Question[] | undefined>(undefined);
   const onEndRef = useRef(onEnd);
   onEndRef.current = onEnd;
+
+  /** Usage statistics (anonymous) — best-effort, never affects the tour. */
+  const track = useCallback((event: TourEventPayload) => {
+    api.trackTourEvent(event).catch(() => {});
+  }, []);
 
   const destroyDriver = useCallback(() => {
     resizeObsRef.current?.disconnect();
@@ -200,9 +210,15 @@ export function TourProvider({
     setToast(null);
     activeRef.current = true;
     setActive(true);
-  }, [navigate]);
+    track({ kind: "started", mode: m, source: opts.source ?? "help" });
+  }, [navigate, track]);
 
-  const end = useCallback(() => {
+  const end = useCallback((reason: "completed" | "aborted" = "aborted") => {
+    // Guard: the last step's Next calls end() from inside a state updater,
+    // which StrictMode may invoke twice — record (and tear down) only once.
+    if (!activeRef.current) return;
+    if (reason === "completed") track({ kind: "completed", mode });
+    else track({ kind: "aborted", mode, step: stepRef.current?.id ?? "unknown" });
     destroyDriver();
     activeRef.current = false;
     setActive(false);
@@ -210,13 +226,13 @@ export function TourProvider({
     onEndRef.current?.();
     setToast(t("You can restart the tour anytime from the ? in the header."));
     window.setTimeout(() => setToast(null), 6000);
-  }, [destroyDriver, t]);
+  }, [destroyDriver, t, track, mode]);
 
   const advance = useCallback(() => {
     setIndex((i) => {
       if (i >= steps.length - 1) {
         // Last step's Next acts as Done.
-        end();
+        end("completed");
         return i;
       }
       return i + 1;
@@ -607,7 +623,7 @@ export function TourProvider({
             <button
               type="button"
               className="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
-              onClick={end}
+              onClick={() => end()}
             >
               {t("End")}
             </button>

@@ -388,12 +388,14 @@ export default function App() {
   /** Start the tour with FRESH example-room ids: the user may have deleted
    *  (or the tour restored) the example since whoami was loaded on mount.
    *  Falls back to the current whoami if the refetch fails. Used by both entry
-   *  points (welcome dialog, ? menu). */
-  const startTourFresh = async (mode: "easy" | "pro") => {
+   *  points (welcome dialog, ? menu), which pass their `source` for the usage
+   *  statistics. */
+  const startTourFresh = async (mode: "easy" | "pro", source: "welcome" | "help") => {
     const opts = (w: Whoami | null) => ({
       aiEnabled: w?.ai_enabled,
       exampleRoomId: w?.example_room_id ?? null,
       exampleSetId: w?.example_set_id ?? null,
+      source,
     });
     try {
       const w = await api.whoami();
@@ -409,7 +411,7 @@ export default function App() {
   };
 
   const handleWelcomeStart = () => {
-    void startTourFresh(easyMode ? "easy" : "pro");
+    void startTourFresh(easyMode ? "easy" : "pro", "welcome");
     setShowWelcome(false);
     markTourSeen();
   };
@@ -486,7 +488,7 @@ export default function App() {
               )}
               <HelpMenu
                 easyMode={easyMode}
-                onStartTour={(mode) => void startTourFresh(mode)}
+                onStartTour={(mode) => void startTourFresh(mode, "help")}
               />
               <div data-tour="header.mode">
                 <SegmentedControl

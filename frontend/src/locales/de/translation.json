@@ -813,5 +813,20 @@
   "Earlier runs": "Frühere Durchführungen",
   "Every presentation is stored as its own run. Pick earlier, archived runs here.": "Jede Präsentation wird als eigene Durchführung gespeichert. Hier wählen Sie frühere, archivierte Durchführungen aus.",
   "Export and delete": "Exportieren und löschen",
-  "Download a CSV of this run or of all runs (incl. archive). ‘Delete all’ removes the results for good.": "Laden Sie eine CSV dieser oder aller Durchführungen (inkl. Archiv) herunter. „Alle löschen“ entfernt die Ergebnisse endgültig."
+  "Download a CSV of this run or of all runs (incl. archive). ‘Delete all’ removes the results for good.": "Laden Sie eine CSV dieser oder aller Durchführungen (inkl. Archiv) herunter. „Alle löschen“ entfernt die Ergebnisse endgültig.",
+  "Guided tour": "Rundgang",
+  "Starts": "Starts",
+  "Simple {{easy}} · Expert {{pro}}": "Einfach {{easy}} · Experte {{pro}}",
+  "Completed": "Abgeschlossen",
+  "{{percent}} % of starts": "{{percent}} % der Starts",
+  "Aborted": "Abgebrochen",
+  "Users who know the tour": "Personen, die den Rundgang kennen",
+  "completed or dismissed": "abgeschlossen oder weggeklickt",
+  "Tour starts by source": "Rundgang-Starts nach Quelle",
+  "Welcome dialog": "Willkommensdialog",
+  "? menu": "?-Menü",
+  "Tour aborted at step": "Abgebrochen bei Schritt",
+  "No aborts yet": "Noch keine Abbrüche",
+  "Guided tour per day": "Rundgang pro Tag",
+  "Started": "Gestartet"
 }
