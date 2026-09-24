@@ -77,6 +77,13 @@ export interface TourStep {
   page?: TourPage;
   /** Action steps: what "Next" performs for the user. */
   autoPerform?: AutoPerform;
+  /** Info step whose copy invites a click that opens something OUTSIDE the
+   *  spotlight (a menu): keep the page clickable instead of driver's inert
+   *  overlay, so the invited action actually works. */
+  interactive?: boolean;
+  /** Preferred popover side (driver.js), e.g. to keep a menu that opens below
+   *  the target uncovered. */
+  side?: "top" | "right" | "bottom" | "left";
 }
 
 /** One walkthrough step per question kind, on that kind's example question. */
@@ -117,7 +124,10 @@ export const proTour: TourStep[] = [
     bodyKey: "A room holds question sets. Each set has a type — Live poll (presenter-driven), Self-paced quiz (own pace in class) or Self-check (a standing self-study link)." },
   { id: "set.editor", page: "set", target: "set.questions", kind: "info", navigateTo: "exampleSet",
     titleKey: "The set editor", bodyKey: "This example set holds one question of every type — let’s look at each." },
+  // The copy invites opening the type menu, so the page stays clickable and the
+  // popover sits above the button (the menu opens below it).
   { id: "set.add-question", page: "set", target: "set.add-question", kind: "info",
+    interactive: true, side: "top",
     titleKey: "Add a question",
     bodyKey: "Click ‘New question’ and pick the question type in the menu — the type decides the answer format and how results are evaluated." },
   { id: "set.ai-generate", page: "set", target: "set.ai-generate", kind: "info", modes: ["pro"], requiresAi: true,

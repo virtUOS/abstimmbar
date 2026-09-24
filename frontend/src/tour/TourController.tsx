@@ -347,8 +347,10 @@ export function TourProvider({
       // pointer-events:none) and its overlay <svg> mask captures clicks. This
       // class (see driverTheme.css) re-enables the page and lets the overlay pass
       // clicks through, while the popover stays clickable and the spotlight stays
-      // visible. destroyDriver() removes it; info steps keep the blocking modal.
-      if (isAction) document.body.classList.add("tour-action");
+      // visible. destroyDriver() removes it; info steps keep the blocking modal —
+      // except `interactive` ones, whose copy invites a click that opens a menu
+      // outside the spotlight (the menu items must be clickable).
+      if (isAction || s.interactive) document.body.classList.add("tour-action");
 
       d.highlight({
         element,
@@ -358,6 +360,7 @@ export function TourProvider({
         popover: {
           title: t(s.titleKey),
           description,
+          side: s.side,
           showButtons,
           // Next is always enabled. On action steps it performs the step's
           // action for the user (handleAuto). If the user does the step
@@ -505,33 +508,48 @@ export function TourProvider({
     };
   }, [active, paused, step, advance]);
 
-  // --- Effect C: pause recovery — a location change re-attempts the step.
-  // If the user left the paused step's page (e.g. did the step themselves after
-  // a failed autoPerform: saved the room → /rooms/5), re-sync to the first step
-  // of the page they're on instead of waiting for a target that isn't there.
-  // Only in the paused branch, so it never fights a navigateTo step's own
-  // navigation (the tour isn't paused then). Declared after Effect B: on the
-  // same commit B's functional advance() is queued first and this plain
-  // setIndex(entry) wins.
+  // --- Effect C: the user left the step's page on their own (e.g. picked a type
+  // in the ‘New question’ menu → the new-question form, or followed a link) →
+  // pause instead of leaving a popover pointing at an unmounted element. Never
+  // fights the tour's own navigation: a navigateTo step always lands on its own
+  // `page`, so `offPage` is false for it. Steps without a `page` (final) never
+  // pause. Resume (below) re-syncs to the first step of the page they're on.
   useEffect(() => {
-    if (!paused) return;
-    if (active && step?.page !== pageFor(location.pathname)) {
-      const entry = entryIndexFor(steps, location.pathname);
-      if (entry >= 0) setIndex(entry);
+    if (!active || paused || !step?.page) return;
+    if (step.page !== pageFor(location.pathname)) {
+      destroyDriver(); // no stale overlay behind the pill
+      setPaused(true);
     }
-    setPaused(false);
-    // Only react to path changes; `paused` (and active/step/steps, read from
-    // this render's closure, which is current when the effect runs) are
-    // intentionally NOT deps so that setting paused=true (from the timeout)
-    // does not immediately clear it.
+    // Only react to path changes; the rest is read from this render's closure
+    // (current when the effect runs) so that pausing/unpausing or a step change
+    // never re-triggers this check on an unchanged path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
-  // --- Esc ends the tour (driver's own keyboard control is disabled).
+  /** Resume from the paused pill: if the user is on another page meanwhile,
+   *  continue with that page's first step instead of re-waiting for a target
+   *  that isn't there. Unknown page → re-attempt the current step. */
+  const resume = useCallback(() => {
+    if (step?.page && step.page !== pageFor(pathRef.current)) {
+      const entry = entryIndexFor(steps, pathRef.current);
+      if (entry >= 0) setIndex(entry);
+    }
+    setPaused(false);
+  }, [step, steps]);
+
+  // --- Esc ends the tour (driver's own keyboard control is disabled) — unless
+  // an app menu/dialog is open: then Esc belongs to it (the ‘New question’ menu,
+  // MoreMenu, HelpMenu, InfoHint, ConfirmDialog all close on Esc), and ending
+  // the tour on that same keypress made it look like the tour had crashed.
   useEffect(() => {
     if (!active) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") end();
+      if (e.key !== "Escape") return;
+      const appPopupOpen = Array.from(
+        document.querySelectorAll('[role="menu"], [role="dialog"], [role="alertdialog"], [role="note"]'),
+      ).some((el) => !el.closest(".driver-popover"));
+      if (appPopupOpen) return;
+      end();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -559,7 +577,7 @@ export function TourProvider({
             <button
               type="button"
               className="font-semibold text-brand-600 hover:text-brand-700 dark:text-brand-400 dark:hover:text-brand-300"
-              onClick={() => setPaused(false)}
+              onClick={resume}
             >
               {t("Resume")}
             </button>
