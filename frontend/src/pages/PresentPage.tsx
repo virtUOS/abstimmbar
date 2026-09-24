@@ -494,9 +494,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   // Guided tour: show the first question (so the voting/reveal controls are
   // visible), and return to the lobby before the tour leaves the page, so a
-  // later real presentation starts on the start screen.
+  // later real presentation starts on the start screen. Always as a PREVIEW
+  // (not startFromLobby, which honours "open on show"): the tour explains
+  // Start and must not open voting itself.
   useTourSignal("present-first", () => {
-    if (phase === "lobby") startFromLobby();
+    if (runId && phase === "lobby" && questions.length > 0) {
+      void live.control(runId, { phase: "preview", question: questions[0].id });
+    }
   });
   useTourSignal("present-lobby", () => {
     if (runId && phase !== "lobby" && phase !== "finished") {

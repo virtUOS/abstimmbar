@@ -804,7 +804,7 @@
   "Start and stop voting": "Abstimmung starten und stoppen",
   "Start (S) opens voting on the current question, Stop (S) closes it. Until you start, participants only see the question.": "Starten (S) öffnet die Abstimmung zur aktuellen Frage, Stoppen (S) schließt sie. Bis Sie starten, sehen die Teilnehmenden nur die Frage.",
   "Show results": "Ergebnisse zeigen",
-  "Switch what the projector shows: the question, the live results (E) or the correct answer (A).": "Hier schalten Sie um, was der Beamer zeigt: die Frage, die Live-Ergebnisse (E) oder die richtige Antwort (A).",
+  "Switch what the projector shows: the question, the live results (E) or — once available — the correct answer (A).": "Hier schalten Sie um, was der Beamer zeigt: die Frage, die Live-Ergebnisse (E) oder — sobald verfügbar — die richtige Antwort (A).",
   "Next question and end": "Nächste Frage und Beenden",
   "→ moves to the next question, ← goes back. End (Esc) closes the run and stores the results.": "→ wechselt zur nächsten Frage, ← zurück. Beenden (Esc) schließt die Durchführung und speichert die Ergebnisse.",
   "Where to find results": "Hier finden Sie die Ergebnisse",

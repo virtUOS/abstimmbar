@@ -182,7 +182,7 @@ export const proTour: TourStep[] = [
     bodyKey: "Start (S) opens voting on the current question, Stop (S) closes it. Until you start, participants only see the question." },
   { id: "present.reveal", page: "present", target: "present.reveal", kind: "info",
     titleKey: "Show results",
-    bodyKey: "Switch what the projector shows: the question, the live results (E) or the correct answer (A)." },
+    bodyKey: "Switch what the projector shows: the question, the live results (E) or — once available — the correct answer (A)." },
   { id: "present.navigate", page: "present", target: "present.nav", kind: "info",
     titleKey: "Next question and end",
     bodyKey: "→ moves to the next question, ← goes back. End (Esc) closes the run and stores the results." },
@@ -214,6 +214,7 @@ export const tourFor = (
   mode: TourMode,
   opts: { aiEnabled?: boolean } = {},
 ): TourStep[] => {
-  const base = mode === "easy" ? easyTour : proTour;
+  // proTour also carries easy-only variants (e.g. room.set-delete) — drop them.
+  const base = mode === "easy" ? easyTour : proTour.filter((s) => !s.modes || s.modes.includes("pro"));
   return opts.aiEnabled ? base : base.filter((s) => !s.requiresAi);
 };
