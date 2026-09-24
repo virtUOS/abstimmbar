@@ -461,3 +461,48 @@ class SetTourSeenTests(TestCase):
     def test_requires_authentication(self):
         resp = self.client.post("/api/whoami/tour-seen/", content_type="application/json")
         self.assertEqual(resp.status_code, 403)
+
+
+class ExampleRoomTests(TestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="ex", password="x")
+        self.client.force_login(self.user)
+
+    def test_whoami_ids_after_seed(self):
+        resp = self.client.get("/api/whoami/")  # first whoami seeds (#78)
+        data = resp.json()
+        self.assertIsNotNone(data["example_room_id"])
+        self.assertIsNotNone(data["example_set_id"])
+        from rooms.models import Room
+        room = Room.objects.get(pk=data["example_room_id"])
+        self.assertTrue(room.is_example)
+        self.assertEqual(room.owner, self.user)
+
+    def test_whoami_ids_null_when_missing_or_incomplete(self):
+        from rooms.models import Question, Room
+        self.client.get("/api/whoami/")
+        Room.objects.filter(owner=self.user, is_example=True).delete()
+        self.assertIsNone(self.client.get("/api/whoami/").json()["example_room_id"])
+        # incomplete: room + set exist but the set has no questions
+        room = self.client.post(
+            "/api/whoami/example-room/", content_type="application/json"
+        ).json()
+        Question.objects.filter(question_set_id=room["example_set_id"]).delete()
+        data = self.client.get("/api/whoami/").json()
+        self.assertIsNone(data["example_room_id"])
+        self.assertIsNone(data["example_set_id"])
+
+    def test_restore_creates_when_missing_and_is_idempotent(self):
+        from rooms.models import Room
+        self.client.get("/api/whoami/")
+        Room.objects.filter(owner=self.user, is_example=True).delete()
+        first = self.client.post("/api/whoami/example-room/", content_type="application/json")
+        self.assertEqual(first.status_code, 200)
+        second = self.client.post("/api/whoami/example-room/", content_type="application/json")
+        self.assertEqual(first.json(), second.json())
+        self.assertEqual(Room.objects.filter(owner=self.user, is_example=True).count(), 1)
+
+    def test_restore_requires_auth(self):
+        self.client.logout()
+        resp = self.client.post("/api/whoami/example-room/", content_type="application/json")
+        self.assertEqual(resp.status_code, 403)

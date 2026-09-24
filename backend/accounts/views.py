@@ -22,6 +22,19 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _example_ids(user):
+    """(room_id, set_id) of the user's complete example room, else (None, None).
+    Complete = owned is_example room whose first set has >= 1 question."""
+    from rooms.models import QuestionSet, Room
+    room = Room.objects.filter(owner=user, is_example=True).order_by("-id").first()
+    if not room:
+        return None, None
+    qs = QuestionSet.objects.filter(room=room).order_by("id").first()
+    if not qs or not qs.questions.exists():
+        return None, None
+    return room.id, qs.id
+
+
 def whoami(request):
     """Return the current session user (for the SPA to check login state).
 
@@ -64,6 +77,7 @@ def whoami(request):
         except Exception:
             logger.exception("Onboarding seed failed for user %s", user.pk)
     _record_mode_session(request, user)
+    ex_room, ex_set = _example_ids(user)
     return JsonResponse(
         {
             "authenticated": True,
@@ -83,6 +97,8 @@ def whoami(request):
             "ai_generate_max_questions": settings.AI_GEN_MAX_QUESTIONS,
             "content_default_language": content_default_language,
             "content_translation_enabled": content_translation_enabled,
+            "example_room_id": ex_room,
+            "example_set_id": ex_set,
         }
     )
 
@@ -182,3 +198,18 @@ def set_tour_seen(request):
         request.user.onboarding_tour_seen = True
         request.user.save(update_fields=["onboarding_tour_seen"])
     return JsonResponse({"onboarding_tour_seen": True})
+
+
+@require_POST
+def ensure_example_room(request):
+    """POST /api/whoami/example-room/ — return the user's example room/set ids,
+    (re)creating the example room via the onboarding seeder when missing or
+    incomplete. Idempotent. Plain Django view, matching ``set_mode``."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Not authenticated."}, status=403)
+    room_id, set_id = _example_ids(request.user)
+    if room_id is None:
+        with transaction.atomic():
+            seed_example_room(request.user)
+        room_id, set_id = _example_ids(request.user)
+    return JsonResponse({"example_room_id": room_id, "example_set_id": set_id})

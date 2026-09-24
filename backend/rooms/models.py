@@ -94,6 +94,9 @@ class Room(TimeStampedModel):
     archived_by = models.ManyToManyField(
         settings.AUTH_USER_MODEL, related_name="archived_rooms", blank=True
     )
+    # The auto-seeded onboarding room (rooms.onboarding). Lets the guided tour
+    # find it exactly instead of guessing; backfilled by title in 0048.
+    is_example = models.BooleanField(default=False, db_index=True)
 
     class Meta:
         ordering: ClassVar = ["-updated_at"]

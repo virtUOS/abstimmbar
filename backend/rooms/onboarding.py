@@ -33,6 +33,7 @@ def seed_example_room(user) -> Room:
         created_by=user,
         updated_by=user,
         owner=user,
+        is_example=True,
         title_de="Beispielraum – zum Ausprobieren",
         title_en="Example room – try things out",
         description_de=(
