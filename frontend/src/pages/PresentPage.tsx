@@ -1041,7 +1041,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         </div>
       )}
       {phase === "lobby" && (
-        <div className="flex min-h-full flex-col items-center justify-center gap-6 text-center">
+        <div
+          data-tour="present.join"
+          className="flex min-h-full flex-col items-center justify-center gap-6 text-center"
+        >
           <h1 className="text-4xl font-bold">{localizedText(state.set_title)}</h1>
           <img
             src={live.qrUrl(state.room.code)}

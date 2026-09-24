@@ -1585,29 +1585,33 @@ export default function SetPage() {
             <>
               {/* #75: only the run action matching the set's type is offered. */}
               {SET_TYPES[set.type].runAction === "present" && (
-                <Button
-                  variant="primary"
-                  onClick={() =>
-                    navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
-                  }
-                  className="inline-flex items-center gap-1.5"
-                >
-                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
-                </Button>
+                <div data-tour="set.present">
+                  <Button
+                    variant="primary"
+                    onClick={() =>
+                      navigate(`/sets/${id}/present${recordMode ? "?recording=1" : ""}`)
+                    }
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <Play aria-hidden className="h-4 w-4" />{t("Present")}
+                  </Button>
+                </div>
               )}
               {/* A self_paced-typed set has no other run action, so it is
                   always offered regardless of easy mode (#75). */}
               {SET_TYPES[set.type].runAction === "self_paced" && (
-                <Button
-                  variant="primary"
-                  title={t(
-                    "Participants answer all questions at their own pace, with immediate feedback",
-                  )}
-                  onClick={() => navigate(`/sets/${id}/quiz`)}
-                  className="inline-flex items-center gap-1.5"
-                >
-                  <Play aria-hidden className="h-4 w-4" />{t("Present")}
-                </Button>
+                <div data-tour="set.present">
+                  <Button
+                    variant="primary"
+                    title={t(
+                      "Participants answer all questions at their own pace, with immediate feedback",
+                    )}
+                    onClick={() => navigate(`/sets/${id}/quiz`)}
+                    className="inline-flex items-center gap-1.5"
+                  >
+                    <Play aria-hidden className="h-4 w-4" />{t("Present")}
+                  </Button>
+                </div>
               )}
               {/* Lernkontrolle (#75 phase 3): "run" means publishing the
                   standing link once; once published the panel below carries
