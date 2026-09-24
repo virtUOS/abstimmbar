@@ -17,7 +17,8 @@ Fragen, Ihre Teilnehmenden antworten mit dem eigenen Smartphone oder Laptop —
 ganz ohne Anmeldung — und die Ergebnisse erscheinen sofort auf dem Beamer.
 
 Als angemeldete Lehrperson können Sie jederzeit einen geführten Rundgang durch
-die Oberfläche starten — über das **?**-Symbol oben rechts in der Kopfzeile.
+die Oberfläche starten — über das **?**-Symbol oben rechts in der Kopfzeile
+(siehe Abschnitt 2).
 
 ## 1. Anmelden
 
@@ -27,9 +28,67 @@ direkt als Aktivität einbinden (LTI) und ersparen sich das separate Login.
 
 Bei der ersten Nutzung startet die Oberfläche im **einfachen Modus** mit den
 wichtigsten Funktionen. Über den Modus-Umschalter wechseln Sie jederzeit in den
-**Profi-Modus** mit allen Einstellungen — darunter die KI-Assistenz (Abschnitt 4).
+**Profi-Modus** mit allen Einstellungen — darunter die KI-Assistenz (Abschnitt 5).
 
-## 2. Einen Raum anlegen
+## 2. Der geführte Rundgang
+
+Der **Rundgang** zeigt Ihnen in wenigen Minuten alle wichtigen Funktionen —
+direkt in der Oberfläche, Schritt für Schritt mit hervorgehobenen Bedienelementen
+und kurzen Erklärungen.
+
+**Starten**
+
+- Bei Ihrer **ersten Anmeldung** bietet AbstimmBar den Rundgang in einem
+  Willkommensfenster an. Sie können ihn dort starten oder zunächst überspringen.
+- Später starten Sie ihn jederzeit über das **?**-Symbol oben rechts in der
+  Kopfzeile → **„Rundgang starten"**.
+- Der Rundgang beginnt auf der Seite, auf der Sie sich gerade befinden — etwa
+  direkt bei den Ergebnissen, wenn Sie ihn von dort aus aufrufen.
+- Er passt sich Ihrem Modus an: Im **Profi-Modus** zeigt er zusätzlich die
+  Profi-Funktionen (z. B. KI-Abkürzungen, zweisprachige Inhalte, Ergebnisse
+  archivieren).
+
+**Der Beispielraum**
+
+Für den Rundgang legt AbstimmBar bei Ihrer ersten Anmeldung einen
+**Beispielraum** an („Beispielraum – zum Ausprobieren") — mit einem Fragenset,
+das je eine Frage jedes Typs enthält, und mit **Beispielergebnissen** aus zwei
+früheren Durchführungen. Der Rundgang führt Sie durch diesen Raum; er legt selbst
+nichts an und verändert keine Ihrer Inhalte. Haben Sie den Beispielraum gelöscht,
+bietet der Rundgang an, ihn neu anzulegen. Den Beispielraum können Sie frei
+ausprobieren und jederzeit löschen.
+
+**Was der Rundgang zeigt**
+
+1. Ihre Raumübersicht: einen eigenen Raum anlegen, Räume archivieren oder
+   löschen.
+2. Den Beispielraum: Fragensets und ihre Typen (Live-Umfrage, Quiz-Block,
+   Lernkontrolle), Ergebnisse archivieren oder ein Set löschen.
+3. Den Set-Editor: eine Frage hinzufügen und die Liste der Fragetypen.
+4. Jeden Fragetyp einzeln im Editor — dazu die Einstellungen, die jede Frage
+   hat (zufällige Reihenfolge, Lösung aufdecken, Zeitbegrenzung) und das
+   Einfügen von Bildern.
+5. Den Präsentationsmodus: Beitritt per QR- oder Raumcode, Abstimmung starten
+   und stoppen, zwischen Frage, Ergebnis und Lösung umschalten, zur nächsten
+   Frage wechseln und beenden.
+6. Die Ergebnisse: wo Sie sie im Set aufrufen, frühere (archivierte)
+   Durchführungen auswählen, als CSV exportieren oder löschen.
+
+**Bedienung**
+
+- **„Weiter"** führt zum nächsten Schritt und wechselt dafür bei Bedarf selbst
+  die Seite. Sie müssen nichts anklicken — dürfen es aber: Wo der Rundgang dazu
+  einlädt (z. B. „Neue Frage" öffnen), können Sie es direkt ausprobieren.
+- Mit **✕** oder der **Esc**-Taste beenden Sie den Rundgang. (Ist gerade ein
+  Menü geöffnet, schließt Esc zunächst nur das Menü.)
+- Verlassen Sie zwischendurch die Seite, **pausiert** der Rundgang. Unten
+  erscheint dann eine Leiste mit **Fortsetzen** (weiter auf der aktuellen
+  Seite), **Schritt überspringen** und **Beenden**.
+
+> Die Nutzung des Rundgangs wird nur als anonyme Tageszahl erfasst (wie oft
+> gestartet, abgeschlossen oder abgebrochen) — ohne Bezug zu Ihrer Person.
+
+## 3. Einen Raum anlegen
 
 Ein **Raum** ist der dauerhafte Zugangspunkt für Ihre Teilnehmenden —
 typischerweise eine Lehrveranstaltung. Sein Zugangscode bleibt über alle
@@ -42,7 +101,7 @@ den Zugang nur einmal kennen müssen.
 - Häufig genutzte Räume können Sie mit dem **Herz-Symbol** als Favorit oben
   anheften.
 
-## 3. Fragen erstellen
+## 4. Fragen erstellen
 
 Innerhalb eines Raums legen Sie ein oder mehrere **Fragensets** an — etwa eines
 je Sitzung. Ein Fragenset können Sie in **Abschnitte** gliedern, um längere
@@ -72,7 +131,7 @@ einmal **nach** einem Input — im Präsentationsmodus und in der Ergebnisansich
 werden beide Ergebnisse direkt **gegenübergestellt**. Das macht Meinungs- oder
 Wissensänderungen sichtbar (z. B. Einstieg vs. nach der Erklärung).
 
-## 4. KI-Assistenz (Profi-Funktion)
+## 5. KI-Assistenz (Profi-Funktion)
 
 Die KI-Assistenz erscheint nur im **Profi-Modus** und nur dann, wenn Ihre
 Einrichtung die KI-Funktionen freigeschaltet hat. Die KI **unterstützt, ersetzt
@@ -96,13 +155,13 @@ Sie übernehmen.
 > Antworten an den KI-Dienst übermittelt. Setzen Sie diese Funktionen mit dem
 > gebotenen Augenmaß ein.
 
-## 5. Eine Durchführung starten
+## 6. Eine Durchführung starten
 
 Wenn Sie in der Veranstaltung abstimmen möchten, starten Sie im gewünschten
 Fragenset eine **Durchführung**. Damit öffnet sich der **Präsentationsmodus**
 für den Beamer, und Ihr Raum ist für Teilnehmende freigeschaltet.
 
-## 6. Teilnehmende einladen
+## 7. Teilnehmende einladen
 
 Die Teilnahme ist **anonym und ohne Konto**. Ihre Teilnehmenden gelangen auf
 zwei Wegen zur Abstimmung:
@@ -113,7 +172,7 @@ zwei Wegen zur Abstimmung:
 Sie können den QR-Code dauerhaft eingeblendet lassen, damit Nachzügler jederzeit
 beitreten können.
 
-## 7. Präsentieren
+## 8. Präsentieren
 
 Im Präsentationsmodus steuern Sie die Sitzung:
 
@@ -124,14 +183,14 @@ Im Präsentationsmodus steuern Sie die Sitzung:
 - Optional lässt sich Ihr Einrichtungs-Logo im Präsentationsmodus ein- oder
   ausblenden.
 
-## 8. Aufgezeichnete Vorlesungen
+## 9. Aufgezeichnete Vorlesungen
 
 Zeichnen Sie Ihre Veranstaltung mit einem externen Werkzeug auf, aktivieren Sie
 den **Aufzeichnungsmodus**: Jede Frage erhält dann einen eigenen QR-Code. Wer die
 Aufzeichnung später ansieht, kann so nachträglich zu genau der gezeigten Frage
 abstimmen.
 
-## 9. Ergebnisse ansehen und exportieren
+## 10. Ergebnisse ansehen und exportieren
 
 Nach der Durchführung finden Sie alle Antworten in der **Ergebnisansicht**. Dort
 können Sie:
@@ -141,7 +200,7 @@ können Sie:
   Auswertung),
 - nicht mehr benötigte Durchführungen löschen oder ins Archiv verschieben.
 
-## 10. Räume im Team nutzen
+## 11. Räume im Team nutzen
 
 Sie können einen Raum mit Kolleginnen und Kollegen teilen, damit mehrere Personen
 dieselben Fragensets bearbeiten und präsentieren. Fügen Sie dazu im Raum unter
@@ -150,13 +209,13 @@ hinzu (die Person muss sich zuvor einmal angemeldet haben). Geteilte Räume
 erscheinen bei der eingeladenen Person unter **„Mit mir geteilt"**; die
 Besitzrolle lässt sich bei Bedarf übergeben.
 
-## 11. Datenschutz
+## 12. Datenschutz
 
 AbstimmBar ist auf **Anonymität ausgelegt**: Teilnehmende benötigen kein Konto,
 und zu den Stimmen werden keine IP-Adressen gespeichert. Sie können das Werkzeug
 daher bedenkenlos zur Aktivierung und für ehrliches Feedback einsetzen — auch bei
 sensiblen Fragestellungen. (Zur KI-Nutzung beachten Sie den Hinweis in
-Abschnitt 4.)
+Abschnitt 5.)
 
 ## Kurz-Tipps für die Lehre
 
