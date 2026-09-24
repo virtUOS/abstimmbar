@@ -13,6 +13,8 @@ Called from ``accounts.views.whoami`` guarded by ``User.onboarded`` (a
 one-time, race-safe flag) — see that module for the locking pattern. Content
 is bilingual (de/en): every translatable field is set via its explicit
 ``*_de``/``*_en`` columns, never the bare (UI-language-following) accessor.
+Since the guided tour v3.1 it also seeds two finished example runs
+(``live.onboarding``) so the results views are explorable.
 """
 from django.db import transaction
 
@@ -237,5 +239,11 @@ def seed_example_room(user) -> Room:
             text_en=option_en,
             position=i,
         )
+
+    # Example results (guided tour): two finished runs with invented answers.
+    # Imported here — live depends on rooms, not the other way round.
+    from live.onboarding import seed_example_results
+
+    seed_example_results(question_set)
 
     return room

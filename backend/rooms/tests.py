@@ -7,11 +7,12 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase, TransactionTestCase
-from django.utils import translation
+from django.utils import timezone, translation
 from PIL import Image, ImageDraw
 from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin, resolve_translated_text
+from live.models import Run, Vote
 
 from . import ai_generate, set_types
 from .images import InvalidImageError, normalize_image
@@ -3635,6 +3636,79 @@ class OnboardingSeedTests(TestCase):
 
     def _question(self, kind):
         return self.room.question_sets.get().questions.get(kind=kind)
+
+
+class ExampleResultsSeedTests(TestCase):
+    """Example results seeded with the example room (guided tour v3.1): two
+    finished runs in the past with answers to every question."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="seed_results_user")
+        self.room = seed_example_room(self.user)
+        self.question_set = self.room.question_sets.get()
+
+    def test_two_finished_runs_in_the_past_older_first(self):
+        runs = list(self.question_set.runs.order_by("created_at"))
+        self.assertEqual(len(runs), 2)
+        today = timezone.localdate()
+        for run in runs:
+            self.assertEqual(run.phase, Run.Phase.FINISHED)
+            self.assertIsNotNone(run.ended_at)
+            self.assertLess(timezone.localdate(run.created_at), today)
+        self.assertLess(runs[0].created_at, runs[1].created_at)
+
+    def test_every_question_answered_in_every_run(self):
+        for run in self.question_set.runs.all():
+            for question in self.question_set.questions.all():
+                self.assertTrue(
+                    run.votes.filter(question=question).exists(), (run.pk, question.kind)
+                )
+
+    def test_participant_counts_per_run(self):
+        older, newer = self.question_set.runs.order_by("created_at")
+        single = self.question_set.questions.get(kind=Question.Kind.SINGLE_CHOICE)
+        self.assertEqual(older.votes.filter(question=single).count(), 9)
+        self.assertEqual(newer.votes.filter(question=single).count(), 12)
+
+    def test_choice_and_text_votes_are_well_formed(self):
+        questions = {q.kind: q for q in self.question_set.questions.all()}
+        for vote in Vote.objects.filter(question=questions[Question.Kind.SINGLE_CHOICE]):
+            self.assertEqual(vote.options.count(), 1)
+        for vote in Vote.objects.filter(question=questions[Question.Kind.LIKERT]):
+            self.assertEqual(vote.options.count(), 1)
+        for vote in Vote.objects.filter(question=questions[Question.Kind.MULTIPLE_CHOICE]):
+            self.assertGreaterEqual(vote.options.count(), 1)
+        for kind in (Question.Kind.WORD_CLOUD, Question.Kind.OPEN_TEXT):
+            for vote in Vote.objects.filter(question=questions[kind]):
+                self.assertTrue(vote.text.strip(), kind)
+
+    def test_priorities_rows_complete_and_within_budget(self):
+        question = self.question_set.questions.get(kind=Question.Kind.PRIORITIES)
+        option_ids = set(question.options.values_list("pk", flat=True))
+        votes = Vote.objects.filter(question=question)
+        self.assertTrue(votes.exists())
+        for vote in votes:
+            scores = list(vote.priority_scores.all())
+            self.assertEqual({s.option_id for s in scores}, option_ids)
+            self.assertLessEqual(sum(s.points for s in scores), 100)
+
+    def test_ordering_responses_are_full_permutations(self):
+        question = self.question_set.questions.get(kind=Question.Kind.ORDERING)
+        option_ids = set(question.options.values_list("pk", flat=True))
+        votes = Vote.objects.filter(question=question)
+        self.assertTrue(votes.exists())
+        for vote in votes:
+            responses = list(vote.ordering_responses.all())
+            self.assertEqual({r.option_id for r in responses}, option_ids)
+            self.assertEqual(
+                sorted(r.position for r in responses), list(range(len(option_ids)))
+            )
+
+    def test_results_endpoint_lists_both_runs(self):
+        self.client.force_login(self.user)
+        response = self.client.get(f"/api/question-sets/{self.question_set.pk}/results/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 2)
 
 
 class SetTypeModelTests(TestCase):
