@@ -28,6 +28,9 @@ export interface Whoami {
   content_translation_enabled: boolean;
   /** First-login guided tour: already seen/dismissed once. */
   onboarding_tour_seen?: boolean;
+  /** The user's seeded example room/set (null = missing or incomplete). */
+  example_room_id?: number | null;
+  example_set_id?: number | null;
 }
 
 export interface Room {
@@ -488,6 +491,11 @@ export const api = {
     request<{ onboarding_tour_seen: boolean }>("/api/whoami/tour-seen/", {
       method: "POST",
     }),
+
+  ensureExampleRoom: () =>
+    request<{ example_room_id: number; example_set_id: number }>(
+      "/api/whoami/example-room/", { method: "POST" },
+    ),
 
   // --- site content (public reads) ---
   getSite: () => request<SitePublic>("/api/site/"),
