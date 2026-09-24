@@ -561,6 +561,34 @@ class StatsTotalsTests(TestCase):
         self.assertEqual(t["participants"], 3)
         self.assertEqual(t["questions_run"], 3)
 
+    def test_example_rooms_excluded_from_usage(self):
+        """Seeded example results (finished runs with invented votes) are not
+        real usage — neither in totals() nor in daily()."""
+        import datetime
+
+        from django.utils import timezone
+
+        from common import stats
+        from live.models import Run, Vote
+        from rooms.onboarding import seed_example_room
+
+        seed_example_room(User.objects.create_user(username="newbie"))
+        # Guard: the seeder really created runs with votes to exclude.
+        self.assertGreater(Run.objects.count(), 0)
+        self.assertGreater(Vote.objects.count(), 0)
+
+        t = stats.totals()
+        self.assertEqual(t["participants"], 0)
+        self.assertEqual(t["questions_run"], 0)
+        self.assertEqual(sum(t["runs_by_type"].values()), 0)
+
+        d = stats.daily(timezone.localdate() - datetime.timedelta(days=14))
+        self.assertTrue(all(e["n"] == 0 for e in d["participants"]))
+        self.assertTrue(all(e["n"] == 0 for e in d["questions_run"]))
+        self.assertTrue(all(
+            v == 0 for e in d["runs_by_type"] for k, v in e.items() if k != "date"
+        ))
+
 
 class StatsDailyTests(TestCase):
     """common.stats.daily(since) — dense per-day time series."""
@@ -743,9 +771,15 @@ class TourStatsTests(TestCase):
     """Guided-tour usage in common.stats and the Prometheus export."""
 
     def setUp(self):
-        from accounts.models import TourEvent
+        from django.utils import timezone
 
-        make = TourEvent.objects.create
+        from accounts.models import TourDailyCount
+
+        today = timezone.localdate()
+
+        def make(**bucket):
+            TourDailyCount.objects.create(date=today, n=1, **bucket)
+
         make(kind="started", mode="easy", source="welcome")
         make(kind="started", mode="easy", source="help")
         make(kind="started", mode="pro", source="help")

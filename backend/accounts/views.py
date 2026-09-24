@@ -11,15 +11,17 @@ from basicbar_integrations import ai, translation_service
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth import logout as django_logout
-from django.db import transaction
+from django.db import IntegrityError, transaction
+from django.db.models import F
 from django.http import JsonResponse
 from django.middleware.csrf import get_token
 from django.shortcuts import redirect
+from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from rooms.onboarding import seed_example_room
 
-from .models import TourEvent
+from .models import TourDailyCount
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -209,11 +211,13 @@ TOUR_STEP_RE = re.compile(r"^[a-z0-9_.-]{1,60}$")
 
 @require_POST
 def record_tour_event(request):
-    """POST /api/whoami/tour-event/ — record one anonymous guided-tour event
+    """POST /api/whoami/tour-event/ — count one anonymous guided-tour event
     for the admin statistics: {"kind": "started"|"completed"|"aborted",
     "mode": "easy"|"pro", "source": "welcome"|"help" (started only),
     "step": "<step id>" (aborted only)}. Fields that don't belong to the kind
-    are dropped. Plain Django view, matching ``set_tour_seen``."""
+    are dropped. The event only increments today's ``TourDailyCount`` bucket
+    (no per-event row, no timestamp). Plain Django view, matching
+    ``set_tour_seen``."""
     if not request.user.is_authenticated:
         return JsonResponse({"detail": "Not authenticated."}, status=403)
     try:
@@ -223,18 +227,25 @@ def record_tour_event(request):
     if not isinstance(data, dict):
         return JsonResponse({"detail": "Invalid JSON."}, status=400)
     kind, mode = data.get("kind"), data.get("mode")
-    if kind not in TourEvent.Kind.values or mode not in ("easy", "pro"):
+    if kind not in TourDailyCount.Kind.values or mode not in ("easy", "pro"):
         return JsonResponse({"detail": "Invalid kind or mode."}, status=400)
     source = step = ""
-    if kind == TourEvent.Kind.STARTED:
+    if kind == TourDailyCount.Kind.STARTED:
         source = data.get("source")
-        if source not in TourEvent.Source.values:
+        if source not in TourDailyCount.Source.values:
             return JsonResponse({"detail": "Invalid source."}, status=400)
-    elif kind == TourEvent.Kind.ABORTED:
+    elif kind == TourDailyCount.Kind.ABORTED:
         step = data.get("step")
         if not isinstance(step, str) or not TOUR_STEP_RE.match(step):
             return JsonResponse({"detail": "Invalid step."}, status=400)
-    TourEvent.objects.create(kind=kind, mode=mode, source=source, step=step)
+    bucket = {"date": timezone.localdate(), "kind": kind, "mode": mode, "source": source, "step": step}
+    counts = TourDailyCount.objects.filter(**bucket)
+    if not counts.update(n=F("n") + 1):
+        try:
+            with transaction.atomic():
+                TourDailyCount.objects.create(**bucket, n=1)
+        except IntegrityError:  # created concurrently — count on the winner's row
+            counts.update(n=F("n") + 1)
     return JsonResponse({"status": "ok"}, status=201)
 
 

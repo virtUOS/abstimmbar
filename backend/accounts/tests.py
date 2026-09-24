@@ -531,7 +531,8 @@ class ExampleRoomTests(TestCase):
 
 
 class TourEventTests(TestCase):
-    """POST /api/whoami/tour-event/ — anonymous guided-tour usage events."""
+    """POST /api/whoami/tour-event/ — anonymous guided-tour usage, counted in
+    per-day TourDailyCount buckets."""
 
     URL = "/api/whoami/tour-event/"
 
@@ -547,32 +548,50 @@ class TourEventTests(TestCase):
         self.assertEqual(self.post({"kind": "started", "mode": "pro", "source": "help"}).status_code, 403)
 
     def test_records_start_with_source(self):
-        from accounts.models import TourEvent
+        from django.utils import timezone
+
+        from accounts.models import TourDailyCount
 
         self.client.force_login(self.user)
         resp = self.post({"kind": "started", "mode": "easy", "source": "welcome"})
         self.assertEqual(resp.status_code, 201)
-        event = TourEvent.objects.get()
-        self.assertEqual((event.kind, event.mode, event.source, event.step), ("started", "easy", "welcome", ""))
+        row = TourDailyCount.objects.get()
+        self.assertEqual(
+            (row.date, row.kind, row.mode, row.source, row.step, row.n),
+            (timezone.localdate(), "started", "easy", "welcome", "", 1),
+        )
 
     def test_records_abort_with_step_and_drops_source(self):
-        from accounts.models import TourEvent
+        from accounts.models import TourDailyCount
 
         self.client.force_login(self.user)
         resp = self.post({"kind": "aborted", "mode": "pro", "source": "help", "step": "q.word_cloud"})
         self.assertEqual(resp.status_code, 201)
-        event = TourEvent.objects.get()
-        self.assertEqual((event.kind, event.source, event.step), ("aborted", "", "q.word_cloud"))
+        row = TourDailyCount.objects.get()
+        self.assertEqual((row.kind, row.source, row.step, row.n), ("aborted", "", "q.word_cloud", 1))
 
     def test_completed_drops_step(self):
-        from accounts.models import TourEvent
+        from accounts.models import TourDailyCount
 
         self.client.force_login(self.user)
         self.assertEqual(self.post({"kind": "completed", "mode": "pro", "step": "final"}).status_code, 201)
-        self.assertEqual(TourEvent.objects.get().step, "")
+        row = TourDailyCount.objects.get()
+        self.assertEqual((row.step, row.n), ("", 1))
+
+    def test_same_event_twice_increments_one_bucket(self):
+        from accounts.models import TourDailyCount
+
+        self.client.force_login(self.user)
+        for _ in range(2):
+            self.assertEqual(self.post({"kind": "started", "mode": "pro", "source": "help"}).status_code, 201)
+        row = TourDailyCount.objects.get()
+        self.assertEqual(row.n, 2)
+        # A different bucket (other source) gets its own row.
+        self.post({"kind": "started", "mode": "pro", "source": "welcome"})
+        self.assertEqual(TourDailyCount.objects.count(), 2)
 
     def test_rejects_invalid_input(self):
-        from accounts.models import TourEvent
+        from accounts.models import TourDailyCount
 
         self.client.force_login(self.user)
         for payload in (
@@ -588,10 +607,16 @@ class TourEventTests(TestCase):
         self.assertEqual(
             self.client.post(self.URL, "not json", content_type="application/json").status_code, 400
         )
-        self.assertEqual(TourEvent.objects.count(), 0)
+        self.assertEqual(TourDailyCount.objects.count(), 0)
 
     def test_event_has_no_user_reference(self):
-        from accounts.models import TourEvent
+        from django.db import models
 
-        field_names = {f.name for f in TourEvent._meta.get_fields()}
+        from accounts.models import TourDailyCount
+
+        fields = TourDailyCount._meta.get_fields()
+        field_names = {f.name for f in fields}
         self.assertFalse(field_names & {"user", "owner", "created_by", "session", "session_hash"})
+        # Only a day, never a timestamp — events must not be linkable in time.
+        self.assertFalse([f.name for f in fields if isinstance(f, models.DateTimeField)])
+
