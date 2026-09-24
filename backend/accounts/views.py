@@ -209,7 +209,14 @@ def ensure_example_room(request):
         return JsonResponse({"detail": "Not authenticated."}, status=403)
     room_id, set_id = _example_ids(request.user)
     if room_id is None:
+        # Guard against two near-simultaneous POSTs (double-click / retry)
+        # both seeing (None, None) and each creating an example room — same
+        # race whoami guards above with select_for_update + a re-check under
+        # the lock.
         with transaction.atomic():
-            seed_example_room(request.user)
-        room_id, set_id = _example_ids(request.user)
+            locked = User.objects.select_for_update().get(pk=request.user.pk)
+            room_id, set_id = _example_ids(locked)
+            if room_id is None:
+                seed_example_room(locked)
+                room_id, set_id = _example_ids(locked)
     return JsonResponse({"example_room_id": room_id, "example_set_id": set_id})
