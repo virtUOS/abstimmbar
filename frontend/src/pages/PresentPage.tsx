@@ -22,6 +22,7 @@ import {
 import { localizedText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
 import RichText from "../components/RichText";
+import { useTourSignal } from "../tour/signals";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -490,6 +491,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       go();
     }
   }, [suppressLeaveWarn, phase, state?.ends_at, requestGoto, questions.length, startFromLobby]);
+
+  // Guided tour: show the first question (so the voting/reveal controls are
+  // visible), and return to the lobby before the tour leaves the page, so a
+  // later real presentation starts on the start screen.
+  useTourSignal("present-first", () => {
+    if (phase === "lobby") startFromLobby();
+  });
+  useTourSignal("present-lobby", () => {
+    if (runId && phase !== "lobby" && phase !== "finished") {
+      void live.control(runId, { phase: "lobby", question: null });
+    }
+  });
 
   // Prompt actions.
   function dismissWarn() {
@@ -2383,7 +2396,6 @@ function Footer(props: {
   const isSection = props.variant === "section";
   return (
     <footer
-      data-tour="present.controls"
       className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500"
     >
       {/* Left cluster: the question indicator, and — next to it — the
@@ -2417,6 +2429,7 @@ function Footer(props: {
         )}
         {!isSection && props.onShowResults && props.phase !== "lobby" && (
           <div
+            data-tour="present.reveal"
             className="grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700"
             role="group"
             aria-label={t("View")}
@@ -2476,25 +2489,27 @@ function Footer(props: {
       <div className="flex gap-2">
         {/* Starting/results only make sense on a question, not a section. */}
         {!isSection && props.onToggle && (
-          <button className={btn} onClick={props.onToggle}>
+          <button data-tour="present.toggle" className={btn} onClick={props.onToggle}>
             {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}
             <Kbd>S</Kbd>
           </button>
         )}
-        <button className={`${btn} text-red-700`} onClick={props.onFinish}>
-          {t("End")} <Kbd>Esc</Kbd>
-        </button>
-        {props.onCloseWindow && (
-          <button className={btn} onClick={props.onCloseWindow}>
-            {t("Close window")}
+        <div data-tour="present.nav" className="flex gap-2">
+          <button className={`${btn} text-red-700`} onClick={props.onFinish}>
+            {t("End")} <Kbd>Esc</Kbd>
           </button>
-        )}
-        <button className={btn} onClick={props.onPrev} aria-label={t("Back (←)")}>
-          <ChevronLeft aria-hidden className="h-5 w-5" />
-        </button>
-        <button className={btn} onClick={props.onNext} aria-label={t("Next (→)")}>
-          <ChevronRight aria-hidden className="h-5 w-5" />
-        </button>
+          {props.onCloseWindow && (
+            <button className={btn} onClick={props.onCloseWindow}>
+              {t("Close window")}
+            </button>
+          )}
+          <button className={btn} onClick={props.onPrev} aria-label={t("Back (←)")}>
+            <ChevronLeft aria-hidden className="h-5 w-5" />
+          </button>
+          <button className={btn} onClick={props.onNext} aria-label={t("Next (→)")}>
+            <ChevronRight aria-hidden className="h-5 w-5" />
+          </button>
+        </div>
       </div>
     </footer>
   );

@@ -39,6 +39,7 @@ import {
   TextInput,
 } from "../components/ui";
 import { LICENSE_OPTIONS, licenseNeedsHolder } from "../licenses";
+import { useTourSignal } from "../tour/signals";
 
 // Values are English source strings, translated with t() at each render site
 // (this Record lives at module scope, outside any component).
@@ -479,6 +480,9 @@ function NewQuestionMenu({
     };
   }, [open]);
 
+  // Guided tour: the "Question types" step opens this menu to spotlight it.
+  useTourSignal("open-question-menu", () => setOpen(true));
+
   return (
     <div className="relative" ref={ref}>
       <Button
@@ -498,6 +502,7 @@ function NewQuestionMenu({
       {open && (
         <div
           role="menu"
+          data-tour="set.type-list"
           className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
           {QUESTION_TYPES.filter((type) => allowedKinds.includes(type.kind)).map((type) => (
@@ -1628,9 +1633,11 @@ export default function SetPage() {
               {/* A Lernkontrolle has no run results — it's per-question
                   attempt stats instead, shown in the publish panel. */}
               {SET_TYPES[set.type].runAction !== "self_check" && (
-                <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
-                  <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
-                </Button>
+                <div data-tour="set.results">
+                  <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
+                    <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
+                  </Button>
+                </div>
               )}
             </>
           )}

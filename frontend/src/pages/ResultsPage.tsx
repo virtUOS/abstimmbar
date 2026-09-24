@@ -478,6 +478,7 @@ export default function ResultsPage() {
                 {/* The Termin picker doubles as the block heading (#17-Feedback). */}
                 <div className="flex flex-wrap items-center gap-2">
                   <select
+                    data-tour="results.runs"
                     aria-label={t("Select session")}
                     value={run.run}
                     onChange={(event) => setSelected(Number(event.target.value))}

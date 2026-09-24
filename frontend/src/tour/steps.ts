@@ -11,6 +11,7 @@
  *  write is re-creating a missing example room (RESTORE_STEP). */
 
 import type { QuestionKind } from "../api";
+import type { TourSignal } from "./signals";
 
 export type TourMode = "easy" | "pro";
 export type StepKind = "info" | "action";
@@ -28,7 +29,7 @@ export type Milestone =
  *  - roomsHome          → the rooms overview ("/")
  *  - exampleRoom        → /rooms/<example room>
  *  - exampleSet         → /sets/<example set>
- *  - exampleSetPresent  → /sets/<example set>/present?resume=continue
+ *  - exampleSetPresent  → /sets/<example set>/present?resume=archive
  *  - exampleSetResults  → /sets/<example set>/results
  *  - exampleQuestion    → /sets/<example set>/questions/<first question of that kind> */
 export type NavigateTarget =
@@ -84,6 +85,12 @@ export interface TourStep {
   /** Preferred popover side (driver.js), e.g. to keep a menu that opens below
    *  the target uncovered. */
   side?: "top" | "right" | "bottom" | "left";
+  /** Emitted before the step is shown (and re-emitted while its target is
+   *  awaited) so the page puts itself into the needed state — see signals.ts. */
+  signal?: TourSignal;
+  /** The target only exists with data (e.g. more than one run): if it doesn't
+   *  appear shortly, skip the step instead of pausing the tour. */
+  optional?: boolean;
 }
 
 /** One walkthrough step per question kind, on that kind's example question. */

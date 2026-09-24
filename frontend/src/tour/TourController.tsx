@@ -20,11 +20,14 @@ import {
 } from "./steps";
 import { api } from "../api";
 import type { Question } from "../api";
+import { emitTourSignal } from "./signals";
 
 /** How long to wait for a step's target element to appear before pausing. */
 const TARGET_TIMEOUT_MS = 6000;
 /** Polling fallback interval (belt-and-braces alongside the MutationObserver). */
 const TARGET_POLL_MS = 200;
+/** Optional steps (target only exists with data) are skipped after this. */
+const OPTIONAL_TIMEOUT_MS = 1500;
 
 interface TourApi {
   active: boolean;
@@ -245,10 +248,11 @@ export function TourProvider({
       case "exampleSet":
         return `/sets/${set}`;
       case "exampleSetPresent":
-        // resume=continue pre-answers PresentPage's "there are already
-        // results" dialog (keep counting — no data loss), which would
-        // otherwise hide present.controls and pause the tour.
-        return `/sets/${set}/present?resume=continue`;
+        // resume=archive pre-answers PresentPage's "there are already results"
+        // dialog: the example runs stay untouched as archive and the tour's
+        // own (empty, never listed) run is used. Without it the dialog would
+        // hide the lobby and pause the tour.
+        return `/sets/${set}/present?resume=archive`;
       case "exampleSetResults":
         return `/sets/${set}/results`;
     }
@@ -401,6 +405,10 @@ export function TourProvider({
     };
 
     const run = async () => {
+      // Emitted BEFORE navigating: e.g. "present-lobby" must still reach the
+      // presenter page the tour is about to leave.
+      if (current.signal) emitTourSignal(current.signal);
+
       if (current.navigateTo) {
         const route = await resolveRoute(current.navigateTo);
         if (cancelled) return;
@@ -447,13 +455,15 @@ export function TourProvider({
       pollTimer = window.setInterval(() => {
         const el = document.querySelector(selector);
         if (el) found(el);
+        else if (current.signal) emitTourSignal(current.signal); // page may have mounted late
       }, TARGET_POLL_MS);
       timeoutTimer = window.setTimeout(() => {
         if (cancelled) return;
         clearWaiters();
         destroyDriver(); // no stale overlay behind the paused pill
-        setPaused(true);
-      }, TARGET_TIMEOUT_MS);
+        if (current.optional) advance(); // data-dependent target absent → skip
+        else setPaused(true);
+      }, current.optional ? OPTIONAL_TIMEOUT_MS : TARGET_TIMEOUT_MS);
     };
 
     void run();

@@ -453,6 +453,7 @@ export default function RoomsPage() {
       )}
 
       {!newRoom && (
+      <div data-tour="rooms.filter">
       <SegmentedControl
         className="mb-6 w-full sm:w-max"
         ariaLabel={t("Show rooms")}
@@ -467,6 +468,7 @@ export default function RoomsPage() {
           { value: "all", label: t("All rooms") },
         ]}
       />
+      </div>
       )}
 
       {/* Single-step create dialog: name, description and features (#2). */}

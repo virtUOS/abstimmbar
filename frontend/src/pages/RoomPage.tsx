@@ -1011,7 +1011,7 @@ export default function RoomPage() {
                     </p>
                   </Link>
                 </div>
-                <div className="relative z-10 mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+                <div data-tour="room.set-actions" className="relative z-10 mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
                   {set.has_results && (
                     <Link
                       to={`/sets/${set.id}/results`}
