@@ -305,6 +305,13 @@ Tool-Endpunkte liegen unter `https://<domain>/lti/…`. Empfohlen ist der
 Start im **neuen Fenster**. Nur für iframe-Betrieb in `.env`
 `SESSION_COOKIE_SAMESITE=None` setzen (erzwingt Secure-Cookies).
 
+## Monitoring (Prometheus/Grafana)
+
+Die Nutzungskennzahlen der Admin-Statistik stehen optional unter
+`https://<domain>/metrics` für Prometheus bereit (aus, solange
+`METRICS_TOKEN` nicht gesetzt ist). Einrichtung, Kennzahlen und
+Beispielabfragen: [monitoring.md](monitoring.md).
+
 ## Betriebshinweise
 
 - **Ein Backend-Prozess, kein Scale-out:** Der SSE-Hub (ADR-0003) lebt im
@@ -341,15 +348,15 @@ also gut ein akademisches Jahr Vorlauf):
 ```bash
 cd /opt/abstimmbar
 P="sudo docker compose -f docker-compose.prod.yml"
-$P exec backend python manage.py prune_mode_sessions            # Default: 400 Tage
-$P exec backend python manage.py prune_mode_sessions --days 180 # kürzeres Fenster
+$P exec app python manage.py prune_mode_sessions            # Default: 400 Tage
+$P exec app python manage.py prune_mode_sessions --days 180 # kürzeres Fenster
 ```
 
 Empfohlen als wöchentlicher Cron-Job auf dem Host, z. B. in
 `/etc/cron.d/abstimmbar-prune` (Sonntag 03:30):
 
 ```cron
-30 3 * * 0 root cd /opt/abstimmbar && docker compose -f docker-compose.prod.yml exec -T backend python manage.py prune_mode_sessions >/dev/null 2>&1
+30 3 * * 0 root cd /opt/abstimmbar && docker compose -f docker-compose.prod.yml exec -T app python manage.py prune_mode_sessions >/dev/null 2>&1
 ```
 
 Der Job ist optional — er hält nur die Tabelle klein; ohne ihn bleibt die
