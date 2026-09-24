@@ -2,9 +2,15 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Guided-tour step data (#onboarding). One concept per step. Titles/bodies are
- *  English source strings used directly as i18next keys (German is added in a
- *  later task). Targets are `data-tour` values (Task 3 anchors); a null target
- *  renders a centered, element-less popover. */
+ *  English source strings used directly as i18next keys (German lives in
+ *  de/translation.json). Targets are `data-tour` values; a null target renders
+ *  a centered, element-less popover.
+ *
+ *  v3: the tour is a deterministic walkthrough of the user's seeded example
+ *  room (one step per question type). It never creates content — the only
+ *  write is re-creating a missing example room (RESTORE_STEP). */
+
+import type { QuestionKind } from "../api";
 
 export type TourMode = "easy" | "pro";
 export type StepKind = "info" | "action";
@@ -16,12 +22,22 @@ export type Milestone =
   | { type: "present" } // "/sets/:setId/present" reached
   | { type: "element"; anchor: string }; // a `[data-tour="<anchor>"]` element appears
 
-/** Where the controller navigates before showing a guided step.
- *  - exampleSetPresent  → the resolved example set's /present view
- *  - exampleSetResults  → the resolved example set's /results view
+/** Where the controller navigates before showing a step. All example targets
+ *  resolve by id (whoami's example_room_id / example_set_id); a target that
+ *  can't be resolved (ids missing, or no question of that kind) skips the step.
  *  - roomsHome          → the rooms overview ("/")
- *  (The example targets fall back to roomsHome when no example set exists.) */
-export type NavigateTarget = "exampleSetPresent" | "exampleSetResults" | "roomsHome";
+ *  - exampleRoom        → /rooms/<example room>
+ *  - exampleSet         → /sets/<example set>
+ *  - exampleSetPresent  → /sets/<example set>/present
+ *  - exampleSetResults  → /sets/<example set>/results
+ *  - exampleQuestion    → /sets/<example set>/questions/<first question of that kind> */
+export type NavigateTarget =
+  | "roomsHome"
+  | "exampleRoom"
+  | "exampleSet"
+  | "exampleSetPresent"
+  | "exampleSetResults"
+  | { kind: "exampleQuestion"; questionKind: QuestionKind };
 
 export type TourPage = "rooms" | "room" | "set" | "question" | "present" | "results";
 
@@ -36,16 +52,9 @@ export const PAGE_PATTERNS: Record<TourPage, string> = {
   results: "/sets/:id/results",
 };
 
-/** What "Weiter" does on an action step: achieve the step's outcome through the
- *  app's own APIs/navigation (never simulated clicks). The controller then
- *  re-syncs to the first step of the page it landed on. */
-export type AutoPerform =
-  | { kind: "createRoom" }
-  | { kind: "createSet" }
-  | { kind: "newQuestion" }
-  | { kind: "navigate"; to: NavigateTarget };
-
-export type PopoverSide = "top" | "right" | "bottom" | "left";
+/** What "Next" does on an action step: achieve the step's outcome through the
+ *  app's own APIs (never simulated clicks). */
+export type AutoPerform = { kind: "restoreExample" };
 
 export interface TourStep {
   id: string;
@@ -54,7 +63,7 @@ export interface TourStep {
   titleKey: string; // English source string (i18next key)
   bodyKey: string;
   kind: StepKind;
-  /** action steps: advance when this milestone is met (Next stays disabled). */
+  /** action steps: advance when this milestone is met. */
   milestone?: Milestone;
   /** Only include this step in these modes (default: both). */
   modes?: TourMode[];
@@ -62,62 +71,68 @@ export interface TourStep {
    *  (e.g. the AI-generate shortcut) is only rendered when AI is on, so keeping
    *  it on an AI-off deployment would dead-end the tour at a missing element. */
   requiresAi?: boolean;
-  /** Before showing, the controller navigates here (guided steps). */
+  /** Before showing, the controller navigates here. */
   navigateTo?: NavigateTarget;
-  /** The page this step lives on (context-aware start + post-autoPerform re-sync). */
+  /** The page this step lives on (context-aware start + pause re-sync). */
   page?: TourPage;
-  /** Action steps: what "Weiter" performs for the user. */
+  /** Action steps: what "Next" performs for the user. */
   autoPerform?: AutoPerform;
-  /** Optional driver.js popover side, when the default would cover a control. */
-  popoverSide?: PopoverSide;
 }
 
-// NOTE: the brief's step list references a `header.help` anchor for the "?" menu,
-// but that anchor does not exist yet (it ships with the entry points in a later
-// task). Its step is intentionally OMITTED here so no step targets a missing
-// element; add it back alongside the "?" menu.
+/** One walkthrough step per question kind, on that kind's example question. */
+const q = (k: QuestionKind, titleKey: string, bodyKey: string): TourStep => ({
+  id: `q.${k}`,
+  page: "question",
+  target: "question.editor",
+  kind: "info",
+  navigateTo: { kind: "exampleQuestion", questionKind: k },
+  titleKey,
+  bodyKey,
+});
+
+/** Prepended by the controller when the example room (or its set) is missing:
+ *  "Next" re-creates it (idempotent POST /api/whoami/example-room/), then the
+ *  regular tour starts. */
+export const RESTORE_STEP: TourStep = {
+  id: "example.restore",
+  page: "rooms",
+  target: null,
+  kind: "action",
+  autoPerform: { kind: "restoreExample" },
+  titleKey: "Your example room is missing",
+  bodyKey: "Click Next and we’ll recreate it — the tour continues right after.",
+};
 
 export const proTour: TourStep[] = [
   { id: "header.mode", page: "rooms", target: "header.mode", kind: "info",
     titleKey: "Simple or Expert", bodyKey: "Switch modes up here — Expert shows every option." },
   { id: "rooms.list", page: "rooms", target: "rooms.list", kind: "info",
-    titleKey: "These are your rooms", bodyKey: "A room is a reusable space for a group or semester." },
-  // Room creation: two coachmarks so the MANUAL path is guided (trigger → field);
-  // both share autoPerform so "Weiter" on either creates an example room.
-  { id: "rooms.new-room", page: "rooms", target: "rooms.new-room", kind: "action",
-    milestone: { type: "element", anchor: "room.name" }, autoPerform: { kind: "createRoom" },
-    titleKey: "Create your first room", bodyKey: "Click ‘New room’ to open the form." },
-  { id: "room.create", page: "rooms", target: "room.name", kind: "action",
-    milestone: { type: "route", pattern: "/rooms/:id" }, autoPerform: { kind: "createRoom" },
-    titleKey: "Give it a title and save", bodyKey: "Type a title above, then click ‘Create’." },
-  { id: "room.new-set", page: "room", target: "room.new-set", kind: "action",
-    milestone: { type: "element", anchor: "set.title" }, autoPerform: { kind: "createSet" },
-    titleKey: "Content lives in sets",
-    bodyKey: "Each set has a type — Live poll (presenter-driven), Self-paced quiz (own pace in class) or Self-check (a standing self-study link). Click ‘New set’ to start one." },
-  { id: "set.create", page: "room", target: "set.title", kind: "action",
-    milestone: { type: "route", pattern: "/sets/:id" }, autoPerform: { kind: "createSet" },
-    titleKey: "Give your set a title and save", bodyKey: "Pick a type, enter a title, then click ‘Save’." },
-  { id: "set.editor", page: "set", target: "set.questions", kind: "info",
-    titleKey: "The set editor", bodyKey: "This is the set editor: your questions live here, grouped into sections." },
+    titleKey: "Your rooms",
+    bodyKey: "You’ll create your own rooms here with ‘New room’ — for now we’ll use the example room the system set up for you." },
+  { id: "room.sets", page: "room", target: "room.new-set", kind: "info", navigateTo: "exampleRoom",
+    titleKey: "Sets and their types",
+    bodyKey: "A room holds question sets. Each set has a type — Live poll (presenter-driven), Self-paced quiz (own pace in class) or Self-check (a standing self-study link)." },
+  { id: "set.editor", page: "set", target: "set.questions", kind: "info", navigateTo: "exampleSet",
+    titleKey: "The set editor", bodyKey: "This example set holds one question of every type — let’s look at each." },
   { id: "set.ai-generate", page: "set", target: "set.ai-generate", kind: "info", modes: ["pro"], requiresAi: true,
     titleKey: "Shortcuts", bodyKey: "Generate draft questions from your slides with AI, or copy from another set." },
-  { id: "set.add-question", page: "set", target: "set.add-question", kind: "action", popoverSide: "left",
-    milestone: { type: "route", pattern: "/sets/:id/questions/:qid" }, autoPerform: { kind: "newQuestion" },
-    titleKey: "Add a question", bodyKey: "Click ‘New question’ and pick a type to open the editor." },
-  { id: "question.editor", page: "question", target: "question.editor", kind: "info",
-    titleKey: "The question editor",
-    bodyKey: "Write the question text and answer options here; drag in images if you like. Save when you’re done." },
+  q("single_choice", "Single choice", "Exactly one answer is correct — tick its checkbox. Below, choose when the correct answer is revealed."),
+  q("multiple_choice", "Multiple choice", "Several answers can be correct — tick each one. Participants may select more than one."),
+  q("likert", "Likert scale", "An agreement scale with an optional abstention — there is no ‘correct’ answer, you see the distribution."),
+  q("word_cloud", "Word cloud", "Participants type free words; spelling variants are merged and shown as a live cloud."),
+  q("open_text", "Open text", "A free-text answer. You can add a model solution to compare against."),
+  q("priorities", "Priorities", "Participants rank the items by their personal priority — the result shows the aggregated order."),
+  q("ordering", "Ordering", "The order you save here is the solution; participants see the items shuffled and sort them."),
   { id: "question.lang-tabs", page: "question", target: "question.lang-tabs", kind: "info", modes: ["pro"],
     titleKey: "Author in two languages", bodyKey: "Rich text, options and images — with German/English tabs." },
-  { id: "present.controls", page: "present", target: "present.controls", kind: "info",
-    navigateTo: "exampleSetPresent", titleKey: "Now present",
+  { id: "present.controls", page: "present", target: "present.controls", kind: "info", navigateTo: "exampleSetPresent",
+    titleKey: "Now present",
     bodyKey: "We’ll present the ready-made Example room (every question type). Start and stop questions, and show the QR / join code." },
-  { id: "results.export", page: "results", target: "results.view", kind: "info",
-    navigateTo: "exampleSetResults", titleKey: "Results",
-    bodyKey: "After a run, results are stored here — export CSV or delete a run." },
+  { id: "results.export", page: "results", target: "results.view", kind: "info", navigateTo: "exampleSetResults",
+    titleKey: "Results", bodyKey: "After a run, results are stored here — export CSV or delete a run." },
   { id: "final", target: null, kind: "info", navigateTo: "roomsHome",
     titleKey: "You’ve got it 🎉",
-    bodyKey: "You know the whole loop. Anything the tour created is named ‘Rundgang…’ — keep or delete it. Restart this tour anytime from the ? menu." },
+    bodyKey: "Try things out in the example room — or create your own room with ‘New room’. Restart this tour anytime from the ? menu." },
 ];
 
 export const easyTour: TourStep[] = proTour

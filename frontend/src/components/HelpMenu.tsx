@@ -12,9 +12,14 @@ import { useTour } from "../tour/TourController";
 export default function HelpMenu({
   easyMode,
   aiEnabled,
+  exampleRoomId,
+  exampleSetId,
 }: {
   easyMode: boolean;
   aiEnabled: boolean;
+  /** whoami.example_room_id / example_set_id (null = missing → restore step). */
+  exampleRoomId: number | null;
+  exampleSetId: number | null;
 }) {
   const { t } = useTranslation();
   const { startTour } = useTour();
@@ -60,7 +65,7 @@ export default function HelpMenu({
             type="button"
             role="menuitem"
             onClick={() => {
-              startTour(easyMode ? "easy" : "pro", { aiEnabled });
+              startTour(easyMode ? "easy" : "pro", { aiEnabled, exampleRoomId, exampleSetId });
               setOpen(false);
             }}
             className="block w-full px-3 py-2.5 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"

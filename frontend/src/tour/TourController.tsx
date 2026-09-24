@@ -10,6 +10,7 @@ import type { Driver } from "driver.js";
 import "./driverTheme.css";
 import {
   PAGE_PATTERNS,
+  RESTORE_STEP,
   type AutoPerform,
   type NavigateTarget,
   type TourMode,
@@ -17,8 +18,8 @@ import {
   type TourStep,
   tourFor,
 } from "./steps";
-import { resolveExampleSetId } from "./resolveExampleSet";
 import { api } from "../api";
+import type { Question } from "../api";
 
 /** How long to wait for a step's target element to appear before pausing. */
 const TARGET_TIMEOUT_MS = 6000;
@@ -27,7 +28,17 @@ const TARGET_POLL_MS = 200;
 
 interface TourApi {
   active: boolean;
-  startTour: (mode: TourMode, opts?: { aiEnabled?: boolean }) => void;
+  startTour: (mode: TourMode, opts?: StartTourOptions) => void;
+}
+
+/** Passed in by the entry points (WelcomeDialog via App, HelpMenu) — the
+ *  provider sits above <App/> and can't read App's whoami. */
+export interface StartTourOptions {
+  aiEnabled?: boolean;
+  /** whoami.example_room_id / example_set_id; null (or undefined) = missing →
+   *  the tour starts with RESTORE_STEP. */
+  exampleRoomId?: number | null;
+  exampleSetId?: number | null;
 }
 
 export const TourContext = createContext<TourApi | null>(null);
@@ -53,15 +64,30 @@ function entryIndexFor(steps: TourStep[], pathname: string): number {
   return steps.findIndex((s) => s.page === page);
 }
 
-const stripQuery = (path: string) => path.split("?")[0];
+/** Route pattern of a `navigateTo` target (the object form keys by its kind). */
+function destPattern(target: NavigateTarget): string {
+  if (typeof target === "object") return "/sets/:id/questions/:qid"; // exampleQuestion
+  switch (target) {
+    case "roomsHome":
+      return "/";
+    case "exampleRoom":
+      return "/rooms/:id";
+    case "exampleSet":
+      return "/sets/:id";
+    case "exampleSetPresent":
+      return "/sets/:id/present";
+    case "exampleSetResults":
+      return "/sets/:id/results";
+  }
+}
 
-/** Route pattern of each `navigateTo` target — lets Effect A skip navigating
- *  when the user is already there (e.g. a tour started in context). */
-const DEST_PATTERN: Record<NavigateTarget, string> = {
-  exampleSetPresent: "/sets/:id/present",
-  exampleSetResults: "/sets/:id/results",
-  roomsHome: "/",
-};
+/** Already on exactly `route`? The pattern alone isn't enough: consecutive
+ *  exampleQuestion steps (and a context start on some other set) share a
+ *  pattern but not the ids, so compare the concrete route. `matchPath` with the
+ *  literal route tolerates a trailing slash. */
+function isAt(target: NavigateTarget, route: string, pathname: string): boolean {
+  return matchPath(destPattern(target), pathname) != null && matchPath(route, pathname) != null;
+}
 
 function matchesMilestone(step: TourStep, pathname: string): boolean {
   if (step.kind !== "action" || !step.milestone) return false;
@@ -98,20 +124,36 @@ export function TourProvider({
   const [paused, setPaused] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const steps = useMemo(() => tourFor(mode, { aiEnabled }), [mode, aiEnabled]);
+  // Non-null while the run carries a synthetic RESTORE_STEP in front of the
+  // regular steps (example room missing); dropped after a successful restore.
+  const [stepsOverride, setStepsOverride] = useState<TourStep[] | null>(null);
+
+  const steps = useMemo(
+    () => stepsOverride ?? tourFor(mode, { aiEnabled }),
+    [stepsOverride, mode, aiEnabled],
+  );
   const step: TourStep | undefined = active ? steps[index] : undefined;
 
   const driverRef = useRef<Driver | null>(null);
+  // Re-measures the spotlight when the highlighted element resizes: consecutive
+  // exampleQuestion steps reuse the mounted QuestionPage, so the target is found
+  // immediately and then re-renders with the next question's (differently
+  // sized) editor once it has loaded.
+  const resizeObsRef = useRef<ResizeObserver | null>(null);
   // True while an action step's autoPerform is in flight — a second Next click
-  // must not create a duplicate room/set.
+  // must not fire a second restore request.
   const autoBusyRef = useRef(false);
-  // Cache the resolved example-set id for the whole run (one lookup, reused by
-  // the present + results steps).
-  const exampleSetIdRef = useRef<number | null | undefined>(undefined);
+  // The example room/set ids for this run (from whoami, or from a restore).
+  const exampleRef = useRef<{ room: number | null; set: number | null }>({ room: null, set: null });
+  // The example set's questions, fetched once per run by the first
+  // exampleQuestion step and reused by the others (undefined = not fetched).
+  const questionsRef = useRef<Question[] | undefined>(undefined);
   const onEndRef = useRef(onEnd);
   onEndRef.current = onEnd;
 
   const destroyDriver = useCallback(() => {
+    resizeObsRef.current?.disconnect();
+    resizeObsRef.current = null;
     try {
       driverRef.current?.destroy();
     } catch {
@@ -124,19 +166,31 @@ export function TourProvider({
     document.body.classList.remove("tour-action");
   }, []);
 
-  const startTour = useCallback((m: TourMode, opts: { aiEnabled?: boolean } = {}) => {
-    exampleSetIdRef.current = undefined; // force a fresh lookup per run
+  const startTour = useCallback((m: TourMode, opts: StartTourOptions = {}) => {
+    setStepsOverride(null);
     setMode(m);
     // TourProvider sits above <App/> (TourHost), so it can't read App's whoami
-    // context — the entry points (WelcomeDialog/HelpMenu) pass ai_enabled in.
+    // context — the entry points (WelcomeDialog/HelpMenu) pass the flags in.
     setAiEnabled(!!opts.aiEnabled);
-    // Start in context: jump to the first step of the page the user is on.
-    // Built from the arguments (the `steps` memo still reflects the old mode);
-    // `tourFor` is the same function the memo uses, so indices agree.
+    const room = opts.exampleRoomId ?? null;
+    const set = opts.exampleSetId ?? null;
+    exampleRef.current = { room, set };
+    questionsRef.current = undefined; // fresh question lookup per run
+    // Built from the arguments (the `steps` memo still reflects the old
+    // mode/override); `tourFor` is the same function the memo uses.
     const list = tourFor(m, { aiEnabled: !!opts.aiEnabled });
-    const entry = entryIndexFor(list, pathRef.current);
-    if (entry < 0) navigate("/"); // unknown page → start from the overview
-    setIndex(entry < 0 ? 0 : entry);
+    if (room == null || set == null) {
+      // Example missing → always begin with the restore step on the overview,
+      // whatever page the tour was started from.
+      setStepsOverride([RESTORE_STEP, ...list]);
+      if (pageFor(pathRef.current) !== "rooms") navigate("/");
+      setIndex(0);
+    } else {
+      // Start in context: jump to the first step of the page the user is on.
+      const entry = entryIndexFor(list, pathRef.current);
+      if (entry < 0) navigate("/"); // unknown page → start from the overview
+      setIndex(entry < 0 ? 0 : entry);
+    }
     setPaused(false);
     setToast(null);
     activeRef.current = true;
@@ -164,65 +218,53 @@ export function TourProvider({
     });
   }, [steps.length, end]);
 
-  /** Resolve a `navigateTo` target to a concrete route (async for the example
-   *  set). Falls back to rooms home when no example set can be resolved. */
-  const resolveRoute = useCallback(async (target: NavigateTarget): Promise<string> => {
+  /** Resolve a `navigateTo` target to a concrete route from the run's example
+   *  ids. Returns null when the target can't be resolved (example ids missing,
+   *  or the example set has no question of the requested kind) — Effect A then
+   *  skips the step. */
+  const resolveRoute = useCallback(async (target: NavigateTarget): Promise<string | null> => {
     if (target === "roomsHome") return "/";
-    if (exampleSetIdRef.current === undefined) {
-      try {
-        exampleSetIdRef.current = await resolveExampleSetId();
-      } catch {
-        exampleSetIdRef.current = null;
+    const { room, set } = exampleRef.current;
+    if (target === "exampleRoom") return room == null ? null : `/rooms/${room}`;
+    if (set == null) return null;
+    if (typeof target === "object") {
+      // exampleQuestion: first question of that kind in the example set.
+      if (questionsRef.current === undefined) {
+        try {
+          questionsRef.current = (await api.listQuestions(set)).results;
+        } catch {
+          return null; // not cached → the next kind step retries the fetch
+        }
       }
+      const question = questionsRef.current.find((qq) => qq.kind === target.questionKind);
+      return question ? `/sets/${set}/questions/${question.id}` : null;
     }
-    const id = exampleSetIdRef.current;
-    if (id == null) return "/"; // fallback: no example set → rooms home
-    return target === "exampleSetPresent" ? `/sets/${id}/present` : `/sets/${id}/results`;
+    switch (target) {
+      case "exampleSet":
+        return `/sets/${set}`;
+      case "exampleSetPresent":
+        return `/sets/${set}/present`;
+      case "exampleSetResults":
+        return `/sets/${set}/results`;
+    }
   }, []);
 
-  /** Perform a step's action through the app's APIs/navigation (never
-   *  simulated clicks) and return the destination path. Throws on failure. */
-  const runAutoPerform = useCallback(
-    async (ap: AutoPerform, pathname: string): Promise<string> => {
-      // Local "YYYY-MM-DD HH:MM:SS": the time keeps titles unique per run — the
-      // server rejects duplicate room titles per user / set titles per room.
-      const now = new Date();
-      const p2 = (n: number) => String(n).padStart(2, "0");
-      const stamp =
-        `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())} ` +
-        `${p2(now.getHours())}:${p2(now.getMinutes())}:${p2(now.getSeconds())}`;
-      switch (ap.kind) {
-        case "createRoom": {
-          const room = await api.createRoom({
-            title: { de: `Rundgang-Beispiel ${stamp}`, en: `Tour example ${stamp}` },
-          });
-          return `/rooms/${room.id}`;
-        }
-        case "createSet": {
-          const m = matchPath("/rooms/:id", pathname);
-          if (!m?.params.id) throw new Error("createSet: not on a room page");
-          const set = await api.createQuestionSet({
-            room: Number(m.params.id),
-            title: { de: `Rundgang-Set ${stamp}`, en: `Tour set ${stamp}` },
-            type: "live_poll",
-          });
-          return `/sets/${set.id}`;
-        }
-        case "newQuestion": {
-          const m = matchPath("/sets/:id", pathname);
-          if (!m?.params.id) throw new Error("newQuestion: not on a set page");
-          // Same route SetPage.addQuestion() builds.
-          return `/sets/${m.params.id}/questions/new?kind=single_choice`;
-        }
-        case "navigate":
-          return await resolveRoute(ap.to);
+  /** Perform a step's action through the app's APIs (never simulated clicks)
+   *  and return the destination path. Throws on failure. */
+  const runAutoPerform = useCallback(async (ap: AutoPerform): Promise<string> => {
+    switch (ap.kind) {
+      case "restoreExample": {
+        const ids = await api.ensureExampleRoom();
+        exampleRef.current = { room: ids.example_room_id, set: ids.example_set_id };
+        questionsRef.current = undefined; // new set → fetch its questions afresh
+        return "/";
       }
-    },
-    [resolveRoute],
-  );
+    }
+  }, []);
 
-  /** "Next" on an action step: perform its action, then re-sync the tour to
-   *  the first step of the page it lands on. Failure → paused pill + toast. */
+  /** "Next" on an action step: perform its action, then continue with the
+   *  regular tour. Failure → paused pill + toast (the step stays, so
+   *  Resume/Next retries). */
   const handleAuto = useCallback(
     async (s: TourStep) => {
       if (!s.autoPerform) return advance();
@@ -239,15 +281,13 @@ export function TourProvider({
         nextBtn.classList.add("driver-popover-btn-disabled");
       }
       try {
-        const dest = await runAutoPerform(s.autoPerform, pathRef.current);
+        const dest = await runAutoPerform(s.autoPerform);
         if (!activeRef.current) return; // tour ended meanwhile — stay put
-        const destPath = stripQuery(dest);
-        // Re-sync BEFORE the router commits so the outgoing step's watchers
-        // (Effect A/B/B2) are torn down first; then navigate. Fallback: plain
-        // advance if the destination page is unknown.
-        const entry = entryIndexFor(steps, destPath);
-        setIndex(entry >= 0 ? entry : (i) => Math.min(i + 1, steps.length - 1));
-        navigate(dest);
+        // restoreExample: drop the synthetic step and begin the regular tour
+        // at its first (rooms-page) step.
+        setStepsOverride(null);
+        setIndex(0);
+        if (pageFor(pathRef.current) !== pageFor(dest)) navigate(dest);
       } catch {
         if (!activeRef.current) return; // tour ended meanwhile — nothing to pause
         destroyDriver(); // no stale overlay behind the pill
@@ -259,7 +299,7 @@ export function TourProvider({
         autoBusyRef.current = false;
       }
     },
-    [advance, runAutoPerform, steps, navigate, destroyDriver, t],
+    [advance, runAutoPerform, navigate, destroyDriver, t],
   );
 
   /** Build + show the driver popover for the current step against `element`
@@ -275,7 +315,9 @@ export function TourProvider({
       const showButtons: ("next" | "close")[] = ["next", "close"];
 
       let description = t(s.bodyKey);
-      if (isAction) {
+      // The "do it yourself" hint only makes sense when the user CAN do the
+      // step themselves, i.e. it has a milestone (the restore step has none).
+      if (isAction && s.milestone) {
         // Inline-styled so we don't depend on classes outside driverTheme.css.
         description += `<div style="margin-top:0.5rem;font-size:0.75rem;opacity:0.7">${t(
           "Do this yourself — or click Next and we’ll do it for you.",
@@ -312,9 +354,6 @@ export function TourProvider({
           title: t(s.titleKey),
           description,
           showButtons,
-          // Explicit side only where a step needs it; otherwise driver
-          // auto-positions.
-          ...(s.popoverSide ? { side: s.popoverSide } : {}),
           // Next is always enabled. On action steps it performs the step's
           // action for the user (handleAuto). If the user does the step
           // themselves while the tour is running, its milestone advances it
@@ -326,6 +365,11 @@ export function TourProvider({
           onCloseClick: () => end(),
         },
       });
+      if (element && typeof ResizeObserver !== "undefined") {
+        const ro = new ResizeObserver(() => driverRef.current?.refresh());
+        ro.observe(element);
+        resizeObsRef.current = ro;
+      }
     },
     [destroyDriver, index, steps.length, t, advance, handleAuto, end],
   );
@@ -350,11 +394,16 @@ export function TourProvider({
 
     const run = async () => {
       if (current.navigateTo) {
+        const route = await resolveRoute(current.navigateTo);
+        if (cancelled) return;
+        if (route === null) {
+          // Unresolvable (example missing / no question of this kind) → skip
+          // the step silently: no highlight, no pause.
+          advance();
+          return;
+        }
         // Already there (e.g. tour started in context) → don't navigate again.
-        const already = matchPath(DEST_PATTERN[current.navigateTo], pathRef.current) != null;
-        if (!already) {
-          const route = await resolveRoute(current.navigateTo);
-          if (cancelled) return;
+        if (!isAt(current.navigateTo, route, pathRef.current)) {
           navigate(route);
           // Let the router commit + the destination mount before we hunt for
           // the target (which usually lives on that new page).
@@ -411,7 +460,7 @@ export function TourProvider({
       // nothing else removes it.
       destroyDriver();
     };
-  }, [active, paused, step, navigate, resolveRoute, highlight, destroyDriver]);
+  }, [active, paused, step, navigate, resolveRoute, highlight, destroyDriver, advance]);
 
   // --- Effect B: auto-advance an action step when its ROUTE milestone matches.
   useEffect(() => {
