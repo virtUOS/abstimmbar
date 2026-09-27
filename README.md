@@ -22,6 +22,8 @@ sharing its design language and stack. Released under the
 > - [`docs/concept.md`](docs/concept.md) — Funktionsumfang & fachliches Konzept
 > - [`docs/roadmap.md`](docs/roadmap.md) — Meilensteine (MVP → v2 → Ausblick)
 > - [`docs/decisions/`](docs/decisions/) — Architekturentscheidungen (ADRs)
+> - [`docs/anleitung-lehrende.md`](docs/anleitung-lehrende.md) — Anleitung für Lehrende
+> - [`docs/deployment.md`](docs/deployment.md) · [`docs/monitoring.md`](docs/monitoring.md) — Betrieb und Monitoring (Prometheus/Grafana)
 
 <p align="center">
   <img src="docs/screenshots/presenter.png" alt="Presenter view: a live question with a real-time result bar chart on the beamer" width="820">
@@ -70,7 +72,7 @@ sharing its design language and stack. Released under the
   *conducted*, participants, guided-tour usage), breakdowns by type as donut
   charts and time series over a selectable date range. An optional,
   token-guarded Prometheus `/metrics` endpoint feeds the same figures into
-  Grafana. Only aggregated, anonymous data — no per-user tracking; session
+  Grafana (setup: [`docs/monitoring.md`](docs/monitoring.md)). Only aggregated, anonymous data — no per-user tracking; session
   keys are hashed and pruned; example rooms are excluded from usage figures;
   tour usage is stored only as daily counters.
 
