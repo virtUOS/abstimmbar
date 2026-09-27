@@ -27,8 +27,9 @@ Lehrveranstaltung in Stud.IP oder Moodle liegt, können Sie AbstimmBar dort auch
 direkt als Aktivität einbinden (LTI) und ersparen sich das separate Login.
 
 Bei der ersten Nutzung startet die Oberfläche im **einfachen Modus** mit den
-wichtigsten Funktionen. Über den Modus-Umschalter wechseln Sie jederzeit in den
-**Profi-Modus** mit allen Einstellungen — darunter die KI-Assistenz (Abschnitt 5).
+wichtigsten Funktionen. Über den Modus-Umschalter oben rechts („Einfach" /
+„Experte") wechseln Sie jederzeit in den **Experten-Modus** mit allen
+Einstellungen — darunter die KI-Assistenz (Abschnitt 5).
 
 ## 2. Der geführte Rundgang
 
@@ -44,8 +45,8 @@ und kurzen Erklärungen.
   Kopfzeile → **„Rundgang starten"**.
 - Der Rundgang beginnt auf der Seite, auf der Sie sich gerade befinden — etwa
   direkt bei den Ergebnissen, wenn Sie ihn von dort aus aufrufen.
-- Er passt sich Ihrem Modus an: Im **Profi-Modus** zeigt er zusätzlich die
-  Profi-Funktionen (z. B. KI-Abkürzungen, zweisprachige Inhalte, Ergebnisse
+- Er passt sich Ihrem Modus an: Im **Experten-Modus** zeigt er zusätzlich die
+  Experten-Funktionen (z. B. KI-Abkürzungen, zweisprachige Inhalte, Ergebnisse
   archivieren).
 
 **Der Beispielraum**
@@ -140,8 +141,9 @@ Folgende Fragetypen stehen zur Verfügung:
 - **Sortierung** — Ihre Teilnehmenden bringen Elemente per Ziehen und Ablegen in
   die richtige Reihenfolge. Die Reihenfolge, in der Sie die Elemente im Editor
   speichern, ist die Lösung; Teilnehmende sehen sie gemischt. Die Auswertung
-  zeigt, wie oft jedes Element an der richtigen Stelle lag und wie viele die
-  Reihenfolge vollständig richtig hatten.
+  zeigt, wie viele die Reihenfolge **komplett richtig** sortiert haben, und für
+  je zwei aufeinanderfolgende Elemente, wie oft sie **direkt in Folge**
+  einsortiert wurden — so erkennen Sie, welche Übergänge Schwierigkeiten machen.
 
 Bei Auswahlfragen markieren Sie die richtige(n) Antwort(en). Ob und wann die
 Lösung angezeigt wird, legen Sie je Frage oder Set fest: **sofort**, **nach dem
@@ -157,7 +159,7 @@ Weitere Einstellungen je Frage:
   Ziehen) Bilder in den Fragetext ein; auch jede Antwort kann ein eigenes Bild
   erhalten.
 
-### Vorher-Nachher-Fragen (Profi-Funktion)
+### Vorher-Nachher-Fragen (Experten-Funktion)
 
 Zu einer Auswahl- oder Likert-Frage können Sie eine **Nachher-Frage** hinzufügen
 (Zeilenmenü der Frage → „Nachher-Frage hinzufügen"). Deren Inhalt spiegelt
@@ -166,9 +168,9 @@ einmal **nach** einem Input — im Präsentationsmodus und in der Ergebnisansich
 werden beide Ergebnisse direkt **gegenübergestellt**. Das macht Meinungs- oder
 Wissensänderungen sichtbar (z. B. Einstieg vs. nach der Erklärung).
 
-## 5. KI-Assistenz (Profi-Funktion)
+## 5. KI-Assistenz (Experten-Funktion)
 
-Die KI-Assistenz erscheint nur im **Profi-Modus** und nur dann, wenn Ihre
+Die KI-Assistenz erscheint nur im **Experten-Modus** und nur dann, wenn Ihre
 Einrichtung die KI-Funktionen freigeschaltet hat. Die KI **unterstützt, ersetzt
 aber nichts**: Jeder Vorschlag ist optional — Sie entscheiden immer selbst, was
 Sie übernehmen.
@@ -209,12 +211,17 @@ beitreten können.
 
 ## 8. Präsentieren
 
-Im Präsentationsmodus steuern Sie die Sitzung:
+Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
+(oder per Tastatur):
 
-- Fragen nacheinander freigeben; die Ergebnisse aktualisieren sich **in
-  Echtzeit**, während abgestimmt wird.
-- Mit Tastenkürzeln blättern und die Abstimmung öffnen/schließen.
-- Auf Wunsch die richtige Lösung aufdecken (gemäß Ihrer Einstellung).
+- **Starten** (Taste S) öffnet die Abstimmung zur aktuellen Frage, **Stoppen**
+  (S) schließt sie. Bis Sie starten, sehen die Teilnehmenden nur die Frage.
+- Mit dem Umschalter **Frage / Ergebnisse** (E) / **Lösung** (A) legen Sie fest,
+  was der Beamer zeigt; die Ergebnisse aktualisieren sich **in Echtzeit**. Die
+  Lösung erscheint gemäß Ihrer Einstellung.
+- **→** wechselt zur nächsten Frage, **←** zurück.
+- **Beenden** (Esc) schließt die Durchführung und speichert die Ergebnisse.
+- Das QR-Symbol blendet QR-Code und Zugangscode jederzeit wieder ein.
 - Optional lässt sich Ihr Einrichtungs-Logo im Präsentationsmodus ein- oder
   ausblenden.
 
@@ -227,13 +234,25 @@ abstimmen.
 
 ## 10. Ergebnisse ansehen und exportieren
 
-Nach der Durchführung finden Sie alle Antworten in der **Ergebnisansicht**. Dort
-können Sie:
+Nach der Durchführung finden Sie alle Antworten in der **Ergebnisansicht** — im
+Fragenset über **„Ergebnisse"**. Dort können Sie:
 
-- die Auswertung je Frage einsehen (inkl. Wortwolke und Likert-Balken),
-- die Ergebnisse als **CSV-Datei exportieren** (z. B. für die weitere
-  Auswertung),
-- nicht mehr benötigte Durchführungen löschen oder ins Archiv verschieben.
+- die Auswertung je Frage einsehen (inkl. Wortwolke, Likert-Balken, Prioritäten
+  und Sortierung),
+- über das Auswahlfeld oben **frühere Durchführungen** wählen — jede
+  Präsentation wird als eigene Durchführung gespeichert,
+- die Ergebnisse als **CSV-Datei exportieren** (nur diese oder alle
+  Durchführungen, z. B. für die weitere Auswertung),
+- nicht mehr benötigte Durchführungen löschen.
+
+**Archivieren oder löschen?** Im Raum archiviert das Archiv-Symbol an einem
+Fragenset nur dessen **Ergebnisse**: Die nächste Präsentation startet leer, die
+bisherigen Ergebnisse bleiben als frühere Durchführung erhalten (im einfachen
+Modus geschieht das automatisch, wenn Sie an einem anderen Tag erneut
+präsentieren). Ganze **Räume** archivieren Sie auf der Startseite — sie
+erscheinen dann unter „Archivierte Räume" und lassen sich wiederherstellen. Das
+Papierkorb-Symbol dagegen **löscht endgültig**: ein Fragenset mit allen Fragen
+und Ergebnissen bzw. einen Raum mit allen Sets.
 
 ## 11. Räume im Team nutzen
 
