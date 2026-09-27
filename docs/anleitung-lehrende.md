@@ -107,6 +107,21 @@ Innerhalb eines Raums legen Sie ein oder mehrere **Fragensets** an — etwa eine
 je Sitzung. Ein Fragenset können Sie in **Abschnitte** gliedern, um längere
 Sitzungen zu strukturieren.
 
+Beim Anlegen wählen Sie den **Typ** des Fragensets — er legt fest, wie es
+durchgeführt wird:
+
+- **Live-Umfrage** — live am Beamer, Sie steuern Frage für Frage. Alle
+  Fragetypen.
+- **Quiz-Block** — Ihre Teilnehmenden beantworten die Fragen in Stillarbeit im
+  eigenen Tempo; Sie starten den Block und sehen die Auswertung. Alle
+  Fragetypen.
+- **Lernkontrolle** — Lernende üben eigenständig über einen dauerhaften Link und
+  erhalten sofort Rückmeldung. Möglich sind Einzel- und Mehrfachauswahl,
+  Sortierung und Freitext.
+
+Eine neue Frage legen Sie im Set über **„+ Neue Frage"** an und wählen dabei
+den Fragetyp.
+
 Folgende Fragetypen stehen zur Verfügung:
 
 - **Einzelauswahl** — genau eine richtige bzw. gewählte Antwort.
@@ -116,11 +131,31 @@ Folgende Fragetypen stehen zur Verfügung:
   Wörter werden zusammengefasst).
 - **Likert-Skala** — Zustimmung auf einer geordneten Skala (z. B. „trifft zu"
   bis „trifft nicht zu").
-- **Freitext** — offene Antworten in eigenen Worten.
+- **Freitext** — offene Antworten in eigenen Worten (bis 500 Zeichen), angezeigt
+  als Liste.
+- **Prioritäten** — Ihre Teilnehmenden verteilen bis zu **100 Punkte** auf die
+  Antworten: je wichtiger, desto mehr Punkte. Die Auswertung zeigt je Antwort
+  den Durchschnitt (mit Minimum und Maximum), absteigend sortiert — so sehen
+  Sie, was der Gruppe am wichtigsten ist. Eine „richtige" Antwort gibt es nicht.
+- **Sortierung** — Ihre Teilnehmenden bringen Elemente per Ziehen und Ablegen in
+  die richtige Reihenfolge. Die Reihenfolge, in der Sie die Elemente im Editor
+  speichern, ist die Lösung; Teilnehmende sehen sie gemischt. Die Auswertung
+  zeigt, wie oft jedes Element an der richtigen Stelle lag und wie viele die
+  Reihenfolge vollständig richtig hatten.
 
 Bei Auswahlfragen markieren Sie die richtige(n) Antwort(en). Ob und wann die
 Lösung angezeigt wird, legen Sie je Frage oder Set fest: **sofort**, **nach dem
 Schließen** der Frage oder **nie**.
+
+Weitere Einstellungen je Frage:
+
+- **Zufällige Reihenfolge** — mischt die Antworten für jede Präsentation neu;
+  alle Teilnehmenden sehen dabei dieselbe Reihenfolge.
+- **Zeitbegrenzung** — schließt die Abstimmung automatisch nach der gewählten
+  Zeit.
+- **Bilder** — fügen Sie über das Bild-Symbol der Werkzeugleiste (oder per
+  Ziehen) Bilder in den Fragetext ein; auch jede Antwort kann ein eigenes Bild
+  erhalten.
 
 ### Vorher-Nachher-Fragen (Profi-Funktion)
 
