@@ -828,5 +828,11 @@
   "Tour aborted at step": "Abgebrochen bei Schritt",
   "No aborts yet": "Noch keine Abbrüche",
   "Guided tour per day": "Rundgang pro Tag",
-  "Started, not completed": "Gestartet, nicht abgeschlossen"
+  "Started, not completed": "Gestartet, nicht abgeschlossen",
+  "Beta": "Beta",
+  "About the beta": "Hinweis zur Beta-Version",
+  "Show beta label": "Beta-Label anzeigen",
+  "Beta label notice (optional)": "Hinweistext zum Beta-Label (optional)",
+  "e.g. Trial operation — please report problems to …": "z. B. Testbetrieb — Probleme bitte an … melden",
+  "Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.": "Erscheint beim Anklicken des Beta-Badges in der Kopfzeile. Leer lassen für ein einfaches Badge."
 }

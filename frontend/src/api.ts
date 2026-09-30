@@ -301,6 +301,10 @@ export interface SearchResults {
 /** Admin-configurable site content (common app). */
 export interface SitePublic {
   landing_text: LocalizedText;
+  /** Admin-switchable "Beta" badge in the management header. */
+  beta_label_enabled: boolean;
+  /** Optional notice shown when the badge is clicked (plain text). */
+  beta_notice: LocalizedText;
   logo: string | null;
   /** AI privacy notice (#80): operator-authored, translatable; shown as a
    * one-time dismissible banner while AI is available. Empty = no banner. */
@@ -400,6 +404,10 @@ export interface AdminStats {
 
 export interface ManageSite {
   landing_text: LocalizedText;
+  /** Admin-switchable "Beta" badge in the management header. */
+  beta_label_enabled: boolean;
+  /** Optional notice shown when the badge is clicked (plain text). */
+  beta_notice: LocalizedText;
   /** Sanitized HTML shown to participants on every room's closing screen (#24). */
   closing_info: LocalizedText;
   logo: string | null;
@@ -549,6 +557,8 @@ export const api = {
     landing_text: LocalizedText;
     closing_info: LocalizedText;
     ai_notice: LocalizedText;
+    beta_label_enabled: boolean;
+    beta_notice: LocalizedText;
     ai_notice_page: string | null;
     ai_notice_url: string;
     self_check_ai_per_minute: number;

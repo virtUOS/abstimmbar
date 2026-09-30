@@ -50,6 +50,11 @@ class SiteConfig(models.Model):
     # (sliding window, in-process). 0 = unlimited — the normal case is a
     # local model without per-call cost.
     self_check_ai_per_minute = models.PositiveIntegerField(default=30)
+    # Optional "Beta" badge in the management header (not on the participant
+    # page or the beamer); the admin switches it on. With a notice, clicking
+    # the badge shows it. Plain text, translatable (de/en).
+    beta_label_enabled = models.BooleanField(default=False)
+    beta_notice = models.TextField(blank=True, default="")
     updated_at = models.DateTimeField(auto_now=True)
 
     def save(self, *args, **kwargs):

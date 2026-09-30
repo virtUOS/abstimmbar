@@ -8,7 +8,7 @@ from .models import Page, SiteConfig
 
 @register(SiteConfig)
 class SiteConfigTranslationOptions(TranslationOptions):
-    fields = ("landing_text", "closing_info", "ai_notice")
+    fields = ("landing_text", "closing_info", "ai_notice", "beta_notice")
 
 
 @register(Page)
