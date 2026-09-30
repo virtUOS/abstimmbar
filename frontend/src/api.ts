@@ -553,7 +553,7 @@ export const api = {
     return request<AdminStats>(`/api/admin/stats/?${params.toString()}`);
   },
   getManageSite: () => request<ManageSite>("/api/manage/site/"),
-  updateSite: (patch: {
+  updateSite: (patch: Partial<{
     landing_text: LocalizedText;
     closing_info: LocalizedText;
     ai_notice: LocalizedText;
@@ -562,7 +562,7 @@ export const api = {
     ai_notice_page: string | null;
     ai_notice_url: string;
     self_check_ai_per_minute: number;
-  }) =>
+  }>) =>
     request<ManageSite>("/api/manage/site/", {
       method: "PUT",
       body: JSON.stringify(patch),

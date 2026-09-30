@@ -837,5 +837,13 @@
   "Show beta label": "Beta-Label anzeigen",
   "Beta label notice (optional)": "Hinweistext zum Beta-Label (optional)",
   "e.g. Trial operation — please report problems to …": "z. B. Testbetrieb — Probleme bitte an … melden",
-  "Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.": "Erscheint beim Anklicken des Beta-Badges in der Kopfzeile. Leer lassen für ein einfaches Badge."
+  "Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.": "Erscheint beim Anklicken des Beta-Badges in der Kopfzeile. Leer lassen für ein einfaches Badge.",
+  "Settings sections": "Einstellungsbereiche",
+  "Texts": "Texte",
+  "Pages": "Seiten",
+  "AI": "KI",
+  "LMS (LTI)": "LMS (LTI)",
+  "Logo and optional Beta label in the header.": "Logo und optionales Beta-Label in der Kopfzeile.",
+  "Texts shown before login and to participants after every vote.": "Texte vor dem Login und für Teilnehmende nach jeder Abstimmung.",
+  "Privacy notice and limits for the AI features.": "Datenschutzhinweis und Limits für die KI-Funktionen."
 }
