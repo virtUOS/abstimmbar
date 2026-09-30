@@ -831,5 +831,11 @@
   "Started, not completed": "Gestartet, nicht abgeschlossen",
   "Image upload failed": "Bild-Upload fehlgeschlagen",
   "Image description (alt text)": "Bildbeschreibung (Alternativtext)",
-  "Image description": "Bildbeschreibung"
+  "Image description": "Bildbeschreibung",
+  "Beta": "Beta",
+  "About the beta": "Hinweis zur Beta-Version",
+  "Show beta label": "Beta-Label anzeigen",
+  "Beta label notice (optional)": "Hinweistext zum Beta-Label (optional)",
+  "e.g. Trial operation — please report problems to …": "z. B. Testbetrieb — Probleme bitte an … melden",
+  "Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.": "Erscheint beim Anklicken des Beta-Badges in der Kopfzeile. Leer lassen für ein einfaches Badge."
 }
