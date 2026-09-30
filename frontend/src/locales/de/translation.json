@@ -845,5 +845,6 @@
   "LMS (LTI)": "LMS (LTI)",
   "Logo and optional Beta label in the header.": "Logo und optionales Beta-Label in der Kopfzeile.",
   "Texts shown before login and to participants after every vote.": "Texte vor dem Login und für Teilnehmende nach jeder Abstimmung.",
-  "Privacy notice and limits for the AI features.": "Datenschutzhinweis und Limits für die KI-Funktionen."
+  "Privacy notice and limits for the AI features.": "Datenschutzhinweis und Limits für die KI-Funktionen.",
+  "Applies to free-text answers in self-checks (Lernkontrolle) that the AI assesses: at most this many AI assessments per self-check within any 60 seconds. Beyond that, learners get no AI assessment for the moment — their answer is saved and the model solution is shown instead. Protects an external AI service with per-call costs from overload; with a local model, 0 (unlimited) is usually fine.": "Gilt für Freitext-Antworten in Lernkontrollen, die die KI bewertet: höchstens so viele KI-Bewertungen je Lernkontrolle innerhalb von 60 Sekunden. Darüber hinaus erhalten Lernende vorübergehend keine KI-Bewertung — ihre Antwort wird gespeichert und stattdessen die Musterlösung angezeigt. Schützt einen externen KI-Dienst mit Kosten pro Abfrage vor Überlastung; mit einem lokalen Modell ist 0 (unbegrenzt) meist passend."
 }

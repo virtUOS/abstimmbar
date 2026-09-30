@@ -637,8 +637,14 @@ function AiSettings() {
                 setSelfCheckAiPerMinute(Math.max(0, parseInt(event.target.value, 10) || 0))
               }
               className="!w-32"
+              aria-describedby="ai-limit-hint"
             />
           </Field>
+          <p id="ai-limit-hint" className="mt-1 text-xs text-slate-400 dark:text-slate-500">
+            {t(
+              "Applies to free-text answers in self-checks (Lernkontrolle) that the AI assesses: at most this many AI assessments per self-check within any 60 seconds. Beyond that, learners get no AI assessment for the moment — their answer is saved and the model solution is shown instead. Protects an external AI service with per-call costs from overload; with a local model, 0 (unlimited) is usually fine.",
+            )}
+          </p>
         </div>
         <SavedRow onSave={() => void save()} saved={saved} />
       </div>
