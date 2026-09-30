@@ -1208,6 +1208,35 @@ class TransferTests(ApiTestCase):
         )
         self.assertEqual(imported_invalid.type, QuestionSet.SetType.LIVE_POLL)
 
+    def test_import_drops_traversal_option_images(self):
+        """Option images from a foreign file keep only genuine /media/ paths;
+        encoded dot segments, control characters, query strings and
+        over-long URLs are dropped (basicbar-integrations 0.2.1)."""
+        from .transfer import import_set
+
+        images = [
+            "/media/questions/ok.png",
+            "/media/%2e%2e/%2e%2e/etc/passwd",
+            "/media/a%252e%252e/x.png",
+            "/media/a\t/../../secret.png",
+            "/media/x.png?..",
+            "/media/" + "a" * 300 + ".png",
+        ]
+        imported = import_set(self.room, {
+            "format": "abstimmbar-set-v1",
+            "title": "images",
+            "questions": [{
+                "kind": "single_choice",
+                "text": "<p>Q</p>",
+                "options": [{"text": str(i), "image": url} for i, url in enumerate(images)],
+            }],
+        })
+        stored = list(
+            AnswerOption.objects.filter(question__question_set=imported)
+            .order_by("position").values_list("image", flat=True)
+        )
+        self.assertEqual(stored, ["/media/questions/ok.png", "", "", "", "", ""])
+
     def test_duplicate_preserves_quiz_time_limit(self):
         """#75 final review: duplicate_set() must carry ``quiz_time_limit``
         onto the clone, like it already does for ``type``."""
