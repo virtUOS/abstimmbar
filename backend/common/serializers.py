@@ -5,6 +5,8 @@
 serializer mixins shared across apps."""
 from typing import ClassVar
 
+from django.utils.html import strip_tags
+
 from basicbar_integrations.html_sanitize import clean_html
 from basicbar_integrations.translation_sync import (
     modeltranslation_values,
@@ -132,7 +134,7 @@ class SiteConfigSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     landing_text/closing_info are authored in de+en (#33 MR2); each is
     represented as a {"de": ..., "en": ...} map, resolved client-side."""
 
-    translated_fields = ("landing_text", "closing_info", "ai_notice")
+    translated_fields = ("landing_text", "closing_info", "ai_notice", "beta_notice")
 
     logo = serializers.SerializerMethodField()
     # Read/write the internal notice page by its slug (null = none).
@@ -146,6 +148,7 @@ class SiteConfigSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "landing_text", "closing_info", "logo",
             "ai_notice", "ai_notice_page", "ai_notice_url",
             "self_check_ai_per_minute",
+            "beta_label_enabled", "beta_notice",
         ]
 
     def validate_landing_text(self, value):
@@ -153,6 +156,10 @@ class SiteConfigSerializer(TranslatedMapMixin, serializers.ModelSerializer):
 
     def validate_closing_info(self, value):
         return clean_html(value)
+
+    def validate_beta_notice(self, value):
+        # Plain text: strip any markup (the badge popover renders text only).
+        return strip_tags(value or "").strip()[:500]
 
     def get_logo(self, obj):
         if not obj.logo:

@@ -107,6 +107,48 @@ class ManageSiteTests(TestCase):
         self.assertEqual(SiteConfig.load().landing_text_de, "Willkommen!")
         self.assertEqual(response.json()["landing_text"], {"de": "Willkommen!", "en": ""})
 
+    def test_beta_label_defaults_off_and_public_exposes_it(self):
+        public = self.client.get("/api/site/").json()
+        self.assertIs(public["beta_label_enabled"], False)
+        self.assertEqual(public["beta_notice"], {"de": "", "en": ""})
+
+    def test_admin_enables_beta_label_with_bilingual_notice(self):
+        self.client.force_login(self.admin)
+        response = self.client.put(
+            "/api/manage/site/",
+            {
+                "beta_label_enabled": True,
+                "beta_notice": {"de": "  Testbetrieb.  ", "en": "Trial operation."},
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        config = SiteConfig.load()
+        self.assertTrue(config.beta_label_enabled)
+        self.assertEqual(config.beta_notice_de, "Testbetrieb.")
+        self.assertEqual(config.beta_notice_en, "Trial operation.")
+        self.client.logout()
+        public = self.client.get("/api/site/").json()
+        self.assertIs(public["beta_label_enabled"], True)
+        self.assertEqual(public["beta_notice"], {"de": "Testbetrieb.", "en": "Trial operation."})
+
+    def test_beta_notice_is_plain_text(self):
+        self.client.force_login(self.admin)
+        self.client.put(
+            "/api/manage/site/",
+            {"beta_notice": {"de": "<b>Test</b><script>x()</script>", "en": ""}},
+            content_type="application/json",
+        )
+        self.assertEqual(SiteConfig.load().beta_notice_de, "Testx()")
+
+    def test_beta_label_requires_staff_to_change(self):
+        self.client.force_login(self.plain)
+        response = self.client.put(
+            "/api/manage/site/", {"beta_label_enabled": True}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(SiteConfig.load().beta_label_enabled)
+
     def test_admin_edits_ai_notice_bilingually_and_public_reads_it(self):
         self.client.force_login(self.admin)
         response = self.client.put(
