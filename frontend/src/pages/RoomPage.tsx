@@ -30,9 +30,8 @@ import {
   TextInput,
 } from "../components/ui";
 import HomeCrumb from "../components/HomeCrumb";
-import RichText from "../components/RichText";
 import TranslatableField from "../components/TranslatableField";
-import { localizedText, type LocalizedText } from "@basicbar/ui";
+import { localizedText, type LocalizedText, RichText } from "@basicbar/ui";
 import { SetSettingsForm, type SetSettings } from "./SetPage";
 import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
 

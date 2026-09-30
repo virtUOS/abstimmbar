@@ -9,9 +9,8 @@ import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { FileQuestion } from "lucide-react";
 import { api, type DataCollection, type PageDetail } from "../api";
-import RichText from "../components/RichText";
 import { EmptyState } from "../components/ui";
-import { localizedText } from "@basicbar/ui";
+import { localizedText, RichText } from "@basicbar/ui";
 
 const PRIVACY_SLUG = "datenschutz";
 

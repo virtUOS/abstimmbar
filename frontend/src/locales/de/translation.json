@@ -828,5 +828,8 @@
   "Tour aborted at step": "Abgebrochen bei Schritt",
   "No aborts yet": "Noch keine Abbrüche",
   "Guided tour per day": "Rundgang pro Tag",
-  "Started, not completed": "Gestartet, nicht abgeschlossen"
+  "Started, not completed": "Gestartet, nicht abgeschlossen",
+  "Image upload failed": "Bild-Upload fehlgeschlagen",
+  "Image description (alt text)": "Bildbeschreibung (Alternativtext)",
+  "Image description": "Bildbeschreibung"
 }

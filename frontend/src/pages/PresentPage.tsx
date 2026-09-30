@@ -19,9 +19,8 @@ import {
   type WordCloudAI,
   type WordCloudModeration,
 } from "../api";
-import { localizedText } from "@basicbar/ui";
+import { localizedText, RichText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
-import RichText from "../components/RichText";
 import { useTourSignal } from "../tour/signals";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";

@@ -17,10 +17,9 @@ import {
   type WordCloudOptimization,
 } from "../api";
 import { useApp, useEasyMode } from "../App";
-import { localizedText } from "@basicbar/ui";
+import { localizedText, RichText } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
-import RichText from "../components/RichText";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
 
