@@ -5,7 +5,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const badge =
-  "inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300";
+  "inline-flex items-center rounded-full border border-brand-300 bg-brand-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-brand-700 dark:border-brand-700 dark:bg-brand-900 dark:text-brand-300";
 
 /** Admin-switchable "Beta" badge for the management header. With a notice it
  *  is a button that opens a small popover (outside click / Esc close it,
@@ -44,7 +44,7 @@ export default function BetaBadge({ notice }: { notice: string }) {
         aria-controls={noteId}
         title={t("About the beta")}
         onClick={() => setOpen((value) => !value)}
-        className={`${badge} cursor-pointer hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:hover:bg-amber-900/60`}
+        className={`${badge} cursor-pointer hover:bg-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 dark:hover:bg-brand-800`}
       >
         {t("Beta")}
       </button>
