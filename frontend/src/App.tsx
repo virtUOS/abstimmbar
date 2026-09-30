@@ -18,14 +18,13 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami } from "./api";
-import { localizedText, setDefaultContentLang, setTranslationEnabled } from "@basicbar/ui";
+import { localizedText, setDefaultContentLang, setTranslationEnabled, RichText } from "@basicbar/ui";
 import BetaBadge from "./components/BetaBadge";
 import Footer from "./components/Footer";
 import GenerationStatusBar from "./components/GenerationStatusBar";
 import HelpMenu from "./components/HelpMenu";
 import JoinByCode from "./components/JoinByCode";
 import { LanguageOptions } from "./components/LanguageSwitcher";
-import RichText from "./components/RichText";
 import { EmptyState, SegmentedControl } from "./components/ui";
 import RoomsPage from "./pages/RoomsPage";
 import { useTour } from "./tour/TourController";

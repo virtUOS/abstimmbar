@@ -5,18 +5,27 @@
  *
  * Keeps the tool's own conventions on top of the shared component: the
  * map-based value contract (`LocalizedText` + `onChange(next)`), the
- * rich-text variant (TipTap editor — tool code, plugged in via
- * `renderInput`), easy mode (#52: non-staff simple users author in a single
+ * rich-text variant (the shared RichTextEditor from @basicbar/ui, plugged
+ * in via `renderInput`), easy mode (#52: non-staff simple users author in a single
  * canonical language; staff are always Pro) and the prominent form label. */
 import type { ReactNode } from "react";
 import {
   TranslatableField as BaseTranslatableField,
+  RichTextEditor,
   localizedMap,
   setLocalizedLang,
   type LocalizedText,
 } from "@basicbar/ui";
 import { useEasyMode } from "../App";
-import RichTextEditor from "./RichTextEditor";
+import { api } from "../api";
+
+/** Rich-text image upload for the shared editor: stores the file in our media
+ *  storage and returns its relative /media/… URL (the only kind the backend
+ *  sanitizer keeps). */
+async function uploadEditorImage(file: File): Promise<string> {
+  const { url } = await api.uploadImage(file);
+  return url;
+}
 
 export type TranslatableFieldVariant = "input" | "rich";
 
@@ -80,8 +89,13 @@ export default function TranslatableField({
       }
       renderInput={
         variant === "rich"
-          ? ({ value: html, onChange: set }) => (
-              <RichTextEditor value={html} onChange={set} />
+          ? ({ value: html, onChange: set, labelId }) => (
+              <RichTextEditor
+                value={html}
+                onChange={set}
+                labelledBy={labelId}
+                onUploadImage={uploadEditorImage}
+              />
             )
           : undefined
       }

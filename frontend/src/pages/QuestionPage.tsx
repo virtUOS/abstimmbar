@@ -21,10 +21,10 @@ import {
   setLocalizedLang,
   useTheme,
   type LocalizedText,
+  RichText,
 } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
-import RichText from "../components/RichText";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
 import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";

@@ -22,11 +22,10 @@ import AiGenerateForm from "../components/AiGenerateForm";
 import AiReviewPanel from "../components/AiReviewPanel";
 import FileDropzone from "../components/FileDropzone";
 import HomeCrumb from "../components/HomeCrumb";
-import RichText from "../components/RichText";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
 import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
-import { localizedText, type LocalizedText } from "@basicbar/ui";
+import { localizedText, type LocalizedText, RichText } from "@basicbar/ui";
 import {
   Button,
   ConfirmInline,
