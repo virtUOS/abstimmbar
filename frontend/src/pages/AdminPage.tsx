@@ -628,17 +628,31 @@ function AiSettings() {
           </Field>
         </div>
         <div className="mt-3">
-          <Field label={t("AI gradings per minute per self-check (0 = unlimited)")}>
-            <TextInput
-              type="number"
-              min={0}
-              value={String(selfCheckAiPerMinute)}
-              onChange={(event) =>
-                setSelfCheckAiPerMinute(Math.max(0, parseInt(event.target.value, 10) || 0))
-              }
-              className="!w-32"
+          {/* Explanation behind an (i) button: the label alone doesn't say
+              what is limited or what learners see beyond the limit. */}
+          <div className="mb-1 flex items-center gap-1.5">
+            <label
+              htmlFor="ai-limit"
+              className="text-sm font-medium text-slate-700 dark:text-slate-300"
+            >
+              {t("AI gradings per minute per self-check (0 = unlimited)")}
+            </label>
+            <InfoHint
+              text={t(
+                "Limits how many free-text answers the AI assesses per self-check within 60 seconds. Beyond that, learners see the model solution instead of an AI assessment. Useful for paid external AI services; 0 = unlimited (fine for a local model).",
+              )}
             />
-          </Field>
+          </div>
+          <TextInput
+            id="ai-limit"
+            type="number"
+            min={0}
+            value={String(selfCheckAiPerMinute)}
+            onChange={(event) =>
+              setSelfCheckAiPerMinute(Math.max(0, parseInt(event.target.value, 10) || 0))
+            }
+            className="!w-32"
+          />
         </div>
         <SavedRow onSave={() => void save()} saved={saved} />
       </div>
