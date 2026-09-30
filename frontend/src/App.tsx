@@ -458,24 +458,24 @@ export default function App() {
       <header className="border-b border-slate-200 dark:border-slate-800">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
           <div className="flex items-center gap-2">
-          <Link to="/" className="flex items-center gap-3">
-            {site?.logo && (
-              <>
-                <img
-                  src={site.logo}
-                  alt={t("Institution logo")}
-                  className="h-8 w-auto max-w-[160px] object-contain"
-                />
-                <span
-                  aria-hidden
-                  className="h-7 w-px bg-slate-200 dark:bg-slate-700"
-                />
-              </>
-            )}
-            <span className="text-xl font-extrabold tracking-tight">
-              abstimm<span className="text-brand-700 dark:text-brand-300">BAR</span>
-            </span>
-          </Link>
+            <Link to="/" className="flex items-center gap-3">
+              {site?.logo && (
+                <>
+                  <img
+                    src={site.logo}
+                    alt={t("Institution logo")}
+                    className="h-8 w-auto max-w-[160px] object-contain"
+                  />
+                  <span
+                    aria-hidden
+                    className="h-7 w-px bg-slate-200 dark:bg-slate-700"
+                  />
+                </>
+              )}
+              <span className="text-xl font-extrabold tracking-tight">
+                abstimm<span className="text-brand-700 dark:text-brand-300">BAR</span>
+              </span>
+            </Link>
             {site?.beta_label_enabled && (
               <BetaBadge notice={localizedText(site.beta_notice).trim()} />
             )}
