@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami } from "./api";
 import { localizedText, setDefaultContentLang, setTranslationEnabled } from "@basicbar/ui";
+import BetaBadge from "./components/BetaBadge";
 import Footer from "./components/Footer";
 import GenerationStatusBar from "./components/GenerationStatusBar";
 import HelpMenu from "./components/HelpMenu";
@@ -456,6 +457,7 @@ export default function App() {
     <div className="flex min-h-screen flex-col overflow-x-clip bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 dark:border-slate-800">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+          <div className="flex items-center gap-2">
           <Link to="/" className="flex items-center gap-3">
             {site?.logo && (
               <>
@@ -474,6 +476,10 @@ export default function App() {
               abstimm<span className="text-brand-700 dark:text-brand-300">BAR</span>
             </span>
           </Link>
+            {site?.beta_label_enabled && (
+              <BetaBadge notice={localizedText(site.beta_notice).trim()} />
+            )}
+          </div>
           {whoami?.authenticated ? (
             <div className="flex items-center gap-1">
               {whoami.is_staff && (

@@ -338,6 +338,8 @@ function BrandingSection() {
   const [text, setText] = useState<LocalizedText>("");
   const [closing, setClosing] = useState<LocalizedText>("");
   const [aiNotice, setAiNotice] = useState<LocalizedText>("");
+  const [betaEnabled, setBetaEnabled] = useState(false);
+  const [betaNotice, setBetaNotice] = useState<LocalizedText>("");
   const [aiNoticePage, setAiNoticePage] = useState("");
   const [aiNoticeUrl, setAiNoticeUrl] = useState("");
   const [selfCheckAiPerMinute, setSelfCheckAiPerMinute] = useState(30);
@@ -351,6 +353,8 @@ function BrandingSection() {
       setText(data.landing_text);
       setClosing(data.closing_info);
       setAiNotice(data.ai_notice);
+      setBetaEnabled(data.beta_label_enabled);
+      setBetaNotice(data.beta_notice);
       setAiNoticePage(data.ai_notice_page ?? "");
       setAiNoticeUrl(data.ai_notice_url);
       setSelfCheckAiPerMinute(data.self_check_ai_per_minute ?? 30);
@@ -363,6 +367,8 @@ function BrandingSection() {
       landing_text: text,
       closing_info: closing,
       ai_notice: aiNotice,
+      beta_label_enabled: betaEnabled,
+      beta_notice: betaNotice,
       ai_notice_page: aiNoticePage || null,
       ai_notice_url: aiNoticeUrl,
       self_check_ai_per_minute: selfCheckAiPerMinute,
@@ -436,6 +442,28 @@ function BrandingSection() {
           onChange={setClosing}
           placeholder={t("Shown to participants after every vote — e.g. contact, feedback link …")}
         />
+        <div className="mt-4">
+          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={betaEnabled}
+              onChange={(event) => setBetaEnabled(event.target.checked)}
+              className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+            />
+            {t("Show beta label")}
+          </label>
+          {betaEnabled && (
+            <div className="mt-3">
+              <TranslatableField
+                label={t("Beta label notice (optional)")}
+                value={betaNotice}
+                onChange={setBetaNotice}
+                placeholder={t("e.g. Trial operation — please report problems to …")}
+                hint={t("Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.")}
+              />
+            </div>
+          )}
+        </div>
         <div className="mt-4">
           <TranslatableField
             label={t("AI privacy notice")}
