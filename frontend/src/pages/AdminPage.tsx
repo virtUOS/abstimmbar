@@ -6,6 +6,7 @@
  * every endpoint is additionally server-side gated (accounts.IsAdmin). */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { ChevronDown, ChevronUp, FileText, Lock, Radio, Trash2 } from "lucide-react";
 import { api, type AdminStats, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSite } from "../api";
 import { useApp } from "../App";
@@ -67,9 +68,34 @@ export default function AdminPage() {
   return <AdminTabs />;
 }
 
+const SETTINGS_SECTIONS = ["appearance", "texts", "pages", "ai", "lms"] as const;
+type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
+
 function AdminTabs() {
   const { t } = useTranslation();
-  const [tab, setTab] = useState<"stats" | "settings">("stats");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get("tab") === "settings" ? "settings" : "stats";
+  const sectionParam = searchParams.get("section");
+  const section: SettingsSection =
+    SETTINGS_SECTIONS.find((id) => id === sectionParam) ?? "appearance";
+
+  function selectTab(next: "stats" | "settings") {
+    if (next === "settings") setSearchParams({ tab: "settings", section });
+    else setSearchParams({});
+  }
+
+  function selectSection(id: SettingsSection) {
+    setSearchParams({ tab: "settings", section: id }, { replace: true });
+  }
+
+  const items: { id: SettingsSection; label: string }[] = [
+    { id: "appearance", label: t("Appearance") },
+    { id: "texts", label: t("Texts") },
+    { id: "pages", label: t("Pages") },
+    { id: "ai", label: t("AI") },
+    { id: "lms", label: t("LMS (LTI)") },
+  ];
+
   return (
     <div className="space-y-8">
       <div>
@@ -80,7 +106,7 @@ function AdminTabs() {
         <SegmentedControl
           ariaLabel={t("Admin section")}
           value={tab}
-          onChange={(v) => setTab(v)}
+          onChange={(v) => selectTab(v)}
           options={[
             { value: "stats", label: t("Statistics") },
             { value: "settings", label: t("Settings") },
@@ -90,10 +116,34 @@ function AdminTabs() {
       {tab === "stats" ? (
         <StatsSection />
       ) : (
-        <div className="space-y-12">
-          <BrandingSection />
-          <PagesSection />
-          <LtiPlatformsSection />
+        <div className="md:grid md:grid-cols-[12rem_1fr] md:gap-8">
+          <nav aria-label={t("Settings sections")} className="mb-6 md:mb-0">
+            <ul className="flex gap-1 overflow-x-auto md:flex-col md:overflow-visible">
+              {items.map((item) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    aria-current={section === item.id ? "page" : undefined}
+                    onClick={() => selectSection(item.id)}
+                    className={`w-full whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 ${
+                      section === item.id
+                        ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200"
+                        : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </nav>
+          <div className="min-w-0">
+            {section === "appearance" && <AppearanceSettings />}
+            {section === "texts" && <TextsSettings />}
+            {section === "pages" && <PagesSection />}
+            {section === "ai" && <AiSettings />}
+            {section === "lms" && <LtiPlatformsSection />}
+          </div>
         </div>
       )}
     </div>
@@ -332,46 +382,40 @@ function StatsSection() {
   );
 }
 
-function BrandingSection() {
+function SavedRow({ onSave, saved }: { onSave: () => void; saved: boolean }) {
+  const { t } = useTranslation();
+  return (
+    <div className="mt-4 flex items-center gap-3">
+      <Button variant="primary" onClick={onSave}>
+        {t("Save")}
+      </Button>
+      <span aria-live="polite" className="text-xs text-brand-700 dark:text-brand-300">
+        {saved ? t("Saved.") : ""}
+      </span>
+    </div>
+  );
+}
+
+function AppearanceSettings() {
   const { t } = useTranslation();
   const [site, setSite] = useState<ManageSite | null>(null);
-  const [text, setText] = useState<LocalizedText>("");
-  const [closing, setClosing] = useState<LocalizedText>("");
-  const [aiNotice, setAiNotice] = useState<LocalizedText>("");
   const [betaEnabled, setBetaEnabled] = useState(false);
   const [betaNotice, setBetaNotice] = useState<LocalizedText>("");
-  const [aiNoticePage, setAiNoticePage] = useState("");
-  const [aiNoticeUrl, setAiNoticeUrl] = useState("");
-  const [selfCheckAiPerMinute, setSelfCheckAiPerMinute] = useState(30);
-  const [pages, setPages] = useState<ManagePage[]>([]);
   const [saved, setSaved] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void api.getManageSite().then((data) => {
       setSite(data);
-      setText(data.landing_text);
-      setClosing(data.closing_info);
-      setAiNotice(data.ai_notice);
       setBetaEnabled(data.beta_label_enabled);
       setBetaNotice(data.beta_notice);
-      setAiNoticePage(data.ai_notice_page ?? "");
-      setAiNoticeUrl(data.ai_notice_url);
-      setSelfCheckAiPerMinute(data.self_check_ai_per_minute ?? 30);
     });
-    void api.listManagePages().then(setPages);
   }, []);
 
-  async function saveText() {
+  async function save() {
     const updated = await api.updateSite({
-      landing_text: text,
-      closing_info: closing,
-      ai_notice: aiNotice,
       beta_label_enabled: betaEnabled,
       beta_notice: betaNotice,
-      ai_notice_page: aiNoticePage || null,
-      ai_notice_url: aiNoticeUrl,
-      self_check_ai_per_minute: selfCheckAiPerMinute,
     });
     setSite(updated);
     setSaved(true);
@@ -392,6 +436,9 @@ function BrandingSection() {
   return (
     <section>
       <h2 className="mb-4 text-lg font-semibold">{t("Appearance")}</h2>
+      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+        {t("Logo and optional Beta label in the header.")}
+      </p>
 
       <Field label={t("Logo (shown top left; PNG, JPG or SVG)")}>
         <div className="flex flex-wrap items-center gap-4">
@@ -427,6 +474,62 @@ function BrandingSection() {
       </Field>
 
       <div className="mt-6 max-w-2xl">
+        <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+          <input
+            type="checkbox"
+            checked={betaEnabled}
+            onChange={(event) => setBetaEnabled(event.target.checked)}
+            className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+          />
+          {t("Show beta label")}
+        </label>
+        {betaEnabled && (
+          <div className="mt-3">
+            <TranslatableField
+              label={t("Beta label notice (optional)")}
+              value={betaNotice}
+              onChange={setBetaNotice}
+              placeholder={t("e.g. Trial operation — please report problems to …")}
+              hint={t("Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.")}
+            />
+          </div>
+        )}
+        <SavedRow onSave={() => void save()} saved={saved} />
+      </div>
+    </section>
+  );
+}
+
+function TextsSettings() {
+  const { t } = useTranslation();
+  const [loaded, setLoaded] = useState(false);
+  const [text, setText] = useState<LocalizedText>("");
+  const [closing, setClosing] = useState<LocalizedText>("");
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    void api.getManageSite().then((data) => {
+      setText(data.landing_text);
+      setClosing(data.closing_info);
+      setLoaded(true);
+    });
+  }, []);
+
+  async function save() {
+    await api.updateSite({ landing_text: text, closing_info: closing });
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <section>
+      <h2 className="mb-4 text-lg font-semibold">{t("Texts")}</h2>
+      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+        {t("Texts shown before login and to participants after every vote.")}
+      </p>
+      <div className="max-w-2xl">
         <div className="mb-4">
           <TranslatableField
             variant="rich"
@@ -442,37 +545,60 @@ function BrandingSection() {
           onChange={setClosing}
           placeholder={t("Shown to participants after every vote — e.g. contact, feedback link …")}
         />
-        <div className="mt-4">
-          <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-            <input
-              type="checkbox"
-              checked={betaEnabled}
-              onChange={(event) => setBetaEnabled(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
-            />
-            {t("Show beta label")}
-          </label>
-          {betaEnabled && (
-            <div className="mt-3">
-              <TranslatableField
-                label={t("Beta label notice (optional)")}
-                value={betaNotice}
-                onChange={setBetaNotice}
-                placeholder={t("e.g. Trial operation — please report problems to …")}
-                hint={t("Shown when the Beta badge in the header is clicked. Leave empty for a plain badge.")}
-              />
-            </div>
-          )}
-        </div>
-        <div className="mt-4">
-          <TranslatableField
-            label={t("AI privacy notice")}
-            value={aiNotice}
-            onChange={setAiNotice}
-            placeholder={t("e.g. An external model processes uploaded material.")}
-            hint={t("Shown as a one-time banner while the AI features are available. Leave empty for no banner.")}
-          />
-        </div>
+        <SavedRow onSave={() => void save()} saved={saved} />
+      </div>
+    </section>
+  );
+}
+
+function AiSettings() {
+  const { t } = useTranslation();
+  const [loaded, setLoaded] = useState(false);
+  const [aiNotice, setAiNotice] = useState<LocalizedText>("");
+  const [aiNoticePage, setAiNoticePage] = useState("");
+  const [aiNoticeUrl, setAiNoticeUrl] = useState("");
+  const [selfCheckAiPerMinute, setSelfCheckAiPerMinute] = useState(30);
+  const [pages, setPages] = useState<ManagePage[]>([]);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    void api.getManageSite().then((data) => {
+      setAiNotice(data.ai_notice);
+      setAiNoticePage(data.ai_notice_page ?? "");
+      setAiNoticeUrl(data.ai_notice_url);
+      setSelfCheckAiPerMinute(data.self_check_ai_per_minute ?? 30);
+      setLoaded(true);
+    });
+    void api.listManagePages().then(setPages);
+  }, []);
+
+  async function save() {
+    await api.updateSite({
+      ai_notice: aiNotice,
+      ai_notice_page: aiNoticePage || null,
+      ai_notice_url: aiNoticeUrl,
+      self_check_ai_per_minute: selfCheckAiPerMinute,
+    });
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1500);
+  }
+
+  if (!loaded) return null;
+
+  return (
+    <section>
+      <h2 className="mb-4 text-lg font-semibold">{t("AI")}</h2>
+      <p className="mb-4 text-sm text-slate-500 dark:text-slate-400">
+        {t("Privacy notice and limits for the AI features.")}
+      </p>
+      <div className="max-w-2xl">
+        <TranslatableField
+          label={t("AI privacy notice")}
+          value={aiNotice}
+          onChange={setAiNotice}
+          placeholder={t("e.g. An external model processes uploaded material.")}
+          hint={t("Shown as a one-time banner while the AI features are available. Leave empty for no banner.")}
+        />
         <div className="mt-3">
           <Field label={t("Privacy policy page (internal)")}>
             <Select
@@ -514,14 +640,7 @@ function BrandingSection() {
             />
           </Field>
         </div>
-        <div className="mt-4 flex items-center gap-3">
-          <Button variant="primary" onClick={() => void saveText()}>
-            {t("Save")}
-          </Button>
-          <span aria-live="polite" className="text-xs text-brand-700 dark:text-brand-300">
-            {saved ? t("Saved.") : ""}
-          </span>
-        </div>
+        <SavedRow onSave={() => void save()} saved={saved} />
       </div>
     </section>
   );
