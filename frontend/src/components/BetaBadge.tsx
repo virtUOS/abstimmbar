@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 const badge =
@@ -14,6 +14,7 @@ export default function BetaBadge({ notice }: { notice: string }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const noteId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -37,9 +38,11 @@ export default function BetaBadge({ notice }: { notice: string }) {
     <div className="relative inline-flex" ref={ref}>
       <button
         type="button"
-        aria-haspopup="dialog"
+        // The visible "Beta" stays the accessible name (label-in-name); the
+        // title hints at the notice for pointer users.
         aria-expanded={open}
-        aria-label={t("About the beta")}
+        aria-controls={noteId}
+        title={t("About the beta")}
         onClick={() => setOpen((value) => !value)}
         className={`${badge} cursor-pointer hover:bg-amber-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 dark:hover:bg-amber-900/60`}
       >
@@ -47,6 +50,7 @@ export default function BetaBadge({ notice }: { notice: string }) {
       </button>
       {open && (
         <div
+          id={noteId}
           role="note"
           className="absolute left-0 top-full z-30 mt-2 w-72 max-w-[calc(100vw-2rem)] whitespace-pre-line rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
         >
