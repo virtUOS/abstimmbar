@@ -195,7 +195,7 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             conflicts = conflicts.exclude(pk=self.instance.pk)
         if conflicts.exists():
             raise serializers.ValidationError(
-                {"title": "Du hast bereits einen Raum mit diesem Namen."}
+                {"title": "Sie haben bereits einen Raum mit diesem Namen."}
             )
         return attrs
 

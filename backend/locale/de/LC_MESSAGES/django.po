@@ -25,7 +25,7 @@ msgstr "An einer Abstimmung teilnehmen"
 
 #: live/templates/live/home.html:9
 msgid "Enter the code shown on the wall."
-msgstr "Gib den Code ein, der an der Wand angezeigt wird."
+msgstr "Geben Sie den Code ein, der an der Wand angezeigt wird."
 
 #: live/templates/live/home.html:12
 msgid "e.g. tiger-komet-radio"
@@ -89,7 +89,7 @@ msgstr "Lass diese Seite geöffnet — es geht automatisch los."
 #: live/templates/live/participant.html:141
 #: live/templates/live/participant.html:172
 msgid "Your term …"
-msgstr "Dein Begriff …"
+msgstr "Ihr Begriff …"
 
 #: live/templates/live/participant.html:51
 #: live/templates/live/participant.html:67
@@ -124,7 +124,7 @@ msgstr "Fertig"
 #: live/templates/live/participant.html:143
 #: live/templates/live/participant.html:174
 msgid "Your answer …"
-msgstr "Deine Antwort …"
+msgstr "Ihre Antwort …"
 
 #: live/templates/live/participant.html:71
 #: live/templates/live/participant.html:147
@@ -134,15 +134,15 @@ msgstr "Antwort abschicken"
 
 #: live/templates/live/participant.html:81
 msgid "Your answer was received."
-msgstr "Deine Antwort ist angekommen."
+msgstr "Ihre Antwort ist angekommen."
 
 #: live/templates/live/participant.html:82
 msgid "Waiting for the next question."
-msgstr "Warte auf die nächste Frage."
+msgstr "Bitte warten Sie auf die nächste Frage."
 
 #: live/templates/live/participant.html:85
 msgid "Evaluation of your answer"
-msgstr "Auswertung deiner Antwort"
+msgstr "Auswertung Ihrer Antwort"
 
 #: live/templates/live/participant.html:93
 msgid "Voting is closed."
@@ -150,7 +150,7 @@ msgstr "Die Beantwortung ist geschlossen."
 
 #: live/templates/live/participant.html:94
 msgid "You can see the results on the screen."
-msgstr "Die Ergebnisse siehst du an der Wand."
+msgstr "Die Ergebnisse sehen Sie an der Wand."
 
 #: live/templates/live/participant.html:119
 msgid "The vote has ended."
@@ -162,7 +162,7 @@ msgstr "Meine Antworten ansehen"
 
 #: live/templates/live/participant.html:129
 msgid "You have not answered anything in this round yet."
-msgstr "Du hast in dieser Runde noch nichts beantwortet."
+msgstr "Sie haben in dieser Runde noch nichts beantwortet."
 
 #: live/templates/live/participant.html:131
 msgid "Back"
@@ -175,7 +175,7 @@ msgstr "Weiter"
 
 #: live/templates/live/participant.html:155
 msgid "You can close this page now."
-msgstr "Du kannst diese Seite jetzt schließen."
+msgstr "Sie können diese Seite jetzt schließen."
 
 #: live/templates/live/participant.html:161
 msgid "Previous question"
@@ -222,7 +222,7 @@ msgstr "Geschafft! {right} von {total} automatisch bewerteten Fragen richtig."
 #: live/templates/live/participant.html:210
 #, python-brace-format
 msgid "Done! You answered all {total} questions."
-msgstr "Geschafft! Du hast alle {total} Fragen beantwortet."
+msgstr "Geschafft! Sie haben alle {total} Fragen beantwortet."
 
 #: live/templates/live/participant.html:211
 msgid "Add"
@@ -230,11 +230,11 @@ msgstr "Hinzufügen"
 
 #: live/templates/live/participant.html:213
 msgid "You already submitted this term."
-msgstr "Diesen Begriff hast du schon genannt."
+msgstr "Diesen Begriff haben Sie schon genannt."
 
 #: live/templates/live/participant.html:214
 msgid "You have reached the maximum number of terms."
-msgstr "Du hast die maximale Anzahl an Begriffen erreicht."
+msgstr "Sie haben die maximale Anzahl an Begriffen erreicht."
 
 #: live/templates/live/participant.html:215
 #, python-brace-format
@@ -243,7 +243,7 @@ msgstr "Begriff „{word}“ entfernen"
 
 #: live/templates/live/participant.html:216
 msgid "Your answer: "
-msgstr "Deine Antwort: "
+msgstr "Ihre Antwort: "
 
 #: live/templates/live/participant.html:217
 msgid "Not answered."
@@ -251,11 +251,11 @@ msgstr "Nicht beantwortet."
 
 #: live/templates/live/participant.html:220
 msgid "You already answered this question."
-msgstr "Du hast diese Frage bereits beantwortet."
+msgstr "Sie haben diese Frage bereits beantwortet."
 
 #: live/templates/live/participant.html:218
 msgid "your choice"
-msgstr "deine Wahl"
+msgstr "Ihre Wahl"
 
 #: live/templates/live/participant.html:219
 #, python-brace-format
@@ -280,7 +280,7 @@ msgstr "richtig platziert"
 
 #: live/templates/live/participant.html:224
 msgid "Your order"
-msgstr "Deine Reihenfolge"
+msgstr "Ihre Reihenfolge"
 
 #: live/templates/live/participant.html:225
 msgid "Correct order"
@@ -300,7 +300,7 @@ msgstr "Nach unten"
 
 #: live/templates/live/participant.html:229
 msgid "you"
-msgstr "du"
+msgstr "Sie"
 
 #: live/templates/live/participant.html:230
 #, python-brace-format
@@ -339,7 +339,7 @@ msgstr "{right} von {total} richtig."
 #: live/templates/live/participant.html
 #, python-brace-format
 msgid "You worked through all {total} questions."
-msgstr "Du hast alle {total} Fragen bearbeitet."
+msgstr "Sie haben alle {total} Fragen bearbeitet."
 
 #: live/templates/live/participant.html
 msgid "This self-check is not available."
@@ -359,11 +359,11 @@ msgstr "Die KI-Einschätzung ist gerade nicht verfügbar — es wird nur die Mus
 
 #: live/templates/live/participant.html
 msgid "You have one answer only and cannot change it afterwards."
-msgstr "Du hast nur eine Antwort und kannst sie danach nicht mehr ändern."
+msgstr "Sie haben nur eine Antwort und können sie danach nicht mehr ändern."
 
 #: live/templates/live/participant.html
 msgid "Fill in your terms and submit them together."
-msgstr "Trage deine Begriffe ein und schicke sie gemeinsam ab."
+msgstr "Tragen Sie Ihre Begriffe ein und schicken Sie sie gemeinsam ab."
 
 #: live/templates/live/participant.html
 msgid "Submit all"
