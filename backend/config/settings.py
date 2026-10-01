@@ -203,6 +203,12 @@ CSRF_TRUSTED_ORIGINS = _env_list(
 )
 
 REST_FRAMEWORK = {
+    # Session auth only. DRF's default also enables BasicAuthentication, which
+    # would expose every endpoint to password guessing against the break-glass
+    # superuser (ModelBackend) — without rate limiting and bypassing CSRF.
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "rest_framework.authentication.SessionAuthentication",
+    ],
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardPagination",
     "PAGE_SIZE": 25,
 }
