@@ -97,7 +97,7 @@ Abstimmungen und sogar über Semester hinweg gleich, sodass Ihre Teilnehmenden
 den Zugang nur einmal kennen müssen.
 
 - Klicken Sie auf der Startseite auf **„+ Neuer Raum"** und geben Sie einen
-  Titel (z. B. den Namen der Veranstaltung).
+  Titel ein (z. B. den Namen der Veranstaltung).
 - Der Raum öffnet sich sofort — hier legen Sie anschließend Ihre Fragensets an.
 - Häufig genutzte Räume können Sie mit dem **Herz-Symbol** als Favorit oben
   anheften.
@@ -206,8 +206,8 @@ zwei Wegen zur Abstimmung:
 - über den **QR-Code**, den der Präsentationsmodus einblendet, oder
 - über den kurzen **Zugangscode bzw. die Kurz-URL**, die Sie ansagen können.
 
-Sie können den QR-Code dauerhaft eingeblendet lassen, damit Nachzügler jederzeit
-beitreten können.
+Sie können den QR-Code dauerhaft eingeblendet lassen, damit auch später
+Hinzukommende jederzeit beitreten können.
 
 ## 8. Präsentieren
 
@@ -227,8 +227,8 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
 
 ## 9. Aufgezeichnete Vorlesungen
 
-Zeichnen Sie Ihre Veranstaltung mit einem externen Werkzeug auf, aktivieren Sie
-den **Aufzeichnungsmodus**: Jede Frage erhält dann einen eigenen QR-Code. Wer die
+Wenn Sie Ihre Veranstaltung mit einem externen Werkzeug aufzeichnen, aktivieren
+Sie den **Aufzeichnungsmodus**: Jede Frage erhält dann einen eigenen QR-Code. Wer die
 Aufzeichnung später ansieht, kann so nachträglich zu genau der gezeigten Frage
 abstimmen.
 
@@ -276,7 +276,7 @@ Abschnitt 5.)
 - Kurze, eindeutige Fragen wirken am besten — eine Kernaussage pro Frage.
 - Nutzen Sie Abstimmungen zum Aktivieren (Vorwissen abfragen, Zwischenstand
   prüfen, Diskussion anstoßen).
-- Legen Sie den Raum einmal pro Veranstaltung an und wiederverwenden Sie ihn über
-  das Semester — der Code bleibt gleich.
+- Legen Sie den Raum einmal pro Veranstaltung an und verwenden Sie ihn das ganze
+  Semester über wieder — der Code bleibt gleich.
 - Blenden Sie den QR-Code dauerhaft ein, damit auch spät Kommende teilnehmen
   können.
