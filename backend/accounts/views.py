@@ -6,16 +6,13 @@ import json
 import logging
 import re
 
-from basicbar_auth.oidc import provider_logout_url
+from basicbar_auth.views import whoami_payload
 from basicbar_integrations import ai, translation_service
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.contrib.auth import logout as django_logout
 from django.db import IntegrityError, transaction
 from django.db.models import F
 from django.http import JsonResponse
-from django.middleware.csrf import get_token
-from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
@@ -43,27 +40,21 @@ def _example_ids(user):
 def whoami(request):
     """Return the current session user (for the SPA to check login state).
 
-    Also returns the CSRF token in the body: ``get_token`` sets the cookie
-    *and* hands the SPA an authoritative token, so unsafe requests work even
-    cross-origin in dev, where reading the cookie from JavaScript can be
-    unreliable (production is same-origin behind Caddy)."""
-    csrf_token = get_token(request)
+    The shared part (identity, ``language``, the CSRF token for the SPA)
+    comes from basicbar-auth's ``whoami_payload``; ``set_language`` and
+    ``logout_view`` are the package's, wired by ``basicbar_auth.urls``."""
+    payload = whoami_payload(request)
     user = request.user
     # Content-i18n config (#33 MR2): the default/canonical authoring language
     # and whether machine-translation drafts are available, so the SPA can
     # decide which language to show/edit without a second round-trip.
-    content_default_language = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
-    content_translation_enabled = translation_service.is_enabled()
+    common = {
+        "ai_enabled": ai.is_enabled(),
+        "content_default_language": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
+        "content_translation_enabled": translation_service.is_enabled(),
+    }
     if not user.is_authenticated:
-        return JsonResponse(
-            {
-                "authenticated": False,
-                "csrf_token": csrf_token,
-                "ai_enabled": ai.is_enabled(),
-                "content_default_language": content_default_language,
-                "content_translation_enabled": content_translation_enabled,
-            }
-        )
+        return JsonResponse({**payload, **common})
     # Onboarding (#78): seed a ready-made example room exactly once per
     # user (also catches pre-existing accounts, whose onboarded defaults to
     # False). select_for_update + a second read under the lock makes this
@@ -85,23 +76,13 @@ def whoami(request):
     ex_room, ex_set = _example_ids(user)
     return JsonResponse(
         {
-            "authenticated": True,
-            "username": user.get_username(),
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": user.email,
-            "subject": user.subject,
-            "is_staff": user.is_staff,
-            "language": user.language,
+            **payload,
+            **common,
             # Effective Easy/Pro mode: explicit choice, else role default
             # (non-staff = simple, staff = pro) — see User.effective_easy_mode.
             "easy_mode": user.effective_easy_mode,
             "onboarding_tour_seen": user.onboarding_tour_seen,
-            "csrf_token": csrf_token,
-            "ai_enabled": ai.is_enabled(),
             "ai_generate_max_questions": settings.AI_GEN_MAX_QUESTIONS,
-            "content_default_language": content_default_language,
-            "content_translation_enabled": content_translation_enabled,
             "example_room_id": ex_room,
             "example_set_id": ex_set,
         }
@@ -135,41 +116,6 @@ def _record_mode_session(request, user):
         )
     except Exception:
         logger.exception("Failed to record mode session")
-
-
-def logout_view(request):
-    """Log out of Django and (if logged in via OIDC) the identity provider.
-
-    GET-friendly so the SPA can trigger it with a plain redirect.
-    """
-    was_authenticated = request.user.is_authenticated
-    end_session_url = None
-    if was_authenticated and settings.OIDC_OP_LOGOUT_ENDPOINT:
-        end_session_url = provider_logout_url(request)
-    django_logout(request)
-    return redirect(end_session_url or settings.LOGOUT_REDIRECT_URL)
-
-
-@require_POST
-def set_language(request):
-    """POST /api/whoami/language/ {language} — remember the user's UI language.
-
-    Plain Django view (matches ``whoami``); the SPA sends its CSRF token from
-    ``whoami`` so the request passes CSRF as elsewhere.
-    """
-    if not request.user.is_authenticated:
-        return JsonResponse({"detail": "Not authenticated."}, status=403)
-    try:
-        data = json.loads(request.body or b"{}")
-    except ValueError:
-        data = {}
-    raw = data.get("language") if isinstance(data, dict) else ""
-    language = (str(raw) if raw else "").strip()
-    if language not in dict(settings.LANGUAGES):
-        return JsonResponse({"detail": "Unsupported language."}, status=400)
-    request.user.language = language
-    request.user.save(update_fields=["language"])
-    return JsonResponse({"language": language})
 
 
 @require_POST
