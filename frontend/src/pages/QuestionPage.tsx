@@ -22,6 +22,7 @@ import {
   useTheme,
   type LocalizedText,
   RichText,
+  isEmptyHtml,
 } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
@@ -36,12 +37,6 @@ function aiErrorText(err: unknown): string {
   } catch {
     return String(err);
   }
-}
-
-function stripHtml(html: string) {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent?.trim() ?? "";
 }
 
 /** Which languages of a translatable field look outdated, computed live in
@@ -65,7 +60,7 @@ function liveStaleLangs(
   const stale = new Set<string>();
   for (const l of langs) {
     if (raw(cur, l) !== raw(base, l)) continue; // this language was touched
-    if (!stripHtml(raw(cur, l))) continue; // empty → "not translated", not stale
+    if (isEmptyHtml(raw(cur, l))) continue; // empty → "not translated", not stale
     if (anyChanged) stale.add(l);
     else if (!synced && serverStale.includes(l)) stale.add(l);
   }
@@ -697,7 +692,7 @@ export default function QuestionPage() {
   // (text or image). Mirrors the backend QuestionSerializer.validate rule.
   const canonicalLang = getDefaultContentLang() as "de" | "en";
   const canonicalHtml = localizedMap(text)[canonicalLang] ?? "";
-  const textMissing = !stripHtml(canonicalHtml) && !/<img/i.test(canonicalHtml);
+  const textMissing = isEmptyHtml(canonicalHtml);
   // Ignore unfilled trailing options (e.g. a freshly-added blank row) rather
   // than failing validation on their account — only options that actually
   // carry text or an image count, and only those are sent to the backend

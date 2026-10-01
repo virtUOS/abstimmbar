@@ -65,6 +65,9 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         translate={(text, source, target, format) =>
           api.translate(text, source, target, format).then((r) => r.translated)
         }
+        // On narrow screens the floating controls would overlap the question
+        // editor's sticky Save/Cancel bar — lift them clear of it there.
+        controlsClassName="fixed bottom-6 right-6 z-40 max-md:bottom-[5.5rem]"
       >
         <RouterProvider router={router} />
       </TranslationFormProvider>

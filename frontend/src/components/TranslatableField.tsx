@@ -11,11 +11,11 @@
 import type { ReactNode } from "react";
 import {
   TranslatableField as BaseTranslatableField,
-  RichTextEditor,
   localizedMap,
   setLocalizedLang,
   type LocalizedText,
 } from "@basicbar/ui";
+import { RichTextEditor } from "@basicbar/ui/rich-text-editor";
 import { useEasyMode } from "../App";
 import { api } from "../api";
 

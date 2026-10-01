@@ -8,7 +8,7 @@ import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, 
 import { useApp, useEasyMode } from "../App";
 import { api, type Room, type SearchResults } from "../api";
 import { SET_TYPES, CREATABLE_SET_TYPES, type SetType } from "../setTypes";
-import { localizedText } from "@basicbar/ui";
+import { localizedText, stripHtml } from "@basicbar/ui";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
 import { Button, ConfirmDialog, EmptyState, InfoHint, SegmentedControl, TextInput } from "../components/ui";
@@ -24,12 +24,6 @@ const SORT_OPTIONS: { value: SortKey; label: string }[] = [
 
 /** Plain-text preview of a rich-HTML field for the compact room card — the
  * description is authored as HTML (TipTap) and must not show raw tags here. */
-function stripHtml(html: string): string {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent?.trim() ?? "";
-}
-
 function sortRooms(list: Room[], key: SortKey): Room[] {
   return [...list].sort((a, b) => {
     if (key === "title") {
