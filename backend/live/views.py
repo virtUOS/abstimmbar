@@ -412,7 +412,7 @@ def vote(request, code):
                 run=run, question=question, token=token, text_key=key
             ).exists():
                 return Response(
-                    {"detail": "Diesen Begriff hast du schon genannt."},
+                    {"detail": "Diesen Begriff haben Sie schon genannt."},
                     status=status.HTTP_409_CONFLICT,
                 )
     else:
@@ -818,7 +818,7 @@ def recording_vote(request, token):
             source=Vote.Source.RECORDING, text_key=key,
         ).exists():
             return Response(
-                {"detail": "Diesen Begriff hast du schon genannt."},
+                {"detail": "Diesen Begriff haben Sie schon genannt."},
                 status=status.HTTP_409_CONFLICT,
             )
 

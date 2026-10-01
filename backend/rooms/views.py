@@ -270,7 +270,7 @@ class RoomViewSet(viewsets.ModelViewSet):
             or instance.owner_id == user.pk
         ):
             raise PermissionDenied(
-                "Nur die besitzende Person kann den Raum löschen. Du kannst "
+                "Nur die besitzende Person kann den Raum löschen. Sie können "
                 "aus dem Teilen austreten."
             )
         instance.delete()
@@ -389,8 +389,8 @@ class RoomViewSet(viewsets.ModelViewSet):
         user = request.user
         if room.owner_id == user.pk:
             return Response(
-                {"detail": "Als besitzende Person kannst du nicht austreten — "
-                           "übertrage den Raum zuerst oder lösche ihn."},
+                {"detail": "Als besitzende Person können Sie nicht austreten — "
+                           "übertragen Sie den Raum zuerst oder löschen Sie ihn."},
                 status=status.HTTP_409_CONFLICT,
             )
         room.owners.remove(user)

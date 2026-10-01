@@ -40,8 +40,8 @@ def seed_example_room(user) -> Room:
         title_en="Example room – try things out",
         description_de=(
             "Ein automatisch angelegter Beispielraum mit je einer Frage "
-            "jedes Typs. Schau dich um, probiere die Präsentation aus und "
-            "lösche den Raum, wenn du bereit bist."
+            "jedes Typs. Schauen Sie sich um, probieren Sie die Präsentation aus und "
+            "löschen Sie den Raum, wenn Sie bereit sind."
         ),
         description_en=(
             "An automatically created example room with one question of "
@@ -151,7 +151,7 @@ def seed_example_room(user) -> Room:
 
     # word_cloud: no options, just a bilingual prompt.
     text_de, text_en = _p(
-        "Was fällt dir spontan zum Thema Fernstudium ein?",
+        "Was fällt Ihnen spontan zum Thema Fernstudium ein?",
         "What comes to mind when you think of distance learning?",
     )
     Question.objects.create(
@@ -165,7 +165,7 @@ def seed_example_room(user) -> Room:
 
     # open_text: no options, a bilingual prompt + short model solution.
     text_de, text_en = _p(
-        "Erkläre kurz, was eine anonyme Umfrage auszeichnet.",
+        "Erklären Sie kurz, was eine anonyme Umfrage auszeichnet.",
         "Briefly explain what makes a survey anonymous.",
     )
     Question.objects.create(
@@ -186,7 +186,7 @@ def seed_example_room(user) -> Room:
 
     # priorities: items to rank; order of creation is irrelevant here.
     text_de, text_en = _p(
-        "Bringe die folgenden Kriterien in deine persönliche Prioritätenreihenfolge.",
+        "Bringen Sie die folgenden Kriterien in Ihre persönliche Prioritätenreihenfolge.",
         "Rank the following criteria in your personal order of priority.",
     )
     priorities = Question.objects.create(
@@ -215,7 +215,7 @@ def seed_example_room(user) -> Room:
     # ordering: the stored position IS the correct order (server shuffles
     # for participants).
     text_de, text_en = _p(
-        "Bringe die Schritte der wissenschaftlichen Methode in die richtige Reihenfolge.",
+        "Bringen Sie die Schritte der wissenschaftlichen Methode in die richtige Reihenfolge.",
         "Put the steps of the scientific method in the correct order.",
     )
     ordering = Question.objects.create(
