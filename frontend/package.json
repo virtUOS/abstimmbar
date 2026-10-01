@@ -10,7 +10,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@basicbar/ui": "https://github.com/virtUOS/basicbar/releases/download/ui/v0.5.1/basicbar-ui-0.5.1.tgz",
+    "@basicbar/ui": "https://github.com/virtUOS/basicbar/releases/download/ui/v0.6.0/basicbar-ui-0.6.0.tgz",
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",

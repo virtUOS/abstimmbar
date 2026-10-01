@@ -6,33 +6,31 @@ import { Trans, useTranslation } from "react-i18next";
 import { Link, Navigate, Outlet, useNavigate, useOutletContext } from "react-router-dom";
 import {
   BarChart3,
-  Check,
   Info,
-  Monitor,
-  Moon,
   Settings,
-  SlidersHorizontal,
-  Sun,
   Unplug,
   X,
-  type LucideIcon,
 } from "lucide-react";
 import { api, loginUrl, logoutUrl, silentLoginUrl, type SitePublic, type Whoami } from "./api";
-import { localizedText, setDefaultContentLang, setTranslationEnabled, RichText } from "@basicbar/ui";
+import {
+  AppearanceControl,
+  LanguageOptions,
+  PreferencesMenu,
+  localizedText,
+  setDefaultContentLang,
+  setTranslationEnabled,
+  RichText,
+} from "@basicbar/ui";
 import BetaBadge from "./components/BetaBadge";
 import Footer from "./components/Footer";
 import GenerationStatusBar from "./components/GenerationStatusBar";
 import HelpMenu from "./components/HelpMenu";
 import JoinByCode from "./components/JoinByCode";
-import { LanguageOptions } from "./components/LanguageSwitcher";
+import { applyLangPref } from "./i18n";
 import { EmptyState, SegmentedControl } from "./components/ui";
 import RoomsPage from "./pages/RoomsPage";
 import { useTour } from "./tour/TourController";
 import WelcomeDialog from "./tour/WelcomeDialog";
-import {
-  useTheme,
-  type Appearance,
-} from "@basicbar/ui";
 
 // --- Silent SSO + deep-link restore (#19, adopted from Ausleihbar) ----------
 // Where to send the user once signed in; survives the full-page OIDC round-trip
@@ -70,62 +68,9 @@ function doLogout(): void {
   window.location.assign(logoutUrl);
 }
 
-/** Auto / Light / Dark rows, Ausleihbar's account-menu vocabulary:
- *  icon + label (+ hint) + check on the active option. */
-function AppearanceControl({
-  theme,
-  onChange,
-}: {
-  theme: Appearance;
-  onChange: (setting: Appearance) => void;
-}) {
-  const { t } = useTranslation();
-  const options: {
-    value: Appearance;
-    label: string;
-    hint?: string;
-    icon: LucideIcon;
-  }[] = [
-    { value: "auto", label: t("Auto"), hint: t("(follows your system)"), icon: Monitor },
-    { value: "light", label: t("Light"), icon: Sun },
-    { value: "dark", label: t("Dark"), icon: Moon },
-  ];
-  return (
-    <div role="radiogroup" aria-label={t("Appearance")}>
-      <p className="px-3 pb-0.5 pt-1 text-xs text-slate-400 dark:text-slate-500">
-        {t("Appearance")}
-      </p>
-      {options.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          role="radio"
-          aria-checked={theme === option.value}
-          onClick={() => onChange(option.value)}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-slate-700 hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800"
-        >
-          <option.icon aria-hidden className="h-4 w-4 text-slate-400" />
-          <span className="flex-1">
-            {option.label}
-            {option.hint && (
-              <span className="block text-xs text-slate-400 dark:text-slate-500">
-                {option.hint}
-              </span>
-            )}
-          </span>
-          {theme === option.value && (
-            <Check aria-hidden className="h-4 w-4 text-brand-600" />
-          )}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function UserMenu({ whoami }: { whoami: Whoami }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const { appearance, setAppearance } = useTheme();
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -182,12 +127,11 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
             )}
           </div>
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-          <p className="px-3 pb-0.5 pt-1 text-xs text-slate-400 dark:text-slate-500">
-            {t("Language")}
-          </p>
-          <LanguageOptions authenticated />
+          {/* Picks go through applyLangPref: abstimmbar_lang stays authoritative at
+              startup, and signed-in picks are also saved on the account. */}
+          <LanguageOptions onChange={(lang) => applyLangPref(lang as "de" | "en", true)} />
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-          <AppearanceControl theme={appearance} onChange={setAppearance} />
+          <AppearanceControl />
           <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
           <button
             type="button"
@@ -197,61 +141,6 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
           >
             {t("Sign out")}
           </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Signed-out preferences (#60): language + appearance in one menu, so the
- *  language switch no longer sits alone (and later gets replaced by an
- *  unrelated button once signed in). Mirrors the signed-in user menu; the
- *  gear stays reserved for the admin area. */
-function PreferencesMenu() {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const { appearance, setAppearance } = useTheme();
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((value) => !value)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t("Preferences")}
-        className="flex items-center rounded-full p-1 transition-colors duration-150 hover:bg-slate-100 dark:hover:bg-slate-800"
-      >
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-400 text-slate-900">
-          <SlidersHorizontal aria-hidden className="h-4 w-4" />
-        </span>
-      </button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
-        >
-          <p className="px-3 pb-0.5 pt-1 text-xs text-slate-400 dark:text-slate-500">
-            {t("Language")}
-          </p>
-          <LanguageOptions onPicked={() => setOpen(false)} />
-          <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-          <AppearanceControl theme={appearance} onChange={setAppearance} />
         </div>
       )}
     </div>
@@ -517,7 +406,7 @@ export default function App() {
               >
                 {t("Sign in")}
               </a>
-              <PreferencesMenu />
+              <PreferencesMenu onLanguageChange={(lang) => applyLangPref(lang as "de" | "en")} />
             </div>
           )}
         </div>
