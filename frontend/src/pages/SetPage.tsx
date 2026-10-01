@@ -25,7 +25,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
 import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
-import { localizedText, type LocalizedText, RichText } from "@basicbar/ui";
+import { localizedText, type LocalizedText, RichText, stripHtml } from "@basicbar/ui";
 import {
   Button,
   ConfirmInline,
@@ -96,12 +96,6 @@ const QUIZ_TIME_PRESETS: { label: string; seconds: number | null }[] = [
   { label: "10 min", seconds: 600 },
   { label: "15 min", seconds: 900 },
 ];
-
-function stripHtml(html: string) {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent?.trim() ?? "";
-}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("de-DE", {

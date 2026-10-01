@@ -17,7 +17,7 @@ import {
   type WordCloudOptimization,
 } from "../api";
 import { useApp, useEasyMode } from "../App";
-import { localizedText, RichText } from "@basicbar/ui";
+import { localizedText, RichText, stripHtml } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
@@ -132,12 +132,6 @@ function WordCloudResult({
       )}
     </>
   );
-}
-
-function stripHtml(html: string) {
-  const div = document.createElement("div");
-  div.innerHTML = html;
-  return div.textContent?.trim() ?? "";
 }
 
 function formatDate(iso: string) {
