@@ -373,8 +373,9 @@ class DailyModeSessionTests(TestCase):
 
 class OidcCallbackReplayTests(TestCase):
     """A Back press right after login replays the spent code/state, which
-    mozilla-django-oidc raises SuspiciousOperation for (a 400 page). The
-    project override redirects to the SPA instead."""
+    mozilla-django-oidc raises SuspiciousOperation for (a 400 page).
+    basicbar-auth's SafeOIDCCallbackView (via basicbar_auth.urls) redirects
+    to the SPA instead — pinned here because the SPA relies on it."""
 
     def test_replayed_callback_redirects_instead_of_erroring(self):
         # A consumed state: oidc_states present in the session but without this
