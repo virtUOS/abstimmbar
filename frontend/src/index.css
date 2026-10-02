@@ -8,8 +8,11 @@
 
 /* Result animations (presenter). Durations are cut globally under
    prefers-reduced-motion by @basicbar/ui/base.css. */
+/* Opacity only, and no fill after it ends: a lingering transform/opacity on
+   the slide container would re-anchor or re-stack its position:fixed children
+   (countdown, word-cloud moderation drawer). */
 @keyframes ab-fade-in {
-  from { opacity: 0; transform: translateY(6px); }
+  from { opacity: 0; }
 }
 @keyframes ab-pop {
   from { opacity: 0; transform: scale(0.3); }
@@ -21,7 +24,7 @@
 @keyframes ab-chip-in {
   from { opacity: 0; transform: translateY(12px) scale(0.8); }
 }
-.ab-fade-in { animation: ab-fade-in 250ms ease-out both; }
+.ab-fade-in { animation: ab-fade-in 250ms ease-out backwards; }
 .ab-pop { animation: ab-pop 500ms cubic-bezier(.2, 1.6, .4, 1) both; }
 .ab-bump { animation: ab-bump 350ms ease-out; }
 .ab-chip-in { animation: ab-chip-in 500ms cubic-bezier(.2, 1.4, .4, 1) both; }
