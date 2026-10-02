@@ -45,7 +45,7 @@ msgstr "Raum nicht gefunden"
 
 #: live/templates/live/not_found.html:9
 msgid "Check the code and try again."
-msgstr "Prüfe den Code und versuche es erneut."
+msgstr "Bitte prüfen Sie den Code und versuchen Sie es erneut."
 
 #: live/templates/live/not_found.html:11
 msgid "Enter a code"
@@ -74,7 +74,7 @@ msgstr "Meine Antworten"
 
 #: live/templates/live/participant.html:37
 msgid "Connecting …"
-msgstr "Verbinde …"
+msgstr "Verbindung wird hergestellt …"
 
 #: live/templates/live/participant.html:41
 #: live/templates/live/participant.html:201
@@ -83,7 +83,7 @@ msgstr "Die Abstimmung hat noch nicht begonnen."
 
 #: live/templates/live/participant.html:42
 msgid "Keep this page open — it will start automatically."
-msgstr "Lass diese Seite geöffnet — es geht automatisch los."
+msgstr "Lassen Sie diese Seite geöffnet — es geht automatisch los."
 
 #: live/templates/live/participant.html:51
 #: live/templates/live/participant.html:141
@@ -113,8 +113,8 @@ msgid ""
 "You can submit several terms — but each only once. Use × to withdraw an "
 "entry again."
 msgstr ""
-"Du kannst mehrere Begriffe einreichen — jeden aber nur einmal. Über das × "
-"nimmst du einen Eintrag wieder zurück."
+"Sie können mehrere Begriffe einreichen — jeden aber nur einmal. Über das × "
+"nehmen Sie einen Eintrag wieder zurück."
 
 #: live/templates/live/participant.html:63
 msgid "Done"
@@ -191,7 +191,7 @@ msgstr "Nächste Frage"
 
 #: live/templates/live/participant.html:202
 msgid "Almost there — look at the screen."
-msgstr "Gleich geht es weiter — schau an die Wand."
+msgstr "Gleich geht es weiter — bitte schauen Sie an die Wand."
 
 #: live/templates/live/participant.html:203
 #, python-brace-format
@@ -268,11 +268,11 @@ msgstr "{used} von {total} Punkten vergeben"
 
 #: live/templates/live/participant.html:220
 msgid "lower a value to reallocate points"
-msgstr "reduziere einen Wert, um Punkte neu zu verteilen"
+msgstr "verringern Sie einen Wert, um Punkte neu zu verteilen"
 
 #: live/templates/live/participant.html:221
 msgid "Drag the items or use the arrows to sort them."
-msgstr "Zieh die Elemente oder nutze die Pfeile zum Sortieren."
+msgstr "Ziehen Sie die Elemente oder nutzen Sie die Pfeile zum Sortieren."
 
 #: live/templates/live/participant.html:222
 msgid "correct order"
