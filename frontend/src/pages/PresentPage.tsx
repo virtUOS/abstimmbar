@@ -23,6 +23,7 @@ import { localizedText, RichText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
 import { useTourSignal } from "../tour/signals";
 import ResultBar, { type BarState } from "../results/ResultBar";
+import VoteCounter from "../results/VoteCounter";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
@@ -779,7 +780,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           </footer>
         }
       >
-        <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center">
+        <div key={item.id} className="ab-fade-in mx-auto flex min-h-full max-w-4xl flex-col justify-center">
           <RichText
             className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
             html={localizedText(item.text)}
@@ -795,7 +796,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   if (ended) {
     return (
       <Shell logo={beamerLogo}>
-        <div className="flex min-h-full flex-col items-center justify-center gap-6 text-center">
+        <div className="ab-fade-in flex min-h-full flex-col items-center justify-center gap-6 text-center">
           <div className="text-7xl" aria-hidden>✅</div>
           <h1 className="text-5xl font-bold">{t("The survey has ended")}</h1>
           <p className="text-2xl text-slate-500">{t("Thanks for taking part!")}</p>
@@ -931,7 +932,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           />
         }
       >
-        <div className="flex min-h-full flex-col items-center justify-center text-center">
+        <div className="ab-fade-in flex min-h-full flex-col items-center justify-center text-center">
           <h1 className="max-w-4xl text-6xl font-extrabold leading-tight">
             {interstitial.title}
           </h1>
@@ -963,7 +964,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           </>
         ) : null
       }
-      stats={<LiveStats participants={state.participants ?? 0} votes={state.votes ?? 0} />}
+      stats={phase === "open" ? undefined : <LiveStats participants={state.participants ?? 0} votes={state.votes ?? 0} />}
       footer={
         <Footer
           phase={phase}
@@ -1057,7 +1058,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       {phase === "lobby" && (
         <div
           data-tour="present.join"
-          className="flex min-h-full flex-col items-center justify-center gap-6 text-center"
+          className="ab-fade-in flex min-h-full flex-col items-center justify-center gap-6 text-center"
         >
           <h1 className="text-4xl font-bold">{localizedText(state.set_title)}</h1>
           <img
@@ -1087,7 +1088,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       )}
 
       {question && phase !== "lobby" && (
-        <div className="mx-auto flex min-h-full max-w-4xl flex-col justify-center">
+        <div key={question.id} className="ab-fade-in mx-auto flex min-h-full max-w-4xl flex-col justify-center">
           {phase === "open" && remaining !== null && (
             <div
               className={`fixed left-6 top-4 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${countdownColor(remaining)}`}
@@ -1413,10 +1414,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               </span>
             )}
             {phase === "open" && (
-              <p className="text-3xl">
-                <span className="font-extrabold tabular-nums text-brand-700">{total}</span>{" "}
-                {t("answer", { count: total })}
-              </p>
+              <VoteCounter votes={total} participants={state.participants ?? 0} />
             )}
             {phase === "closed" && (
               <p className="text-xl">{t("Voting closed")}</p>

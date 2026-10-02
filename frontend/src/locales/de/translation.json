@@ -522,6 +522,7 @@
   "Delete run": "Durchführung löschen",
   "answer_one": "Antwort",
   "answer_other": "Antworten",
+  "of {{count}} connected": "von {{count}} Verbundenen",
 
   "No questions generated.": "Keine Fragen erzeugt.",
   "Generate questions from document": "Fragen aus Dokument erzeugen",
