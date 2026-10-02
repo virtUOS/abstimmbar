@@ -662,8 +662,14 @@ multi-line note must use {% comment %} or it renders as text.)
   }
 
   // Set final widths/transforms on the next frame so the bars grow from 0
-  // (CSS transitions; reduced motion turns them off).
+  // (CSS transitions; reduced motion turns them off). Live state updates
+  // re-render the results (e.g. when the connected count changes), so the
+  // grow only plays on a question's first render — afterwards values are set
+  // before the elements are attached and simply appear.
+  let growEnabled = true;
+  let resultsGrownFor = null;
   function growLater(el, apply) {
+    if (!growEnabled) { apply(el); return; }
     requestAnimationFrame(() => requestAnimationFrame(() => apply(el)));
   }
   const CAT = (i) => "var(--cat-" + (((i % 6) + 6) % 6) + ")";
@@ -802,7 +808,11 @@ multi-line note must use {% comment %} or it renders as text.)
     const list = document.getElementById("results-list");
     list.replaceChildren();
     const mine = state.question && history.items[String(state.question.id)];
+    const qid = state.question ? state.question.id : null;
+    growEnabled = resultsGrownFor !== qid;
+    resultsGrownFor = qid;
     renderResultBlock(list, state, mine);
+    growEnabled = true;
   }
 
   // "My answers" overlay: every question I answered (or saw results
