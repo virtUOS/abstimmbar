@@ -216,9 +216,10 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
 
 - **Starten** (Taste S) öffnet die Abstimmung zur aktuellen Frage, **Stoppen**
   (S) schließt sie. Bis Sie starten, sehen die Teilnehmenden nur die Frage.
-  Während der Abstimmung zeigt der Beamer statt der Ergebnisse einen
-  **Zähler** der eingegangenen Antworten; ein Ring zeigt den Anteil der
-  verbundenen Teilnehmenden, die schon geantwortet haben.
+  Unten links zeigt eine kleine Anzeige die **verbundenen Teilnehmenden** und
+  die **abgegebenen Stimmen**. Ein farbiger Ring zeigt den Anteil, der schon
+  geantwortet hat: rot unter 50 %, gelb bis 80 %, hellgrün bis 95 %,
+  dunkelgrün darüber; haben alle geantwortet, leuchtet er kurz auf.
 - Mit dem Umschalter **Frage / Ergebnisse** (E) / **Lösung** (A) legen Sie fest,
   was der Beamer zeigt; die Ergebnisse aktualisieren sich **in Echtzeit**. Die
   Balken bauen sich kurz animiert auf, jede Antwort hat ihre eigene Farbe. Die
