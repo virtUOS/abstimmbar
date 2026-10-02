@@ -75,15 +75,28 @@ function useEventSource(code: string | null, onState: (s: LiveState) => void) {
 
 /** True while the presenter types in a text field (drawer inputs, the AI
  *  grouping textarea, …): beamer shortcuts must not fire then. */
+const TEXT_INPUT_TYPES = new Set(["text", "search", "email", "url", "number", "password", "tel"]);
 function isTextField(target: EventTarget | null): target is HTMLElement {
   const el = target as HTMLElement | null;
   if (!el || typeof el.tagName !== "string") return false;
-  return (
-    el.tagName === "INPUT" ||
-    el.tagName === "TEXTAREA" ||
-    el.tagName === "SELECT" ||
-    el.isContentEditable
-  );
+  if (el.tagName === "INPUT") {
+    // `.type` reports "text" for a missing/unknown type attribute.
+    return TEXT_INPUT_TYPES.has((el as HTMLInputElement).type);
+  }
+  return el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
+}
+
+/** Marks the word-cloud drawers and their edge handles (see `onKey`). */
+const WC_DRAWER_ATTR = "data-wc-drawer";
+function inWcDrawer(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(`[${WC_DRAWER_ATTR}]`) != null;
+}
+/** After a mouse click in a drawer, drop the button's focus so a clicker's
+ *  Enter/Space advances the presentation instead of re-pressing it. */
+function blurClickedButton(e: { target: EventTarget }) {
+  if (e.target instanceof Element && e.target.closest("button")) {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }
 }
 
 export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_paced" }) {
@@ -407,19 +420,37 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     setAiBusy(null);
     setAiError(null);
   }, [activeId]);
-  const showAiButton =
+  // The cloud is on screen (same rule as its rendering below); the pencil
+  // shows once there is something to moderate. The sparkles share that rule,
+  // except that the expert switch may be offered on a visible empty cloud.
+  const wcCloudShown =
     activeKind === "word_cloud" &&
-    (phase === "open" || phase === "results") &&
-    whoAi.ai &&
-    (!whoAi.easy || aiCloud);
-  // Regroup stays busy until a fresh grouped result arrives (or a fallback
-  // timeout, in case the AI returns the very same grouping).
-  const aiSig = JSON.stringify(state?.wordcloud_ai?.clusters ?? null);
+    (phase === "results" ||
+      (phase === "open" && state?.question?.wordcloud_live !== false));
+  const showModHandle = wcCloudShown && (wcHasWords || wcHasMod);
+  const showAiButton =
+    wcCloudShown && whoAi.ai && (whoAi.easy ? aiCloud && showModHandle : true);
+  // Below the pencil when it is shown, otherwise in its place.
+  const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
+  // Regroup stays busy until a grouped result arrives *after* the save
+  // response: one whose fingerprint differs from the result current at that
+  // moment, or any finished result after a pending phase (30 s fallback, in
+  // case the AI returns the very same grouping).
+  const aiSig = JSON.stringify(
+    state?.wordcloud_ai ? [state.wordcloud_ai.merged, state.wordcloud_ai.clusters] : null,
+  );
   const aiPending = state?.wordcloud_ai?.pending ?? false;
+  const latestAiSig = useRef(aiSig);
+  latestAiSig.current = aiSig;
   const regroupMark = useRef<string | null>(null);
+  const regroupSawPending = useRef(false);
   useEffect(() => {
     if (aiBusy !== "regroup" || regroupMark.current == null) return;
-    if (aiSig !== regroupMark.current && !aiPending) {
+    if (aiPending) {
+      regroupSawPending.current = true;
+      return;
+    }
+    if (aiSig !== regroupMark.current || regroupSawPending.current) {
       regroupMark.current = null;
       setAiBusy(null);
     }
@@ -448,21 +479,23 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   };
   const regroup = async () => {
     if (runId == null || activeId == null) return;
-    const wasActive = wcView !== "raw";
+    // At most one AI pass: with the AI view already active, `regroup`
+    // forces the recompute; from the raw view the activation below computes
+    // (after the save, so it uses the new instruction).
+    const viewActive = wcView !== "raw";
     setAiBusy("regroup");
     setAiError(null);
-    regroupMark.current = aiSig;
+    regroupMark.current = null;
     try {
-      const res = await live.wordcloudAiSettings(runId, activeId, { grouping: groupingDraft });
+      const res = await live.wordcloudAiSettings(runId, activeId, {
+        grouping: groupingDraft,
+        regroup: viewActive,
+      });
       setGroupingDraft(res.grouping);
-      // A grouping change only recomputes an existing AI result, so make
-      // sure the AI live view is active (same path as footer / `A`).
+      regroupMark.current = latestAiSig.current;
+      regroupSawPending.current = false;
+      // Ensure the grouped view is shown and active (same path as footer / `A`).
       setWcView("grouped");
-      // Unchanged instruction on an already-active view: nothing recomputes.
-      if (wasActive && res.grouping === serverGrouping) {
-        regroupMark.current = null;
-        setAiBusy(null);
-      }
     } catch (e) {
       regroupMark.current = null;
       setAiBusy(null);
@@ -754,6 +787,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       }
       if (!runId) return;
       const key = event.key.toLowerCase();
+      // Enter/Space on a focused drawer control activate that control
+      // natively — they must not also advance the presentation.
+      if ((key === "enter" || key === " ") && inWcDrawer(event.target)) return;
       // Space and Enter act as the primary "advance" key alongside S — a
       // presenter can page through with a clicker. Space must not scroll.
       if (key === " ") event.preventDefault();
@@ -787,6 +823,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       // vote phase.
       if (key === "escape" && showJoin) {
         setShowJoin(false);
+        return;
+      }
+      // Likewise an open word-cloud drawer (AI panel / moderation).
+      if (key === "escape" && (showAiPanel || showModPanel)) {
+        setShowAiPanel(false);
+        setShowModPanel(false);
         return;
       }
       if (key === "q") {
@@ -823,7 +865,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, walk, walkAdvance, walkBack, leavePresentation],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, leavePresentation],
   );
 
   useEffect(() => {
@@ -1483,10 +1525,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} mod={mod} onModerate={onModerateWord} />
             ))}
 
-          {question.kind === "word_cloud" &&
-            (phase === "results" ||
-              (phase === "open" && question.wordcloud_live !== false)) &&
-            (wcHasWords || wcHasMod) && (
+          {showModHandle && (
               <>
                 {!modHintSeen && wcHasWords && (
                   <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
@@ -1509,7 +1548,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 {/* Unobtrusive pencil handle at the right edge; opens the drawer. */}
                 <button
                   type="button"
-                  onClick={() => {
+                  {...{ [WC_DRAWER_ATTR]: "" }}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
                     setShowAiPanel(false);
                     setShowModPanel((s) => !s);
                   }}
@@ -1523,6 +1564,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </button>
                 {/* Slide-out moderation drawer. */}
                 <div
+                  {...{ [WC_DRAWER_ATTR]: "" }}
+                  onClick={blurClickedButton}
                   className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
                     showModPanel ? "translate-x-0" : "translate-x-full"
                   }`}
@@ -1589,7 +1632,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           {showAiButton && (
             <>
               {!aiHintSeen && modHintSeen && !showAiPanel && !showModPanel && (
-                <div style={{ top: "calc(62% + 3.5rem)" }} className="fixed right-16 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                <div style={{ top: aiHandleTop }} className="fixed right-16 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
                   <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
                   <p className="flex-1">
                     {t("Tip: the star switches the AI views on and lets you adjust the grouping on the spot.")}
@@ -1607,10 +1650,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               {/* AI handle directly below the moderation pencil. */}
               <button
                 type="button"
-                onClick={toggleAiPanel}
+                {...{ [WC_DRAWER_ATTR]: "" }}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  toggleAiPanel();
+                }}
                 aria-label={t("AI word cloud")}
                 title={t("AI word cloud")}
-                style={{ top: "calc(62% + 3.5rem)" }}
+                style={{ top: aiHandleTop }}
                 className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
                   showAiPanel ? "pointer-events-none opacity-0" : "opacity-100"
                 }`}
@@ -1619,6 +1666,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               </button>
               {/* Slide-out AI drawer (mutually exclusive with moderation). */}
               <div
+                {...{ [WC_DRAWER_ATTR]: "" }}
+                onClick={blurClickedButton}
                 className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
                   showAiPanel ? "translate-x-0" : "translate-x-full"
                 }`}

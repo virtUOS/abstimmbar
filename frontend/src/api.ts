@@ -1197,11 +1197,12 @@ export const live = {
     ),
   /** Presenter edits a word cloud's permanent AI settings (saved on the
    *  question): switch the AI views on/off and/or change the grouping
-   *  instruction. 409 when the AI provider is off, 400 when too long. */
+   *  instruction (`regroup` forces a recompute of an existing AI result even
+   *  with unchanged text). 409 when the AI provider is off, 400 when too long. */
   wordcloudAiSettings: (
     runId: number,
     questionId: number,
-    body: { ai_enabled?: boolean; grouping?: string },
+    body: { ai_enabled?: boolean; grouping?: string; regroup?: boolean },
   ) =>
     request<{ ai_enabled: boolean; grouping: string }>(
       `/api/runs/${runId}/wordcloud/${questionId}/ai-settings`,
