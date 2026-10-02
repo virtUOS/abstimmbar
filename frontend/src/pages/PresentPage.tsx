@@ -73,6 +73,19 @@ function useEventSource(code: string | null, onState: (s: LiveState) => void) {
   }, [code, onState]);
 }
 
+/** True while the presenter types in a text field (drawer inputs, the AI
+ *  grouping textarea, …): beamer shortcuts must not fire then. */
+function isTextField(target: EventTarget | null): target is HTMLElement {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  return (
+    el.tagName === "INPUT" ||
+    el.tagName === "TEXTAREA" ||
+    el.tagName === "SELECT" ||
+    el.isContentEditable
+  );
+}
+
 export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_paced" }) {
   const { t } = useTranslation();
   const reduced = useReducedMotion();
@@ -354,10 +367,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
       if (activeKind !== "word_cloud") return;
-      // Don't hijack native undo while the presenter edits a merge label.
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable))
-        return;
+      // Don't hijack native undo while the presenter types in a field.
+      if (isTextField(e.target)) return;
       e.preventDefault();
       if (e.shiftKey) redoMod();
       else undoMod();
@@ -735,6 +746,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   const onKey = useCallback(
     (event: KeyboardEvent) => {
+      // Typing in a field: no beamer shortcuts; Escape just leaves the field
+      // (it must not end the presentation).
+      if (isTextField(event.target)) {
+        if (event.key === "Escape") event.target.blur();
+        return;
+      }
       if (!runId) return;
       const key = event.key.toLowerCase();
       // Space and Enter act as the primary "advance" key alongside S — a
@@ -1682,8 +1699,6 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                           maxLength={1000}
                           value={groupingDraft}
                           onChange={(e) => setGroupingDraft(e.target.value)}
-                          // Keep the beamer shortcuts (space, S, A, arrows …) out of typing.
-                          onKeyDown={(e) => e.stopPropagation()}
                           placeholder={t(
                             "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.",
                           )}
