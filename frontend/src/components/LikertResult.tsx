@@ -2,8 +2,8 @@
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
 /** Diverging Likert result bar (#86): the ordered scale as a single stacked
- * bar — the low (negative) pole in reds to the left, the high (positive) pole
- * in the brand green to the right, an optional neutral step in grey. The two
+ * bar — the low (negative) pole in pastel rosé to the left, the high (positive)
+ * pole in pastel green to the right (L1 palette), an optional neutral step in grey. The two
  * endpoint labels caption the ends. A centre line marks the intensity-weighted
  * mean (mean_pct) — it weights each vote by how extreme its step is, so it
  * leans toward the heavier / more extreme side rather than the plain count
@@ -12,30 +12,12 @@
 import { useTranslation } from "react-i18next";
 import type { LikertStep, LikertSummary } from "../api";
 import { localizedText } from "@basicbar/ui";
-
-/** Data-driven fills as OKLCH so shades scale to any number of steps —
- * Tailwind's JIT can't see class names built at runtime. `rank` is the
- * distance from the centre (0 = innermost, extremes darkest/most saturated).
- * Agreement reuses the brand hue (≈149); disagreement a warm red (≈27). */
-function stepFill(step: LikertStep, groupSize: number, rank: number): string {
-  if (step.polarity === "neutral") return "oklch(0.8 0.012 220)";
-  const t = groupSize <= 1 ? 1 : rank / (groupSize - 1);
-  return step.polarity === "low"
-    ? `oklch(${0.8 - 0.26 * t} ${0.08 + 0.13 * t} 27)`
-    : `oklch(${0.84 - 0.3 * t} ${0.09 + 0.05 * t} 149)`;
-}
-
-/** Dark ink on the light inner segments, light ink on the dark extremes. */
-function inkFor(step: LikertStep, groupSize: number, rank: number): string {
-  if (step.polarity === "neutral") return "oklch(0.28 0.011 220)";
-  const t = groupSize <= 1 ? 1 : rank / (groupSize - 1);
-  const lightness = step.polarity === "low" ? 0.8 - 0.26 * t : 0.84 - 0.3 * t;
-  return lightness > 0.62 ? "oklch(0.25 0.02 27)" : "oklch(0.98 0.01 149)";
-}
+import CountUp from "../results/CountUp";
+import { EASE, useGrown, useReducedMotion, useSettled } from "../results/motion";
+import { INK, likertFill } from "../results/palette";
 
 interface Colored extends LikertStep {
   fill: string;
-  ink: string;
 }
 
 function colorize(steps: LikertStep[]): Colored[] {
@@ -55,19 +37,27 @@ function colorize(steps: LikertStep[]): Colored[] {
       rank = hSeen; // innermost high step ranks 0
       hSeen += 1;
     }
-    return { ...step, fill: stepFill(step, group, rank), ink: inkFor(step, group, rank) };
+    return { ...step, fill: likertFill(step.polarity, group, rank) };
   });
 }
 
 export default function LikertResult({
   summary,
   variant = "present",
+  animate = false,
 }: {
   summary: LikertSummary;
   variant?: "present" | "compact";
+  animate?: boolean;
 }) {
   const { t } = useTranslation();
   const present = variant === "present";
+  const reduced = useReducedMotion();
+  const anim = animate && !reduced;
+  const grown = useGrown(anim);
+  // Stagger only the entrance; afterwards live updates move immediately.
+  const settled = useSettled(anim, 1500);
+  const entrance = anim && !settled;
   const steps = colorize(summary.steps);
   const labelThreshold = present ? 7 : Infinity; // %-width needed to show a % inside
 
@@ -85,14 +75,21 @@ export default function LikertResult({
         <div
           className={`relative flex overflow-hidden ${present ? "h-11 rounded-xl text-base" : "h-6 rounded-md text-[11px]"}`}
         >
-          {steps.map((step) => (
+          {steps.map((step, i) => (
             <div
               key={step.id}
-              className="flex items-center justify-center tabular-nums"
-              style={{ flex: `0 0 ${step.pct}%`, background: step.fill, color: step.ink }}
+              className="flex min-w-0 items-center justify-center overflow-hidden whitespace-nowrap tabular-nums"
+              style={{
+                flex: `0 0 ${grown ? step.pct : 0}%`,
+                background: step.fill,
+                color: INK,
+                transition: `flex-basis 900ms ${EASE} ${entrance ? i * 90 : 0}ms`,
+              }}
               title={`${localizedText(step.text)}: ${step.count} · ${step.pct} %`}
             >
-              {step.pct >= labelThreshold && `${Math.round(step.pct)} %`}
+              {step.pct >= labelThreshold && (
+                <CountUp value={Math.round(step.pct)} animate={anim} delay={entrance ? i * 90 : 0} />
+              )}
             </div>
           ))}
         </div>
@@ -103,7 +100,11 @@ export default function LikertResult({
             little above and below the bar. */}
         <div
           className={`pointer-events-none absolute w-0.5 -translate-x-1/2 rounded-full bg-slate-900 dark:bg-slate-100 ${present ? "-top-2 -bottom-2" : "-top-1.5 -bottom-1.5"}`}
-          style={{ left: `${summary.mean_pct}%`, opacity: 0.8 }}
+          style={{
+            left: `${summary.mean_pct}%`,
+            opacity: grown ? 0.8 : 0,
+            transition: `opacity 400ms ${entrance ? 900 : 0}ms`,
+          }}
         >
           <span
             className={`absolute left-1/2 -translate-x-1/2 font-semibold text-slate-700 dark:text-slate-200 ${present ? "-top-6 text-sm" : "-top-4 text-[10px]"}`}
