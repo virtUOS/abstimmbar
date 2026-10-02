@@ -263,6 +263,22 @@ def _clean_ordering(question, raw):
     return cleaned, None
 
 
+def _can_replace_vote(run):
+    """Answer correction (#75): may a participant replace an existing vote in
+    this run? Shared by ``vote`` (enforcement) and ``my_answer`` (so the
+    participant page only locks the form when the server would refuse)."""
+    qs = run.question_set
+    return (
+        run.mode == Run.Mode.SELF_PACED
+        and qs.allow_back_navigation
+        and qs.reveal_answers == "never"
+        and not (
+            run.quiz_ends_at
+            and timezone.now() > run.quiz_ends_at + timezone.timedelta(seconds=1)
+        )
+    )
+
+
 @api_view(["POST"])
 def vote(request, code):
     """Record one participant's answer to the currently open question."""
@@ -327,16 +343,7 @@ def vote(request, code):
         # Nothing is deleted here: the old vote must survive any validation
         # failure below, so the actual delete happens only once the new
         # submission is known to be well-formed, atomically with its create.
-        qs = run.question_set
-        can_replace = (
-            run.mode == Run.Mode.SELF_PACED
-            and qs.allow_back_navigation
-            and qs.reveal_answers == "never"
-            and not (
-                run.quiz_ends_at
-                and timezone.now() > run.quiz_ends_at + timezone.timedelta(seconds=1)
-            )
-        )
+        can_replace = _can_replace_vote(run)
         if not (allow_multiple or can_replace):
             return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
         replace = can_replace
@@ -622,6 +629,64 @@ def my_evaluation(request, code):
     if not vote.ai_verdict:
         return Response({"status": "pending"})
     return Response({"status": "ready", "verdict": vote.ai_verdict, "note": vote.ai_note})
+
+
+@api_view(["POST"])
+def my_answer(request, code):
+    """The CALLER'S OWN existing answer to a question of the current run.
+
+    Lets the participant page show "already answered" + the earlier answer
+    when a question is re-opened in the same run (instead of a form the
+    server would reject with 409). Token-scoped — never other participants'
+    data. ``can_change`` mirrors the answer-correction rule of ``vote``.
+    """
+    room = _room_by_code(code)
+    token = ParticipantToken.objects.filter(
+        room=room, key=request.data.get("token", "")
+    ).first()
+    if token is None:
+        return Response({"detail": "Unknown participant token."}, status=403)
+    not_answered = {"answered": False, "answer": None, "can_change": False}
+    run = active_run(room)
+    if run is None:
+        return Response(not_answered)
+    try:
+        question_id = int(request.data.get("question"))
+    except (TypeError, ValueError):
+        return Response({"detail": "Unknown question."}, status=404)
+    question = Question.objects.filter(
+        question_set=run.question_set, pk=question_id
+    ).first()
+    if question is None:
+        return Response({"detail": "Unknown question."}, status=404)
+    votes = list(
+        Vote.objects.filter(run=run, question=question, token=token)
+        .order_by("created_at", "pk")
+        .prefetch_related("options", "priority_scores", "ordering_responses")
+    )
+    if not votes:
+        return Response(not_answered)
+    answer = {"options": [], "text": [], "points": {}, "order": []}
+    for vote_obj in votes:
+        if question.kind in Question.TEXT_KINDS:
+            if vote_obj.text:
+                answer["text"].append(vote_obj.text)
+        elif question.kind == Question.Kind.PRIORITIES:
+            answer["points"].update(
+                {str(ps.option_id): ps.points for ps in vote_obj.priority_scores.all()}
+            )
+        elif question.kind == Question.Kind.ORDERING:
+            answer["order"] = [
+                r.option_id
+                for r in sorted(vote_obj.ordering_responses.all(), key=lambda r: r.position)
+            ]
+        else:
+            answer["options"].extend(
+                {"id": o.pk} for o in sorted(vote_obj.options.all(), key=lambda o: o.pk)
+            )
+    return Response(
+        {"answered": True, "answer": answer, "can_change": _can_replace_vote(run)}
+    )
 
 
 # --- recording mode (#53): async viewer voting ------------------------------

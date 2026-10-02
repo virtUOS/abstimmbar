@@ -92,7 +92,9 @@ multi-line note must use {% comment %} or it renders as text.)
 
 <section id="done" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
-  <p>{% trans "Your answer was received." %}</p>
+  <p id="done-message">{% trans "Your answer was received." %}</p>
+  {# Re-opened question already answered in this run: the earlier answer (from the server's my-answer). #}
+  <div id="done-answer" hidden style="margin-top:6px"></div>
   <p class="soft">{% trans "Waiting for the next question." %}</p>
   {# Live AI feedback on the participant's own open_text answer: polled while this question opted into ai_evaluate + participant_feedback. #}
   <div id="eval-feedback" hidden style="margin-top:18px;text-align:left;border-top:1px solid var(--line);padding-top:16px">
@@ -324,6 +326,7 @@ multi-line note must use {% comment %} or it renders as text.)
     yourAnswer: "{% trans 'Your answer: ' %}",
     notAnswered: "{% trans 'Not answered.' %}",
     alreadyAnswered: "{% trans 'You already answered this question.' %}",
+    answerReceived: "{% trans 'Your answer was received.' %}",
     yourChoice: "{% trans 'your choice' %}",
     correctBadge: "{% trans 'Correct' %}",
     pointsSpent: "{% trans '{used} of {total} points allocated' %}",
@@ -423,8 +426,12 @@ multi-line note must use {% comment %} or it renders as text.)
       const byId = new Map((question.options || []).map((o) => [String(o.id), locText(o.text)]));
       item.ordering = payload.order.map((id) => ({ id, text: byId.get(String(id)) || "" }));
     }
+    // Which run this device answered in — lets render() ask the server
+    // (my-answer) only for questions re-opened within that same run.
+    item.answeredRun = currentRunKey();
     saveHistory();
   }
+  const currentRunKey = () => String((state && state.run_id) ?? "");
   function captureResults() {
     if (!state.question) return;
     const item = historyItem(state.question);
@@ -440,6 +447,63 @@ multi-line note must use {% comment %} or it renders as text.)
   const voteMark = () =>
     state && state.question ? (state.run_id ?? "") + ":" + state.question.id : "";
   const votedFor = () => sessionStorage.getItem(VOTED_KEY);
+
+  // Re-opened question (presenter goes back within the same run): VOTED_KEY
+  // only remembers the LAST answered run:question, so ask the server once per
+  // run:question whether this token already answered it (POST my-answer,
+  // token-scoped). Cached per voteMark(); "pending" while the request runs.
+  // A network/HTTP error caches "not answered", i.e. today's behaviour (form).
+  const myAnswerCache = new Map(); // voteMark → "pending" | { answered, answer, can_change }
+  // voteMarks shown as "already answered" (kept across reloads, like VOTED_KEY).
+  const ALREADY_KEY = "abstimmbar_already_" + CODE;
+  const alreadyAnsweredFor = new Set((() => {
+    try { return JSON.parse(sessionStorage.getItem(ALREADY_KEY)) || []; } catch { return []; }
+  })());
+
+  async function fetchMyAnswer(mark, questionId) {
+    myAnswerCache.set(mark, "pending");
+    let data = null;
+    try {
+      const response = await post(`/api/live/rooms/${CODE}/my-answer/`, {
+        token, question: questionId,
+      });
+      if (response.ok) data = await response.json();
+    } catch { /* fall through: treat as not answered */ }
+    if (!data || typeof data.answered !== "boolean") data = { answered: false, answer: null, can_change: false };
+    myAnswerCache.set(mark, data);
+    return data;
+  }
+
+  // The server's answer in the payload shape recordAnswer() understands.
+  function payloadFromServerAnswer(question, answer) {
+    answer = answer || {};
+    if (question.kind === "word_cloud" || question.kind === "open_text") {
+      return { text: (answer.text || []).join(", ") };
+    }
+    if (question.kind === "priorities") return { points: answer.points || {} };
+    if (question.kind === "ordering") return { order: answer.order || [] };
+    return { options: (answer.options || []).map((o) => o.id) };
+  }
+
+  // Lock the question as answered: remember it locally (so re-renders don't
+  // refetch), record the server's answer in the history and let the done
+  // view show "already answered" + that answer.
+  function markAlreadyAnswered(question, mark, data) {
+    recordAnswer(question, payloadFromServerAnswer(question, data.answer));
+    alreadyAnsweredFor.add(mark);
+    try { sessionStorage.setItem(ALREADY_KEY, JSON.stringify([...alreadyAnsweredFor])); } catch { /* ignore */ }
+    sessionStorage.setItem(VOTED_KEY, mark);
+  }
+
+  // Multi-answer word clouds stay open after answering (more terms up to the
+  // cap) — never locked by an earlier answer.
+  const isMultiWordCloud = (q) => q.kind === "word_cloud" && !!q.allow_multiple;
+  // Server says: answered, and a new answer would be refused.
+  function serverLocked(question, mark) {
+    const known = myAnswerCache.get(mark);
+    return !!known && known !== "pending" && known.answered && !known.can_change &&
+      !isMultiWordCloud(question);
+  }
 
   // Live AI feedback on my OWN open_text answer (poll my-evaluation): started
   // once the "done" screen is shown for a question with ai_evaluate +
@@ -543,10 +607,21 @@ multi-line note must use {% comment %} or it renders as text.)
     const response = await post(`/api/live/rooms/${CODE}/vote/`, {
       token, ...payload,
     });
-    if (response.status === 201 || response.status === 409) {
-      // 409 = already voted (e.g. second tab) — treat as done either way.
+    if (response.status === 201) {
       sessionStorage.setItem(VOTED_KEY, voteMark());
-      if (response.status === 201 && state.question) recordAnswer(state.question, payload);
+      if (state.question) recordAnswer(state.question, payload);
+      render();
+    } else if (response.status === 409) {
+      // 409 = already voted (another tab, re-opened question), or closed /
+      // time up. Don't pretend the rejected payload counted: ask the server
+      // what this token actually answered and show that instead.
+      const question = state.question;
+      const mark = voteMark();
+      if (question) {
+        const data = await fetchMyAnswer(mark, question.id);
+        if (data.answered) markAlreadyAnswered(question, mark, data);
+      }
+      sessionStorage.setItem(VOTED_KEY, mark);
       render();
     }
   }
@@ -816,6 +891,49 @@ multi-line note must use {% comment %} or it renders as text.)
     growEnabled = true;
   }
 
+  // "Your answer: …" for one history item (shared by the "My answers"
+  // review and the done view's already-answered state). Returns false (after
+  // appending "Not answered.") when the item holds no answer.
+  function hasOwnAnswer(item) {
+    return !!item && ((item.ordering && item.ordering.length) ||
+      (item.answerOptions && item.answerOptions.length) || item.answerText != null ||
+      (item.priorities && item.priorities.length));
+  }
+  function appendOwnAnswer(container, item) {
+    const ans = document.createElement("p");
+    ans.className = "soft";
+    ans.style.margin = "0 0 8px";
+    if (item.ordering && item.ordering.length) {
+      ans.append(I18N.yourAnswer);
+      container.appendChild(ans);
+      const ol = document.createElement("ol");
+      ol.style.cssText = "margin:0 0 8px;padding-left:22px;color:var(--ink)";
+      for (const o of item.ordering) {
+        const li = document.createElement("li");
+        li.textContent = o.text;
+        ol.appendChild(li);
+      }
+      container.appendChild(ol);
+      return true;
+    }
+    const answered = hasOwnAnswer(item);
+    if (answered) {
+      ans.append(I18N.yourAnswer);
+      const strong = document.createElement("strong");
+      strong.style.color = "var(--ink)";
+      strong.textContent = item.priorities
+        ? item.priorities.map((o) => o.text + ": " + o.points).join(", ")
+        : item.answerOptions
+        ? item.answerOptions.map((o) => o.text).join(", ")
+        : item.answerText;
+      ans.appendChild(strong);
+    } else {
+      ans.textContent = I18N.notAnswered;
+    }
+    container.appendChild(ans);
+    return answered;
+  }
+
   // "My answers" overlay: every question I answered (or saw results
   // for) this run, my own answer marked, plus the released results (#20).
   function renderReview() {
@@ -832,37 +950,7 @@ multi-line note must use {% comment %} or it renders as text.)
       q.style.cssText = "font-size:16px;margin:0 0 8px";
       q.innerHTML = item.text || "";
       card.appendChild(q);
-      const ans = document.createElement("p");
-      ans.className = "soft";
-      ans.style.margin = "0 0 8px";
-      if (item.ordering && item.ordering.length) {
-        ans.append(I18N.yourAnswer);
-        card.appendChild(ans);
-        const ol = document.createElement("ol");
-        ol.style.cssText = "margin:0 0 8px;padding-left:22px;color:var(--ink)";
-        for (const o of item.ordering) {
-          const li = document.createElement("li");
-          li.textContent = o.text;
-          ol.appendChild(li);
-        }
-        card.appendChild(ol);
-      } else {
-        if ((item.answerOptions && item.answerOptions.length) || item.answerText != null ||
-          (item.priorities && item.priorities.length)) {
-          ans.append(I18N.yourAnswer);
-          const strong = document.createElement("strong");
-          strong.style.color = "var(--ink)";
-          strong.textContent = item.priorities
-            ? item.priorities.map((o) => o.text + ": " + o.points).join(", ")
-            : item.answerOptions
-            ? item.answerOptions.map((o) => o.text).join(", ")
-            : item.answerText;
-          ans.appendChild(strong);
-        } else {
-          ans.textContent = I18N.notAnswered;
-        }
-        card.appendChild(ans);
-      }
+      appendOwnAnswer(card, item);
       if (item.results || item.words) {
         const sub = document.createElement("div");
         renderResultBlock(sub, item, item);
@@ -1742,7 +1830,7 @@ multi-line note must use {% comment %} or it renders as text.)
     // question I still have to answer pulls me straight to it (#20).
     const openUnanswered =
       state.phase === "open" && state.question &&
-      votedFor() !== voteMark();
+      votedFor() !== voteMark() && !serverLocked(state.question, voteMark());
     const currentQid = state.question ? String(state.question.id) : null;
     if (reviewing) {
       if (openUnanswered && currentQid !== reviewQid) {
@@ -1782,12 +1870,39 @@ multi-line note must use {% comment %} or it renders as text.)
     const evalActiveKey = phase === "open" && state.question
       ? (state.run_id ?? "") + ":" + state.question.id : null;
     if (evalKey && evalKey !== evalActiveKey) stopEvalPoll();
+    setQuestionPending(false);
     if (phase === "open" && state.question) {
-      if (votedFor() === voteMark()) {
+      const q = state.question;
+      const mark = voteMark();
+      if (votedFor() !== mark && serverLocked(q, mark)) {
+        markAlreadyAnswered(q, mark, myAnswerCache.get(mark));
+      }
+      if (votedFor() === mark) {
+        renderDone(q, mark);
         show("done");
-        maybeStartEvalPoll(state.question);
+        maybeStartEvalPoll(q);
       } else {
+        const known = myAnswerCache.get(mark);
+        // Only ask when this device answered this question earlier in THIS
+        // run (local history) — i.e. a re-opened question. A first open stays
+        // a plain form, so 1000 participants don't all hit the server the
+        // moment a question opens; a vote from another tab/device still
+        // surfaces via the 409 path in submitVote().
+        const item = history.items[String(q.id)];
+        const seenBefore = !!item && item.answeredRun === currentRunKey();
         renderQuestion();
+        if (!PREVIEW && token && seenBefore && (known === undefined || known === "pending")) {
+          // Ask the server first; meanwhile the form is visible but inert
+          // (no flash of a submittable form for someone who already answered).
+          setQuestionPending(true);
+          if (known === undefined) {
+            void fetchMyAnswer(mark, q.id).then(() => {
+              if (state && voteMark() === mark) render();
+            });
+          }
+        } else if (known && known.answered && isMultiWordCloud(q)) {
+          prefillWcFromServer(mark, known.answer);
+        }
         show("question");
       }
     } else if (phase === "results" && (state.results || state.words || state.priorities || state.ordering)) {
@@ -1806,6 +1921,47 @@ multi-line note must use {% comment %} or it renders as text.)
       document.getElementById("waiting-text").textContent = I18N.almostThere;
       show("waiting");
     }
+  }
+
+  // While my-answer is pending: the question form renders, but disabled.
+  function setQuestionPending(pending) {
+    const section = sections.question;
+    section.inert = pending;
+    section.style.opacity = pending ? "0.55" : "";
+    if (pending) section.setAttribute("aria-busy", "true");
+    else section.removeAttribute("aria-busy");
+  }
+
+  // The "done" screen: the usual confirmation, or — for a re-opened question
+  // answered earlier in this run — "already answered" plus that answer.
+  function renderDone(question, mark) {
+    const already = alreadyAnsweredFor.has(mark);
+    document.getElementById("done-message").textContent =
+      already ? I18N.alreadyAnswered : I18N.answerReceived;
+    const box = document.getElementById("done-answer");
+    box.replaceChildren();
+    const item = history.items[String(question.id)];
+    box.hidden = !(already && hasOwnAnswer(item));
+    if (!box.hidden) appendOwnAnswer(box, item);
+  }
+
+  // Multi-answer word cloud re-opened after answering: show the terms the
+  // server already has as chips (so the cap and dedupe are right), once per
+  // run:question and only if this device has no local list for it.
+  const wcPrefilled = new Set();
+  function prefillWcFromServer(mark, answer) {
+    if (wcPrefilled.has(mark) || wcKey !== mark) return;
+    wcPrefilled.add(mark);
+    if (wcList.length) return;
+    for (const word of (answer && answer.text) || []) {
+      const key = wcNorm(word);
+      if (!key || wcWords.has(key)) continue;
+      wcWords.add(key);
+      wcList.push({ word, key });
+    }
+    if (!wcList.length) return;
+    renderWcChips();
+    if (state.question.wordcloud_batch_submit) renderWcBatch();
   }
 
   // Multiple-answer word cloud: submit a term without ending — it stays as a
@@ -1833,6 +1989,7 @@ multi-line note must use {% comment %} or it renders as text.)
     if (state.question) {
       const item = historyItem(state.question);
       item.answerText = wcList.map((e) => e.word).join(", ");
+      if (wcList.length) item.answeredRun = currentRunKey();
       saveHistory();
     }
     updateWcLimit();

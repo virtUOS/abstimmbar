@@ -2430,6 +2430,129 @@ class MyEvaluationTests(LiveTestCase):
         )
 
 
+class MyAnswerTests(LiveTestCase):
+    """The caller's OWN existing answer to a question of the current run
+    (re-opened questions): POST /api/live/rooms/<code>/my-answer/."""
+
+    def _post(self, token, question):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/my-answer/",
+            {"token": token, "question": question},
+            content_type="application/json",
+        )
+
+    def test_unknown_token_is_forbidden(self):
+        self.open_question()
+        response = self._post("does-not-exist", self.question.pk)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json(), {"detail": "Unknown participant token."})
+
+    def test_question_outside_the_runs_set_is_not_found(self):
+        self.open_question()
+        other_set = QuestionSet.objects.create(room=self.room, title="Termin 2")
+        foreign = Question.objects.create(
+            question_set=other_set, kind=Question.Kind.SINGLE_CHOICE, text="x"
+        )
+        token = self.join()
+        self.assertEqual(self._post(token, foreign.pk).status_code, 404)
+        self.assertEqual(self._post(token, "abc").status_code, 404)
+
+    def test_not_answered(self):
+        self.open_question()
+        token = self.join()
+        self.assertEqual(
+            self._post(token, self.question.pk).json(),
+            {"answered": False, "answer": None, "can_change": False},
+        )
+
+    def test_no_active_run_is_not_answered(self):
+        token = self.join()
+        self.assertEqual(self._post(token, self.question.pk).json()["answered"], False)
+
+    def test_single_choice(self):
+        self.open_question()
+        token = self.join()
+        self.vote(token, options=[self.wrong.pk])
+        data = self._post(token, self.question.pk).json()
+        self.assertTrue(data["answered"])
+        self.assertFalse(data["can_change"])
+        self.assertEqual(data["answer"]["options"], [{"id": self.wrong.pk}])
+
+    def test_only_own_answer(self):
+        # Anonymity: another participant's vote is never exposed.
+        self.open_question()
+        token = self.join()
+        self.vote(token, options=[self.wrong.pk])
+        other = self.join()
+        self.assertEqual(self._post(other, self.question.pk).json()["answered"], False)
+
+    def test_word_cloud_with_two_terms(self):
+        cloud = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            allow_multiple=True, position=3,
+        )
+        self.open_question(cloud)
+        token = self.join()
+        self.vote(token, text="Klima")
+        self.vote(token, text="Wasser")
+        data = self._post(token, cloud.pk).json()
+        self.assertTrue(data["answered"])
+        self.assertEqual(data["answer"]["text"], ["Klima", "Wasser"])
+
+    def test_priorities_points(self):
+        pq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.PRIORITIES,
+            text="<p>Verteile</p>", position=3,
+        )
+        oa = AnswerOption.objects.create(question=pq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=pq, text="B", position=1)
+        self.open_question(pq)
+        token = self.join()
+        self.vote(token, points={str(oa.pk): 70, str(ob.pk): 30})
+        data = self._post(token, pq.pk).json()
+        self.assertEqual(data["answer"]["points"], {str(oa.pk): 70, str(ob.pk): 30})
+
+    def test_ordering_order(self):
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Order</p>", position=3,
+        )
+        oa = AnswerOption.objects.create(question=oq, text="A", position=0)
+        ob = AnswerOption.objects.create(question=oq, text="B", position=1)
+        oc = AnswerOption.objects.create(question=oq, text="C", position=2)
+        self.open_question(oq)
+        token = self.join()
+        self.vote(token, order=[oc.pk, oa.pk, ob.pk])
+        data = self._post(token, oq.pk).json()
+        self.assertEqual(data["answer"]["order"], [oc.pk, oa.pk, ob.pk])
+
+    def test_vote_in_older_run_does_not_count(self):
+        old = self.open_question()
+        token = self.join()
+        self.vote(token, options=[self.correct.pk])
+        old.phase = Run.Phase.FINISHED
+        old.save(update_fields=["phase"])
+        self.open_question()
+        self.assertEqual(self._post(token, self.question.pk).json()["answered"], False)
+
+    def test_can_change_mirrors_self_paced_answer_correction(self):
+        self.question_set.reveal_answers = "never"
+        self.question_set.allow_back_navigation = True
+        self.question_set.save()
+        run = self.open_question()
+        run.mode = Run.Mode.SELF_PACED
+        run.save(update_fields=["mode"])
+        token = self.join()
+        self.vote(token, question=self.question.pk, options=[self.correct.pk])
+        data = self._post(token, self.question.pk).json()
+        self.assertTrue(data["answered"])
+        self.assertTrue(data["can_change"])
+        # Feedback on → the server would reject a replacement.
+        self.question_set.reveal_answers = "immediately"
+        self.question_set.save()
+        self.assertFalse(self._post(token, self.question.pk).json()["can_change"])
+
+
 class AiLiveWordCloudTests(LiveTestCase):
     """Live AI word-cloud views (consolidate + group) during a run (#Wortwolke)."""
 
