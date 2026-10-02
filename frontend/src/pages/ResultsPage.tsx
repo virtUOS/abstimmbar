@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
-import { ChartColumnDecreasing, Check, Download, Trash2 } from "lucide-react";
+import { ChartColumnDecreasing, Download, Trash2 } from "lucide-react";
 import {
   api,
   results,
@@ -22,6 +22,9 @@ import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
+import PriorityBar from "../results/PriorityBar";
+import ResultBar from "../results/ResultBar";
+import { INK, evalColor, termColor } from "../results/palette";
 
 function aiErrorText(err: unknown): string {
   try {
@@ -74,9 +77,10 @@ function WordCloudResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block rounded-lg bg-brand-50 dark:bg-brand-950 px-2 py-0.5 text-brand-800 dark:text-brand-200"
+              className="mr-3 inline-block rounded-lg px-2 py-0.5"
+              style={{ background: termColor(word.text), color: INK }}
             >
-              {word.text} <span className="text-slate-400">×{word.count}</span>
+              {word.text} <span className="opacity-60">×{word.count}</span>
             </span>
           ))}
           {words.length === 0 && <span className="text-slate-400">{t("No terms.")}</span>}
@@ -99,9 +103,10 @@ function WordCloudResult({
                         ? t("Merged: {{variants}}", { variants: word.variants.join(", ") })
                         : undefined
                     }
-                    className="mr-3 inline-block rounded-lg bg-brand-50 dark:bg-brand-950 px-2 py-0.5 text-brand-800 dark:text-brand-200"
+                    className="mr-3 inline-block rounded-lg px-2 py-0.5"
+              style={{ background: termColor(word.text), color: INK }}
                   >
-                    {word.text} <span className="text-slate-400">×{word.count}</span>
+                    {word.text} <span className="opacity-60">×{word.count}</span>
                   </span>
                 ))}
               </p>
@@ -143,16 +148,6 @@ function formatDate(iso: string) {
     minute: "2-digit",
   });
 }
-
-// Categories are coloured by position (first three green/amber/red so both
-// presets read naturally, custom scales get follow-up colours).
-const EVAL_CHIPS = [
-  { chip: "bg-brand-50 text-brand-800 dark:bg-brand-950 dark:text-brand-200", bar: "bg-brand-500" },
-  { chip: "bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200", bar: "bg-amber-400" },
-  { chip: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-200", bar: "bg-red-400" },
-  { chip: "bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-200", bar: "bg-blue-500" },
-  { chip: "bg-violet-50 text-violet-800 dark:bg-violet-950/40 dark:text-violet-200", bar: "bg-violet-500" },
-];
 
 function evalLabel(verdict: string) {
   return verdict ? verdict[0].toUpperCase() + verdict.slice(1) : verdict;
@@ -215,9 +210,10 @@ function FreeTextResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block rounded-lg bg-brand-50 dark:bg-brand-950 px-2 py-0.5 text-brand-800 dark:text-brand-200"
+              className="mr-3 inline-block rounded-lg px-2 py-0.5"
+              style={{ background: termColor(word.text), color: INK }}
             >
-              {word.text} <span className="text-slate-400">×{word.count}</span>
+              {word.text} <span className="opacity-60">×{word.count}</span>
             </span>
           ))}
           {words.length === 0 && <span className="text-slate-400">{t("No terms.")}</span>}
@@ -232,18 +228,16 @@ function FreeTextResult({
                 const total = evaluation.groups.reduce((s, g) => s + g.count, 0);
                 const pct = total ? Math.round((group.count / total) * 100) : 0;
                 return (
-                  <div key={group.verdict}>
-                    <div className="mb-0.5 flex items-center justify-between text-xs text-slate-500 dark:text-slate-400">
-                      <span>{evalLabel(group.verdict)}</span>
-                      <span className="tabular-nums">{group.count} · {pct} %</span>
-                    </div>
-                    <div className="h-3 overflow-hidden rounded bg-slate-100 dark:bg-slate-800">
-                      <div
-                        className={`h-full ${EVAL_CHIPS[i % EVAL_CHIPS.length].bar}`}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                  </div>
+                  <ResultBar
+                    key={group.verdict}
+                    index={i}
+                    letter={null}
+                    label={evalLabel(group.verdict)}
+                    count={group.count}
+                    pct={pct}
+                    color={evalColor(i)}
+                    size="compact"
+                  />
                 );
               })}
             </div>
@@ -262,7 +256,8 @@ function FreeTextResult({
                     <span
                       key={item.text}
                       title={item.note || undefined}
-                      className={`mr-3 inline-block rounded-lg px-2 py-0.5 ${EVAL_CHIPS[i % EVAL_CHIPS.length].chip}`}
+                      className="mr-3 inline-block rounded-lg px-2 py-0.5"
+                      style={{ background: evalColor(i), color: INK }}
                     >
                       {item.text} <span className="opacity-60">×{item.count}</span>
                     </span>
@@ -514,6 +509,7 @@ export default function ResultsPage() {
               <div className="space-y-5">
                 {run.questions.map((question) => {
                   const total = question.votes;
+                  const hasCorrect = question.options?.some((o) => o.is_correct) ?? false;
                   // Before/after pair (#54): at the after-question's slot, show
                   // the before-question (from the same run) stacked above it.
                   const before =
@@ -555,31 +551,23 @@ export default function ResultsPage() {
                             <LikertResult summary={question.likert} variant="compact" />
                           )}
                           {question.options && !(question.kind === "likert" && question.likert) && (
-                            <div className="space-y-1.5">
-                              {question.options.map((option) => {
+                            <div className="space-y-2">
+                              {question.options.map((option, i) => {
                                 const count = option.count ?? 0;
                                 const percent = total ? Math.round((count / total) * 100) : 0;
                                 return (
                                   <div key={option.id}>
-                                    <div className="flex items-center gap-3 text-sm">
-                                      <span
-                                        className={`w-56 truncate ${option.is_correct ? "font-semibold text-brand-700 dark:text-brand-300" : "text-slate-700 dark:text-slate-300"}`}
-                                      >
-                                        {localizedText(option.text)} {option.is_correct && <Check aria-hidden className="inline h-4 w-4 text-brand-700 dark:text-brand-300" />}
-                                      </span>
-                                      <div className="h-4 flex-1 rounded bg-slate-100 dark:bg-slate-800">
-                                        <div
-                                          className={`h-4 rounded ${option.is_correct ? "bg-brand-400" : "bg-slate-300 dark:bg-slate-600"}`}
-                                          style={{ width: `${percent}%` }}
-                                        />
-                                      </div>
-                                      <span className="w-20 text-right tabular-nums text-slate-500 dark:text-slate-400">
-                                        {count} · {percent} %
-                                      </span>
-                                    </div>
+                                    <ResultBar
+                                      index={i}
+                                      label={localizedText(option.text)}
+                                      count={count}
+                                      pct={percent}
+                                      state={hasCorrect ? (option.is_correct ? "correct" : "wrong") : "neutral"}
+                                      size="compact"
+                                    />
                                     {/* Recording split (#53): on-site vs async. */}
                                     {run.recording_votes > 0 && (
-                                      <div className="pl-[14.75rem] text-[11px] text-slate-400 dark:text-slate-500">
+                                      <div className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">
                                         {t("On-site")}: {option.onsite ?? 0} · {t("Recording")}: {option.recording ?? 0}
                                       </div>
                                     )}
@@ -589,39 +577,17 @@ export default function ResultsPage() {
                             </div>
                           )}
                           {question.priorities && question.kind === "priorities" && (
-                            <div className="space-y-1.5">
-                              {question.priorities.map((opt) => (
-                                <div key={opt.id} className="text-sm">
-                                  <div className="flex items-center gap-3">
-                                    <span className="w-56 truncate text-slate-700 dark:text-slate-300">
-                                      {localizedText(opt.text)}
-                                    </span>
-                                    <div className="relative h-4 flex-1 rounded bg-slate-100 dark:bg-slate-800">
-                                      {/* average fill */}
-                                      <div
-                                        className="absolute inset-y-0 left-0 rounded bg-brand-400"
-                                        style={{ width: `${opt.avg}%` }}
-                                      />
-                                      {/* deviation range line on top */}
-                                      <div
-                                        className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-600 dark:bg-slate-300"
-                                        style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
-                                      />
-                                      {/* min / max whiskers */}
-                                      <div
-                                        className="absolute -top-0.5 -bottom-0.5 w-0.5 -translate-x-1/2 bg-slate-600 dark:bg-slate-300"
-                                        style={{ left: `${opt.min}%` }}
-                                      />
-                                      <div
-                                        className="absolute -top-0.5 -bottom-0.5 w-0.5 -translate-x-1/2 bg-slate-600 dark:bg-slate-300"
-                                        style={{ left: `${opt.max}%` }}
-                                      />
-                                    </div>
-                                    <span className="w-28 text-right tabular-nums text-slate-500 dark:text-slate-400">
-                                      Ø {opt.avg} · {opt.min}–{opt.max}
-                                    </span>
-                                  </div>
-                                </div>
+                            <div className="space-y-2">
+                              {question.priorities.map((opt, i) => (
+                                <PriorityBar
+                                  key={opt.id}
+                                  index={i}
+                                  label={localizedText(opt.text)}
+                                  avg={opt.avg}
+                                  min={opt.min}
+                                  max={opt.max}
+                                  size="compact"
+                                />
                               ))}
                               {question.priorities.length === 0 && (
                                 <span className="text-slate-400">{t("No answers yet.")}</span>
@@ -724,47 +690,25 @@ type ResultQuestion = RunResults["questions"][number];
  * sits above the after bar, each labelled. Options are paired by position;
  * percentages use each side's own vote total. */
 function BeforeAfterChoice({ before, after }: { before: ResultQuestion; after: ResultQuestion }) {
-  const { t } = useTranslation();
   const options = after.options ?? [];
+  const hasCorrect = options.some((o) => o.is_correct);
+  const pctOf = (count: number, total: number) => (total ? Math.round((count / total) * 100) : 0);
   return (
     <div className="space-y-3">
       {options.map((option, index) => {
-        const beforeOption = before.options?.[index];
-        const rows = [
-          { key: "before", label: t("Before"), count: beforeOption?.count ?? 0, total: before.votes, light: true },
-          { key: "after", label: t("After"), count: option.count ?? 0, total: after.votes, light: false },
-        ];
+        const beforeCount = before.options?.[index]?.count ?? 0;
+        const count = option.count ?? 0;
         return (
-          <div key={option.id}>
-            <span className={`mb-1 block text-sm ${option.is_correct ? "font-semibold text-brand-700 dark:text-brand-300" : "text-slate-700 dark:text-slate-300"}`}>
-              {localizedText(option.text)} {option.is_correct && <Check aria-hidden className="inline h-4 w-4 text-brand-700 dark:text-brand-300" />}
-            </span>
-            <div className="space-y-1">
-              {rows.map((row) => {
-                const percent = row.total ? Math.round((row.count / row.total) * 100) : 0;
-                const barColor = option.is_correct
-                  ? row.light
-                    ? "bg-brand-200 dark:bg-brand-800"
-                    : "bg-brand-400"
-                  : row.light
-                    ? "bg-slate-200 dark:bg-slate-700"
-                    : "bg-slate-300 dark:bg-slate-600";
-                return (
-                  <div key={row.key} className="flex items-center gap-3 text-sm">
-                    <span className="w-16 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
-                      {row.label}
-                    </span>
-                    <div className="h-4 flex-1 rounded bg-slate-100 dark:bg-slate-800">
-                      <div className={`h-4 rounded ${barColor}`} style={{ width: `${percent}%` }} />
-                    </div>
-                    <span className="w-20 text-right tabular-nums text-slate-500 dark:text-slate-400">
-                      {row.count} · {percent} %
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+          <ResultBar
+            key={option.id}
+            index={index}
+            label={localizedText(option.text)}
+            count={count}
+            pct={pctOf(count, after.votes)}
+            before={{ count: beforeCount, pct: pctOf(beforeCount, before.votes) }}
+            state={hasCorrect ? (option.is_correct ? "correct" : "wrong") : "neutral"}
+            size="compact"
+          />
         );
       })}
     </div>
