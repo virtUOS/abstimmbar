@@ -47,6 +47,22 @@ export function useGrown(animate: boolean): boolean {
   return grown;
 }
 
+/** true once the staggered entrance is over (after `afterMs`), so later value
+ * changes — new live votes — transition at once instead of re-applying the
+ * per-row stagger. Without animation it is true at once. */
+export function useSettled(animate: boolean, afterMs: number): boolean {
+  const [settled, setSettled] = useState(!animate);
+  useEffect(() => {
+    if (!animate) {
+      setSettled(true);
+      return;
+    }
+    const id = window.setTimeout(() => setSettled(true), afterMs);
+    return () => window.clearTimeout(id);
+  }, [animate, afterMs]);
+  return settled;
+}
+
 /** Counts from the previous value (0 on mount) to `target` with an
  * ease-out-cubic curve; returns the rounded current value. */
 export function useCountUp(

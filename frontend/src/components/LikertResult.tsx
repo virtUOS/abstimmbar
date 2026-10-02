@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 import type { LikertStep, LikertSummary } from "../api";
 import { localizedText } from "@basicbar/ui";
 import CountUp from "../results/CountUp";
-import { EASE, useGrown, useReducedMotion } from "../results/motion";
+import { EASE, useGrown, useReducedMotion, useSettled } from "../results/motion";
 import { INK, likertFill } from "../results/palette";
 
 interface Colored extends LikertStep {
@@ -55,6 +55,9 @@ export default function LikertResult({
   const reduced = useReducedMotion();
   const anim = animate && !reduced;
   const grown = useGrown(anim);
+  // Stagger only the entrance; afterwards live updates move immediately.
+  const settled = useSettled(anim, 1500);
+  const entrance = anim && !settled;
   const steps = colorize(summary.steps);
   const labelThreshold = present ? 7 : Infinity; // %-width needed to show a % inside
 
@@ -75,17 +78,17 @@ export default function LikertResult({
           {steps.map((step, i) => (
             <div
               key={step.id}
-              className="flex items-center justify-center tabular-nums"
+              className="flex min-w-0 items-center justify-center overflow-hidden whitespace-nowrap tabular-nums"
               style={{
                 flex: `0 0 ${grown ? step.pct : 0}%`,
                 background: step.fill,
                 color: INK,
-                transition: `flex-basis 900ms ${EASE} ${anim ? i * 90 : 0}ms`,
+                transition: `flex-basis 900ms ${EASE} ${entrance ? i * 90 : 0}ms`,
               }}
               title={`${localizedText(step.text)}: ${step.count} · ${step.pct} %`}
             >
               {step.pct >= labelThreshold && (
-                <CountUp value={Math.round(step.pct)} animate={anim} delay={anim ? i * 90 : 0} />
+                <CountUp value={Math.round(step.pct)} animate={anim} delay={entrance ? i * 90 : 0} />
               )}
             </div>
           ))}
@@ -100,7 +103,7 @@ export default function LikertResult({
           style={{
             left: `${summary.mean_pct}%`,
             opacity: grown ? 0.8 : 0,
-            transition: `opacity 400ms ${anim ? 900 : 0}ms`,
+            transition: `opacity 400ms ${entrance ? 900 : 0}ms`,
           }}
         >
           <span

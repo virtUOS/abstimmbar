@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Check } from "lucide-react";
 import { API_BASE_URL } from "../api";
 import CountUp from "./CountUp";
-import { EASE, STAGGER_MS, useGrown, useReducedMotion } from "./motion";
+import { EASE, STAGGER_MS, useGrown, useReducedMotion, useSettled } from "./motion";
 import {
   CORRECT,
   CORRECT_STRONG,
@@ -55,7 +55,9 @@ export default function ResultBar({
   const reduced = useReducedMotion();
   const anim = animate && !reduced;
   const grown = useGrown(anim);
-  const d = anim ? index * STAGGER_MS : 0;
+  // Stagger only the entrance; afterwards live updates move immediately.
+  const settled = useSettled(anim, index * STAGGER_MS + 1400);
+  const d = anim && !settled ? index * STAGGER_MS : 0;
   const present = size === "present";
   const tile = letter === undefined ? LETTERS[index] : letter;
 
@@ -130,9 +132,9 @@ export default function ResultBar({
             <span className="w-24 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-400">
               {t("After")}
             </span>
-            {track(pct, fill, anim ? d + 450 : 0)}
+            {track(pct, fill, anim && !settled ? d + 450 : 0)}
             <span className="w-28 text-right tabular-nums text-slate-500">
-              {count} · <CountUp value={pct} animate={anim} delay={anim ? d + 450 : 0} />
+              {count} · <CountUp value={pct} animate={anim} delay={anim && !settled ? d + 450 : 0} />
             </span>
           </div>
         </div>

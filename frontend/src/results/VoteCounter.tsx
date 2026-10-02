@@ -15,7 +15,7 @@ export default function VoteCounter({ votes, participants }: { votes: number; pa
   const { t } = useTranslation();
   const share = participants > 0 ? Math.min(1, votes / participants) : 0;
   return (
-    <div className="inline-flex items-center gap-5" aria-live="polite">
+    <div className="inline-flex items-center gap-5">
       <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90" aria-hidden>
         <circle cx="50" cy="50" r={R} fill="none" strokeWidth="10" className="stroke-slate-100" />
         <circle

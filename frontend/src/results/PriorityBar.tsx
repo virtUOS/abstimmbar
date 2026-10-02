@@ -7,7 +7,7 @@
  * from the average to both sides, then the end points fade in. Values are
  * points out of 100, used directly as track percentages. */
 import { categoryColor, categoryDeep } from "./palette";
-import { EASE, STAGGER_MS, useGrown, useReducedMotion } from "./motion";
+import { EASE, STAGGER_MS, useGrown, useReducedMotion, useSettled } from "./motion";
 
 export default function PriorityBar({
   index,
@@ -29,7 +29,10 @@ export default function PriorityBar({
   const reduced = useReducedMotion();
   const anim = animate && !reduced;
   const grown = useGrown(anim);
-  const d = anim ? index * STAGGER_MS : 0;
+  // Stagger only the entrance; afterwards live updates move immediately.
+  const settled = useSettled(anim, index * STAGGER_MS + 1800);
+  const entrance = anim && !settled;
+  const d = entrance ? index * STAGGER_MS : 0;
   const present = size === "present";
   const trackH = present ? 30 : 20;
   const radius = present ? 9 : 6;
@@ -49,7 +52,7 @@ export default function PriorityBar({
     borderRadius: "50%",
     background: deep,
     opacity: grown ? 1 : 0,
-    transition: `opacity 300ms ${anim ? 1400 + d : 0}ms`,
+    transition: `opacity 300ms ${entrance ? 1400 + d : 0}ms`,
   });
 
   return (
@@ -82,7 +85,7 @@ export default function PriorityBar({
             background: deep,
             transform: `scaleX(${grown ? 1 : 0})`,
             transformOrigin: `${origin}% 50%`,
-            transition: `transform 600ms ${EASE} ${anim ? 900 + d : 0}ms`,
+            transition: `transform 600ms ${EASE} ${entrance ? 900 + d : 0}ms`,
           }}
         />
         <div style={capStyle(min)} />

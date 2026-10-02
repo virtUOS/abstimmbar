@@ -27,7 +27,7 @@ import VoteCounter from "../results/VoteCounter";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
-import { CORRECT, INK, categoryColor, categoryHue, hashHue } from "../results/palette";
+import { CORRECT, INK, categoryColor, categoryHue, hashHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -79,6 +79,7 @@ function useEventSource(code: string | null, onState: (s: LiveState) => void) {
 
 export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_paced" }) {
   const { t } = useTranslation();
+  const reduced = useReducedMotion();
   const { setId } = useParams();
   const id = Number(setId);
   const navigate = useNavigate();
@@ -1271,7 +1272,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <li
                   key={entry.text}
                   className="ab-chip-in rounded-full px-4 py-2 text-xl"
-                  style={{ background: categoryColor(i), color: INK, animationDelay: `${Math.min(i, 20) * 80}ms` }}
+                  style={{ background: termColor(entry.text), color: INK, animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms` }}
                 >
                   {entry.text}
                   {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
@@ -1433,6 +1434,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
  * self-paced has no live audience to hide them from once the quiz is over). */
 function WalkthroughResultBody({ item }: { item: RunResults["questions"][number] }) {
   const { t } = useTranslation();
+  const reduced = useReducedMotion();
   const total = item.votes ?? 0;
 
   if (item.kind === "likert" && item.likert) {
@@ -1491,7 +1493,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
           <li
             key={entry.text}
             className="ab-chip-in rounded-full px-4 py-2 text-xl"
-            style={{ background: categoryColor(i), color: INK, animationDelay: `${Math.min(i, 20) * 80}ms` }}
+            style={{ background: termColor(entry.text), color: INK, animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms` }}
           >
             {entry.text}
             {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}

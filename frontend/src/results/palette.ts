@@ -26,6 +26,9 @@ export function hashHue(text: string): number {
   return categoryHue(Math.abs(h));
 }
 
+/** Pastel fill for a free-form term (free-text chips), stable per text. */
+export const termColor = (text: string) => `oklch(0.80 0.095 ${hashHue(text)})`;
+
 export const CORRECT = "oklch(0.70 0.14 150)";
 export const CORRECT_STRONG = "oklch(0.55 0.14 150)";
 export const CORRECT_TINT = "oklch(0.90 0.06 150)";
