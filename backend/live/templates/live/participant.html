@@ -462,6 +462,17 @@ multi-line note must use {% comment %} or it renders as text.)
     try { return JSON.parse(sessionStorage.getItem(ALREADY_KEY)) || []; } catch { return []; }
   })());
 
+  function addAlreadyAnswered(mark) {
+    if (alreadyAnsweredFor.has(mark)) return;
+    alreadyAnsweredFor.add(mark);
+    try { sessionStorage.setItem(ALREADY_KEY, JSON.stringify([...alreadyAnsweredFor])); } catch { /* ignore */ }
+  }
+  // run:question that was open at the previous render (null if none). The
+  // done view reached on a fresh open transition (prev ≠ now) means the
+  // question was (re-)opened after this participant had answered it — not
+  // this tab's own submit, which re-renders with the same open question.
+  let lastOpenMark = null;
+
   async function fetchMyAnswer(mark, questionId) {
     myAnswerCache.set(mark, "pending");
     let data = null;
@@ -495,8 +506,7 @@ multi-line note must use {% comment %} or it renders as text.)
   // view show "already answered" + that answer.
   function markAlreadyAnswered(question, mark, data) {
     recordAnswer(question, payloadFromServerAnswer(question, data.answer));
-    alreadyAnsweredFor.add(mark);
-    try { sessionStorage.setItem(ALREADY_KEY, JSON.stringify([...alreadyAnsweredFor])); } catch { /* ignore */ }
+    addAlreadyAnswered(mark);
     sessionStorage.setItem(VOTED_KEY, mark);
   }
 
@@ -1831,6 +1841,8 @@ multi-line note must use {% comment %} or it renders as text.)
 
   function render() {
     if (!state) return;
+    const prevOpenMark = lastOpenMark;
+    lastOpenMark = state.phase === "open" && state.question ? voteMark() : null;
     const setTitle = locText(state.set_title);
     subtitle.textContent = setTitle;
     // Scope the local history to the current set (fresh run resets it).
@@ -1890,6 +1902,7 @@ multi-line note must use {% comment %} or it renders as text.)
         markAlreadyAnswered(q, mark, myAnswerCache.get(mark));
       }
       if (votedFor() === mark) {
+        if (prevOpenMark !== mark) addAlreadyAnswered(mark); // re-opened
         renderDone(q, mark);
         show("done");
         maybeStartEvalPoll(q);
@@ -1953,10 +1966,14 @@ multi-line note must use {% comment %} or it renders as text.)
     const already = alreadyAnsweredFor.has(mark);
     document.getElementById("done-message").textContent =
       already ? I18N.alreadyAnswered : I18N.answerReceived;
+    // Always show what this device answered in THIS run, if it knows it
+    // (fresh "received" and re-opened question alike). An empty word-cloud
+    // list ("") is not an answer.
     const box = document.getElementById("done-answer");
     box.replaceChildren();
     const item = history.items[String(question.id)];
-    box.hidden = !(already && hasOwnAnswer(item));
+    box.hidden = !(item && item.answeredRun === currentRunKey() &&
+      hasOwnAnswer(item) && item.answerText !== "");
     if (!box.hidden) appendOwnAnswer(box, item);
   }
 
