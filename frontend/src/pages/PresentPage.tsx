@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -145,6 +145,21 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [showJoin, setShowJoin] = useState(false);
   // Word-cloud view cycle: raw → AI-consolidated → AI-grouped (#Wortwolke-KI).
   const [wcView, setWcView] = useState<"raw" | "consolidated" | "grouped">("raw");
+  const [modHintSeen, setModHintSeen] = useState(() => {
+    try {
+      return localStorage.getItem("abstimmbar_wc_moderation_hint") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissModHint = () => {
+    setModHintSeen(true);
+    try {
+      localStorage.setItem("abstimmbar_wc_moderation_hint", "1");
+    } catch {
+      /* ignore */
+    }
+  };
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -274,6 +289,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const mergeLabel = (keys: string[]) => {
     const norm = [...keys].sort().join(" ");
     return (mod?.merges ?? []).find((m) => [...m.keys].sort().join(" ") === norm)?.label;
+  };
+  // Shared by raw / consolidated / grouped clouds; AI words carry the raw keys
+  // they stand for. Keyless words never moderate (no empty-key calls).
+  const onModerateWord = (op: "hide" | "merge", keys: string[], label?: string) => {
+    if (keys.length === 0) return;
+    if (op === "hide") moderate({ op: "hide", keys }, { op: "unhide", keys });
+    else moderate({ op: "merge", keys, label }, { op: "unmerge", keys });
   };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -1308,23 +1330,40 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <WordCloud
                   words={rampWords(state.words ?? [])}
                   animate
-                  onModerate={(op, keys, label) =>
-                    op === "hide"
-                      ? moderate({ op: "hide", keys }, { op: "unhide", keys })
-                      : moderate({ op: "merge", keys, label }, { op: "unmerge", keys })
-                  }
+                  onModerate={onModerateWord}
                 />
               )
             ) : (
-              <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
+              <WordCloudAiView view={wcView} ai={state.wordcloud_ai} onModerate={onModerateWord} />
             ))}
 
           {question.kind === "word_cloud" &&
-            wcView === "raw" &&
             (phase === "results" ||
               (phase === "open" && question.wordcloud_live !== false)) &&
-            (state.words ?? []).length > 0 && (
+            (wcView === "raw"
+              ? (state.words ?? []).length > 0
+              : wcView === "consolidated"
+                ? (state.wordcloud_ai?.merged.length ?? 0) > 0
+                : (state.wordcloud_ai?.clusters ?? []).some((c) => c.words.length > 0)) && (
               <>
+                {!modHintSeen && (
+                  <div className="fixed right-4 top-[40%] z-30 flex max-w-xs items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                    <p className="flex-1">
+                      {t(
+                        "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.",
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={dismissModHint}
+                      aria-label={t("Dismiss")}
+                      className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
                 {/* Unobtrusive pencil handle at the right edge; opens the drawer. */}
                 <button
                   type="button"
@@ -1928,9 +1967,9 @@ function WordCloud({
             <span
               key={w.text}
               title={`${w.count}×`}
-              onPointerDown={onModerate ? (e) => startDrag(e, w) : undefined}
+              onPointerDown={onModerate && w.keys?.length ? (e) => startDrag(e, w) : undefined}
               className={`group absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold ${
-                onModerate ? "cursor-grab hover:z-30" : ""
+                onModerate && w.keys?.length ? "cursor-grab hover:z-30" : ""
               }`}
               style={{
                 left: `${w.x}px`,
@@ -1940,7 +1979,7 @@ function WordCloud({
                 opacity: ghost?.text === w.text ? 0.2 : undefined,
                 userSelect: "none",
                 WebkitUserSelect: "none",
-                touchAction: onModerate ? "none" : undefined,
+                touchAction: onModerate && w.keys?.length ? "none" : undefined,
                 // Fly in from whichever side the word ends up on.
                 ["--wc-fly" as string]: `${w.x < 0 ? -640 : 640}px`,
                 transition: animate
@@ -1954,7 +1993,7 @@ function WordCloud({
               }}
             >
               {w.text}
-              {onModerate && (
+              {onModerate && !!w.keys?.length && (
                 <button
                   type="button"
                   onPointerDown={(e) => e.stopPropagation()}
@@ -2080,9 +2119,11 @@ function AiWait() {
 function WordCloudAiView({
   view,
   ai,
+  onModerate,
 }: {
   view: "consolidated" | "grouped";
   ai?: WordCloudAI;
+  onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
 }) {
   const { t } = useTranslation();
   if (!ai || ai.pending) return <AiWait />;
@@ -2090,19 +2131,25 @@ function WordCloudAiView({
     if (ai.merged.length === 0) {
       return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
     }
-    return <WordCloud words={rampWords(ai.merged)} animate />;
+    return <WordCloud words={rampWords(ai.merged)} animate onModerate={onModerate} />;
   }
   if (ai.clusters.length === 0) {
     return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
   }
-  return <GroupedWordClouds clusters={ai.clusters} />;
+  return <GroupedWordClouds clusters={ai.clusters} onModerate={onModerate} />;
 }
 
 /** One unified cloud (not side-by-side cards): words coloured by category hue
  * with a within-category frequency ramp, soft-clustered around per-category
  * centroids, plus a legend mapping colour → category label · count
  * (#Wortwolke-KI). */
-function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) {
+function GroupedWordClouds({
+  clusters,
+  onModerate,
+}: {
+  clusters: WordCloudAI["clusters"];
+  onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
+}) {
   const visible = clusters.filter((c) => c.words.length > 0);
   if (visible.length === 0) {
     return <WordCloud words={[]} />;
@@ -2119,12 +2166,13 @@ function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) 
       text: w.text,
       count: w.count,
       color: hueColor(hue, t(w.count)),
+      keys: w.keys,
       cluster: i,
     }));
   });
   return (
     <div>
-      <WordCloud words={words} heightClass="h-[56vh]" animate />
+      <WordCloud words={words} heightClass="h-[56vh]" animate onModerate={onModerate} />
       {/* Legend down the left edge, lower area, one category per line. */}
       <div className="fixed bottom-32 left-6 z-10 flex flex-col gap-2">
         {visible.map((cluster, i) => (
