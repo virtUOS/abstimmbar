@@ -24,21 +24,16 @@ import LikertResult from "../components/LikertResult";
 import { useTourSignal } from "../tour/signals";
 import ResultBar, { type BarState } from "../results/ResultBar";
 import PriorityBar from "../results/PriorityBar";
-import { categoryColor } from "../results/palette";
+import OrderingResult from "../results/OrderingResult";
+import { useReducedMotion } from "../results/motion";
+import { CORRECT, INK, categoryColor, categoryHue, hashHue } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-// Live free-text verdict styling for the (always-light) beamer view.
-// Evaluation categories are coloured by position; the first three are
-// green/amber/red so both presets (Korrektheit, Stimmung) read naturally,
-// custom scales get follow-up colours (#Freitext-Skalen).
-const EVAL_COLORS = [
-  { box: "border-brand-200 bg-brand-50", title: "text-brand-700", bar: "bg-brand-500" },
-  { box: "border-amber-200 bg-amber-50", title: "text-amber-700", bar: "bg-amber-400" },
-  { box: "border-red-200 bg-red-50", title: "text-red-700", bar: "bg-red-400" },
-  { box: "border-blue-200 bg-blue-50", title: "text-blue-700", bar: "bg-blue-500" },
-  { box: "border-violet-200 bg-violet-50", title: "text-violet-700", bar: "bg-violet-500" },
-];
+// AI verdict categories: the first three read correct / partly / wrong (or
+// positive / neutral / negative), so they keep that meaning in pastel —
+// green, sand, rosé — follow-up categories take palette colours.
+const EVAL_FILLS = [CORRECT, "oklch(0.86 0.09 85)", "oklch(0.80 0.08 20)", categoryColor(0), categoryColor(2)];
 
 function evalLabel(verdict: string) {
   return verdict ? verdict[0].toUpperCase() + verdict.slice(1) : verdict;
@@ -1170,18 +1165,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     {t("Before")}
                   </span>
                   <div className="opacity-70">
-                    <LikertResult summary={state.before.likert} variant="present" />
+                    <LikertResult summary={state.before.likert} variant="present" animate />
                   </div>
                 </div>
                 <div>
                   <span className="mb-1 block text-lg font-semibold uppercase tracking-wide text-slate-400">
                     {t("After")}
                   </span>
-                  <LikertResult summary={state.likert} variant="present" />
+                  <LikertResult summary={state.likert} variant="present" animate />
                 </div>
               </div>
             ) : (
-              <LikertResult summary={state.likert} variant="present" />
+              <LikertResult summary={state.likert} variant="present" animate />
             )
           )}
 
@@ -1194,55 +1189,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           )}
 
           {question.kind === "ordering" && state.ordering && phase === "results" && (
-            <div className="mt-8">
-              <p className="mb-4 text-xl font-semibold">
-                {t("{{pct}}% got the full order correct", { pct: state.ordering.full_correct_rate })}
-              </p>
-              <div className="inline-grid gap-x-3" style={{ gridTemplateColumns: "max-content auto" }}>
-                {state.ordering.items.flatMap((it, i) => {
-                  const link = state.ordering!.links?.[i];
-                  const rows = [
-                    <div
-                      key={`item-${it.id}`}
-                      className="col-start-1 flex items-center gap-3 text-xl"
-                      style={{ gridRow: 2 * i + 1 }}
-                    >
-                      <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
-                      <span>{localizedText(it.text)}</span>
-                    </div>,
-                  ];
-                  if (link) {
-                    rows.push(
-                      <div
-                        key={`link-${it.id}`}
-                        className="col-start-1 flex items-center justify-center py-1"
-                        style={{ gridRow: 2 * i + 2 }}
-                      >
-                        <span
-                          className="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                          style={{ opacity: 0.4 + 0.6 * (link.rate / 100) }}
-                        >
-                          {t("{{pct}}% in a row", { pct: link.rate })}
-                        </span>
-                      </div>,
-                    );
-                  }
-                  return rows;
-                })}
-                {state.ordering.chains.map((c, idx) => (
-                  <div
-                    key={`chain-${idx}`}
-                    className="col-start-2 flex items-center gap-2 pl-1"
-                    style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
-                  >
-                    <div className="h-full w-2 rounded-r-lg border-y-2 border-r-2 border-brand-400" />
-                    <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
-                      {c.rate}%
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
+            <OrderingResult ordering={state.ordering} animate />
           )}
 
           {question.kind !== "word_cloud" && question.kind !== "open_text" &&
@@ -1302,38 +1249,31 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   const total = state.evaluation!.groups.reduce((s, g) => s + g.count, 0);
                   const pct = total ? Math.round((group.count / total) * 100) : 0;
                   return (
-                    <div key={group.verdict}>
-                      <div className="mb-1 flex items-center justify-between text-xl">
-                        <span className={EVAL_COLORS[i % EVAL_COLORS.length].title}>
-                          {evalLabel(group.verdict)}
-                        </span>
-                        <span className="tabular-nums text-slate-500">
-                          {group.count} · {pct} %
-                        </span>
-                      </div>
-                      <div className="h-6 overflow-hidden rounded-lg bg-slate-100">
-                        <div
-                          className={`h-full ${EVAL_COLORS[i % EVAL_COLORS.length].bar}`}
-                          style={{ width: `${pct}%` }}
-                        />
-                      </div>
-                    </div>
+                    <ResultBar
+                      key={group.verdict}
+                      index={i}
+                      letter={null}
+                      label={evalLabel(group.verdict)}
+                      count={group.count}
+                      pct={pct}
+                      color={EVAL_FILLS[i % EVAL_FILLS.length]}
+                      animate
+                    />
                   );
                 })}
               </div>
             </div>
           )}
           {question.kind === "open_text" && phase === "results" && !state.evaluation && (
-            <ul className="mt-8 max-h-96 space-y-2 overflow-auto">
-              {(state.words ?? []).map((entry) => (
+            <ul className="mt-8 flex max-h-96 flex-wrap gap-3 overflow-auto">
+              {(state.words ?? []).map((entry, i) => (
                 <li
                   key={entry.text}
-                  className="rounded-xl border border-slate-200 px-4 py-2 text-xl"
+                  className="ab-chip-in rounded-full px-4 py-2 text-xl"
+                  style={{ background: categoryColor(i), color: INK, animationDelay: `${Math.min(i, 20) * 80}ms` }}
                 >
                   {entry.text}
-                  {entry.count > 1 && (
-                    <span className="ml-2 text-sm text-slate-400">×{entry.count}</span>
-                  )}
+                  {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
                 </li>
               ))}
               {(state.words ?? []).length === 0 && (
@@ -1498,7 +1438,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
   const total = item.votes ?? 0;
 
   if (item.kind === "likert" && item.likert) {
-    return <LikertResult summary={item.likert} variant="present" />;
+    return <LikertResult summary={item.likert} variant="present" animate />;
   }
 
   if (item.kind === "priorities" && item.priorities) {
@@ -1512,58 +1452,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
   }
 
   if (item.kind === "ordering" && item.ordering) {
-    const ordering = item.ordering;
-    return (
-      <div className="mt-8">
-        <p className="mb-4 text-xl font-semibold">
-          {t("{{pct}}% got the full order correct", { pct: ordering.full_correct_rate })}
-        </p>
-        <div className="inline-grid gap-x-3" style={{ gridTemplateColumns: "max-content auto" }}>
-          {ordering.items.flatMap((it, i) => {
-            const link = ordering.links?.[i];
-            const rows = [
-              <div
-                key={`item-${it.id}`}
-                className="col-start-1 flex items-center gap-3 text-xl"
-                style={{ gridRow: 2 * i + 1 }}
-              >
-                <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
-                <span>{localizedText(it.text)}</span>
-              </div>,
-            ];
-            if (link) {
-              rows.push(
-                <div
-                  key={`link-${it.id}`}
-                  className="col-start-1 flex items-center justify-center py-1"
-                  style={{ gridRow: 2 * i + 2 }}
-                >
-                  <span
-                    className="rounded-full bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
-                    style={{ opacity: 0.4 + 0.6 * (link.rate / 100) }}
-                  >
-                    {t("{{pct}}% in a row", { pct: link.rate })}
-                  </span>
-                </div>,
-              );
-            }
-            return rows;
-          })}
-          {ordering.chains.map((c, idx) => (
-            <div
-              key={`chain-${idx}`}
-              className="col-start-2 flex items-center gap-2 pl-1"
-              style={{ gridRow: `${2 * c.start + 1} / ${2 * c.end + 2}` }}
-            >
-              <div className="h-full w-2 rounded-r-lg border-y-2 border-r-2 border-brand-400" />
-              <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
-                {c.rate}%
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
+    return <OrderingResult ordering={item.ordering} animate />;
   }
 
   if (item.kind === "open_text" && item.evaluation) {
@@ -1580,22 +1469,16 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
           {evaluation.groups.map((group, i) => {
             const pct = evalTotal ? Math.round((group.count / evalTotal) * 100) : 0;
             return (
-              <div key={group.verdict}>
-                <div className="mb-1 flex items-center justify-between text-xl">
-                  <span className={EVAL_COLORS[i % EVAL_COLORS.length].title}>
-                    {evalLabel(group.verdict)}
-                  </span>
-                  <span className="tabular-nums text-slate-500">
-                    {group.count} · {pct} %
-                  </span>
-                </div>
-                <div className="h-6 overflow-hidden rounded-lg bg-slate-100">
-                  <div
-                    className={`h-full ${EVAL_COLORS[i % EVAL_COLORS.length].bar}`}
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-              </div>
+              <ResultBar
+                key={group.verdict}
+                index={i}
+                letter={null}
+                label={evalLabel(group.verdict)}
+                count={group.count}
+                pct={pct}
+                color={EVAL_FILLS[i % EVAL_FILLS.length]}
+                animate
+              />
             );
           })}
         </div>
@@ -1605,13 +1488,15 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
 
   if (item.kind === "open_text") {
     return (
-      <ul className="mt-8 max-h-96 space-y-2 overflow-auto">
-        {(item.words ?? []).map((entry) => (
-          <li key={entry.text} className="rounded-xl border border-slate-200 px-4 py-2 text-xl">
+      <ul className="mt-8 flex max-h-96 flex-wrap gap-3 overflow-auto">
+        {(item.words ?? []).map((entry, i) => (
+          <li
+            key={entry.text}
+            className="ab-chip-in rounded-full px-4 py-2 text-xl"
+            style={{ background: categoryColor(i), color: INK, animationDelay: `${Math.min(i, 20) * 80}ms` }}
+          >
             {entry.text}
-            {entry.count > 1 && (
-              <span className="ml-2 text-sm text-slate-400">×{entry.count}</span>
-            )}
+            {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
           </li>
         ))}
         {(item.words ?? []).length === 0 && (
@@ -1835,12 +1720,6 @@ function Kbd({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Category hues for the clustered cloud (#Wortwolke): one per AI group, cycled.
-const GROUP_HUES = [150, 238, 28, 300, 195, 60, 330];
-// green, blue, amber, violet, teal, yellow-green, magenta
-function categoryHue(i: number): number {
-  return GROUP_HUES[((i % GROUP_HUES.length) + GROUP_HUES.length) % GROUP_HUES.length];
-}
 // Within-category frequency ramp: t 0..1 (rare..frequent) → lighter/desaturated
 // to darker/saturated, so a category's leader reads darkest on the light beamer.
 function hueColor(hue: number, t: number): string {
@@ -1848,12 +1727,10 @@ function hueColor(hue: number, t: number): string {
   const C = 0.07 + 0.09 * t;
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${hue})`;
 }
-// Single-cloud (no AI groups): a calm green→teal frequency ramp.
-function rampColor(t: number): string {
-  const L = 0.62 - 0.22 * t;
-  const C = 0.07 + 0.09 * t;
-  const H = 195 - 45 * t; // teal (195) → brand green (150)
-  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(0)})`;
+// Single cloud: each term keeps a stable palette hue; frequency darkens it
+// (darker than the bar fills so text stays legible on white).
+function rampColor(hue: number, t: number): string {
+  return `oklch(${(0.62 - 0.16 * t).toFixed(3)} ${(0.10 + 0.05 * t).toFixed(3)} ${hue})`;
 }
 
 type CloudWord = { text: string; count: number; color: string; cluster?: number; keys?: string[] };
@@ -1926,7 +1803,7 @@ function rampWords(words: { text: string; count: number; keys?: string[] }[]): C
   const min = Math.min(...words.map((w) => w.count));
   const t = (c: number) => (max === min ? 1 : (c - min) / (max - min));
   return words.map((w) => ({
-    text: w.text, count: w.count, color: rampColor(t(w.count)), keys: w.keys,
+    text: w.text, count: w.count, color: rampColor(hashHue(w.text), t(w.count)), keys: w.keys,
   }));
 }
 
@@ -1934,7 +1811,7 @@ function WordCloud({
   words,
   scale = 1,
   heightClass = "h-[62vh]",
-  animate = false,
+  animate: animateProp = false,
   onModerate,
 }: {
   words: CloudWord[];
@@ -1949,6 +1826,8 @@ function WordCloud({
   // it was as its votes change: a growing word mostly nudges the words placed
   // after it, which glide via the CSS transition instead of the whole cloud
   // re-packing and teleporting (#Wortwolke). New terms sort last → outer ring.
+  const reduced = useReducedMotion();
+  const animate = animateProp && !reduced;
   const orderRef = useRef<Map<string, number>>(new Map());
   const seqRef = useRef(0);
 
