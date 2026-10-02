@@ -720,10 +720,11 @@ multi-line note must use {% comment %} or it renders as text.)
       const chip = document.createElement("span");
       chip.textContent = word.text + (word.count > 1 ? " ×" + word.count : "") +
         (isMine ? " · " + I18N.you : "");
+      // Own term: its usual palette colour plus a frame — green would read as
+      // "correct" on results pages.
       chip.style.cssText = "display:inline-block;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
-        (isMine
-          ? "background:var(--brand);color:var(--bar-ink);font-weight:700;outline:2px solid var(--brand-strong)"
-          : "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)");
+        "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)" +
+        (isMine ? ";font-weight:700;outline:2px solid var(--ink);outline-offset:2px" : "");
       list.appendChild(chip);
     }
     (data.priorities || []).forEach((opt, i) => {
