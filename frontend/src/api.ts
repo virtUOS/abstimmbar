@@ -1054,12 +1054,12 @@ export interface RunResults {
 export interface WordCloudCluster {
   label: string;
   count: number;
-  words: { text: string; count: number; variants: string[] }[];
+  words: { text: string; count: number; variants: string[]; keys?: string[] }[];
 }
 
 export interface WordCloudOptimization {
   clusters: WordCloudCluster[];
-  merged: { text: string; count: number; variants: string[] }[];
+  merged: { text: string; count: number; variants: string[]; keys?: string[] }[];
 }
 
 export interface FreeTextEvaluation {

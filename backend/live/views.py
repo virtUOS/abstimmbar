@@ -1537,6 +1537,9 @@ def wordcloud_moderation(request, run_id, question_id):
     else:
         return Response({"detail": "Unknown op."}, status=400)
     mod.save()
+    # Moderated terms feed the AI views too — refresh a shown/warm AI result
+    # (no-op when AI is off or never computed for this word cloud).
+    ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
     broadcast(room)
     return Response({"status": "ok"})
 
