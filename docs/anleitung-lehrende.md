@@ -216,9 +216,15 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
 
 - **Starten** (Taste S) öffnet die Abstimmung zur aktuellen Frage, **Stoppen**
   (S) schließt sie. Bis Sie starten, sehen die Teilnehmenden nur die Frage.
+  Während der Abstimmung zeigt der Beamer statt der Ergebnisse einen
+  **Zähler** der eingegangenen Antworten; ein Ring zeigt den Anteil der
+  verbundenen Teilnehmenden, die schon geantwortet haben.
 - Mit dem Umschalter **Frage / Ergebnisse** (E) / **Lösung** (A) legen Sie fest,
   was der Beamer zeigt; die Ergebnisse aktualisieren sich **in Echtzeit**. Die
-  Lösung erscheint gemäß Ihrer Einstellung.
+  Balken bauen sich kurz animiert auf, jede Antwort hat ihre eigene Farbe. Die
+  Lösung erscheint gemäß Ihrer Einstellung: Die richtige Antwort wird dann
+  **grün** und mit „Richtig“ markiert, die übrigen werden zart rosé. Ein
+  erneutes A blendet die Markierung wieder aus.
 - **→** wechselt zur nächsten Frage, **←** zurück.
 - **Beenden** (Esc) schließt die Durchführung und speichert die Ergebnisse.
 - Das QR-Symbol blendet QR-Code und Zugangscode jederzeit wieder ein.
@@ -238,7 +244,8 @@ Nach der Durchführung finden Sie alle Antworten in der **Ergebnisansicht** — 
 Fragenset über **„Ergebnisse"**. Dort können Sie:
 
 - die Auswertung je Frage einsehen (inkl. Wortwolke, Likert-Balken, Prioritäten
-  und Sortierung),
+  und Sortierung); richtige Antworten sind hier immer grün mit „Richtig“
+  markiert,
 - über das Auswahlfeld oben **frühere Durchführungen** wählen — jede
   Präsentation wird als eigene Durchführung gespeichert,
 - die Ergebnisse als **CSV-Datei exportieren** (nur diese oder alle

@@ -34,6 +34,8 @@ export default function PriorityBar({
   const entrance = anim && !settled;
   const d = entrance ? index * STAGGER_MS : 0;
   const present = size === "present";
+  const darkTrack = present ? "" : " dark:bg-slate-800";
+  const darkText = present ? "" : " dark:text-slate-400";
   const trackH = present ? 30 : 20;
   const radius = present ? 9 : 6;
   const lineH = present ? 4 : 3;
@@ -59,11 +61,11 @@ export default function PriorityBar({
     <div>
       <div className={`mb-1 flex items-center justify-between gap-4 ${present ? "text-xl" : "text-sm"}`}>
         <span className="min-w-0">{label}</span>
-        <span className="shrink-0 tabular-nums text-slate-500">
+        <span className={`shrink-0 tabular-nums text-slate-500${darkText}`}>
           Ø {avg} · {min}–{max}
         </span>
       </div>
-      <div className="relative bg-slate-100" style={{ height: trackH, borderRadius: radius }}>
+      <div className={`relative bg-slate-100${darkTrack}`} style={{ height: trackH, borderRadius: radius }}>
         <div
           className="absolute inset-y-0 left-0"
           style={{

@@ -66,10 +66,12 @@ export default function ResultBar({
   const tileBg = state === "correct" ? CORRECT_STRONG : state === "wrong" ? NEUTRAL_TILE : fill;
   const tileInk = state === "correct" ? "white" : INK;
 
+  const darkTrack = present ? "" : " dark:bg-slate-800";
+  const darkText = present ? "" : " dark:text-slate-400";
   const trackH = present ? 34 : 20;
   const radius = present ? 10 : 6;
   const track = (value: number, background: string, delay: number) => (
-    <div className="flex-1 bg-slate-100" style={{ height: trackH, borderRadius: radius }}>
+    <div className={`flex-1 bg-slate-100${darkTrack}`} style={{ height: trackH, borderRadius: radius }}>
       <div
         style={{
           height: "100%",
@@ -98,7 +100,7 @@ export default function ResultBar({
           <img src={`${API_BASE_URL}${image}`} alt="" className="max-h-12 rounded-lg" />
         )}
         <span
-          className={`min-w-0 ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? "text-slate-500" : ""}`}
+          className={`min-w-0 ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? `text-slate-500${darkText}` : ""}`}
         >
           {label}
         </span>
@@ -112,7 +114,7 @@ export default function ResultBar({
           </span>
         )}
         {!before && (
-          <span className="ml-auto shrink-0 tabular-nums text-slate-500">
+          <span className={`ml-auto shrink-0 tabular-nums text-slate-500${darkText}`}>
             {count} · <CountUp value={pct} animate={anim} delay={d} />
           </span>
         )}
@@ -124,7 +126,7 @@ export default function ResultBar({
               {t("Before")}
             </span>
             {track(before.pct, tint, d)}
-            <span className="w-28 text-right tabular-nums text-slate-500">
+            <span className={`w-28 text-right tabular-nums text-slate-500${darkText}`}>
               {before.count} · <CountUp value={before.pct} animate={anim} delay={d} />
             </span>
           </div>
@@ -133,7 +135,7 @@ export default function ResultBar({
               {t("After")}
             </span>
             {track(pct, fill, anim && !settled ? d + 450 : 0)}
-            <span className="w-28 text-right tabular-nums text-slate-500">
+            <span className={`w-28 text-right tabular-nums text-slate-500${darkText}`}>
               {count} · <CountUp value={pct} animate={anim} delay={anim && !settled ? d + 450 : 0} />
             </span>
           </div>

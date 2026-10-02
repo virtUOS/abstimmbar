@@ -27,14 +27,9 @@ import VoteCounter from "../results/VoteCounter";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
-import { CORRECT, INK, categoryColor, categoryHue, hashHue, termColor } from "../results/palette";
+import { INK, evalColor, categoryColor, categoryHue, hashHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-
-// AI verdict categories: the first three read correct / partly / wrong (or
-// positive / neutral / negative), so they keep that meaning in pastel —
-// green, sand, rosé — follow-up categories take palette colours.
-const EVAL_FILLS = [CORRECT, "oklch(0.86 0.09 85)", "oklch(0.80 0.08 20)", categoryColor(0), categoryColor(2)];
 
 function evalLabel(verdict: string) {
   return verdict ? verdict[0].toUpperCase() + verdict.slice(1) : verdict;
@@ -1258,7 +1253,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                       label={evalLabel(group.verdict)}
                       count={group.count}
                       pct={pct}
-                      color={EVAL_FILLS[i % EVAL_FILLS.length]}
+                      color={evalColor(i)}
                       animate
                     />
                   );
@@ -1476,7 +1471,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
                 label={evalLabel(group.verdict)}
                 count={group.count}
                 pct={pct}
-                color={EVAL_FILLS[i % EVAL_FILLS.length]}
+                color={evalColor(i)}
                 animate
               />
             );

@@ -142,6 +142,18 @@ multi-line note must use {% comment %} or it renders as text.)
   .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
   .likert-abstain:hover{background:var(--brand-soft);border-color:var(--brand-strong);color:var(--brand-strong)}
   .likert-abstain.selected{background:var(--brand-soft);border-style:solid;border-color:var(--brand-strong);color:var(--brand-strong);font-weight:600}
+  /* Result bars (#results refresh): grow from 0 once on render. */
+  .rbar { height: 100%; border-radius: 10px; width: 0;
+          transition: width .6s cubic-bezier(.2,.8,.2,1); }
+  .rtrack { position: relative; height: 20px; border-radius: 10px; background: var(--line); }
+  .rbadge { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 8px;
+            border-radius: 999px; background: var(--correct-strong); color: #fff;
+            font-size: 12px; font-weight: 700; vertical-align: 1px; }
+  @media (prefers-reduced-motion: reduce) { .rbar, .rline, .rcap { transition: none !important; } }
+  .rline { position: absolute; top: 50%; height: 4px; margin-top: -2px; border-radius: 2px;
+           transform: scaleX(0); transition: transform .5s cubic-bezier(.2,.8,.2,1) .5s; }
+  .rcap { position: absolute; top: 50%; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px;
+          border-radius: 50%; opacity: 0; transition: opacity .3s .9s; }
 </style>
 <section id="finished" class="center" hidden>
   <div class="emoji"><svg class="ic" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></div>
@@ -313,6 +325,7 @@ multi-line note must use {% comment %} or it renders as text.)
     notAnswered: "{% trans 'Not answered.' %}",
     alreadyAnswered: "{% trans 'You already answered this question.' %}",
     yourChoice: "{% trans 'your choice' %}",
+    correctBadge: "{% trans 'Correct' %}",
     pointsSpent: "{% trans '{used} of {total} points allocated' %}",
     pointsRedistribute: "{% trans 'lower a value to reallocate points' %}",
     orderingHint: "{% trans 'Drag the items or use the arrows to sort them.' %}",
@@ -562,8 +575,8 @@ multi-line note must use {% comment %} or it renders as text.)
 
   // Render result bars / word chips of `data` (which has .results and/or
   // .words) into `list`, highlighting the answer the viewer gave (#13).
-  // Colored Likert steps (#86), ported from LikertResult.tsx: low pole in
-  // reds, high pole in the brand green, neutral grey; darkest at the extremes.
+  // Colored Likert steps (#86, L1 palette): low pole in soft reds, high pole in
+  // greens, neutral grey; more saturated/darker towards the extremes.
   function likertColors(steps) {
     const low = steps.filter((s) => s.polarity === "low").length;
     const high = steps.filter((s) => s.polarity === "high").length;
@@ -573,13 +586,12 @@ multi-line note must use {% comment %} or it renders as text.)
       if (step.polarity === "low") { group = low; rank = low - 1 - lSeen; lSeen++; }
       else if (step.polarity === "high") { group = high; rank = hSeen; hSeen++; }
       const t = group <= 1 ? 1 : rank / (group - 1);
-      if (step.polarity === "neutral") return { ...step, fill: "oklch(0.8 0.012 220)", ink: "oklch(0.28 0.011 220)" };
-      const L = step.polarity === "low" ? 0.8 - 0.26 * t : 0.84 - 0.3 * t;
+      const mix = (a, b) => (a + (b - a) * t).toFixed(3);
+      if (step.polarity === "neutral") return { ...step, fill: "oklch(0.88 0.01 240)", ink: "var(--bar-ink)" };
       const fill = step.polarity === "low"
-        ? "oklch(" + L + " " + (0.08 + 0.13 * t) + " 27)"
-        : "oklch(" + L + " " + (0.09 + 0.05 * t) + " 149)";
-      const ink = L > 0.62 ? "oklch(0.25 0.02 27)" : "oklch(0.98 0.01 149)";
-      return { ...step, fill, ink };
+        ? "oklch(" + mix(0.86, 0.72) + " " + mix(0.06, 0.11) + " 20)"
+        : "oklch(" + mix(0.87, 0.74) + " " + mix(0.07, 0.12) + " 150)";
+      return { ...step, fill, ink: "var(--bar-ink)" };
     });
   }
 
@@ -649,13 +661,29 @@ multi-line note must use {% comment %} or it renders as text.)
     list.appendChild(line);
   }
 
+  // Set final widths/transforms on the next frame so the bars grow from 0
+  // (CSS transitions; reduced motion turns them off). Live state updates
+  // re-render the results (e.g. when the connected count changes), so the
+  // grow only plays on a question's first render — afterwards values are set
+  // before the elements are attached and simply appear.
+  let growEnabled = true;
+  let resultsGrownFor = null;
+  function growLater(el, apply) {
+    if (!growEnabled) { apply(el); return; }
+    requestAnimationFrame(() => requestAnimationFrame(() => apply(el)));
+  }
+  const CAT = (i) => "var(--cat-" + (((i % 6) + 6) % 6) + ")";
+  const CAT_DEEP = (i) => "oklch(0.62 0.11 " + [250, 60, 305, 220, 85, 335][((i % 6) + 6) % 6] + ")";
+  function hashText(s) { let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) | 0; return Math.abs(h); }
+
   function renderResultBlock(list, data, mine) {
     mine = mine || {};
     const myOptionIds = new Set((mine.answerOptions || []).map((o) => o.id));
     if (data.likert) { renderLikertBar(list, data.likert, myOptionIds); return; }
     const myWord = (mine.answerText || "").trim().toLowerCase();
     const total = (data.results || []).reduce((sum, r) => sum + r.count, 0);
-    for (const row of data.results || []) {
+    const hasCorrect = (data.results || []).some((r) => r.is_correct);
+    (data.results || []).forEach((row, i) => {
       const isMine = myOptionIds.has(row.id);
       const percent = total ? Math.round((row.count / total) * 100) : 0;
       const item = document.createElement("div");
@@ -663,24 +691,30 @@ multi-line note must use {% comment %} or it renders as text.)
       const label = document.createElement("div");
       label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
       const name = document.createElement("span");
-      name.textContent = locText(row.text) + (row.is_correct ? " ✓" : "") +
-        (isMine ? " · " + I18N.yourChoice : "");
-      if (isMine) name.style.cssText = "font-weight:700";
-      else if (row.is_correct) name.style.cssText = "color:var(--brand-strong);font-weight:600";
+      name.textContent = locText(row.text) + (isMine ? " · " + I18N.yourChoice : "");
+      if (isMine || row.is_correct) name.style.fontWeight = "700";
+      if (hasCorrect && !row.is_correct && !isMine) name.style.color = "var(--ink-soft)";
+      if (row.is_correct) {
+        const badge = document.createElement("span");
+        badge.className = "rbadge";
+        badge.textContent = "✓ " + I18N.correctBadge;
+        name.appendChild(badge);
+      }
       const nums = document.createElement("span");
       nums.textContent = row.count + " · " + percent + " %";
       nums.style.color = "var(--ink-soft)";
       label.append(name, nums);
       const track = document.createElement("div");
-      track.style.cssText = "height:12px;border-radius:6px;background:var(--line)";
-      if (isMine) track.style.outline = "2px solid var(--brand-strong)";
+      track.className = "rtrack";
+      if (isMine) { track.style.outline = "2px solid var(--brand-strong)"; track.style.outlineOffset = "2px"; }
       const bar = document.createElement("div");
-      bar.style.cssText = "height:12px;border-radius:6px;background:" +
-        (row.is_correct ? "var(--brand)" : "#b6bcc1") + ";width:" + percent + "%";
+      bar.className = "rbar";
+      bar.style.background = hasCorrect ? (row.is_correct ? "var(--correct)" : "var(--wrong)") : CAT(i);
+      growLater(bar, (b) => { b.style.width = percent + "%"; });
       track.appendChild(bar);
       item.append(label, track);
       list.appendChild(item);
-    }
+    });
     for (const word of data.words || []) {
       const isMine = myWord && word.text.trim().toLowerCase() === myWord;
       const chip = document.createElement("span");
@@ -688,11 +722,11 @@ multi-line note must use {% comment %} or it renders as text.)
         (isMine ? " · " + I18N.you : "");
       chip.style.cssText = "display:inline-block;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
         (isMine
-          ? "background:var(--brand);color:var(--ink);font-weight:700;outline:2px solid var(--brand-strong)"
-          : "background:var(--brand-soft);color:var(--brand-strong)");
+          ? "background:var(--brand);color:var(--bar-ink);font-weight:700;outline:2px solid var(--brand-strong)"
+          : "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)");
       list.appendChild(chip);
     }
-    for (const opt of data.priorities || []) {
+    (data.priorities || []).forEach((opt, i) => {
       const item = document.createElement("div");
       item.style.cssText = "margin-bottom:10px";
       const label = document.createElement("div");
@@ -704,23 +738,29 @@ multi-line note must use {% comment %} or it renders as text.)
       nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
       label.append(name, nums);
       const track = document.createElement("div");
-      track.style.cssText = "position:relative;height:12px;border-radius:6px;background:var(--line);overflow:visible";
+      track.className = "rtrack";
       const bar = document.createElement("div");   // average fill
-      bar.style.cssText = "position:absolute;left:0;top:0;height:12px;border-radius:6px;background:var(--brand);width:" +
-        opt.avg + "%";
-      const range = document.createElement("div");  // deviation line on top
-      range.style.cssText = "position:absolute;top:50%;transform:translateY(-50%);height:2px;background:var(--ink);left:" +
-        opt.min + "%;width:" + Math.max(opt.max - opt.min, 0) + "%";
-      const wMin = document.createElement("div");    // min whisker
-      wMin.style.cssText = "position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transform:translateX(-50%);left:" +
-        opt.min + "%";
-      const wMax = document.createElement("div");    // max whisker
-      wMax.style.cssText = "position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);transform:translateX(-50%);left:" +
-        opt.max + "%";
-      track.append(bar, range, wMin, wMax);
+      bar.className = "rbar";
+      bar.style.cssText = "position:absolute;left:0;top:0;background:" + CAT(i);
+      growLater(bar, (b) => { b.style.width = opt.avg + "%"; });
+      const span = opt.max - opt.min;
+      const origin = span > 0 ? Math.min(100, Math.max(0, (opt.avg - opt.min) / span * 100)) : 50;
+      const range = document.createElement("div");  // deviation line
+      range.className = "rline";
+      range.style.cssText = "left:" + opt.min + "%;width:" + Math.max(span, 0) + "%;background:" + CAT_DEEP(i) +
+        ";transform-origin:" + origin + "% 50%";
+      growLater(range, (r) => { r.style.transform = "scaleX(1)"; });
+      track.append(bar, range);
+      for (const v of [opt.min, opt.max]) {
+        const cap = document.createElement("div");
+        cap.className = "rcap";
+        cap.style.cssText = "left:" + v + "%;background:" + CAT_DEEP(i);
+        growLater(cap, (c) => { c.style.opacity = "1"; });
+        track.appendChild(cap);
+      }
       item.append(label, track);
       list.appendChild(item);
-    }
+    });
     if (data.ordering) {
       const correct = (data.ordering.items || []).map((o) => String(o.id));
       const textById = new Map((data.ordering.items || []).map((o) => [String(o.id), locText(o.text)]));
@@ -728,7 +768,7 @@ multi-line note must use {% comment %} or it renders as text.)
 
       if (own && own.length === correct.length && own.every((id, i) => id === correct[i])) {
         const ok = document.createElement("div");
-        ok.style.cssText = "margin:6px 0 12px;padding:10px 12px;border-radius:10px;background:var(--brand);color:#fff;font-weight:600;text-align:center";
+        ok.style.cssText = "margin:6px 0 12px;padding:10px 12px;border-radius:10px;background:var(--correct-strong);color:#fff;font-weight:600;text-align:center";
         ok.textContent = "✓ " + I18N.allCorrect;
         list.appendChild(ok);
       }
@@ -748,7 +788,7 @@ multi-line note must use {% comment %} or it renders as text.)
           if (markCorrect && id === correct[i]) {
             const tick = document.createElement("span");
             tick.textContent = " ✓";
-            tick.style.color = "var(--brand)";
+            tick.style.color = "var(--correct-strong)";
             li.appendChild(tick);
           }
           ol.appendChild(li);
@@ -768,7 +808,11 @@ multi-line note must use {% comment %} or it renders as text.)
     const list = document.getElementById("results-list");
     list.replaceChildren();
     const mine = state.question && history.items[String(state.question.id)];
+    const qid = state.question ? state.question.id : null;
+    growEnabled = resultsGrownFor !== qid;
+    resultsGrownFor = qid;
     renderResultBlock(list, state, mine);
+    growEnabled = true;
   }
 
   // "My answers" overlay: every question I answered (or saw results

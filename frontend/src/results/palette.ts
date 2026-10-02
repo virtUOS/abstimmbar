@@ -51,3 +51,9 @@ export function likertFill(
     ? `oklch(${mix(0.86, 0.72)} ${mix(0.06, 0.11)} 20)`
     : `oklch(${mix(0.87, 0.74)} ${mix(0.07, 0.12)} 150)`;
 }
+
+/** AI verdict categories: the first three read correct / partly / wrong (or
+ * positive / neutral / negative), so they keep that meaning in pastel —
+ * green, sand, rosé; follow-up categories take palette colours. */
+const EVAL_FILLS = [CORRECT, "oklch(0.86 0.09 85)", "oklch(0.80 0.08 20)", categoryColor(0), categoryColor(2)];
+export const evalColor = (i: number) => EVAL_FILLS[((i % EVAL_FILLS.length) + EVAL_FILLS.length) % EVAL_FILLS.length];

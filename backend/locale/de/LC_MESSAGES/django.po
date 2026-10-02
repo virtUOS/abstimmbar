@@ -199,6 +199,10 @@ msgid "{n}s left"
 msgstr "noch {n} s"
 
 #: live/templates/live/participant.html:204
+msgid "Correct"
+msgstr "Richtig"
+
+#: live/templates/live/participant.html
 msgid "Correct!"
 msgstr "Richtig!"
 
