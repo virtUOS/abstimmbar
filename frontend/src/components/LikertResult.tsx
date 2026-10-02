@@ -52,7 +52,8 @@ export default function LikertResult({
 }) {
   const { t } = useTranslation();
   const present = variant === "present";
-  const anim = animate && !useReducedMotion();
+  const reduced = useReducedMotion();
+  const anim = animate && !reduced;
   const grown = useGrown(anim);
   const steps = colorize(summary.steps);
   const labelThreshold = present ? 7 : Infinity; // %-width needed to show a % inside
