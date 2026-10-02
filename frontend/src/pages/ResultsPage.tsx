@@ -104,7 +104,7 @@ function WordCloudResult({
                         : undefined
                     }
                     className="mr-3 inline-block rounded-lg px-2 py-0.5"
-              style={{ background: termColor(word.text), color: INK }}
+                    style={{ background: termColor(word.text), color: INK }}
                   >
                     {word.text} <span className="opacity-60">×{word.count}</span>
                   </span>
