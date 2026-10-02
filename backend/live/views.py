@@ -659,11 +659,16 @@ def my_answer(request, code):
     ).first()
     if question is None:
         return Response({"detail": "Unknown question."}, status=404)
-    votes = list(
-        Vote.objects.filter(run=run, question=question, token=token)
-        .order_by("created_at", "pk")
-        .prefetch_related("options", "priority_scores", "ordering_responses")
+    votes = Vote.objects.filter(run=run, question=question, token=token).order_by(
+        "created_at", "pk"
     )
+    if question.kind == Question.Kind.PRIORITIES:
+        votes = votes.prefetch_related("priority_scores")
+    elif question.kind == Question.Kind.ORDERING:
+        votes = votes.prefetch_related("ordering_responses")
+    elif question.kind not in Question.TEXT_KINDS:
+        votes = votes.prefetch_related("options")
+    votes = list(votes)
     if not votes:
         return Response(not_answered)
     answer = {"options": [], "text": [], "points": {}, "order": []}

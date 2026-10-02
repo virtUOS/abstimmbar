@@ -452,7 +452,9 @@ multi-line note must use {% comment %} or it renders as text.)
   // only remembers the LAST answered run:question, so ask the server once per
   // run:question whether this token already answered it (POST my-answer,
   // token-scoped). Cached per voteMark(); "pending" while the request runs.
-  // A network/HTTP error caches "not answered", i.e. today's behaviour (form).
+  // Only successful responses are cached; a network/HTTP error yields
+  // { answered: false, error: true } uncached (form, i.e. today's behaviour;
+  // the next render retries).
   const myAnswerCache = new Map(); // voteMark → "pending" | { answered, answer, can_change }
   // voteMarks shown as "already answered" (kept across reloads, like VOTED_KEY).
   const ALREADY_KEY = "abstimmbar_already_" + CODE;
@@ -469,7 +471,10 @@ multi-line note must use {% comment %} or it renders as text.)
       });
       if (response.ok) data = await response.json();
     } catch { /* fall through: treat as not answered */ }
-    if (!data || typeof data.answered !== "boolean") data = { answered: false, answer: null, can_change: false };
+    if (!data || typeof data.answered !== "boolean") {
+      myAnswerCache.delete(mark);
+      return { answered: false, answer: null, can_change: false, error: true };
+    }
     myAnswerCache.set(mark, data);
     return data;
   }
@@ -609,6 +614,7 @@ multi-line note must use {% comment %} or it renders as text.)
     });
     if (response.status === 201) {
       sessionStorage.setItem(VOTED_KEY, voteMark());
+      myAnswerCache.delete(voteMark()); // a later re-open must ask afresh
       if (state.question) recordAnswer(state.question, payload);
       render();
     } else if (response.status === 409) {
@@ -617,12 +623,15 @@ multi-line note must use {% comment %} or it renders as text.)
       // what this token actually answered and show that instead.
       const question = state.question;
       const mark = voteMark();
-      if (question) {
-        const data = await fetchMyAnswer(mark, question.id);
-        if (data.answered) markAlreadyAnswered(question, mark, data);
+      const data = question ? await fetchMyAnswer(mark, question.id) : null;
+      if (data && data.answered) {
+        markAlreadyAnswered(question, mark, data);
+        render();
+      } else if (voteMark() === mark) {
+        // Not answered → rejected because time is up / voting closed: no
+        // "received" confirmation, the same closed screen the countdown uses.
+        show("closed");
       }
-      sessionStorage.setItem(VOTED_KEY, mark);
-      render();
     }
   }
 
@@ -1314,6 +1323,9 @@ multi-line note must use {% comment %} or it renders as text.)
         wcList = [];
         wcBatchPending = [];
         renderWcChips();
+        // Local list reset → the cached server answer is stale; refetch so a
+        // return to this word cloud re-prefills the chips (and the counter).
+        myAnswerCache.delete(key);
         document.getElementById("word").value = "";
         document.getElementById("wc-hint").hidden = true;
       }
@@ -1882,7 +1894,6 @@ multi-line note must use {% comment %} or it renders as text.)
         show("done");
         maybeStartEvalPoll(q);
       } else {
-        const known = myAnswerCache.get(mark);
         // Only ask when this device answered this question earlier in THIS
         // run (local history) — i.e. a re-opened question. A first open stays
         // a plain form, so 1000 participants don't all hit the server the
@@ -1890,14 +1901,18 @@ multi-line note must use {% comment %} or it renders as text.)
         // surfaces via the 409 path in submitVote().
         const item = history.items[String(q.id)];
         const seenBefore = !!item && item.answeredRun === currentRunKey();
-        renderQuestion();
+        renderQuestion(); // may invalidate the cache entry (word-cloud reset)
+        const known = myAnswerCache.get(mark);
         if (!PREVIEW && token && seenBefore && (known === undefined || known === "pending")) {
           // Ask the server first; meanwhile the form is visible but inert
           // (no flash of a submittable form for someone who already answered).
           setQuestionPending(true);
           if (known === undefined) {
-            void fetchMyAnswer(mark, q.id).then(() => {
-              if (state && voteMark() === mark) render();
+            void fetchMyAnswer(mark, q.id).then((data) => {
+              if (!state || voteMark() !== mark) return;
+              // On error just release the form (no re-render → no retry loop).
+              if (data.error) setQuestionPending(false);
+              else render();
             });
           }
         } else if (known && known.answered && isMultiWordCloud(q)) {
@@ -1948,11 +1963,8 @@ multi-line note must use {% comment %} or it renders as text.)
   // Multi-answer word cloud re-opened after answering: show the terms the
   // server already has as chips (so the cap and dedupe are right), once per
   // run:question and only if this device has no local list for it.
-  const wcPrefilled = new Set();
   function prefillWcFromServer(mark, answer) {
-    if (wcPrefilled.has(mark) || wcKey !== mark) return;
-    wcPrefilled.add(mark);
-    if (wcList.length) return;
+    if (wcKey !== mark || wcList.length) return;
     for (const word of (answer && answer.text) || []) {
       const key = wcNorm(word);
       if (!key || wcWords.has(key)) continue;
@@ -1985,6 +1997,13 @@ multi-line note must use {% comment %} or it renders as text.)
       del.addEventListener("click", () => void retractWord(entry.key));
       chip.append(label, del);
       box.appendChild(chip);
+    }
+    // Mirror own adds/retracts into a cached my-answer entry, so a later
+    // prefill (list empty) never brings back withdrawn terms.
+    const cached = wcKey && myAnswerCache.get(wcKey);
+    if (cached && cached !== "pending" && !cached.error) {
+      cached.answered = wcList.length > 0;
+      cached.answer = { options: [], text: wcList.map((e) => e.word), points: {}, order: [] };
     }
     if (state.question) {
       const item = historyItem(state.question);
