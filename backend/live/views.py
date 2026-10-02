@@ -1597,15 +1597,23 @@ def wordcloud_ai_settings(request, run_id, question_id):
     fields = []
     grouping_changed = False
     if "ai_enabled" in request.data:
-        enabled = bool(request.data.get("ai_enabled"))
+        enabled = request.data.get("ai_enabled")
+        if not isinstance(enabled, bool):
+            return Response({"detail": "ai_enabled must be a boolean."}, status=400)
         if enabled and not ai.is_enabled():
             return Response({"detail": "KI ist nicht konfiguriert."}, status=409)
         if enabled != question.wordcloud_ai_enabled:
             question.wordcloud_ai_enabled = enabled
             fields.append("wordcloud_ai_enabled")
+        if not enabled:
+            # Stop the live recompute so new votes no longer trigger LLM calls.
+            ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, False)
     if "grouping" in request.data:
         grouping = str(request.data.get("grouping") or "").strip()
-        if len(grouping) > WORDCLOUD_GROUPING_MAX:
+        if (
+            len(grouping) > WORDCLOUD_GROUPING_MAX
+            and grouping != question.wordcloud_grouping
+        ):
             return Response(
                 {"detail": f"Anweisung zu lang (max. {WORDCLOUD_GROUPING_MAX} Zeichen)."},
                 status=400,
@@ -1616,7 +1624,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
             grouping_changed = True
     if fields:
         question.save(update_fields=fields)
-    if grouping_changed:
+    if grouping_changed or request.data.get("regroup") is True:
         # A shown/warm AI result was built with the old instruction.
         ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
     broadcast(room)
@@ -1643,6 +1651,11 @@ def wordcloud_ai(request, run_id):
     question = get_object_or_404(
         Question, pk=request.data.get("question"), question_set=run.question_set
     )
+    active = bool(request.data.get("active"))
+    if not active:
+        # Deactivation is always allowed (also after AI was switched off).
+        ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, False)
+        return Response({"status": "ok", "active": False})
     if question.kind != Question.Kind.WORD_CLOUD or not question.wordcloud_ai_enabled:
         return Response(
             {"detail": "KI-Aufräumen ist für diese Frage nicht aktiviert."},
@@ -1650,9 +1663,8 @@ def wordcloud_ai(request, run_id):
         )
     if not ai.is_enabled():
         return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
-    active = bool(request.data.get("active"))
-    ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, active)
-    return Response({"status": "ok", "active": active})
+    ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, True)
+    return Response({"status": "ok", "active": True})
 
 
 @api_view(["POST"])

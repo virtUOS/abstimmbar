@@ -414,6 +414,15 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
     def validate_text(self, value):
         return clean_html(value)
 
+    def validate_wordcloud_grouping(self, value):
+        # Same cap as the presenter's ai-settings endpoint; an unchanged
+        # (legacy, longer) stored value stays saveable.
+        if len(value) > 1000 and not (
+            self.instance is not None and value == self.instance.wordcloud_grouping
+        ):
+            raise serializers.ValidationError("Max. 1000 characters.")
+        return value
+
     def validate_evaluation_categories(self, value):
         # 2–5 trimmed, unique, non-empty labels; else the default scale.
         from .models import default_verdicts

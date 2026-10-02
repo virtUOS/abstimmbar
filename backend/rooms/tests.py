@@ -350,6 +350,17 @@ class QuestionApiTests(ApiTestCase):
             "/api/questions/", payload, content_type="application/json"
         )
 
+    def test_wordcloud_grouping_capped_at_1000(self):
+        ok = self._create_question(
+            kind="word_cloud", options=[], wordcloud_grouping="x" * 1000
+        )
+        self.assertEqual(ok.status_code, 201)
+        too_long = self._create_question(
+            kind="word_cloud", options=[], wordcloud_grouping="x" * 1001
+        )
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("wordcloud_grouping", too_long.json())
+
     def test_create_with_nested_options(self):
         response = self._create_question()
         self.assertEqual(response.status_code, 201)

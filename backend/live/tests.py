@@ -4367,3 +4367,40 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
         presenter = build_payloads(self.room)["presenter"]
         self.assertTrue(presenter["question"]["wordcloud_ai_enabled"])
         self.assertEqual(presenter["question"]["wordcloud_grouping"], "nach Genre")
+
+    def test_ai_enabled_must_be_bool(self):
+        for bad in ("false", "true", 1, None):
+            self.assertEqual(self._post({"ai_enabled": bad}).status_code, 400, bad)
+
+    def test_regroup_forces_refresh_even_if_unchanged(self):
+        self.wc.wordcloud_grouping = "a"
+        self.wc.save()
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            self.assertEqual(self._post({"grouping": "a", "regroup": True}).status_code, 200)
+        refresh.assert_called_once_with(self.run.pk, self.wc.pk, self.room.pk)
+
+    def test_unchanged_legacy_long_grouping_accepted(self):
+        Question.objects.filter(pk=self.wc.pk).update(wordcloud_grouping="y" * 1500)
+        self.assertEqual(self._post({"grouping": "y" * 1500}).status_code, 200)
+
+    @override_settings(**AI_ON)
+    def test_disabling_stops_live_loop(self):
+        key = (self.run.pk, self.wc.pk)
+        self.addCleanup(ai_wordcloud_live._active.clear)
+        self.addCleanup(ai_wordcloud_live._results.clear)
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        self.wc.wordcloud_ai_enabled = True
+        self.wc.save()
+        with patch.object(ai_wordcloud_live._executor, "submit"):
+            ai_wordcloud_live.set_active(self.run.pk, self.wc.pk, self.room.pk, True)
+        self.assertTrue(ai_wordcloud_live.is_active(*key))
+        self.assertEqual(self._post({"ai_enabled": False}).status_code, 200)
+        self.assertFalse(ai_wordcloud_live.is_active(*key))
+
+    @override_settings(**AI_OFF)
+    def test_wordcloud_ai_deactivate_allowed_when_disabled(self):
+        resp = self._post(
+            {"question": self.wc.pk, "active": False},
+            f"/api/runs/{self.run.pk}/wordcloud-ai/",
+        )
+        self.assertEqual(resp.status_code, 200)
