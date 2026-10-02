@@ -915,7 +915,7 @@ multi-line note must use {% comment %} or it renders as text.)
     // counting UP. Line 2 (red only): prompt to free points up. Built once;
     // refresh() only updates the number, colours and line-2 visibility.
     const line1 = document.createElement("p");
-    line1.style.cssText = "margin:0";
+    line1.style.cssText = "margin:0;line-height:1.35";
     const spentParts = I18N.pointsSpent
       .replace("{total}", PRIORITIES_TOTAL).split("{used}");
     const usedEl = document.createElement("strong");
@@ -923,7 +923,7 @@ multi-line note must use {% comment %} or it renders as text.)
     line1.append(document.createTextNode(spentParts[0]), usedEl,
                  document.createTextNode(spentParts[1] || ""));
     const line2 = document.createElement("p");
-    line2.style.cssText = "margin:3px 0 0";
+    line2.style.cssText = "margin:3px 0 0;line-height:1.35;visibility:hidden";
     line2.textContent = "– " + I18N.pointsRedistribute;
     box.append(line1, line2);
 
@@ -947,7 +947,7 @@ multi-line note must use {% comment %} or it renders as text.)
       box.style.borderColor = c.line;
       box.style.color = c.ink;
       usedEl.textContent = String(used);
-      line2.style.display = spent ? "block" : "none";
+      line2.style.visibility = spent ? "visible" : "hidden";
     }
 
     function setValue(i, target) {
