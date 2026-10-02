@@ -1573,6 +1573,61 @@ def optimize_wordcloud(request, run_id, question_id):
     return Response(ai_wordcloud.apply_optimization(words, data))
 
 
+WORDCLOUD_GROUPING_MAX = 1000
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def wordcloud_ai_settings(request, run_id, question_id):
+    """Presenter edits a word cloud's permanent AI settings: switch the AI
+    views on/off and/or change the grouping instruction. Body:
+    {"ai_enabled"?: bool, "grouping"?: str}. Saved on the question."""
+    run = get_object_or_404(
+        Run.objects.select_related("question_set__room"), pk=run_id
+    )
+    room = run.question_set.room
+    if not _require_owner(request.user, room):
+        raise Http404
+    question = get_object_or_404(
+        Question,
+        pk=question_id,
+        question_set=run.question_set,
+        kind=Question.Kind.WORD_CLOUD,
+    )
+    fields = []
+    grouping_changed = False
+    if "ai_enabled" in request.data:
+        enabled = bool(request.data.get("ai_enabled"))
+        if enabled and not ai.is_enabled():
+            return Response({"detail": "KI ist nicht konfiguriert."}, status=409)
+        if enabled != question.wordcloud_ai_enabled:
+            question.wordcloud_ai_enabled = enabled
+            fields.append("wordcloud_ai_enabled")
+    if "grouping" in request.data:
+        grouping = str(request.data.get("grouping") or "").strip()
+        if len(grouping) > WORDCLOUD_GROUPING_MAX:
+            return Response(
+                {"detail": f"Anweisung zu lang (max. {WORDCLOUD_GROUPING_MAX} Zeichen)."},
+                status=400,
+            )
+        if grouping != question.wordcloud_grouping:
+            question.wordcloud_grouping = grouping
+            fields.append("wordcloud_grouping")
+            grouping_changed = True
+    if fields:
+        question.save(update_fields=fields)
+    if grouping_changed:
+        # A shown/warm AI result was built with the old instruction.
+        ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
+    broadcast(room)
+    return Response(
+        {
+            "ai_enabled": question.wordcloud_ai_enabled,
+            "grouping": question.wordcloud_grouping,
+        }
+    )
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def wordcloud_ai(request, run_id):

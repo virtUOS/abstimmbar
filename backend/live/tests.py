@@ -4278,3 +4278,92 @@ class WordCloudModerationApiTests(LiveTestCase):
     def test_requires_owner(self):
         self.client.logout()
         self.assertIn(self._post({"op": "hide", "keys": ["wut"]}).status_code, (401, 403, 404))
+
+
+class WordCloudAiSettingsApiTests(LiveTestCase):
+    """Presenter endpoint: switch a word cloud's AI on/off, edit its grouping."""
+
+    def setUp(self):
+        super().setUp()
+        self.wc = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>Wort?</p>", position=1, allow_multiple=True,
+        )
+        self.run = Run.objects.create(question_set=self.question_set)
+        self.url = f"/api/runs/{self.run.pk}/wordcloud/{self.wc.pk}/ai-settings"
+        self.client.force_login(self.owner)
+
+    def _post(self, body, url=None):
+        return self.client.post(url or self.url, body, content_type="application/json")
+
+    def test_requires_owner(self):
+        self.client.logout()
+        self.assertIn(self._post({"grouping": "x"}).status_code, (401, 403, 404))
+
+    def test_non_wordcloud_question_404(self):
+        url = f"/api/runs/{self.run.pk}/wordcloud/{self.question.pk}/ai-settings"
+        self.assertEqual(self._post({"grouping": "x"}, url).status_code, 404)
+
+    def test_question_of_other_set_404(self):
+        url = f"/api/runs/{self.run.pk}/wordcloud/999999/ai-settings"
+        self.assertEqual(self._post({"grouping": "x"}, url).status_code, 404)
+
+    @override_settings(**AI_OFF)
+    def test_enable_with_provider_off_is_409(self):
+        resp = self._post({"ai_enabled": True})
+        self.assertEqual(resp.status_code, 409)
+        self.assertIn("detail", resp.json())
+        self.wc.refresh_from_db()
+        self.assertFalse(self.wc.wordcloud_ai_enabled)
+
+    @override_settings(**AI_ON)
+    def test_enable_saves(self):
+        resp = self._post({"ai_enabled": True})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ai_enabled": True, "grouping": ""})
+        self.wc.refresh_from_db()
+        self.assertTrue(self.wc.wordcloud_ai_enabled)
+
+    @override_settings(**AI_OFF)
+    def test_disable_allowed_with_provider_off(self):
+        self.wc.wordcloud_ai_enabled = True
+        self.wc.save()
+        resp = self._post({"ai_enabled": False})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["ai_enabled"])
+        self.wc.refresh_from_db()
+        self.assertFalse(self.wc.wordcloud_ai_enabled)
+
+    def test_grouping_saved_stripped_and_refreshes(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._post({"grouping": "  nach positiv/negativ \n"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["grouping"], "nach positiv/negativ")
+        self.wc.refresh_from_db()
+        self.assertEqual(self.wc.wordcloud_grouping, "nach positiv/negativ")
+        refresh.assert_called_once_with(self.run.pk, self.wc.pk, self.room.pk)
+
+    def test_grouping_too_long_400(self):
+        resp = self._post({"grouping": "x" * 1001})
+        self.assertEqual(resp.status_code, 400)
+        self.wc.refresh_from_db()
+        self.assertEqual(self.wc.wordcloud_grouping, "")
+
+    def test_unchanged_grouping_does_not_refresh(self):
+        self.wc.wordcloud_grouping = "a"
+        self.wc.save()
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            self._post({"grouping": "a"})
+        refresh.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_broadcasts_and_payload_reflects_state(self):
+        with patch("live.views.broadcast") as bc:
+            self._post({"ai_enabled": True, "grouping": "nach Genre"})
+        bc.assert_called_once()
+        self.run.active_question = self.wc
+        self.run.phase = Run.Phase.OPEN
+        self.run.save()
+        presenter = build_payloads(self.room)["presenter"]
+        self.assertTrue(presenter["question"]["wordcloud_ai_enabled"])
+        self.assertEqual(presenter["question"]["wordcloud_grouping"], "nach Genre")
