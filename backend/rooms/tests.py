@@ -3625,7 +3625,7 @@ class OnboardingSeedTests(TestCase):
         question_set = self.room.question_sets.get()
         options = AnswerOption.objects.filter(question__question_set=question_set)
         self.assertGreater(options.count(), 0)
-        for option in options:
+        for option in options.exclude(question__kind=Question.Kind.LIKERT):
             self.assertTrue(option.text_de.strip())
             self.assertTrue(option.text_en.strip())
 
@@ -3648,10 +3648,20 @@ class OnboardingSeedTests(TestCase):
         self.assertEqual(len(scale), 5)
         self.assertEqual(len(abstentions), 1)
         # position 0 = strongest disagreement (low pole); the abstention is last.
-        self.assertEqual(scale[0].text_de, "Stimme gar nicht zu")
         self.assertEqual(scale[0].position, 0)
-        self.assertEqual(scale[-1].text_de, "Stimme voll zu")
+        # Like the editor's "agreement" preset: only the endpoints have text.
+        self.assertEqual((scale[0].text_de, scale[0].text_en), ("Stimme nicht zu", "Disagree"))
+        self.assertEqual((scale[-1].text_de, scale[-1].text_en), ("Stimme zu", "Agree"))
+        for middle in scale[1:-1]:
+            self.assertEqual((middle.text_de, middle.text_en), ("", ""))
+        self.assertEqual(abstentions[0].text_de, "Enthaltung")
+        self.assertEqual(abstentions[0].text_en, "Abstain")
         self.assertEqual(abstentions[0].position, options[-1].position)
+
+    def test_word_cloud_allows_five_terms(self):
+        question = self._question(Question.Kind.WORD_CLOUD)
+        self.assertTrue(question.allow_multiple)
+        self.assertEqual(question.wordcloud_max_answers, 5)
 
     def test_word_cloud_and_open_text_have_no_options(self):
         for kind in (Question.Kind.WORD_CLOUD, Question.Kind.OPEN_TEXT):
