@@ -23,7 +23,7 @@ import { localizedText, RichText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
 import { useTourSignal } from "../tour/signals";
 import ResultBar, { type BarState } from "../results/ResultBar";
-import VoteCounter from "../results/VoteCounter";
+import VoteRing from "../results/VoteRing";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
@@ -960,7 +960,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           </>
         ) : null
       }
-      stats={phase === "open" ? undefined : <LiveStats participants={state.participants ?? 0} votes={state.votes ?? 0} />}
+      stats={<LiveStats participants={state.participants ?? 0} votes={state.votes ?? 0} />}
       footer={
         <Footer
           phase={phase}
@@ -1409,9 +1409,6 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 {t("Vote not started yet")}
               </span>
             )}
-            {phase === "open" && (
-              <VoteCounter votes={total} participants={state.participants ?? 0} />
-            )}
             {phase === "closed" && (
               <p className="text-xl">{t("Voting closed")}</p>
             )}
@@ -1569,7 +1566,8 @@ function Shell({
 
 /** Permanent, phase-independent counter fixed to the lower-left corner of the
  * beamer view (#35): connected clients and votes cast for the current
- * question. Sits just above the footer action bar so the two never overlap. */
+ * question, with a small ring for the answered share. Sits just above the
+ * footer action bar so the two never overlap. */
 function LiveStats({ participants, votes }: { participants: number; votes: number }) {
   const { t } = useTranslation();
   return (
@@ -1577,6 +1575,7 @@ function LiveStats({ participants, votes }: { participants: number; votes: numbe
       className="fixed left-6 bottom-20 z-20 flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-sm text-slate-500 shadow-sm backdrop-blur"
       aria-live="polite"
     >
+      <VoteRing votes={votes} participants={participants} />
       <span className="flex items-center gap-1.5 tabular-nums" title={t("Connected participants")}>
         <Users aria-hidden className="h-4 w-4" /> {participants}
       </span>
@@ -1718,14 +1717,23 @@ function Kbd({ children }: { children: React.ReactNode }) {
 // Within-category frequency ramp: t 0..1 (rare..frequent) → lighter/desaturated
 // to darker/saturated, so a category's leader reads darkest on the light beamer.
 function hueColor(hue: number, t: number): string {
-  const L = 0.64 - 0.24 * t;
-  const C = 0.07 + 0.09 * t;
+  const warm = isWarm(hue);
+  const L = warm ? 0.68 - 0.12 * t : 0.64 - 0.24 * t;
+  const C = warm ? 0.12 + 0.06 * t : 0.07 + 0.09 * t;
   return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${hue})`;
+}
+// Apricot/sand turn brown when darkened, so warm hues stay lighter and get
+// more chroma instead (still legible on the white beamer).
+function isWarm(hue: number): boolean {
+  return hue >= 40 && hue <= 100;
 }
 // Single cloud: each term keeps a stable palette hue; frequency darkens it
 // (darker than the bar fills so text stays legible on white).
 function rampColor(hue: number, t: number): string {
-  return `oklch(${(0.62 - 0.16 * t).toFixed(3)} ${(0.10 + 0.05 * t).toFixed(3)} ${hue})`;
+  const warm = isWarm(hue);
+  const L = warm ? 0.68 - 0.08 * t : 0.62 - 0.16 * t;
+  const C = warm ? 0.13 + 0.05 * t : 0.10 + 0.05 * t;
+  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${hue})`;
 }
 
 type CloudWord = { text: string; count: number; color: string; cluster?: number; keys?: string[] };
