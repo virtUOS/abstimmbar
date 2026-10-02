@@ -72,21 +72,37 @@ def build_optimize_prompt(words):
     )
 
 
+def _extend_unique(target, items):
+    """Append `items` to `target` in order, skipping ones already present."""
+    for item in items:
+        if item not in target:
+            target.append(item)
+    return target
+
+
 def apply_optimization(words, data):
     """Turn the model's grouping into validated clusters.
 
-    `words` is the ``words_with_counts`` output ([{text, count}, …]).
+    `words` is the ``words_with_counts`` output ([{text, count, keys}, …]).
     Counts are always recomputed from `words`; the model's role is purely
     to decide which raw spellings belong together and how to name them.
+    Every output word carries ``keys``: the casefold raw keys of all input
+    words it stands for (a manual merge contributes all its keys), so the
+    presenter can moderate (hide/merge) AI words like raw ones.
     """
     index = {}
     for entry in words:
         key = entry["text"].casefold()
+        raw_keys = [str(k) for k in (entry.get("keys") or [key])]
         # Aggregation already merges case variants, but stay defensive.
         if key in index:
             index[key]["count"] += entry["count"]
+            _extend_unique(index[key]["keys"], raw_keys)
         else:
-            index[key] = {"text": entry["text"], "count": entry["count"]}
+            index[key] = {
+                "text": entry["text"], "count": entry["count"],
+                "keys": _extend_unique([], raw_keys),
+            }
 
     consumed = set()
     groups = []
@@ -97,13 +113,14 @@ def apply_optimization(words, data):
         members = group.get("members")
         if not isinstance(members, list):
             continue
-        variants, count = [], 0
+        variants, count, keys = [], 0, []
         for member in members:
             key = str(member).strip().casefold()
             if key in index and key not in consumed:
                 consumed.add(key)
                 variants.append(index[key]["text"])
                 count += index[key]["count"]
+                _extend_unique(keys, index[key]["keys"])
         if not variants:
             continue
         label = str(group.get("label", "")).strip()[:LABEL_MAX]
@@ -112,7 +129,8 @@ def apply_optimization(words, data):
             label = max(variants, key=lambda v: index[v.casefold()]["count"])
         cluster = str(group.get("cluster", "")).strip()[:CLUSTER_MAX] or OTHER_CLUSTER
         groups.append(
-            {"label": label, "cluster": cluster, "count": count, "variants": variants}
+            {"label": label, "cluster": cluster, "count": count,
+             "variants": variants, "keys": keys}
         )
 
     # Any word the model ignored keeps its own entry under "Weitere".
@@ -124,13 +142,15 @@ def apply_optimization(words, data):
                     "cluster": OTHER_CLUSTER,
                     "count": entry["count"],
                     "variants": [entry["text"]],
+                    "keys": list(entry["keys"]),
                 }
             )
 
     clusters = {}
     for group in groups:
         clusters.setdefault(group["cluster"], []).append(
-            {"text": group["label"], "count": group["count"], "variants": group["variants"]}
+            {"text": group["label"], "count": group["count"],
+             "variants": group["variants"], "keys": list(group["keys"])}
         )
 
     cluster_list = [
@@ -146,7 +166,8 @@ def apply_optimization(words, data):
 
     merged = sorted(
         (
-            {"text": g["label"], "count": g["count"], "variants": g["variants"]}
+            {"text": g["label"], "count": g["count"],
+             "variants": g["variants"], "keys": list(g["keys"])}
             for g in groups
         ),
         key=lambda w: -w["count"],

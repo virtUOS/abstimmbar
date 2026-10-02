@@ -972,9 +972,17 @@ export interface WordCloudModeration {
   merges: { keys: string[]; label: string }[];
 }
 
+/** A word of the AI views: `keys` are the raw casefold terms it stands for. */
+export interface WordCloudAIWord {
+  text: string;
+  count: number;
+  variants?: string[];
+  keys?: string[];
+}
+
 export interface WordCloudAI {
-  merged: WordCloudWord[];
-  clusters: { label: string; count: number; words: WordCloudWord[] }[];
+  merged: WordCloudAIWord[];
+  clusters: { label: string; count: number; words: WordCloudAIWord[] }[];
   pending: boolean;
 }
 
@@ -1054,12 +1062,12 @@ export interface RunResults {
 export interface WordCloudCluster {
   label: string;
   count: number;
-  words: { text: string; count: number; variants: string[] }[];
+  words: { text: string; count: number; variants: string[]; keys?: string[] }[];
 }
 
 export interface WordCloudOptimization {
   clusters: WordCloudCluster[];
-  merged: { text: string; count: number; variants: string[] }[];
+  merged: { text: string; count: number; variants: string[]; keys?: string[] }[];
 }
 
 export interface FreeTextEvaluation {

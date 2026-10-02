@@ -2667,6 +2667,156 @@ class AiLiveWordCloudTests(LiveTestCase):
             self._cast("Queen")
         sched.assert_called_once()
 
+    # --- Moderation in AI views: raw keys + recompute ---------------------
+
+    def test_apply_optimization_carries_raw_keys(self):
+        words = [
+            # Manual merge: several raw keys under one label text.
+            {"text": "Beatles", "count": 3, "keys": ["beatles", "beatls"]},
+            {"text": "Queen", "count": 2, "keys": ["queen"]},
+            {"text": "Abba", "count": 1, "keys": ["abba"]},
+            {"text": "Bach", "count": 1, "keys": ["bach"]},
+        ]
+        data = {"groups": [
+            {"label": "Rockbands", "cluster": "Rock",
+             "members": ["Beatles", "Queen"]},
+            {"label": "Abba", "cluster": "Pop", "members": ["Abba"]},
+        ]}
+        out = ai_wordcloud.apply_optimization(words, data)
+        by_text = {w["text"]: w for w in out["merged"]}
+        self.assertEqual(by_text["Rockbands"]["keys"], ["beatles", "beatls", "queen"])
+        self.assertEqual(by_text["Abba"]["keys"], ["abba"])
+        # Ignored by the model → own "Weitere" entry, still with its keys.
+        self.assertEqual(by_text["Bach"]["keys"], ["bach"])
+        for cluster in out["clusters"]:
+            for w in cluster["words"]:
+                self.assertEqual(w["keys"], by_text[w["text"]]["keys"])
+
+    def test_apply_optimization_keys_fallback_without_keys(self):
+        out = ai_wordcloud.apply_optimization(
+            [{"text": "Mozart", "count": 1}], {"groups": []}
+        )
+        self.assertEqual(out["merged"][0]["keys"], ["mozart"])
+
+    def test_apply_optimization_dedupes_keys_of_case_duplicates(self):
+        words = [
+            {"text": "Jazz", "count": 1, "keys": ["jazz"]},
+            {"text": "jazz", "count": 1, "keys": ["jazz"]},
+        ]
+        out = ai_wordcloud.apply_optimization(words, {"groups": []})
+        self.assertEqual(out["merged"][0]["keys"], ["jazz"])
+        self.assertEqual(out["merged"][0]["count"], 2)
+
+    def _moderate(self, body):
+        self.client.force_login(self.owner)
+        return self.client.post(
+            f"/api/runs/{self.run.pk}/wordcloud/{self.wc.pk}/moderation",
+            body, content_type="application/json",
+        )
+
+    def test_moderation_triggers_ai_refresh(self):
+        self._cast("Queen")
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            self.assertEqual(self._moderate({"op": "hide", "keys": ["queen"]}).status_code, 200)
+            self.assertEqual(
+                self._moderate({"op": "merge", "keys": ["queen", "abba"], "label": "Q"}).status_code,
+                200,
+            )
+        self.assertEqual(refresh.call_count, 2)
+        refresh.assert_called_with(self.run.pk, self.wc.pk, self.room.pk)
+
+    def _refresh_submits(self):
+        with patch.object(ai_wordcloud_live._executor, "submit") as submit:
+            ai_wordcloud_live.refresh(self.run.pk, self.wc.pk, self.room.pk)
+        return submit
+
+    @override_settings(**AI_ON)
+    def test_refresh_recomputes_active_view(self):
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        key = (self.run.pk, self.wc.pk)
+        ai_wordcloud_live._active.add(key)
+        ai_wordcloud_live._results[key] = {"merged": [], "clusters": [], "pending": False}
+        self._refresh_submits().assert_called_once()
+
+    @override_settings(**AI_ON)
+    def test_refresh_recomputes_warm_cache_when_inactive(self):
+        # Kept warm after toggle-off / vote close (#75): a moderation change
+        # must not leave the cached AI view stale.
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        key = (self.run.pk, self.wc.pk)
+        ai_wordcloud_live._results[key] = {"merged": [], "clusters": [], "pending": False}
+        self._refresh_submits().assert_called_once()
+        self.assertFalse(ai_wordcloud_live.is_active(*key))
+
+    @override_settings(**AI_ON)
+    def test_refresh_noop_when_never_computed(self):
+        self._refresh_submits().assert_not_called()
+
+    @override_settings(**AI_OFF)
+    def test_refresh_noop_when_ai_disabled(self):
+        key = (self.run.pk, self.wc.pk)
+        ai_wordcloud_live._active.add(key)
+        ai_wordcloud_live._results[key] = {"merged": [], "clusters": [], "pending": False}
+        self._refresh_submits().assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_refresh_while_running_folds_into_trailing_pass(self):
+        key = (self.run.pk, self.wc.pk)
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        self.addCleanup(ai_wordcloud_live._dirty.clear)
+        ai_wordcloud_live._results[key] = {"merged": [], "clusters": [], "pending": False}
+        ai_wordcloud_live._running.add(key)
+        self._refresh_submits().assert_not_called()
+        self.assertIn(key, ai_wordcloud_live._dirty)
+        # The running loop honours the trailing pass even when inactive.
+        calls = []
+        with patch.object(ai_wordcloud_live, "_compute", side_effect=lambda *a: calls.append(a)), \
+                patch.object(ai_wordcloud_live.time, "sleep"):
+            ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn(key, ai_wordcloud_live._running)
+
+    def test_run_loop_exit_does_not_clobber_a_newer_loop(self):
+        # Race: after the loop's normal exit released the lock, a new trigger
+        # starts a second loop (re-adds `_running`, marks `_dirty`). The old
+        # loop must not wipe that newer loop's state on its way out.
+        key = (self.run.pk, self.wc.pk)
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        self.addCleanup(ai_wordcloud_live._dirty.clear)
+        real_lock = ai_wordcloud_live._lock
+
+        class RacingLock:
+            fired = False
+
+            def __enter__(self):
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                real_lock.__exit__(*exc)
+                if not RacingLock.fired and key not in ai_wordcloud_live._running:
+                    RacingLock.fired = True  # newer loop starts right here
+                    ai_wordcloud_live._running.add(key)
+                    ai_wordcloud_live._dirty.add(key)
+                return False
+
+        ai_wordcloud_live._running.add(key)
+        with patch.object(ai_wordcloud_live, "_lock", RacingLock()), \
+                patch.object(ai_wordcloud_live, "_compute"):
+            ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
+        self.assertTrue(RacingLock.fired)
+        self.assertIn(key, ai_wordcloud_live._running)
+        self.assertIn(key, ai_wordcloud_live._dirty)
+
+    def test_run_loop_cleans_up_after_compute_error(self):
+        key = (self.run.pk, self.wc.pk)
+        ai_wordcloud_live._running.add(key)
+        ai_wordcloud_live._dirty.add(key)
+        with patch.object(ai_wordcloud_live, "_compute", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
+        self.assertNotIn(key, ai_wordcloud_live._running)
+        self.assertNotIn(key, ai_wordcloud_live._dirty)
+
 
 class FreetextScaleTests(LiveTestCase):
     """Configurable free-text scale (correctness / sentiment / custom)."""

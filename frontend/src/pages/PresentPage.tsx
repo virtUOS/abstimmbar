@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -17,6 +17,7 @@ import {
   type Question,
   type RunResults,
   type WordCloudAI,
+  type WordCloudAIWord as AiWord,
   type WordCloudModeration,
 } from "../api";
 import { localizedText, RichText } from "@basicbar/ui";
@@ -145,6 +146,21 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [showJoin, setShowJoin] = useState(false);
   // Word-cloud view cycle: raw → AI-consolidated → AI-grouped (#Wortwolke-KI).
   const [wcView, setWcView] = useState<"raw" | "consolidated" | "grouped">("raw");
+  const [modHintSeen, setModHintSeen] = useState(() => {
+    try {
+      return localStorage.getItem("abstimmbar_wc_moderation_hint") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissModHint = () => {
+    setModHintSeen(true);
+    try {
+      localStorage.setItem("abstimmbar_wc_moderation_hint", "1");
+    } catch {
+      /* ignore */
+    }
+  };
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -246,17 +262,26 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     label?: string;
   };
   const [showModPanel, setShowModPanel] = useState(false);
-  const undoStack = useRef<{ done: ModOp; inverse: ModOp }[]>([]);
-  const redoStack = useRef<{ done: ModOp; inverse: ModOp }[]>([]);
+  const undoStack = useRef<{ done: ModOp[]; inverse: ModOp[] }[]>([]);
+  const redoStack = useRef<{ done: ModOp[]; inverse: ModOp[] }[]>([]);
   const mod = state?.wordcloud_moderation;
-  const sendMod = (op: ModOp) => {
-    if (runId != null && activeId != null)
-      void live.wordcloudModeration(runId, activeId, op);
+  // Ops of one compound action are sent strictly in order.
+  const sendMod = (ops: ModOp[]) => {
+    if (runId == null || activeId == null) return;
+    const rid = runId;
+    const qid = activeId;
+    void ops.reduce<Promise<unknown>>(
+      (p, op) => p.then(() => live.wordcloudModeration(rid, qid, op)),
+      Promise.resolve(),
+    );
   };
-  const moderate = (done: ModOp, inverse: ModOp) => {
-    undoStack.current.push({ done, inverse });
+  const moderate = (done: ModOp | ModOp[], inverse: ModOp | ModOp[]) => {
+    const d = Array.isArray(done) ? done : [done];
+    const inv = Array.isArray(inverse) ? inverse : [inverse];
+    undoStack.current.push({ done: d, inverse: inv });
     redoStack.current = [];
-    sendMod(done);
+    if (!modHintSeen) dismissModHint();
+    sendMod(d);
   };
   const undoMod = () => {
     const last = undoStack.current.pop();
@@ -275,6 +300,32 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     const norm = [...keys].sort().join(" ");
     return (mod?.merges ?? []).find((m) => [...m.keys].sort().join(" ") === norm)?.label;
   };
+  // Shared by raw / consolidated / grouped clouds; AI words carry the raw keys
+  // they stand for. Keyless words never moderate (no empty-key calls).
+  const onModerateWord = (op: "hide" | "merge", keys: string[], label?: string) => {
+    if (keys.length === 0) return;
+    if (op === "hide") {
+      const already = new Set((mod?.hidden ?? []).map((h) => h.key));
+      const fresh = keys.filter((k) => !already.has(k));
+      if (fresh.length === 0) return;
+      moderate({ op: "hide", keys: fresh }, { op: "unhide", keys: fresh });
+      return;
+    }
+    // Merging dissolves overlapping manual groups; undo must restore them.
+    const ks = new Set(keys);
+    const dissolved = (mod?.merges ?? []).filter((m) => m.keys.some((k) => ks.has(k)));
+    moderate({ op: "merge", keys, label }, [
+      { op: "unmerge", keys },
+      ...dissolved.map((m) => ({ op: "merge" as const, keys: m.keys, label: m.label })),
+    ]);
+  };
+  const wcHasWords =
+    wcView === "raw"
+      ? (state?.words ?? []).length > 0
+      : wcView === "consolidated"
+        ? (state?.wordcloud_ai?.merged.length ?? 0) > 0
+        : (state?.wordcloud_ai?.clusters ?? []).some((c) => c.words.length > 0);
+  const wcHasMod = (mod?.hidden.length ?? 0) > 0 || (mod?.merges.length ?? 0) > 0;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
@@ -1308,23 +1359,36 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <WordCloud
                   words={rampWords(state.words ?? [])}
                   animate
-                  onModerate={(op, keys, label) =>
-                    op === "hide"
-                      ? moderate({ op: "hide", keys }, { op: "unhide", keys })
-                      : moderate({ op: "merge", keys, label }, { op: "unmerge", keys })
-                  }
+                  onModerate={onModerateWord}
                 />
               )
             ) : (
-              <WordCloudAiView view={wcView} ai={state.wordcloud_ai} />
+              <WordCloudAiView view={wcView} ai={state.wordcloud_ai} mod={mod} onModerate={onModerateWord} />
             ))}
 
           {question.kind === "word_cloud" &&
-            wcView === "raw" &&
             (phase === "results" ||
               (phase === "open" && question.wordcloud_live !== false)) &&
-            (state.words ?? []).length > 0 && (
+            (wcHasWords || wcHasMod) && (
               <>
+                {!modHintSeen && wcHasWords && (
+                  <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                    <p className="flex-1">
+                      {t(
+                        "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.",
+                      )}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={dismissModHint}
+                      aria-label={t("Dismiss")}
+                      className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
                 {/* Unobtrusive pencil handle at the right edge; opens the drawer. */}
                 <button
                   type="button"
@@ -1810,6 +1874,9 @@ function rampWords(words: { text: string; count: number; keys?: string[] }[]): C
   }));
 }
 
+const wordId = (w: { text: string; keys?: string[] }) =>
+  w.keys?.length ? w.keys.join("|") : w.text;
+
 function WordCloud({
   words,
   scale = 1,
@@ -1840,19 +1907,19 @@ function WordCloud({
   const [dragging, setDragging] = useState(false);
   const frozen = useRef<PlacedWord[] | null>(null);
   const centerRef = useRef<HTMLDivElement | null>(null);
-  const dragRef = useRef<{ keys: string[]; text: string; moved: boolean } | null>(null);
+  const dragRef = useRef<{ keys: string[]; id: string; moved: boolean } | null>(null);
   // The word being dragged, rendered as a ghost that follows the cursor.
   const [ghost, setGhost] = useState<
-    { text: string; color: string; size: number; x: number; y: number } | null
+    { id: string; text: string; color: string; size: number; x: number; y: number } | null
   >(null);
 
   const placed = useMemo(() => {
     if (dragging && frozen.current) return frozen.current;
     const top = [...words].sort((a, b) => b.count - a.count).slice(0, 40);
     for (const w of top) {
-      if (!orderRef.current.has(w.text)) orderRef.current.set(w.text, seqRef.current++);
+      if (!orderRef.current.has(wordId(w))) orderRef.current.set(wordId(w), seqRef.current++);
     }
-    top.sort((a, b) => orderRef.current.get(a.text)! - orderRef.current.get(b.text)!);
+    top.sort((a, b) => orderRef.current.get(wordId(a))! - orderRef.current.get(wordId(b))!);
     const laid = layoutWordCloud(top, scale);
     frozen.current = laid;
     return laid;
@@ -1863,11 +1930,11 @@ function WordCloud({
   // moves is treated as a click (the × handles hide instead).
   function startDrag(e: React.PointerEvent, w: PlacedWord) {
     if (!onModerate) return;
-    dragRef.current = { keys: w.keys ?? [], text: w.text, moved: false };
+    dragRef.current = { keys: w.keys ?? [], id: wordId(w), moved: false };
     const sx = e.clientX;
     const sy = e.clientY;
     setDragging(true);
-    setGhost({ text: w.text, color: w.color, size: w.size, x: sx, y: sy });
+    setGhost({ id: wordId(w), text: w.text, color: w.color, size: w.size, x: sx, y: sy });
     const move = (ev: PointerEvent) => {
       if (dragRef.current && Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 6) {
         dragRef.current.moved = true;
@@ -1886,7 +1953,7 @@ function WordCloud({
       const px = ev.clientX - rect.left;
       const py = ev.clientY - rect.top;
       const target = (frozen.current ?? []).find((p) => {
-        if (p.text === drag.text) return false;
+        if (wordId(p) === drag.id || !p.keys?.length) return false;
         const halfW = (p.text.length * p.size * 0.56) / 2 + 6;
         const halfH = (p.size * 1.15) / 2 + 6;
         return Math.abs(px - p.x) < halfW && Math.abs(py - p.y) < halfH;
@@ -1926,21 +1993,21 @@ function WordCloud({
           const grew = animate && isGrown(w.text, w.count);
           return (
             <span
-              key={w.text}
+              key={wordId(w)}
               title={`${w.count}×`}
-              onPointerDown={onModerate ? (e) => startDrag(e, w) : undefined}
+              onPointerDown={onModerate && w.keys?.length ? (e) => startDrag(e, w) : undefined}
               className={`group absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold ${
-                onModerate ? "cursor-grab hover:z-30" : ""
+                onModerate && w.keys?.length ? "cursor-grab hover:z-30" : ""
               }`}
               style={{
                 left: `${w.x}px`,
                 top: `${w.y}px`,
                 fontSize: `${w.size}px`,
                 color: w.color,
-                opacity: ghost?.text === w.text ? 0.2 : undefined,
+                opacity: ghost?.id === wordId(w) ? 0.2 : undefined,
                 userSelect: "none",
                 WebkitUserSelect: "none",
-                touchAction: onModerate ? "none" : undefined,
+                touchAction: onModerate && w.keys?.length ? "none" : undefined,
                 // Fly in from whichever side the word ends up on.
                 ["--wc-fly" as string]: `${w.x < 0 ? -640 : 640}px`,
                 transition: animate
@@ -1954,7 +2021,7 @@ function WordCloud({
               }}
             >
               {w.text}
-              {onModerate && (
+              {onModerate && !!w.keys?.length && (
                 <button
                   type="button"
                   onPointerDown={(e) => e.stopPropagation()}
@@ -2075,34 +2142,79 @@ function AiWait() {
   );
 }
 
+/** Optimistic client-side moderation of an AI result that is still being
+ * recomputed: drop fully hidden words, fold words of a manual merge group into
+ * one (label, summed count, union of keys). Idempotent once the fresh AI
+ * result already reflects the moderation. */
+function applyModToAi(words: AiWord[], mod?: WordCloudModeration): AiWord[] {
+  if (!mod) return words;
+  const hidden = new Set(mod.hidden.map((h) => h.key));
+  let out = words.filter((w) => !w.keys?.length || !w.keys.every((k) => hidden.has(k)));
+  for (const m of mod.merges) {
+    const group = new Set(m.keys);
+    const hit = out.filter((w) => w.keys?.some((k) => group.has(k)));
+    if (hit.length === 0) continue;
+    if (hit.length === 1 && hit[0].keys!.every((k) => group.has(k)) && hit[0].text === m.label)
+      continue;
+    const merged: AiWord = {
+      text: m.label,
+      count: hit.reduce((a, w) => a + w.count, 0),
+      keys: [...new Set(hit.flatMap((w) => w.keys ?? []))],
+    };
+    const first = out.indexOf(hit[0]);
+    out = out.filter((w) => !hit.includes(w));
+    out.splice(Math.min(first, out.length), 0, merged);
+  }
+  return out;
+}
+
 /** The consolidated (single cloud) or grouped (many clouds) AI view, with a
  * wait state while the first LLM pass is still running (#Wortwolke-KI). */
 function WordCloudAiView({
   view,
-  ai,
+  ai: aiRaw,
+  mod,
+  onModerate,
 }: {
   view: "consolidated" | "grouped";
   ai?: WordCloudAI;
+  mod?: WordCloudModeration;
+  onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
 }) {
   const { t } = useTranslation();
+  const ai = useMemo(
+    () =>
+      aiRaw && {
+        ...aiRaw,
+        merged: applyModToAi(aiRaw.merged, mod),
+        clusters: aiRaw.clusters.map((c) => ({ ...c, words: applyModToAi(c.words, mod) })),
+      },
+    [aiRaw, mod],
+  );
   if (!ai || ai.pending) return <AiWait />;
   if (view === "consolidated") {
     if (ai.merged.length === 0) {
       return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
     }
-    return <WordCloud words={rampWords(ai.merged)} animate />;
+    return <WordCloud words={rampWords(ai.merged)} animate onModerate={onModerate} />;
   }
   if (ai.clusters.length === 0) {
     return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
   }
-  return <GroupedWordClouds clusters={ai.clusters} />;
+  return <GroupedWordClouds clusters={ai.clusters} onModerate={onModerate} />;
 }
 
 /** One unified cloud (not side-by-side cards): words coloured by category hue
  * with a within-category frequency ramp, soft-clustered around per-category
  * centroids, plus a legend mapping colour → category label · count
  * (#Wortwolke-KI). */
-function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) {
+function GroupedWordClouds({
+  clusters,
+  onModerate,
+}: {
+  clusters: WordCloudAI["clusters"];
+  onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
+}) {
   const visible = clusters.filter((c) => c.words.length > 0);
   if (visible.length === 0) {
     return <WordCloud words={[]} />;
@@ -2119,12 +2231,13 @@ function GroupedWordClouds({ clusters }: { clusters: WordCloudAI["clusters"] }) 
       text: w.text,
       count: w.count,
       color: hueColor(hue, t(w.count)),
+      keys: w.keys,
       cluster: i,
     }));
   });
   return (
     <div>
-      <WordCloud words={words} heightClass="h-[56vh]" animate />
+      <WordCloud words={words} heightClass="h-[56vh]" animate onModerate={onModerate} />
       {/* Legend down the left edge, lower area, one category per line. */}
       <div className="fixed bottom-32 left-6 z-10 flex flex-col gap-2">
         {visible.map((cluster, i) => (

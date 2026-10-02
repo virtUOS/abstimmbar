@@ -102,23 +102,49 @@ def schedule(run_id, question_id, room_id):
     _executor.submit(_run_loop, run_id, question_id, room_id)
 
 
+def refresh(run_id, question_id, room_id):
+    """The presenter's moderation (hide/merge) changed the input terms —
+    recompute the AI view if one is shown (active) or kept warm (#75), so the
+    cached result doesn't survive unchanged. Same single-flight/throttle as
+    ``schedule``; no-op if AI is disabled or nothing was computed yet."""
+    if not ai.is_enabled():
+        return
+    key = (run_id, question_id)
+    with _lock:
+        if key not in _active and key not in _results:
+            return
+        if key in _running:
+            _dirty.add(key)  # fold into the running loop's trailing pass
+            return
+        _running.add(key)
+    _executor.submit(_run_loop, run_id, question_id, room_id)
+
+
 def _run_loop(run_id, question_id, room_id):
     key = (run_id, question_id)
     try:
         while True:
             _compute(run_id, question_id, room_id)
             with _lock:
-                if key in _active and key in _dirty:
+                # `_dirty` is only set by `schedule` (active views) or
+                # `refresh` (moderation, also for warm inactive results);
+                # `set_active(off)` clears it.
+                if key in _dirty:
                     _dirty.discard(key)
                 else:
+                    # Release ownership exactly once, here: as soon as the lock
+                    # drops, a newer loop may claim the key.
                     _running.discard(key)
                     return
             # Throttle: batch the votes that arrived during the compute.
             time.sleep(MIN_INTERVAL)
-    finally:
+    except BaseException:
+        # Error path only: we still own the key (no other loop can have
+        # started while it is in `_running`), so clearing is safe.
         with _lock:
             _running.discard(key)
             _dirty.discard(key)
+        raise
 
 
 def _compute(run_id, question_id, room_id):
