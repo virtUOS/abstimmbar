@@ -132,14 +132,19 @@ def _run_loop(run_id, question_id, room_id):
                 if key in _dirty:
                     _dirty.discard(key)
                 else:
+                    # Release ownership exactly once, here: as soon as the lock
+                    # drops, a newer loop may claim the key.
                     _running.discard(key)
                     return
             # Throttle: batch the votes that arrived during the compute.
             time.sleep(MIN_INTERVAL)
-    finally:
+    except BaseException:
+        # Error path only: we still own the key (no other loop can have
+        # started while it is in `_running`), so clearing is safe.
         with _lock:
             _running.discard(key)
             _dirty.discard(key)
+        raise
 
 
 def _compute(run_id, question_id, room_id):

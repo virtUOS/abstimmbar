@@ -2776,6 +2776,47 @@ class AiLiveWordCloudTests(LiveTestCase):
         self.assertEqual(len(calls), 2)
         self.assertNotIn(key, ai_wordcloud_live._running)
 
+    def test_run_loop_exit_does_not_clobber_a_newer_loop(self):
+        # Race: after the loop's normal exit released the lock, a new trigger
+        # starts a second loop (re-adds `_running`, marks `_dirty`). The old
+        # loop must not wipe that newer loop's state on its way out.
+        key = (self.run.pk, self.wc.pk)
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        self.addCleanup(ai_wordcloud_live._dirty.clear)
+        real_lock = ai_wordcloud_live._lock
+
+        class RacingLock:
+            fired = False
+
+            def __enter__(self):
+                return real_lock.__enter__()
+
+            def __exit__(self, *exc):
+                real_lock.__exit__(*exc)
+                if not RacingLock.fired and key not in ai_wordcloud_live._running:
+                    RacingLock.fired = True  # newer loop starts right here
+                    ai_wordcloud_live._running.add(key)
+                    ai_wordcloud_live._dirty.add(key)
+                return False
+
+        ai_wordcloud_live._running.add(key)
+        with patch.object(ai_wordcloud_live, "_lock", RacingLock()), \
+                patch.object(ai_wordcloud_live, "_compute"):
+            ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
+        self.assertTrue(RacingLock.fired)
+        self.assertIn(key, ai_wordcloud_live._running)
+        self.assertIn(key, ai_wordcloud_live._dirty)
+
+    def test_run_loop_cleans_up_after_compute_error(self):
+        key = (self.run.pk, self.wc.pk)
+        ai_wordcloud_live._running.add(key)
+        ai_wordcloud_live._dirty.add(key)
+        with patch.object(ai_wordcloud_live, "_compute", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
+        self.assertNotIn(key, ai_wordcloud_live._running)
+        self.assertNotIn(key, ai_wordcloud_live._dirty)
+
 
 class FreetextScaleTests(LiveTestCase):
     """Configurable free-text scale (correctness / sentiment / custom)."""
