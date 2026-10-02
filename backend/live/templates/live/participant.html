@@ -716,7 +716,7 @@ multi-line note must use {% comment %} or it renders as text.)
         (isMine ? " · " + I18N.you : "");
       chip.style.cssText = "display:inline-block;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
         (isMine
-          ? "background:var(--brand);color:var(--ink);font-weight:700;outline:2px solid var(--brand-strong)"
+          ? "background:var(--brand);color:var(--bar-ink);font-weight:700;outline:2px solid var(--brand-strong)"
           : "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)");
       list.appendChild(chip);
     }
