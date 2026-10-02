@@ -932,6 +932,8 @@ export interface LiveState {
     wordcloud_batch_submit?: boolean;
     wordcloud_live?: boolean;
     wordcloud_ai_enabled?: boolean;
+    /** The question's saved AI grouping instruction (empty = AI clusters freely). */
+    wordcloud_grouping?: string;
     options: LiveOption[];
   };
   results?: LiveOption[];
@@ -1191,6 +1193,18 @@ export const live = {
   ) =>
     request<{ status: string }>(
       `/api/runs/${runId}/wordcloud/${questionId}/moderation`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  /** Presenter edits a word cloud's permanent AI settings (saved on the
+   *  question): switch the AI views on/off and/or change the grouping
+   *  instruction. 409 when the AI provider is off, 400 when too long. */
+  wordcloudAiSettings: (
+    runId: number,
+    questionId: number,
+    body: { ai_enabled?: boolean; grouping?: string },
+  ) =>
+    request<{ ai_enabled: boolean; grouping: string }>(
+      `/api/runs/${runId}/wordcloud/${questionId}/ai-settings`,
       { method: "POST", body: JSON.stringify(body) },
     ),
   streamUrl: (code: string) =>

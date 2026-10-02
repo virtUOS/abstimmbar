@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Info, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -161,6 +161,25 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       /* ignore */
     }
   };
+  // Second one-time hint, for the AI panel button (shown after the
+  // moderation hint has been dismissed — never both at once).
+  const [aiHintSeen, setAiHintSeen] = useState(() => {
+    try {
+      return localStorage.getItem("abstimmbar_wc_ai_hint") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissAiHint = () => {
+    setAiHintSeen(true);
+    try {
+      localStorage.setItem("abstimmbar_wc_ai_hint", "1");
+    } catch {
+      /* ignore */
+    }
+  };
+  // whoami bits the AI panel needs (easy mode, AI provider configured).
+  const [whoAi, setWhoAi] = useState({ easy: false, ai: false });
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -177,6 +196,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         api.whoami(),
       ]);
       const easyMode = !!who.easy_mode;
+      setWhoAi({ easy: easyMode, ai: !!who.ai_enabled });
       setQuestions(page.results);
       setSectionTitles(
         new Map(sectionPage.results.map((s) => [s.id, localizedText(s.title)])),
@@ -227,10 +247,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const aiCloud =
     activeKind === "word_cloud" && state?.question?.wordcloud_ai_enabled === true;
 
-  // Each new question starts on the raw view.
+  // Each new question starts on the raw view; so does a cloud whose AI was
+  // just switched off (the AI views would otherwise linger).
   useEffect(() => {
     setWcView("raw");
   }, [activeId]);
+  useEffect(() => {
+    if (!aiCloud) setWcView("raw");
+  }, [aiCloud]);
 
   // Tell the backend to keep the live AI views fresh only while one is shown
   // (capacity); deactivate the previous question when switching away.
@@ -348,8 +372,92 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       v === "raw" ? "consolidated" : v === "consolidated" ? "grouped" : "raw",
     );
   }, []);
+  const wcViewOptions: { value: "raw" | "consolidated" | "grouped"; label: string }[] = [
+    { value: "raw", label: t("Original") },
+    { value: "consolidated", label: t("Cleaned up") },
+    { value: "grouped", label: t("Grouped") },
+  ];
 
   const phase = state?.phase ?? "lobby";
+
+  // --- AI panel (#Wortwolke-KI): switch AI on (expert), pick view, regroup. ---
+  // Settings are saved permanently on the question; the AI views themselves
+  // are activated through `wcView` (same path as the footer / `A`).
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  const [aiBusy, setAiBusy] = useState<"toggle" | "regroup" | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const serverGrouping = state?.question?.wordcloud_grouping ?? "";
+  const [groupingDraft, setGroupingDraft] = useState("");
+  useEffect(() => {
+    setGroupingDraft(serverGrouping);
+  }, [activeId, serverGrouping]);
+  useEffect(() => {
+    setShowAiPanel(false);
+    setAiBusy(null);
+    setAiError(null);
+  }, [activeId]);
+  const showAiButton =
+    activeKind === "word_cloud" &&
+    (phase === "open" || phase === "results") &&
+    whoAi.ai &&
+    (!whoAi.easy || aiCloud);
+  // Regroup stays busy until a fresh grouped result arrives (or a fallback
+  // timeout, in case the AI returns the very same grouping).
+  const aiSig = JSON.stringify(state?.wordcloud_ai?.clusters ?? null);
+  const aiPending = state?.wordcloud_ai?.pending ?? false;
+  const regroupMark = useRef<string | null>(null);
+  useEffect(() => {
+    if (aiBusy !== "regroup" || regroupMark.current == null) return;
+    if (aiSig !== regroupMark.current && !aiPending) {
+      regroupMark.current = null;
+      setAiBusy(null);
+    }
+  }, [aiSig, aiPending, aiBusy]);
+  useEffect(() => {
+    if (aiBusy !== "regroup") return;
+    const timer = window.setTimeout(() => setAiBusy(null), 30000);
+    return () => window.clearTimeout(timer);
+  }, [aiBusy]);
+  const toggleAiPanel = () => {
+    setShowModPanel(false);
+    setShowAiPanel((s) => !s);
+    if (!aiHintSeen) dismissAiHint();
+  };
+  const setQuestionAi = async (on: boolean) => {
+    if (runId == null || activeId == null) return;
+    setAiBusy("toggle");
+    setAiError(null);
+    try {
+      await live.wordcloudAiSettings(runId, activeId, { ai_enabled: on });
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiBusy(null);
+    }
+  };
+  const regroup = async () => {
+    if (runId == null || activeId == null) return;
+    const wasActive = wcView !== "raw";
+    setAiBusy("regroup");
+    setAiError(null);
+    regroupMark.current = aiSig;
+    try {
+      const res = await live.wordcloudAiSettings(runId, activeId, { grouping: groupingDraft });
+      setGroupingDraft(res.grouping);
+      // A grouping change only recomputes an existing AI result, so make
+      // sure the AI live view is active (same path as footer / `A`).
+      setWcView("grouped");
+      // Unchanged instruction on an already-active view: nothing recomputes.
+      if (wasActive && res.grouping === serverGrouping) {
+        regroupMark.current = null;
+        setAiBusy(null);
+      }
+    } catch (e) {
+      regroupMark.current = null;
+      setAiBusy(null);
+      setAiError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // A presenter tab opened via the editor's play button (window.open) keeps a
   // window.opener and can close itself; a normally-opened tab cannot, so we
@@ -1037,15 +1145,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           onShowQuestion={showQuestion}
           onShowResults={showResults}
           onShowSolution={showSolution}
-          views={
-            aiCloud
-              ? [
-                  { value: "raw", label: t("Original") },
-                  { value: "consolidated", label: t("Cleaned up") },
-                  { value: "grouped", label: t("Grouped") },
-                ]
-              : undefined
-          }
+          views={aiCloud ? wcViewOptions : undefined}
           viewValue={wcView}
           onSelectView={(v) => setWcView(v as "raw" | "consolidated" | "grouped")}
           joinShown={showJoin}
@@ -1392,7 +1492,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 {/* Unobtrusive pencil handle at the right edge; opens the drawer. */}
                 <button
                   type="button"
-                  onClick={() => setShowModPanel((s) => !s)}
+                  onClick={() => {
+                    setShowAiPanel(false);
+                    setShowModPanel((s) => !s);
+                  }}
                   aria-label={t("Moderate")}
                   title={t("Moderate")}
                   className={`fixed right-0 top-[62%] z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
@@ -1465,6 +1568,144 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </div>
               </>
             )}
+
+          {showAiButton && (
+            <>
+              {!aiHintSeen && modHintSeen && !showAiPanel && !showModPanel && (
+                <div style={{ top: "calc(62% + 3.5rem)" }} className="fixed right-16 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <p className="flex-1">
+                    {t("Tip: the star switches the AI views on and lets you adjust the grouping on the spot.")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={dismissAiHint}
+                    aria-label={t("Dismiss")}
+                    className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              {/* AI handle directly below the moderation pencil. */}
+              <button
+                type="button"
+                onClick={toggleAiPanel}
+                aria-label={t("AI word cloud")}
+                title={t("AI word cloud")}
+                style={{ top: "calc(62% + 3.5rem)" }}
+                className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
+                  showAiPanel ? "pointer-events-none opacity-0" : "opacity-100"
+                }`}
+              >
+                <Sparkles className="h-5 w-5" />
+              </button>
+              {/* Slide-out AI drawer (mutually exclusive with moderation). */}
+              <div
+                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
+                  showAiPanel ? "translate-x-0" : "translate-x-full"
+                }`}
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 p-3">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+                    <Sparkles className="h-4 w-4" aria-hidden />
+                    {t("AI word cloud")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel(false)}
+                    aria-label={t("Close")}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-5 overflow-y-auto p-3">
+                  {!whoAi.easy && (
+                    <div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={aiCloud}
+                        disabled={aiBusy !== null}
+                        onClick={() => void setQuestionAi(!aiCloud)}
+                        className="inline-flex items-center gap-2.5 rounded text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span
+                          aria-hidden
+                          className={`relative inline-flex h-5 w-9 flex-none items-center rounded-full transition-colors ${
+                            aiCloud ? "bg-brand-600" : "bg-slate-300"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              aiCloud ? "translate-x-[1.125rem]" : "translate-x-0.5"
+                            }`}
+                          />
+                        </span>
+                        <span className="text-left">{t("Use AI for this word cloud")}</span>
+                      </button>
+                      <p className="mt-1 pl-[2.875rem] text-xs text-slate-400">{t("Saved on the question.")}</p>
+                    </div>
+                  )}
+                  {aiCloud && (
+                    <>
+                      <div
+                        role="radiogroup"
+                        aria-label={t("AI word cloud")}
+                        className="grid grid-cols-3 rounded-full border border-slate-200 p-0.5 text-xs"
+                      >
+                        {wcViewOptions.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={wcView === o.value}
+                            onClick={() => setWcView(o.value)}
+                            className={`rounded-full px-2 py-1 transition-colors ${
+                              wcView === o.value
+                                ? "bg-brand-100 text-brand-800"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                      <div>
+                        <label htmlFor="wc-grouping" className="mb-1 block text-sm font-medium text-slate-700">
+                          {t("Grouping instruction")}
+                        </label>
+                        <textarea
+                          id="wc-grouping"
+                          rows={4}
+                          maxLength={1000}
+                          value={groupingDraft}
+                          onChange={(e) => setGroupingDraft(e.target.value)}
+                          // Keep the beamer shortcuts (space, S, A, arrows …) out of typing.
+                          onKeyDown={(e) => e.stopPropagation()}
+                          placeholder={t(
+                            "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.",
+                          )}
+                          className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void regroup()}
+                          disabled={aiBusy !== null}
+                          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                        >
+                          {aiBusy === "regroup" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                          {t("Regroup")}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                  {aiError && <p className="text-sm text-red-600">{aiError}</p>}
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="mt-10 text-center text-slate-500">
             {phase === "preview" && (
