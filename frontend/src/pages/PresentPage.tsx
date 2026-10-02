@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { Check, ChevronLeft, ChevronRight, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -22,6 +22,9 @@ import {
 import { localizedText, RichText } from "@basicbar/ui";
 import LikertResult from "../components/LikertResult";
 import { useTourSignal } from "../tour/signals";
+import ResultBar, { type BarState } from "../results/ResultBar";
+import PriorityBar from "../results/PriorityBar";
+import { categoryColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -891,10 +894,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                       {row.votes}
                     </span>
                   </div>
-                  <div className="h-3 rounded-md bg-slate-100">
+                  <div className="h-4 rounded-md bg-slate-100">
                     <div
-                      className="h-3 rounded-md bg-brand-400 transition-all duration-500"
-                      style={{ width: `${Math.round((row.votes / denominator) * 100)}%` }}
+                      className="h-4 rounded-md transition-all duration-500"
+                      style={{ background: categoryColor(i), width: `${Math.round((row.votes / denominator) * 100)}%` }}
                     />
                   </div>
                 </li>
@@ -1183,37 +1186,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           )}
 
           {question.kind === "priorities" && state.priorities && phase === "results" && (
-            <div className="mt-8 space-y-3">
-              {state.priorities.map((opt) => (
-                <div key={opt.id}>
-                  <div className="mb-1 flex items-center justify-between text-xl">
-                    <span>{localizedText(opt.text)}</span>
-                    <span className="tabular-nums text-slate-500">
-                      Ø {opt.avg} · {opt.min}–{opt.max}
-                    </span>
-                  </div>
-                  <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
-                    {/* average fill (green) */}
-                    <div
-                      className="absolute inset-y-0 left-0 rounded bg-brand-500"
-                      style={{ width: `${opt.avg}%` }}
-                    />
-                    {/* deviation range line, drawn on top so the min side is visible */}
-                    <div
-                      className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-700 dark:bg-slate-200"
-                      style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
-                    />
-                    {/* min / max whiskers, sticking out above and below the bar */}
-                    <div
-                      className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
-                      style={{ left: `${opt.min}%` }}
-                    />
-                    <div
-                      className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
-                      style={{ left: `${opt.max}%` }}
-                    />
-                  </div>
-                </div>
+            <div className="mt-8 space-y-4">
+              {state.priorities.map((opt, i) => (
+                <PriorityBar key={opt.id} index={i} label={localizedText(opt.text)} avg={opt.avg} min={opt.min} max={opt.max} animate />
               ))}
             </div>
           )}
@@ -1273,11 +1248,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           {question.kind !== "word_cloud" && question.kind !== "open_text" &&
             question.kind !== "priorities" && question.kind !== "ordering" &&
             !(question.kind === "likert" && state.likert) && phase === "results" && (
-            <div className="mt-8 space-y-3">
+            <div className="mt-8 space-y-4">
               {(state.results ?? []).map((option, i) => {
                 const count = option.count ?? 0;
                 const percent = total ? Math.round((count / total) * 100) : 0;
-                const correct = showCorrect && option.is_correct;
+                const hasCorrectAnswer = (state.results ?? []).some((o) => o.is_correct);
+                const barState: BarState =
+                  !showCorrect || !hasCorrectAnswer ? "neutral" : option.is_correct ? "correct" : "wrong";
                 // Before/after pair (#54): before bar (lighter) over after bar.
                 const before = state.before;
                 const beforeTotal = before?.votes ?? 0;
@@ -1286,65 +1263,17 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   ? Math.round((beforeCount / beforeTotal) * 100)
                   : 0;
                 return (
-                  <div key={option.id}>
-                    <div className="mb-1 flex items-center justify-between text-xl">
-                      <span className={`flex items-center gap-2 ${correct ? "font-bold text-brand-700" : ""}`}>
-                        {LETTERS[i]} ·{" "}
-                        {option.image && (
-                          <img
-                            src={`${API_BASE_URL}${option.image}`}
-                            alt=""
-                            className="max-h-12 rounded-lg"
-                          />
-                        )}
-                        {localizedText(option.text)} {correct && <Check aria-hidden className="inline h-4 w-4" />}
-                      </span>
-                      {!before && (
-                        <span className="tabular-nums text-slate-500">
-                          {count} · {percent} %
-                        </span>
-                      )}
-                    </div>
-                    {before ? (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-3">
-                          <span className="w-24 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-400">
-                            {t("Before")}
-                          </span>
-                          <div className="h-5 flex-1 rounded-lg bg-slate-100">
-                            <div
-                              className={`h-5 rounded-lg ${correct ? "bg-brand-200" : "bg-slate-200"}`}
-                              style={{ width: `${beforePercent}%` }}
-                            />
-                          </div>
-                          <span className="w-28 text-right tabular-nums text-slate-500">
-                            {beforeCount} · {beforePercent} %
-                          </span>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="w-24 shrink-0 text-sm font-semibold uppercase tracking-wide text-slate-400">
-                            {t("After")}
-                          </span>
-                          <div className="h-5 flex-1 rounded-lg bg-slate-100">
-                            <div
-                              className={`h-5 rounded-lg transition-all duration-500 ${correct ? "bg-brand-400" : "bg-slate-300"}`}
-                              style={{ width: `${percent}%` }}
-                            />
-                          </div>
-                          <span className="w-28 text-right tabular-nums text-slate-500">
-                            {count} · {percent} %
-                          </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="h-6 rounded-lg bg-slate-100">
-                        <div
-                          className={`h-6 rounded-lg transition-all duration-500 ${correct ? "bg-brand-400" : "bg-slate-300"}`}
-                          style={{ width: `${percent}%` }}
-                        />
-                      </div>
-                    )}
-                  </div>
+                  <ResultBar
+                    key={option.id}
+                    index={i}
+                    label={localizedText(option.text)}
+                    image={option.image}
+                    count={count}
+                    pct={percent}
+                    state={barState}
+                    animate
+                    before={before ? { count: beforeCount, pct: beforePercent } : null}
+                  />
                 );
               })}
               {canReveal && !revealed && (
@@ -1574,34 +1503,9 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
 
   if (item.kind === "priorities" && item.priorities) {
     return (
-      <div className="mt-8 space-y-3">
-        {item.priorities.map((opt) => (
-          <div key={opt.id}>
-            <div className="mb-1 flex items-center justify-between text-xl">
-              <span>{localizedText(opt.text)}</span>
-              <span className="tabular-nums text-slate-500">
-                Ø {opt.avg} · {opt.min}–{opt.max}
-              </span>
-            </div>
-            <div className="relative h-6 rounded bg-slate-100 dark:bg-slate-800">
-              <div
-                className="absolute inset-y-0 left-0 rounded bg-brand-500"
-                style={{ width: `${opt.avg}%` }}
-              />
-              <div
-                className="absolute top-1/2 h-0.5 -translate-y-1/2 bg-slate-700 dark:bg-slate-200"
-                style={{ left: `${opt.min}%`, width: `${Math.max(opt.max - opt.min, 0)}%` }}
-              />
-              <div
-                className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
-                style={{ left: `${opt.min}%` }}
-              />
-              <div
-                className="absolute -top-1 -bottom-1 w-0.5 -translate-x-1/2 bg-slate-700 dark:bg-slate-200"
-                style={{ left: `${opt.max}%` }}
-              />
-            </div>
-          </div>
+      <div className="mt-8 space-y-4">
+        {item.priorities.map((opt, i) => (
+          <PriorityBar key={opt.id} index={i} label={localizedText(opt.text)} avg={opt.avg} min={opt.min} max={opt.max} animate />
         ))}
       </div>
     );
@@ -1729,36 +1633,23 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
   // above, mirroring the live fallback): a bar per option, correct always
   // marked since the walkthrough has no audience left to hide it from.
   return (
-    <div className="mt-8 space-y-3">
+    <div className="mt-8 space-y-4">
       {(item.options ?? []).map((option, i) => {
         const count = option.count ?? 0;
         const percent = total ? Math.round((count / total) * 100) : 0;
-        const correct = !!option.is_correct;
+        const hasCorrect = (item.options ?? []).some((o) => o.is_correct);
+        const barState: BarState = hasCorrect ? (option.is_correct ? "correct" : "wrong") : "neutral";
         return (
-          <div key={option.id}>
-            <div className="mb-1 flex items-center justify-between text-xl">
-              <span className={`flex items-center gap-2 ${correct ? "font-bold text-brand-700" : ""}`}>
-                {LETTERS[i]} ·{" "}
-                {option.image && (
-                  <img
-                    src={`${API_BASE_URL}${option.image}`}
-                    alt=""
-                    className="max-h-12 rounded-lg"
-                  />
-                )}
-                {localizedText(option.text)} {correct && <Check aria-hidden className="inline h-4 w-4" />}
-              </span>
-              <span className="tabular-nums text-slate-500">
-                {count} · {percent} %
-              </span>
-            </div>
-            <div className="h-6 rounded-lg bg-slate-100">
-              <div
-                className={`h-6 rounded-lg ${correct ? "bg-brand-400" : "bg-slate-300"}`}
-                style={{ width: `${percent}%` }}
-              />
-            </div>
-          </div>
+          <ResultBar
+            key={option.id}
+            index={i}
+            label={localizedText(option.text)}
+            image={option.image}
+            count={count}
+            pct={percent}
+            state={barState}
+            animate
+          />
         );
       })}
     </div>
