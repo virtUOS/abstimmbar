@@ -13,7 +13,9 @@ const C = 2 * Math.PI * R;
 
 export default function VoteCounter({ votes, participants }: { votes: number; participants: number }) {
   const { t } = useTranslation();
-  const share = participants > 0 ? Math.min(1, votes / participants) : 0;
+  // Several answers per person (word clouds) or answers from tabs that have
+  // since disconnected can outnumber the connected count — never overflow.
+  const share = votes > 0 ? votes / Math.max(participants, votes) : 0;
   return (
     <div className="inline-flex items-center gap-5">
       <svg viewBox="0 0 100 100" className="h-24 w-24 -rotate-90" aria-hidden>
@@ -36,7 +38,9 @@ export default function VoteCounter({ votes, participants }: { votes: number; pa
           {votes}
         </span>
         <p className="text-xl text-slate-600">{t("answer", { count: votes })}</p>
-        <p className="text-sm text-slate-400">{t("of {{count}} connected", { count: participants })}</p>
+        {participants > 0 && (
+          <p className="text-sm text-slate-400">{t("of {{count}} connected", { count: participants })}</p>
+        )}
       </div>
     </div>
   );
