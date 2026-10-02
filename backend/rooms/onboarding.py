@@ -115,6 +115,8 @@ def seed_example_room(user) -> Room:
     position += 1
 
     # likert: negative-first 5-point agreement scale + a trailing abstention.
+    # Like the editor's "agreement" preset, only the two endpoints carry text;
+    # the middle steps stay empty (rendered as plain scale points).
     text_de, text_en = _p(
         "Ich fühle mich in dieser Veranstaltung gut aufgehoben.",
         "I feel well supported in this course.",
@@ -127,11 +129,11 @@ def seed_example_room(user) -> Room:
         position=position,
     )
     likert_scale = [
-        ("Stimme gar nicht zu", "Strongly disagree"),
-        ("Stimme eher nicht zu", "Disagree"),
-        ("Neutral", "Neutral"),
-        ("Stimme eher zu", "Agree"),
-        ("Stimme voll zu", "Strongly agree"),
+        ("Stimme nicht zu", "Disagree"),
+        ("", ""),
+        ("", ""),
+        ("", ""),
+        ("Stimme zu", "Agree"),
     ]
     for i, (option_de, option_en) in enumerate(likert_scale):
         AnswerOption.objects.create(
@@ -159,6 +161,9 @@ def seed_example_room(user) -> Room:
         kind=Question.Kind.WORD_CLOUD,
         text_de=text_de,
         text_en=text_en,
+        # Editor default (#88): up to 5 terms per participant.
+        allow_multiple=True,
+        wordcloud_max_answers=5,
         position=position,
     )
     position += 1
