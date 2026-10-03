@@ -1565,7 +1565,7 @@ def optimize_wordcloud(request, run_id, question_id):
         return Response({"clusters": [], "merged": []})
     try:
         data = ai.chat_json(
-            ai_wordcloud.optimize_system(),
+            ai_wordcloud.optimize_system(**ai_wordcloud.merge_flags(question)),
             ai_wordcloud.build_optimize_prompt(words),
         )
     except ai.AIError as exc:
@@ -1574,14 +1574,19 @@ def optimize_wordcloud(request, run_id, question_id):
 
 
 WORDCLOUD_GROUPING_MAX = 1000
+# Body keys of the ai-settings endpoint; the Question field is wordcloud_<key>.
+MERGE_FLAG_KEYS = ("merge_variants", "merge_synonyms", "merge_concepts")
 
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def wordcloud_ai_settings(request, run_id, question_id):
     """Presenter edits a word cloud's permanent AI settings: switch the AI
-    views on/off and/or change the grouping instruction. Body:
-    {"ai_enabled"?: bool, "grouping"?: str}. Saved on the question."""
+    views on/off, change the grouping instruction and/or what the
+    consolidated view merges. Body: {"ai_enabled"?: bool, "grouping"?: str,
+    "merge_variants"?: bool, "merge_synonyms"?: bool, "merge_concepts"?:
+    bool, "regroup"?: bool}. Saved on the question; a changed instruction or
+    merge flag (or ``regroup: true``) recomputes a shown/warm AI result."""
     run = get_object_or_404(
         Run.objects.select_related("question_set__room"), pk=run_id
     )
@@ -1594,8 +1599,16 @@ def wordcloud_ai_settings(request, run_id, question_id):
         question_set=run.question_set,
         kind=Question.Kind.WORD_CLOUD,
     )
+    # Validate every merge flag before writing anything.
+    merge_updates = {}
+    for key in MERGE_FLAG_KEYS:
+        if key in request.data:
+            value = request.data.get(key)
+            if not isinstance(value, bool):
+                return Response({"detail": f"{key} must be a boolean."}, status=400)
+            merge_updates[key] = value
     fields = []
-    grouping_changed = False
+    settings_changed = False
     if "ai_enabled" in request.data:
         enabled = request.data.get("ai_enabled")
         if not isinstance(enabled, bool):
@@ -1621,19 +1634,26 @@ def wordcloud_ai_settings(request, run_id, question_id):
         if grouping != question.wordcloud_grouping:
             question.wordcloud_grouping = grouping
             fields.append("wordcloud_grouping")
-            grouping_changed = True
+            settings_changed = True
+    for key, value in merge_updates.items():
+        field = f"wordcloud_{key}"
+        if value != getattr(question, field):
+            setattr(question, field, value)
+            fields.append(field)
+            settings_changed = True
     if fields:
         question.save(update_fields=fields)
-    if grouping_changed or request.data.get("regroup") is True:
-        # A shown/warm AI result was built with the old instruction.
+    if settings_changed or request.data.get("regroup") is True:
+        # A shown/warm AI result was built with the old instruction/flags.
         ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
     broadcast(room)
-    return Response(
-        {
-            "ai_enabled": question.wordcloud_ai_enabled,
-            "grouping": question.wordcloud_grouping,
-        }
-    )
+    response = {
+        "ai_enabled": question.wordcloud_ai_enabled,
+        "grouping": question.wordcloud_grouping,
+    }
+    for key in MERGE_FLAG_KEYS:
+        response[key] = getattr(question, f"wordcloud_{key}")
+    return Response(response)
 
 
 @api_view(["POST"])

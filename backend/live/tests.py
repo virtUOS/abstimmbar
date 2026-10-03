@@ -2085,6 +2085,21 @@ class AiWordCloudTests(LiveTestCase):
         self.assertEqual(data["merged"][0]["text"], "Klimawandel")
         self.assertEqual(sum(w["count"] for w in data["merged"]), 7)
 
+    @override_settings(**AI_ON)
+    def test_passes_question_merge_flags(self):
+        self.cloud.wordcloud_merge_variants = False
+        self.cloud.wordcloud_merge_concepts = True
+        self.cloud.save()
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"groups": []}
+        ) as chat:
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(self.url).status_code, 200)
+        system = chat.call_args[0][0]
+        self.assertNotIn(ai_wordcloud.RULE_VARIANTS, system)
+        self.assertIn(ai_wordcloud.KEEP_VARIANTS_APART, system)
+        self.assertIn(ai_wordcloud.RULE_CONCEPTS, system)
+
     @override_settings(**AI_OFF)
     def test_disabled_returns_503(self):
         self.client.force_login(self.owner)
@@ -2575,6 +2590,89 @@ class AiLiveWordCloudTests(LiveTestCase):
         self.assertIn("nach Musikgenre", ai_wordcloud.optimize_system("nach Musikgenre"))
         # Empty falls back to automatic themes (no criterion echoed).
         self.assertNotIn("nach Musikgenre", ai_wordcloud.optimize_system(""))
+
+    def test_prompt_default_flags_variants_and_synonyms_strict(self):
+        prompt = ai_wordcloud.optimize_system()
+        self.assertIn(ai_wordcloud.RULE_CASE, prompt)
+        self.assertIn(ai_wordcloud.RULE_VARIANTS, prompt)
+        self.assertIn(ai_wordcloud.RULE_SYNONYMS, prompt)
+        self.assertNotIn(ai_wordcloud.RULE_CONCEPTS, prompt)
+        self.assertIn(ai_wordcloud.RESTRAINT_STRICT, prompt)
+        self.assertNotIn(ai_wordcloud.RESTRAINT_CONCEPTS, prompt)
+        self.assertNotIn(ai_wordcloud.KEEP_VARIANTS_APART, prompt)
+        self.assertNotIn(ai_wordcloud.KEEP_SYNONYMS_APART, prompt)
+
+    def test_prompt_variants_only(self):
+        prompt = ai_wordcloud.optimize_system(
+            merge_variants=True, merge_synonyms=False, merge_concepts=False
+        )
+        self.assertIn(ai_wordcloud.RULE_VARIANTS, prompt)
+        self.assertIn("muede", prompt)
+        self.assertNotIn(ai_wordcloud.RULE_SYNONYMS, prompt)
+        self.assertIn(ai_wordcloud.KEEP_SYNONYMS_APART, prompt)
+        self.assertNotIn(ai_wordcloud.RULE_CONCEPTS, prompt)
+        self.assertIn(ai_wordcloud.RESTRAINT_STRICT, prompt)
+
+    def test_prompt_synonyms_without_variants(self):
+        prompt = ai_wordcloud.optimize_system(
+            merge_variants=False, merge_synonyms=True, merge_concepts=False
+        )
+        self.assertIn(ai_wordcloud.RULE_SYNONYMS, prompt)
+        self.assertIn("Einsamkeit", prompt)
+        self.assertNotIn(ai_wordcloud.RULE_VARIANTS, prompt)
+        self.assertIn(ai_wordcloud.KEEP_VARIANTS_APART, prompt)
+
+    def test_prompt_concepts_on_relaxes_restraint(self):
+        prompt = ai_wordcloud.optimize_system(merge_concepts=True)
+        self.assertIn(ai_wordcloud.RULE_CONCEPTS, prompt)
+        self.assertIn("Gebäude", prompt)
+        self.assertIn(ai_wordcloud.RESTRAINT_CONCEPTS, prompt)
+        self.assertNotIn(ai_wordcloud.RESTRAINT_STRICT, prompt)
+        # Still no merging of merely related topics.
+        self.assertIn("Leine", prompt)
+
+    def test_prompt_all_off_only_case(self):
+        prompt = ai_wordcloud.optimize_system(
+            merge_variants=False, merge_synonyms=False, merge_concepts=False
+        )
+        self.assertIn(ai_wordcloud.RULE_CASE, prompt)
+        for block in (
+            ai_wordcloud.RULE_VARIANTS, ai_wordcloud.RULE_SYNONYMS,
+            ai_wordcloud.RULE_CONCEPTS,
+        ):
+            self.assertNotIn(block, prompt)
+        self.assertIn(ai_wordcloud.KEEP_VARIANTS_APART, prompt)
+        self.assertIn(ai_wordcloud.KEEP_SYNONYMS_APART, prompt)
+        self.assertIn(ai_wordcloud.RESTRAINT_STRICT, prompt)
+        # Safety rules are always there.
+        self.assertIn("ausschließlich die vorgegebenen", prompt)
+        self.assertIn("höchstens einer Gruppe", prompt)
+        self.assertIn("ausschließlich mit JSON", prompt)
+
+    def test_merge_flags_helper_reads_question(self):
+        self.wc.wordcloud_merge_variants = False
+        self.wc.wordcloud_merge_concepts = True
+        self.assertEqual(
+            ai_wordcloud.merge_flags(self.wc),
+            {"merge_variants": False, "merge_synonyms": True,
+             "merge_concepts": True},
+        )
+
+    @override_settings(**AI_ON)
+    def test_compute_passes_question_merge_flags(self):
+        self._cast("Haus")
+        self.wc.wordcloud_merge_synonyms = False
+        self.wc.wordcloud_merge_concepts = True
+        self.wc.save()
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"groups": []}
+        ) as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.wc.pk, self.room.pk)
+        system = chat.call_args[0][0]
+        self.assertIn("nach Musikgenre", system)
+        self.assertIn(ai_wordcloud.RULE_CONCEPTS, system)
+        self.assertNotIn(ai_wordcloud.RULE_SYNONYMS, system)
+        self.assertIn(ai_wordcloud.RULE_VARIANTS, system)
 
     @override_settings(**AI_ON)
     def test_activate_endpoint_toggles(self):
@@ -4320,7 +4418,14 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
     def test_enable_saves(self):
         resp = self._post({"ai_enabled": True})
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json(), {"ai_enabled": True, "grouping": ""})
+        self.assertEqual(
+            resp.json(),
+            {
+                "ai_enabled": True, "grouping": "",
+                "merge_variants": True, "merge_synonyms": True,
+                "merge_concepts": False,
+            },
+        )
         self.wc.refresh_from_db()
         self.assertTrue(self.wc.wordcloud_ai_enabled)
 
@@ -4404,3 +4509,70 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
             f"/api/runs/{self.run.pk}/wordcloud-ai/",
         )
         self.assertEqual(resp.status_code, 200)
+
+    # --- Consolidation switches (variants / synonyms / concepts) ----------
+
+    def test_merge_flags_saved_returned_and_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._post(
+                {"merge_variants": False, "merge_synonyms": False,
+                 "merge_concepts": True}
+            )
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertFalse(body["merge_variants"])
+        self.assertFalse(body["merge_synonyms"])
+        self.assertTrue(body["merge_concepts"])
+        self.wc.refresh_from_db()
+        self.assertFalse(self.wc.wordcloud_merge_variants)
+        self.assertFalse(self.wc.wordcloud_merge_synonyms)
+        self.assertTrue(self.wc.wordcloud_merge_concepts)
+        refresh.assert_called_once_with(self.run.pk, self.wc.pk, self.room.pk)
+
+    def test_unchanged_merge_flags_do_not_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._post(
+                {"merge_variants": True, "merge_synonyms": True,
+                 "merge_concepts": False}
+            )
+        self.assertEqual(resp.status_code, 200)
+        refresh.assert_not_called()
+
+    def test_unchanged_merge_flags_with_regroup_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            self._post({"merge_concepts": False, "regroup": True})
+        refresh.assert_called_once_with(self.run.pk, self.wc.pk, self.room.pk)
+
+    def test_merge_flags_must_be_bool(self):
+        for key in ("merge_variants", "merge_synonyms", "merge_concepts"):
+            for bad in ("false", "true", 1, 0, None):
+                resp = self._post({key: bad})
+                self.assertEqual(resp.status_code, 400, (key, bad))
+        self.wc.refresh_from_db()
+        self.assertTrue(self.wc.wordcloud_merge_variants)
+        self.assertTrue(self.wc.wordcloud_merge_synonyms)
+        self.assertFalse(self.wc.wordcloud_merge_concepts)
+
+    def test_invalid_flag_saves_nothing(self):
+        # Validation happens before any write: a bad flag rejects the
+        # whole request, including otherwise valid fields.
+        resp = self._post({"grouping": "neu", "merge_concepts": "yes"})
+        self.assertEqual(resp.status_code, 400)
+        self.wc.refresh_from_db()
+        self.assertEqual(self.wc.wordcloud_grouping, "")
+
+    def test_presenter_payload_carries_merge_flags(self):
+        self.wc.wordcloud_merge_variants = False
+        self.wc.wordcloud_merge_concepts = True
+        self.wc.save()
+        self.run.active_question = self.wc
+        self.run.phase = Run.Phase.OPEN
+        self.run.save()
+        payloads = build_payloads(self.room)
+        question = payloads["presenter"]["question"]
+        self.assertFalse(question["wordcloud_merge_variants"])
+        self.assertTrue(question["wordcloud_merge_synonyms"])
+        self.assertTrue(question["wordcloud_merge_concepts"])
+        # Presenter-only: participants never see the AI settings.
+        participant_q = payloads["participant"].get("question") or {}
+        self.assertNotIn("wordcloud_merge_concepts", participant_q)
