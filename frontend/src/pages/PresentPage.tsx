@@ -408,13 +408,32 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // Settings are saved permanently on the question; the AI views themselves
   // are activated through `wcView` (same path as the footer / `A`).
   const [showAiPanel, setShowAiPanel] = useState(false);
-  const [aiBusy, setAiBusy] = useState<"toggle" | "regroup" | null>(null);
+  // "regroup" = a recompute (grouping or merge settings) waiting for its result.
+  const [aiBusy, setAiBusy] = useState<"toggle" | "regroup" | "merge" | null>(null);
+  const recomputeBusy = aiBusy === "regroup" || aiBusy === "merge";
   const [aiError, setAiError] = useState<string | null>(null);
   const serverGrouping = state?.question?.wordcloud_grouping ?? "";
   const [groupingDraft, setGroupingDraft] = useState("");
   useEffect(() => {
     setGroupingDraft(serverGrouping);
   }, [activeId, serverGrouping]);
+  // "Cleaned up" merge switches: a local draft (no model call per click),
+  // applied with "Merge again".
+  const serverMergeVariants = state?.question?.wordcloud_merge_variants ?? true;
+  const serverMergeSynonyms = state?.question?.wordcloud_merge_synonyms ?? true;
+  const serverMergeConcepts = state?.question?.wordcloud_merge_concepts ?? false;
+  const [mergeDraft, setMergeDraft] = useState({
+    variants: serverMergeVariants,
+    synonyms: serverMergeSynonyms,
+    concepts: serverMergeConcepts,
+  });
+  useEffect(() => {
+    setMergeDraft({
+      variants: serverMergeVariants,
+      synonyms: serverMergeSynonyms,
+      concepts: serverMergeConcepts,
+    });
+  }, [activeId, serverMergeVariants, serverMergeSynonyms, serverMergeConcepts]);
   useEffect(() => {
     setShowAiPanel(false);
     setAiBusy(null);
@@ -445,7 +464,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const regroupMark = useRef<string | null>(null);
   const regroupSawPending = useRef(false);
   useEffect(() => {
-    if (aiBusy !== "regroup" || regroupMark.current == null) return;
+    if (!recomputeBusy || regroupMark.current == null) return;
     if (aiPending) {
       regroupSawPending.current = true;
       return;
@@ -454,12 +473,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       regroupMark.current = null;
       setAiBusy(null);
     }
-  }, [aiSig, aiPending, aiBusy]);
+  }, [aiSig, aiPending, recomputeBusy]);
   useEffect(() => {
-    if (aiBusy !== "regroup") return;
+    if (!recomputeBusy) return;
     const timer = window.setTimeout(() => setAiBusy(null), 30000);
     return () => window.clearTimeout(timer);
-  }, [aiBusy]);
+  }, [recomputeBusy]);
   const toggleAiPanel = () => {
     setShowModPanel(false);
     setShowAiPanel((s) => !s);
@@ -496,6 +515,35 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       regroupSawPending.current = false;
       // Ensure the grouped view is shown and active (same path as footer / `A`).
       setWcView("grouped");
+    } catch (e) {
+      regroupMark.current = null;
+      setAiBusy(null);
+      setAiError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  // "Merge again": save the merge switches and force one recompute (the
+  // panel only offers it in the active "Cleaned up" view). Same busy logic
+  // as Regroup.
+  const mergeAgain = async () => {
+    if (runId == null || activeId == null) return;
+    setAiBusy("merge");
+    setAiError(null);
+    regroupMark.current = null;
+    try {
+      const res = await live.wordcloudAiSettings(runId, activeId, {
+        merge_variants: mergeDraft.variants,
+        merge_synonyms: mergeDraft.synonyms,
+        merge_concepts: mergeDraft.concepts,
+        regroup: true,
+      });
+      setMergeDraft({
+        variants: res.merge_variants,
+        synonyms: res.merge_synonyms,
+        concepts: res.merge_concepts,
+      });
+      regroupMark.current = latestAiSig.current;
+      regroupSawPending.current = false;
+      setWcView("consolidated");
     } catch (e) {
       regroupMark.current = null;
       setAiBusy(null);
@@ -1738,31 +1786,72 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                           </button>
                         ))}
                       </div>
-                      <div>
-                        <label htmlFor="wc-grouping" className="mb-1 block text-sm font-medium text-slate-700">
-                          {t("Grouping instruction")}
-                        </label>
-                        <textarea
-                          id="wc-grouping"
-                          rows={4}
-                          maxLength={1000}
-                          value={groupingDraft}
-                          onChange={(e) => setGroupingDraft(e.target.value)}
-                          placeholder={t(
-                            "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.",
-                          )}
-                          className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => void regroup()}
-                          disabled={aiBusy !== null}
-                          className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-                        >
-                          {aiBusy === "regroup" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-                          {t("Regroup")}
-                        </button>
-                      </div>
+                      {wcView === "consolidated" && (
+                        <fieldset>
+                          <legend className="mb-1 block text-sm font-medium text-slate-700">
+                            {t("“Cleaned up” merges:")}
+                          </legend>
+                          <div className="grid gap-1.5">
+                            {(
+                              [
+                                ["variants", t("Spelling variants and typos (e.g. müde / muede / mühde)")],
+                                ["synonyms", t("Synonyms and word forms (e.g. einsam / Einsamkeit)")],
+                                ["concepts", t("Similar concepts (e.g. Gebäude / Haus / Wohnung)")],
+                              ] as const
+                            ).map(([key, label]) => (
+                              <label key={key} className="flex items-start gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={mergeDraft[key]}
+                                  disabled={aiBusy !== null}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setMergeDraft((d) => ({ ...d, [key]: checked }));
+                                  }}
+                                  className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void mergeAgain()}
+                            disabled={aiBusy !== null}
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                          >
+                            {aiBusy === "merge" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                            {t("Merge again")}
+                          </button>
+                        </fieldset>
+                      )}
+                      {wcView === "grouped" && (
+                        <div>
+                          <label htmlFor="wc-grouping" className="mb-1 block text-sm font-medium text-slate-700">
+                            {t("Grouping instruction")}
+                          </label>
+                          <textarea
+                            id="wc-grouping"
+                            rows={4}
+                            maxLength={1000}
+                            value={groupingDraft}
+                            onChange={(e) => setGroupingDraft(e.target.value)}
+                            placeholder={t(
+                              "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.",
+                            )}
+                            className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void regroup()}
+                            disabled={aiBusy !== null}
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                          >
+                            {aiBusy === "regroup" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                            {t("Regroup")}
+                          </button>
+                        </div>
+                      )}
                     </>
                   )}
                   {aiError && <p className="text-sm text-red-600">{aiError}</p>}

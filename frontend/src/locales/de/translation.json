@@ -854,5 +854,10 @@
   "Grouping instruction": "Gruppierungs-Anweisung",
   "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.": "Leer = die KI findet selbst Themen. Z. B. „positiv / neutral / negativ“ oder „nach Themen der Vorlesung“.",
   "Regroup": "Neu gruppieren",
+  "“Cleaned up” merges:": "„Aufgeräumt“ fasst zusammen:",
+  "Spelling variants and typos (e.g. müde / muede / mühde)": "Schreibvarianten und Tippfehler (z. B. müde / muede / mühde)",
+  "Synonyms and word forms (e.g. einsam / Einsamkeit)": "Synonyme und Wortformen (z. B. einsam / Einsamkeit)",
+  "Similar concepts (e.g. Gebäude / Haus / Wohnung)": "Ähnliche Konzepte (z. B. Gebäude / Haus / Wohnung)",
+  "Merge again": "Neu zusammenfassen",
   "Tip: the star switches the AI views on and lets you adjust the grouping on the spot.": "Tipp: Mit dem Stern schalten Sie die KI-Ansichten ein und passen die Gruppierung spontan an."
 }

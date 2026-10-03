@@ -177,6 +177,11 @@ export interface Question {
   wordcloud_ai_enabled: boolean;
   /** word_cloud only: optional AI grouping criteria (empty = auto themes). */
   wordcloud_grouping: string;
+  /** word_cloud only: what the AI "Cleaned up" view merges — spelling
+   *  variants/typos, synonyms/word forms, similar concepts. */
+  wordcloud_merge_variants: boolean;
+  wordcloud_merge_synonyms: boolean;
+  wordcloud_merge_concepts: boolean;
   /** word_cloud: max terms per participant (0 = unlimited, 1 = single, #76/#88). */
   wordcloud_max_answers: number;
   /** word_cloud: collect several terms in fields and submit together (#88). */
@@ -934,6 +939,10 @@ export interface LiveState {
     wordcloud_ai_enabled?: boolean;
     /** The question's saved AI grouping instruction (empty = AI clusters freely). */
     wordcloud_grouping?: string;
+    /** What the AI "Cleaned up" view merges (saved on the question). */
+    wordcloud_merge_variants?: boolean;
+    wordcloud_merge_synonyms?: boolean;
+    wordcloud_merge_concepts?: boolean;
     options: LiveOption[];
   };
   results?: LiveOption[];
@@ -1197,14 +1206,28 @@ export const live = {
     ),
   /** Presenter edits a word cloud's permanent AI settings (saved on the
    *  question): switch the AI views on/off and/or change the grouping
-   *  instruction (`regroup` forces a recompute of an existing AI result even
-   *  with unchanged text). 409 when the AI provider is off, 400 when too long. */
+   *  instruction and/or the "Cleaned up" merge switches (`regroup` forces a
+   *  recompute of an existing AI result even with unchanged settings). 409
+   *  when the AI provider is off, 400 when too long / not a bool. */
   wordcloudAiSettings: (
     runId: number,
     questionId: number,
-    body: { ai_enabled?: boolean; grouping?: string; regroup?: boolean },
+    body: {
+      ai_enabled?: boolean;
+      grouping?: string;
+      merge_variants?: boolean;
+      merge_synonyms?: boolean;
+      merge_concepts?: boolean;
+      regroup?: boolean;
+    },
   ) =>
-    request<{ ai_enabled: boolean; grouping: string }>(
+    request<{
+      ai_enabled: boolean;
+      grouping: string;
+      merge_variants: boolean;
+      merge_synonyms: boolean;
+      merge_concepts: boolean;
+    }>(
       `/api/runs/${runId}/wordcloud/${questionId}/ai-settings`,
       { method: "POST", body: JSON.stringify(body) },
     ),
