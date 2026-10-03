@@ -2086,6 +2086,17 @@ class AiWordCloudTests(LiveTestCase):
         self.assertEqual(sum(w["count"] for w in data["merged"]), 7)
 
     @override_settings(**AI_ON)
+    def test_passes_grouping_instruction(self):
+        self.cloud.wordcloud_grouping = "nach Lebensbereich"
+        self.cloud.save()
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"groups": []}
+        ) as chat:
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(self.url).status_code, 200)
+        self.assertIn("nach Lebensbereich", chat.call_args[0][0])
+
+    @override_settings(**AI_ON)
     def test_passes_question_merge_flags(self):
         self.cloud.wordcloud_merge_variants = False
         self.cloud.wordcloud_merge_concepts = True
@@ -4560,6 +4571,45 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
         self.assertEqual(resp.status_code, 400)
         self.wc.refresh_from_db()
         self.assertEqual(self.wc.wordcloud_grouping, "")
+
+    @override_settings(**AI_ON)
+    def test_rejected_request_has_no_side_effects(self):
+        # ai_enabled=false + too-long grouping → 400, and the live loop must
+        # not have been stopped, nothing saved, nothing refreshed/broadcast.
+        self.wc.wordcloud_ai_enabled = True
+        self.wc.save()
+        bad_bodies = [
+            {"ai_enabled": False, "grouping": "x" * 1001},
+            {"ai_enabled": False, "merge_concepts": "yes"},
+            {"ai_enabled": "no", "grouping": "neu"},
+            {"merge_concepts": True, "grouping": "x" * 1001},
+        ]
+        for body in bad_bodies:
+            with patch("live.views.ai_wordcloud_live.set_active") as set_active, \
+                    patch("live.views.ai_wordcloud_live.refresh") as refresh, \
+                    patch("live.views.broadcast") as bc:
+                self.assertEqual(self._post(body).status_code, 400, body)
+            set_active.assert_not_called()
+            refresh.assert_not_called()
+            bc.assert_not_called()
+            self.wc.refresh_from_db()
+            self.assertTrue(self.wc.wordcloud_ai_enabled)
+            self.assertEqual(self.wc.wordcloud_grouping, "")
+            self.assertFalse(self.wc.wordcloud_merge_concepts)
+
+    @override_settings(**AI_OFF)
+    def test_conflict_has_no_side_effects(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh, \
+                patch("live.views.broadcast") as bc:
+            resp = self._post(
+                {"ai_enabled": True, "grouping": "neu", "merge_concepts": True}
+            )
+        self.assertEqual(resp.status_code, 409)
+        refresh.assert_not_called()
+        bc.assert_not_called()
+        self.wc.refresh_from_db()
+        self.assertEqual(self.wc.wordcloud_grouping, "")
+        self.assertFalse(self.wc.wordcloud_merge_concepts)
 
     def test_presenter_payload_carries_merge_flags(self):
         self.wc.wordcloud_merge_variants = False

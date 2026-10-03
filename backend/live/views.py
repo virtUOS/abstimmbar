@@ -1565,7 +1565,9 @@ def optimize_wordcloud(request, run_id, question_id):
         return Response({"clusters": [], "merged": []})
     try:
         data = ai.chat_json(
-            ai_wordcloud.optimize_system(**ai_wordcloud.merge_flags(question)),
+            ai_wordcloud.optimize_system(
+                question.wordcloud_grouping, **ai_wordcloud.merge_flags(question)
+            ),
             ai_wordcloud.build_optimize_prompt(words),
         )
     except ai.AIError as exc:
@@ -1599,30 +1601,17 @@ def wordcloud_ai_settings(request, run_id, question_id):
         question_set=run.question_set,
         kind=Question.Kind.WORD_CLOUD,
     )
-    # Validate every merge flag before writing anything.
-    merge_updates = {}
-    for key in MERGE_FLAG_KEYS:
-        if key in request.data:
-            value = request.data.get(key)
-            if not isinstance(value, bool):
-                return Response({"detail": f"{key} must be a boolean."}, status=400)
-            merge_updates[key] = value
-    fields = []
-    settings_changed = False
-    if "ai_enabled" in request.data:
-        enabled = request.data.get("ai_enabled")
+    # Validate every input before any side effect (save, live loop, refresh,
+    # broadcast): a 400/409 leaves the question and the live state unchanged.
+    data = request.data
+    enabled = None
+    if "ai_enabled" in data:
+        enabled = data.get("ai_enabled")
         if not isinstance(enabled, bool):
             return Response({"detail": "ai_enabled must be a boolean."}, status=400)
-        if enabled and not ai.is_enabled():
-            return Response({"detail": "KI ist nicht konfiguriert."}, status=409)
-        if enabled != question.wordcloud_ai_enabled:
-            question.wordcloud_ai_enabled = enabled
-            fields.append("wordcloud_ai_enabled")
-        if not enabled:
-            # Stop the live recompute so new votes no longer trigger LLM calls.
-            ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, False)
-    if "grouping" in request.data:
-        grouping = str(request.data.get("grouping") or "").strip()
+    grouping = None
+    if "grouping" in data:
+        grouping = str(data.get("grouping") or "").strip()
         if (
             len(grouping) > WORDCLOUD_GROUPING_MAX
             and grouping != question.wordcloud_grouping
@@ -1631,10 +1620,29 @@ def wordcloud_ai_settings(request, run_id, question_id):
                 {"detail": f"Anweisung zu lang (max. {WORDCLOUD_GROUPING_MAX} Zeichen)."},
                 status=400,
             )
-        if grouping != question.wordcloud_grouping:
-            question.wordcloud_grouping = grouping
-            fields.append("wordcloud_grouping")
-            settings_changed = True
+    merge_updates = {}
+    for key in MERGE_FLAG_KEYS:
+        if key in data:
+            value = data.get(key)
+            if not isinstance(value, bool):
+                return Response({"detail": f"{key} must be a boolean."}, status=400)
+            merge_updates[key] = value
+    if enabled and not ai.is_enabled():
+        return Response({"detail": "KI ist nicht konfiguriert."}, status=409)
+
+    fields = []
+    settings_changed = False
+    if enabled is not None:
+        if enabled != question.wordcloud_ai_enabled:
+            question.wordcloud_ai_enabled = enabled
+            fields.append("wordcloud_ai_enabled")
+        if not enabled:
+            # Stop the live recompute so new votes no longer trigger LLM calls.
+            ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, False)
+    if grouping is not None and grouping != question.wordcloud_grouping:
+        question.wordcloud_grouping = grouping
+        fields.append("wordcloud_grouping")
+        settings_changed = True
     for key, value in merge_updates.items():
         field = f"wordcloud_{key}"
         if value != getattr(question, field):
@@ -1643,7 +1651,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
             settings_changed = True
     if fields:
         question.save(update_fields=fields)
-    if settings_changed or request.data.get("regroup") is True:
+    if settings_changed or data.get("regroup") is True:
         # A shown/warm AI result was built with the old instruction/flags.
         ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
     broadcast(room)
