@@ -167,7 +167,10 @@ def _compute(run_id, question_id, room_id):
         else:
             try:
                 data = ai.chat_json(
-                    ai_wordcloud.optimize_system(question.wordcloud_grouping),
+                    ai_wordcloud.optimize_system(
+                        question.wordcloud_grouping,
+                        **ai_wordcloud.merge_flags(question),
+                    ),
                     ai_wordcloud.build_optimize_prompt(words),
                 )
                 optimized = ai_wordcloud.apply_optimization(words, data)

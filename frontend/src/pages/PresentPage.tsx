@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Info, Pencil, QrCode, Redo2, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -71,6 +71,32 @@ function useEventSource(code: string | null, onState: (s: LiveState) => void) {
     source.onmessage = (event) => onState(JSON.parse(event.data));
     return () => source.close();
   }, [code, onState]);
+}
+
+/** True while the presenter types in a text field (drawer inputs, the AI
+ *  grouping textarea, …): beamer shortcuts must not fire then. */
+const TEXT_INPUT_TYPES = new Set(["text", "search", "email", "url", "number", "password", "tel"]);
+function isTextField(target: EventTarget | null): target is HTMLElement {
+  const el = target as HTMLElement | null;
+  if (!el || typeof el.tagName !== "string") return false;
+  if (el.tagName === "INPUT") {
+    // `.type` reports "text" for a missing/unknown type attribute.
+    return TEXT_INPUT_TYPES.has((el as HTMLInputElement).type);
+  }
+  return el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
+}
+
+/** Marks the word-cloud drawers and their edge handles (see `onKey`). */
+const WC_DRAWER_ATTR = "data-wc-drawer";
+function inWcDrawer(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest(`[${WC_DRAWER_ATTR}]`) != null;
+}
+/** After a mouse click in a drawer, drop the button's focus so a clicker's
+ *  Enter/Space advances the presentation instead of re-pressing it. */
+function blurClickedButton(e: { target: EventTarget }) {
+  if (e.target instanceof Element && e.target.closest("button")) {
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }
 }
 
 export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_paced" }) {
@@ -161,6 +187,25 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       /* ignore */
     }
   };
+  // Second one-time hint, for the AI panel button (shown after the
+  // moderation hint has been dismissed — never both at once).
+  const [aiHintSeen, setAiHintSeen] = useState(() => {
+    try {
+      return localStorage.getItem("abstimmbar_wc_ai_hint") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissAiHint = () => {
+    setAiHintSeen(true);
+    try {
+      localStorage.setItem("abstimmbar_wc_ai_hint", "1");
+    } catch {
+      /* ignore */
+    }
+  };
+  // whoami bits the AI panel needs (easy mode, AI provider configured).
+  const [whoAi, setWhoAi] = useState({ easy: false, ai: false });
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -177,6 +222,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         api.whoami(),
       ]);
       const easyMode = !!who.easy_mode;
+      setWhoAi({ easy: easyMode, ai: !!who.ai_enabled });
       setQuestions(page.results);
       setSectionTitles(
         new Map(sectionPage.results.map((s) => [s.id, localizedText(s.title)])),
@@ -227,10 +273,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const aiCloud =
     activeKind === "word_cloud" && state?.question?.wordcloud_ai_enabled === true;
 
-  // Each new question starts on the raw view.
+  // Each new question starts on the raw view; so does a cloud whose AI was
+  // just switched off (the AI views would otherwise linger).
   useEffect(() => {
     setWcView("raw");
   }, [activeId]);
+  useEffect(() => {
+    if (!aiCloud) setWcView("raw");
+  }, [aiCloud]);
 
   // Tell the backend to keep the live AI views fresh only while one is shown
   // (capacity); deactivate the previous question when switching away.
@@ -330,10 +380,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
       if (activeKind !== "word_cloud") return;
-      // Don't hijack native undo while the presenter edits a merge label.
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable))
-        return;
+      // Don't hijack native undo while the presenter types in a field.
+      if (isTextField(e.target)) return;
       e.preventDefault();
       if (e.shiftKey) redoMod();
       else undoMod();
@@ -348,8 +396,160 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       v === "raw" ? "consolidated" : v === "consolidated" ? "grouped" : "raw",
     );
   }, []);
+  const wcViewOptions: { value: "raw" | "consolidated" | "grouped"; label: string }[] = [
+    { value: "raw", label: t("Original") },
+    { value: "consolidated", label: t("Cleaned up") },
+    { value: "grouped", label: t("Grouped") },
+  ];
 
   const phase = state?.phase ?? "lobby";
+
+  // --- AI panel (#Wortwolke-KI): switch AI on (expert), pick view, regroup. ---
+  // Settings are saved permanently on the question; the AI views themselves
+  // are activated through `wcView` (same path as the footer / `A`).
+  const [showAiPanel, setShowAiPanel] = useState(false);
+  // "regroup" = a recompute (grouping or merge settings) waiting for its result.
+  const [aiBusy, setAiBusy] = useState<"toggle" | "regroup" | "merge" | null>(null);
+  const recomputeBusy = aiBusy === "regroup" || aiBusy === "merge";
+  const [aiError, setAiError] = useState<string | null>(null);
+  const serverGrouping = state?.question?.wordcloud_grouping ?? "";
+  const [groupingDraft, setGroupingDraft] = useState("");
+  useEffect(() => {
+    setGroupingDraft(serverGrouping);
+  }, [activeId, serverGrouping]);
+  // "Cleaned up" merge switches: a local draft (no model call per click),
+  // applied with "Merge again".
+  const serverMergeVariants = state?.question?.wordcloud_merge_variants ?? true;
+  const serverMergeSynonyms = state?.question?.wordcloud_merge_synonyms ?? true;
+  const serverMergeConcepts = state?.question?.wordcloud_merge_concepts ?? false;
+  const [mergeDraft, setMergeDraft] = useState({
+    variants: serverMergeVariants,
+    synonyms: serverMergeSynonyms,
+    concepts: serverMergeConcepts,
+  });
+  useEffect(() => {
+    setMergeDraft({
+      variants: serverMergeVariants,
+      synonyms: serverMergeSynonyms,
+      concepts: serverMergeConcepts,
+    });
+  }, [activeId, serverMergeVariants, serverMergeSynonyms, serverMergeConcepts]);
+  useEffect(() => {
+    setShowAiPanel(false);
+    setAiBusy(null);
+    setAiError(null);
+  }, [activeId]);
+  // The cloud is on screen (same rule as its rendering below); the pencil
+  // shows once there is something to moderate. The sparkles share that rule,
+  // except that the expert switch may be offered on a visible empty cloud.
+  const wcCloudShown =
+    activeKind === "word_cloud" &&
+    (phase === "results" ||
+      (phase === "open" && state?.question?.wordcloud_live !== false));
+  const showModHandle = wcCloudShown && (wcHasWords || wcHasMod);
+  const showAiButton =
+    wcCloudShown && whoAi.ai && (whoAi.easy ? aiCloud && showModHandle : true);
+  // Below the pencil when it is shown, otherwise in its place.
+  const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
+  // Regroup stays busy until a grouped result arrives *after* the save
+  // response: one whose fingerprint differs from the result current at that
+  // moment, or any finished result after a pending phase (30 s fallback, in
+  // case the AI returns the very same grouping).
+  const aiSig = JSON.stringify(
+    state?.wordcloud_ai ? [state.wordcloud_ai.merged, state.wordcloud_ai.clusters] : null,
+  );
+  const aiPending = state?.wordcloud_ai?.pending ?? false;
+  const latestAiSig = useRef(aiSig);
+  latestAiSig.current = aiSig;
+  const regroupMark = useRef<string | null>(null);
+  const regroupSawPending = useRef(false);
+  useEffect(() => {
+    if (!recomputeBusy || regroupMark.current == null) return;
+    if (aiPending) {
+      regroupSawPending.current = true;
+      return;
+    }
+    if (aiSig !== regroupMark.current || regroupSawPending.current) {
+      regroupMark.current = null;
+      setAiBusy(null);
+    }
+  }, [aiSig, aiPending, recomputeBusy]);
+  useEffect(() => {
+    if (!recomputeBusy) return;
+    const timer = window.setTimeout(() => setAiBusy(null), 30000);
+    return () => window.clearTimeout(timer);
+  }, [recomputeBusy]);
+  const toggleAiPanel = () => {
+    setShowModPanel(false);
+    setShowAiPanel((s) => !s);
+    if (!aiHintSeen) dismissAiHint();
+  };
+  const setQuestionAi = async (on: boolean) => {
+    if (runId == null || activeId == null) return;
+    setAiBusy("toggle");
+    setAiError(null);
+    try {
+      await live.wordcloudAiSettings(runId, activeId, { ai_enabled: on });
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiBusy(null);
+    }
+  };
+  const regroup = async () => {
+    if (runId == null || activeId == null) return;
+    // At most one AI pass: with the AI view already active, `regroup`
+    // forces the recompute; from the raw view the activation below computes
+    // (after the save, so it uses the new instruction).
+    const viewActive = wcView !== "raw";
+    setAiBusy("regroup");
+    setAiError(null);
+    regroupMark.current = null;
+    try {
+      const res = await live.wordcloudAiSettings(runId, activeId, {
+        grouping: groupingDraft,
+        regroup: viewActive,
+      });
+      setGroupingDraft(res.grouping);
+      regroupMark.current = latestAiSig.current;
+      regroupSawPending.current = false;
+      // Ensure the grouped view is shown and active (same path as footer / `A`).
+      setWcView("grouped");
+    } catch (e) {
+      regroupMark.current = null;
+      setAiBusy(null);
+      setAiError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  // "Merge again": save the merge switches and force one recompute (the
+  // panel only offers it in the active "Cleaned up" view). Same busy logic
+  // as Regroup.
+  const mergeAgain = async () => {
+    if (runId == null || activeId == null) return;
+    setAiBusy("merge");
+    setAiError(null);
+    regroupMark.current = null;
+    try {
+      const res = await live.wordcloudAiSettings(runId, activeId, {
+        merge_variants: mergeDraft.variants,
+        merge_synonyms: mergeDraft.synonyms,
+        merge_concepts: mergeDraft.concepts,
+        regroup: true,
+      });
+      setMergeDraft({
+        variants: res.merge_variants,
+        synonyms: res.merge_synonyms,
+        concepts: res.merge_concepts,
+      });
+      regroupMark.current = latestAiSig.current;
+      regroupSawPending.current = false;
+      setWcView("consolidated");
+    } catch (e) {
+      regroupMark.current = null;
+      setAiBusy(null);
+      setAiError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // A presenter tab opened via the editor's play button (window.open) keeps a
   // window.opener and can close itself; a normally-opened tab cannot, so we
@@ -627,8 +827,17 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   const onKey = useCallback(
     (event: KeyboardEvent) => {
+      // Typing in a field: no beamer shortcuts; Escape just leaves the field
+      // (it must not end the presentation).
+      if (isTextField(event.target)) {
+        if (event.key === "Escape") event.target.blur();
+        return;
+      }
       if (!runId) return;
       const key = event.key.toLowerCase();
+      // Enter/Space on a focused drawer control activate that control
+      // natively — they must not also advance the presentation.
+      if ((key === "enter" || key === " ") && inWcDrawer(event.target)) return;
       // Space and Enter act as the primary "advance" key alongside S — a
       // presenter can page through with a clicker. Space must not scroll.
       if (key === " ") event.preventDefault();
@@ -662,6 +871,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       // vote phase.
       if (key === "escape" && showJoin) {
         setShowJoin(false);
+        return;
+      }
+      // Likewise an open word-cloud drawer (AI panel / moderation).
+      if (key === "escape" && (showAiPanel || showModPanel)) {
+        setShowAiPanel(false);
+        setShowModPanel(false);
         return;
       }
       if (key === "q") {
@@ -698,7 +913,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, walk, walkAdvance, walkBack, leavePresentation],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, leavePresentation],
   );
 
   useEffect(() => {
@@ -1037,15 +1252,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           onShowQuestion={showQuestion}
           onShowResults={showResults}
           onShowSolution={showSolution}
-          views={
-            aiCloud
-              ? [
-                  { value: "raw", label: t("Original") },
-                  { value: "consolidated", label: t("Cleaned up") },
-                  { value: "grouped", label: t("Grouped") },
-                ]
-              : undefined
-          }
+          views={aiCloud ? wcViewOptions : undefined}
           viewValue={wcView}
           onSelectView={(v) => setWcView(v as "raw" | "consolidated" | "grouped")}
           joinShown={showJoin}
@@ -1366,10 +1573,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               <WordCloudAiView view={wcView} ai={state.wordcloud_ai} mod={mod} onModerate={onModerateWord} />
             ))}
 
-          {question.kind === "word_cloud" &&
-            (phase === "results" ||
-              (phase === "open" && question.wordcloud_live !== false)) &&
-            (wcHasWords || wcHasMod) && (
+          {showModHandle && (
               <>
                 {!modHintSeen && wcHasWords && (
                   <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
@@ -1392,7 +1596,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 {/* Unobtrusive pencil handle at the right edge; opens the drawer. */}
                 <button
                   type="button"
-                  onClick={() => setShowModPanel((s) => !s)}
+                  {...{ [WC_DRAWER_ATTR]: "" }}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    setShowAiPanel(false);
+                    setShowModPanel((s) => !s);
+                  }}
                   aria-label={t("Moderate")}
                   title={t("Moderate")}
                   className={`fixed right-0 top-[62%] z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
@@ -1403,6 +1612,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </button>
                 {/* Slide-out moderation drawer. */}
                 <div
+                  {...{ [WC_DRAWER_ATTR]: "" }}
+                  onClick={blurClickedButton}
                   className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
                     showModPanel ? "translate-x-0" : "translate-x-full"
                   }`}
@@ -1465,6 +1676,189 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </div>
               </>
             )}
+
+          {showAiButton && (
+            <>
+              {!aiHintSeen && modHintSeen && !showAiPanel && !showModPanel && (
+                <div style={{ top: aiHandleTop }} className="fixed right-16 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <p className="flex-1">
+                    {t("Tip: the star switches the AI views on and lets you adjust the grouping on the spot.")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={dismissAiHint}
+                    aria-label={t("Dismiss")}
+                    className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              {/* AI handle directly below the moderation pencil. */}
+              <button
+                type="button"
+                {...{ [WC_DRAWER_ATTR]: "" }}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  toggleAiPanel();
+                }}
+                aria-label={t("AI word cloud")}
+                title={t("AI word cloud")}
+                style={{ top: aiHandleTop }}
+                className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
+                  showAiPanel ? "pointer-events-none opacity-0" : "opacity-100"
+                }`}
+              >
+                <Sparkles className="h-5 w-5" />
+              </button>
+              {/* Slide-out AI drawer (mutually exclusive with moderation). */}
+              <div
+                {...{ [WC_DRAWER_ATTR]: "" }}
+                onClick={blurClickedButton}
+                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
+                  showAiPanel ? "translate-x-0" : "translate-x-full"
+                }`}
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 p-3">
+                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
+                    <Sparkles className="h-4 w-4" aria-hidden />
+                    {t("AI word cloud")}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowAiPanel(false)}
+                    aria-label={t("Close")}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="flex-1 space-y-5 overflow-y-auto p-3">
+                  {!whoAi.easy && (
+                    <div>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={aiCloud}
+                        disabled={aiBusy !== null}
+                        onClick={() => void setQuestionAi(!aiCloud)}
+                        className="inline-flex items-center gap-2.5 rounded text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <span
+                          aria-hidden
+                          className={`relative inline-flex h-5 w-9 flex-none items-center rounded-full transition-colors ${
+                            aiCloud ? "bg-brand-600" : "bg-slate-300"
+                          }`}
+                        >
+                          <span
+                            className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                              aiCloud ? "translate-x-[1.125rem]" : "translate-x-0.5"
+                            }`}
+                          />
+                        </span>
+                        <span className="text-left">{t("Use AI for this word cloud")}</span>
+                      </button>
+                      <p className="mt-1 pl-[2.875rem] text-xs text-slate-400">{t("Saved on the question.")}</p>
+                    </div>
+                  )}
+                  {aiCloud && (
+                    <>
+                      <div
+                        role="radiogroup"
+                        aria-label={t("AI word cloud")}
+                        className="grid grid-cols-3 rounded-full border border-slate-200 p-0.5 text-xs"
+                      >
+                        {wcViewOptions.map((o) => (
+                          <button
+                            key={o.value}
+                            type="button"
+                            role="radio"
+                            aria-checked={wcView === o.value}
+                            onClick={() => setWcView(o.value)}
+                            className={`rounded-full px-2 py-1 transition-colors ${
+                              wcView === o.value
+                                ? "bg-brand-100 text-brand-800"
+                                : "text-slate-500 hover:text-slate-800"
+                            }`}
+                          >
+                            {o.label}
+                          </button>
+                        ))}
+                      </div>
+                      {wcView === "consolidated" && (
+                        <fieldset>
+                          <legend className="mb-1 block text-sm font-medium text-slate-700">
+                            {t("“Cleaned up” merges:")}
+                          </legend>
+                          <div className="grid gap-1.5">
+                            {(
+                              [
+                                ["variants", t("Spelling variants and typos (e.g. müde / muede / mühde)")],
+                                ["synonyms", t("Synonyms and word forms (e.g. einsam / Einsamkeit)")],
+                                ["concepts", t("Similar concepts (e.g. Gebäude / Haus / Wohnung)")],
+                              ] as const
+                            ).map(([key, label]) => (
+                              <label key={key} className="flex items-start gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={mergeDraft[key]}
+                                  disabled={aiBusy !== null}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    setMergeDraft((d) => ({ ...d, [key]: checked }));
+                                  }}
+                                  className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                                />
+                                {label}
+                              </label>
+                            ))}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void mergeAgain()}
+                            disabled={aiBusy !== null}
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                          >
+                            {aiBusy === "merge" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                            {t("Merge again")}
+                          </button>
+                        </fieldset>
+                      )}
+                      {wcView === "grouped" && (
+                        <div>
+                          <label htmlFor="wc-grouping" className="mb-1 block text-sm font-medium text-slate-700">
+                            {t("Grouping instruction")}
+                          </label>
+                          <textarea
+                            id="wc-grouping"
+                            rows={4}
+                            maxLength={1000}
+                            value={groupingDraft}
+                            onChange={(e) => setGroupingDraft(e.target.value)}
+                            placeholder={t(
+                              "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.",
+                            )}
+                            className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => void regroup()}
+                            disabled={aiBusy !== null}
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                          >
+                            {aiBusy === "regroup" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                            {t("Regroup")}
+                          </button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  {aiError && <p className="text-sm text-red-600">{aiError}</p>}
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="mt-10 text-center text-slate-500">
             {phase === "preview" && (

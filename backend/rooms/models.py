@@ -359,6 +359,13 @@ class Question(TimeStampedModel):
     # LLM bildet automatische thematische Cluster; ausgefüllt → es gruppiert nach
     # dieser Vorgabe. Nur wirksam bei aktivem wordcloud_ai_enabled.
     wordcloud_grouping = models.TextField(blank=True)
+    # What the KI-Sicht „Aufgeräumt" zusammenfasst (Groß-/Kleinschreibung immer):
+    # Schreibvarianten/Tippfehler (müde/muede/mühde), Synonyme und Wortformen
+    # (einsam/Einsamkeit), ähnliche Konzepte (Gebäude/Haus/Wohnung). Nur
+    # wirksam bei aktivem wordcloud_ai_enabled; Prompt: live/ai_wordcloud.py.
+    wordcloud_merge_variants = models.BooleanField(default=True)
+    wordcloud_merge_synonyms = models.BooleanField(default=True)
+    wordcloud_merge_concepts = models.BooleanField(default=False)
     # v2 (#76): cap how many terms one participant may contribute to a word
     # cloud. 0 = unlimited, 1 = a single answer, N>=2 = capped. Default 5
     # (#88). `allow_multiple` is derived from this in the serializer

@@ -350,6 +350,17 @@ class QuestionApiTests(ApiTestCase):
             "/api/questions/", payload, content_type="application/json"
         )
 
+    def test_wordcloud_grouping_capped_at_1000(self):
+        ok = self._create_question(
+            kind="word_cloud", options=[], wordcloud_grouping="x" * 1000
+        )
+        self.assertEqual(ok.status_code, 201)
+        too_long = self._create_question(
+            kind="word_cloud", options=[], wordcloud_grouping="x" * 1001
+        )
+        self.assertEqual(too_long.status_code, 400)
+        self.assertIn("wordcloud_grouping", too_long.json())
+
     def test_create_with_nested_options(self):
         response = self._create_question()
         self.assertEqual(response.status_code, 201)
@@ -1903,6 +1914,71 @@ class V21TransferTests(ApiTestCase):
         )
         imported = QuestionSet.objects.get(pk=response.json()["id"])
         self.assertEqual(imported.questions.get().wordcloud_max_answers, 3)
+
+    def test_wordcloud_merge_settings_roundtrip(self):
+        # Consolidation switches survive the serializer, export → import
+        # and duplication.
+        question_set = QuestionSet.objects.create(room=self.room, title_de="WC")
+        created = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": question_set.pk, "kind": "word_cloud",
+                "text": "<p>Stichwort?</p>", "options": [],
+                "wordcloud_merge_variants": False,
+                "wordcloud_merge_synonyms": False,
+                "wordcloud_merge_concepts": True,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(created.status_code, 201)
+        body = created.json()
+        self.assertFalse(body["wordcloud_merge_variants"])
+        self.assertFalse(body["wordcloud_merge_synonyms"])
+        self.assertTrue(body["wordcloud_merge_concepts"])
+        source = Question.objects.get(pk=body["id"])
+
+        export = self.client.get(
+            f"/api/question-sets/{question_set.pk}/export/"
+        ).json()
+        self.assertFalse(export["questions"][0]["wordcloud_merge_variants"])
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", export,
+            content_type="application/json",
+        )
+        imported = QuestionSet.objects.get(pk=response.json()["id"]).questions.get()
+        self.assertFalse(imported.wordcloud_merge_variants)
+        self.assertFalse(imported.wordcloud_merge_synonyms)
+        self.assertTrue(imported.wordcloud_merge_concepts)
+
+        from rooms.transfer import duplicate_question
+        clone = duplicate_question(
+            source, question_set=question_set, section=None, position=9
+        )
+        self.assertFalse(clone.wordcloud_merge_variants)
+        self.assertFalse(clone.wordcloud_merge_synonyms)
+        self.assertTrue(clone.wordcloud_merge_concepts)
+
+    def test_import_defaults_wordcloud_merge_settings_when_missing(self):
+        question_set = QuestionSet.objects.create(room=self.room, title_de="WC")
+        Question.objects.create(
+            question_set=question_set, kind="word_cloud", text_de="<p>W?</p>",
+        )
+        export = self.client.get(
+            f"/api/question-sets/{question_set.pk}/export/"
+        ).json()
+        for key in (
+            "wordcloud_merge_variants", "wordcloud_merge_synonyms",
+            "wordcloud_merge_concepts",
+        ):
+            export["questions"][0].pop(key, None)
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", export,
+            content_type="application/json",
+        )
+        imported = QuestionSet.objects.get(pk=response.json()["id"]).questions.get()
+        self.assertTrue(imported.wordcloud_merge_variants)
+        self.assertTrue(imported.wordcloud_merge_synonyms)
+        self.assertFalse(imported.wordcloud_merge_concepts)
 
     def test_likert_question_with_options_is_valid(self):
         question_set = QuestionSet.objects.create(room=self.room, title="L")

@@ -227,6 +227,10 @@ export default function QuestionPage() {
   const [wordcloudLive, setWordcloudLive] = useState(true);
   const [wordcloudAiEnabled, setWordcloudAiEnabled] = useState(false);
   const [wordcloudGrouping, setWordcloudGrouping] = useState("");
+  // What the AI "Cleaned up" view merges (defaults mirror the backend).
+  const [wordcloudMergeVariants, setWordcloudMergeVariants] = useState(true);
+  const [wordcloudMergeSynonyms, setWordcloudMergeSynonyms] = useState(true);
+  const [wordcloudMergeConcepts, setWordcloudMergeConcepts] = useState(false);
   const [saving, setSaving] = useState(false);
   // #74: switch between editing and an interactive participant preview (iframe).
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -306,6 +310,9 @@ export default function QuestionPage() {
       setWordcloudLive(data.wordcloud_live);
       setWordcloudAiEnabled(data.wordcloud_ai_enabled);
       setWordcloudGrouping(data.wordcloud_grouping);
+      setWordcloudMergeVariants(data.wordcloud_merge_variants ?? true);
+      setWordcloudMergeSynonyms(data.wordcloud_merge_synonyms ?? true);
+      setWordcloudMergeConcepts(data.wordcloud_merge_concepts ?? false);
       setTimeLimit(data.time_limit ? String(data.time_limit) : "");
       // Options keep the full {de, en} map so each can be edited bilingually
       // (#33 MR2 Task 9).
@@ -502,6 +509,9 @@ export default function QuestionPage() {
         wordcloud_live: question.kind !== "word_cloud" || wordcloudLive,
         wordcloud_ai_enabled: question.kind === "word_cloud" && wordcloudAiEnabled,
         wordcloud_grouping: question.kind === "word_cloud" ? wordcloudGrouping : "",
+        wordcloud_merge_variants: wordcloudMergeVariants,
+        wordcloud_merge_synonyms: wordcloudMergeSynonyms,
+        wordcloud_merge_concepts: wordcloudMergeConcepts,
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
         // #91: report fields whose (non-canonical) translation now matches
         // what's being saved, so the API re-baselines their sync state.
@@ -719,6 +729,7 @@ export default function QuestionPage() {
       modelSolution, participantFeedback,
       wordcloudMaxAnswers, wordcloudBatchSubmit, wordcloudLive,
       wordcloudAiEnabled, wordcloudGrouping,
+      wordcloudMergeVariants, wordcloudMergeSynonyms, wordcloudMergeConcepts,
     });
   }
 
@@ -1393,6 +1404,46 @@ export default function QuestionPage() {
                 "In addition to the automatic upper/lower case correction. In presentation mode, switch between Original, Cleaned up and Grouped with the “a” key / “View” button.",
               )}
             </p>
+            {/* What "Cleaned up" merges (beyond case). All off = case only. */}
+            <fieldset className="mt-3">
+              <legend className="text-sm text-slate-700 dark:text-slate-300">
+                {t("“Cleaned up” merges:")}
+              </legend>
+              <div className="mt-1 grid gap-1 pl-1">
+                {(
+                  [
+                    [
+                      wordcloudMergeVariants,
+                      setWordcloudMergeVariants,
+                      t("Spelling variants and typos (e.g. müde / muede / mühde)"),
+                    ],
+                    [
+                      wordcloudMergeSynonyms,
+                      setWordcloudMergeSynonyms,
+                      t("Synonyms and word forms (e.g. einsam / Einsamkeit)"),
+                    ],
+                    [
+                      wordcloudMergeConcepts,
+                      setWordcloudMergeConcepts,
+                      t("Similar concepts (e.g. Gebäude / Haus / Wohnung)"),
+                    ],
+                  ] as const
+                ).map(([checked, setChecked, label]) => (
+                  <label
+                    key={label}
+                    className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => setChecked(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
             {/* Independent of the merge checkbox above — grouping can be
                 enabled/edited on its own (#34). */}
             <label className="mt-3 grid gap-1 text-sm text-slate-700 dark:text-slate-300">
