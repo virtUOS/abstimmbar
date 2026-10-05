@@ -1208,10 +1208,15 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
   const question = state.question;
   const total = state.votes ?? 0;
+  // QR boxes in the top-left corner (join badge there, recording QR): the
+  // content keeps clear of them and the countdown moves below them.
+  const cornerBoxes =
+    phase !== "lobby" ? topLeftBoxes(state.room, !!(state.recording_token && question)) : 0;
 
   return (
     <Shell
       logo={beamerLogo}
+      reserveTopLeft={cornerBoxes}
       overlay={
         phase !== "lobby" ? (
           <>
@@ -1348,7 +1353,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         <div key={question.id} className="ab-fade-in mx-auto flex min-h-full max-w-4xl flex-col justify-center">
           {phase === "open" && remaining !== null && (
             <div
-              className={`fixed left-6 top-4 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${countdownColor(remaining)}`}
+              className={`fixed left-6 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${
+                cornerBoxes === 2 ? "top-[18.5rem]" : cornerBoxes === 1 ? "top-40" : "top-4"
+              } ${countdownColor(remaining)}`}
             >
               <Timer aria-hidden className="h-9 w-9" /> {countdownLabel(remaining)}
             </div>
@@ -2000,12 +2007,17 @@ function Shell({
   logo,
   overlay,
   stats,
+  reserveTopLeft = 0,
 }: {
   children: React.ReactNode;
   footer?: React.ReactNode;
   logo?: string | null;
   overlay?: React.ReactNode;
   stats?: React.ReactNode;
+  /** Number of QR boxes stacked in the top-left corner (join and/or
+   *  recording, see `topLeftBoxes`). The content keeps clear of them: a left
+   *  column from lg up, top padding below. */
+  reserveTopLeft?: 0 | 1 | 2;
 }) {
   return (
     <div className="relative flex h-screen flex-col bg-white font-sans text-slate-900">
@@ -2017,7 +2029,17 @@ function Shell({
           className="absolute right-6 top-5 z-10 h-10 w-auto max-w-[200px] object-contain"
         />
       )}
-      <main className="min-h-0 flex-1 overflow-auto px-8 py-6">{children}</main>
+      <main
+        className={`min-h-0 flex-1 overflow-auto px-8 py-6 ${
+          reserveTopLeft === 2
+            ? "pt-[19rem] lg:pl-[21rem] lg:pt-6"
+            : reserveTopLeft === 1
+              ? "pt-40 lg:pl-[21rem] lg:pt-6"
+              : ""
+        }`}
+      >
+        {children}
+      </main>
       {overlay}
       {stats}
       {footer}
@@ -2058,6 +2080,17 @@ const CORNER_POSITION: Record<string, string> = {
  * Corner is room-configurable; renders nothing unless a feature is enabled. */
 /** Recording mode (#53): the per-question deep-link QR on the beamer, so the
  * code is captured in the recording and later viewers can vote on it. */
+/** The join badge is configured for the top-left corner (where the recording
+ *  QR and the countdown also live). */
+function joinInTopLeft(room: LiveState["room"]): boolean {
+  return !!(room.show_qr || room.show_code) && (room.corner ?? "bottom-right") === "top-left";
+}
+
+/** How many QR boxes stack in the top-left corner of the beamer (0–2). */
+function topLeftBoxes(room: LiveState["room"], recording: boolean): 0 | 1 | 2 {
+  return ((joinInTopLeft(room) ? 1 : 0) + (recording ? 1 : 0)) as 0 | 1 | 2;
+}
+
 function RecordingCorner({
   room,
   token,
@@ -2070,9 +2103,7 @@ function RecordingCorner({
   const { t } = useTranslation();
   // Top-left; drop below the join corner if that also sits top-left so the two
   // QR boxes never overlap. Logo is top-right, LiveStats bottom-left.
-  const joinTopLeft =
-    (room.show_qr || room.show_code) && (room.corner ?? "bottom-right") === "top-left";
-  const position = joinTopLeft ? "left-6 top-40" : "left-6 top-5";
+  const position = joinInTopLeft(room) ? "left-6 top-40" : "left-6 top-5";
   return (
     <div
       className={`absolute z-20 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur ${position}`}
