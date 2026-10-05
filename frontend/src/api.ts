@@ -958,10 +958,12 @@ export interface LiveState {
     results?: LiveOption[];
     likert?: LikertSummary;
   };
-  words?: { text: string; count: number }[];
+  /** Moderated terms/answers; `keys` = the casefold moderation keys each
+   *  entry stands for (word cloud and free text). */
+  words?: { text: string; count: number; keys?: string[]; variants?: string[]; merged?: boolean }[];
   evaluation?: FreeTextEvalSummary;
-  /** Live AI word-cloud views (consolidated + grouped), while the presenter
-   *  shows an AI view (#Wortwolke-KI). */
+  /** Live AI views while the presenter shows one: word cloud consolidated +
+   *  grouped (#Wortwolke-KI); free text key statements (`merged`) + grouped. */
   wordcloud_ai?: WordCloudAI;
   /** Presenter-side moderation state (hidden terms, manual merges, #Wortwolke). */
   wordcloud_moderation?: WordCloudModeration;
