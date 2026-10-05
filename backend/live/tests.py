@@ -2716,6 +2716,9 @@ class AiLiveWordCloudTests(LiveTestCase):
 
     @override_settings(**AI_ON)
     def test_activate_rejects_non_word_cloud(self):
+        # AI switched on for the choice question, so only the kind check fails.
+        self.question.wordcloud_ai_enabled = True
+        self.question.save(update_fields=["wordcloud_ai_enabled"])
         self.client.force_login(self.owner)
         resp = self.client.post(
             f"/api/runs/{self.run.pk}/wordcloud-ai/",
@@ -4410,6 +4413,8 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
         self.assertIn(self._post({"grouping": "x"}).status_code, (401, 403, 404))
 
     def test_non_wordcloud_question_404(self):
+        self.question.wordcloud_ai_enabled = True
+        self.question.save(update_fields=["wordcloud_ai_enabled"])
         url = f"/api/runs/{self.run.pk}/wordcloud/{self.question.pk}/ai-settings"
         self.assertEqual(self._post({"grouping": "x"}, url).status_code, 404)
 
@@ -4699,30 +4704,57 @@ class AiFreetextSummaryTests(LiveTestCase):
         self.assertNotIn("Ohne Liste", by_text)
         self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
 
-    def test_apply_unreferenced_answers_become_own_statements(self):
-        out = ai_freetext_summary.apply_summary(self.WORDS, {"statements": []})
-        self.assertEqual(len(out["merged"]), 4)
-        self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
-        long_one = [s for s in out["merged"] if s["text"].startswith("x")][0]
-        self.assertEqual(len(long_one["text"]), 80)
-        self.assertTrue(long_one["text"].endswith("…"))
-        self.assertEqual(long_one["variants"], ["x" * 120])
-        self.assertEqual(long_one["keys"], ["x" * 120])
-        # They land in the catch-all cluster.
-        self.assertEqual(
-            [c["label"] for c in out["clusters"]],
-            [ai_freetext_summary.OTHER_CLUSTER],
-        )
-
-    def test_apply_truncates_label_and_cluster_and_falls_back(self):
+    def test_apply_unreferenced_answers_pooled_without_verbatim_label(self):
         data = {"statements": [
-            {"label": "L" * 200, "cluster": "C" * 200, "members": [1]},
-            {"label": "", "cluster": "", "members": [3]},
+            {"label": "Keine Identifikation", "cluster": "Anonymität", "members": [1]},
         ]}
         out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
         texts = [s["text"] for s in out["merged"]]
-        self.assertIn("L" * ai_freetext_summary.LABEL_MAX, texts)
-        self.assertIn("Ehrlichere Antworten", texts)  # empty label → answer text
+        self.assertEqual(texts, ["Keine Identifikation", ai_freetext_summary.LEFTOVER_LABEL])
+        leftover = out["merged"][-1]
+        self.assertEqual(leftover["count"], 5)
+        self.assertEqual(
+            leftover["keys"],
+            ["niemand weiß, wer was antwortet", "niemand weiss",
+             "ehrlichere antworten", "x" * 120],
+        )
+        # No answer text ever becomes a label.
+        for word in self.WORDS[1:]:
+            self.assertNotIn(word["text"], texts)
+        clusters = {c["label"]: c for c in out["clusters"]}
+        self.assertEqual(
+            [w["text"] for w in clusters[ai_freetext_summary.OTHER_CLUSTER]["words"]],
+            [ai_freetext_summary.LEFTOVER_LABEL],
+        )
+
+    def test_apply_nothing_referenced_gives_one_leftover(self):
+        out = ai_freetext_summary.apply_summary(self.WORDS, {"statements": []})
+        self.assertEqual(len(out["merged"]), 1)
+        self.assertEqual(out["merged"][0]["text"], ai_freetext_summary.LEFTOVER_LABEL)
+        self.assertEqual(out["merged"][0]["count"], 8)
+
+    def test_apply_leftover_sorts_last(self):
+        data = {"statements": [
+            {"label": "Ehrlicher", "cluster": "Q", "members": [3]},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        # Leftover (6) outnumbers the statement (2) but still comes last.
+        self.assertEqual(out["merged"][-1]["text"], ai_freetext_summary.LEFTOVER_LABEL)
+        self.assertEqual(out["merged"][-1]["count"], 6)
+
+    def test_apply_truncates_label_and_cluster_and_pools_empty_labels(self):
+        data = {"statements": [
+            {"label": "L" * 200, "cluster": "C" * 200, "members": [1]},
+            {"label": "", "cluster": "Q", "members": [3]},
+            {"label": "Mit Label", "cluster": "", "members": [2]},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        by_text = {s["text"]: s for s in out["merged"]}
+        self.assertIn("L" * ai_freetext_summary.LABEL_MAX, by_text)
+        # Empty label → pooled with the unreferenced answer, never verbatim.
+        self.assertNotIn("Ehrlichere Antworten", by_text)
+        self.assertEqual(by_text[ai_freetext_summary.LEFTOVER_LABEL]["count"], 3)
         labels = [c["label"] for c in out["clusters"]]
         self.assertIn("C" * ai_freetext_summary.CLUSTER_MAX, labels)
         # Empty cluster → "Weitere", which sinks to the end.
@@ -4751,6 +4783,15 @@ class AiFreetextSummaryTests(LiveTestCase):
                 prompt.index(ai_freetext_summary.CLUSTER_ONLY),
             )
 
+    def test_strict_rule_is_core_message_with_examples(self):
+        strict = ai_freetext_summary.summary_system(merge_similar=False)
+        self.assertIn("Kernaussage", ai_freetext_summary.RULE_EQUIVALENT)
+        for example in ("zuordenbar", "Registrierung", "ehrlicher"):
+            self.assertIn(example, strict)
+        self.assertNotIn("Im Zweifel NICHT", strict)
+        broad = ai_freetext_summary.summary_system(merge_similar=True)
+        self.assertIn("Aspekt", broad)
+
     def test_grouping_criterion_only_in_second_step(self):
         # The statement prompt never sees a criterion (it cannot take one).
         with self.assertRaises(TypeError):
@@ -4778,9 +4819,32 @@ class AiFreetextSummaryTests(LiveTestCase):
         clusters = {c["label"]: [w["text"] for w in c["words"]] for c in out["clusters"]}
         self.assertEqual(clusters["Vorteil für Studierende"], ["Keine Identifikation"])
         self.assertEqual(clusters["Vorteil für Lehrende"], ["Ehrlicher"])
-        # The unassigned third statement (long "x…" answer) → "Weitere", last.
+        # The unassigned leftover statement → "Weitere", last.
         self.assertEqual(out["clusters"][-1]["label"], ai_freetext_summary.OTHER_CLUSTER)
         self.assertEqual(sum(c["count"] for c in out["clusters"]), 8)
+        # The pooled leftover always stays in "Weitere", even if assigned.
+        forced = ai_freetext_summary.apply_grouping(summary, {"clusters": [
+            {"label": "G", "members": [1, 2, 3]},
+        ]})
+        self.assertEqual(
+            [w["text"] for w in forced["clusters"][-1]["words"]],
+            [ai_freetext_summary.LEFTOVER_LABEL],
+        )
+
+    def test_summarize_grouping_failure_keeps_step1_auto_themes(self):
+        from basicbar_integrations import ai
+        step1 = {"statements": [{"label": "S", "cluster": "Thema", "members": [1, 2, 3, 4]}]}
+        replies = [step1, ai.AIError("timeout")]
+
+        def fake(system, prompt):
+            reply = replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        out = ai_freetext_summary.summarize(self.WORDS, grouping="nach Rolle", chat_json=fake)
+        self.assertEqual(out["merged"][0]["text"], "S")
+        self.assertEqual(out["clusters"][0]["label"], "Thema")
 
     def test_summarize_two_calls_only_with_grouping(self):
         step1 = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
@@ -4870,8 +4934,37 @@ class AiFreetextSummaryTests(LiveTestCase):
             ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
         self.assertEqual(
             ai_wordcloud_live.get_result(self.run.pk, self.ot.pk),
-            {"merged": [], "clusters": [], "pending": False},
+            {"merged": [], "clusters": [], "pending": False, "error": True},
         )
+
+    @override_settings(**AI_ON)
+    def test_compute_success_and_no_answers_flag_no_error(self):
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        chat.assert_not_called()
+        self.assertFalse(ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)["error"])
+        self._cast("Keine Namen")
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch("basicbar_integrations.ai.chat_json", return_value=reply):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertFalse(result["error"])
+        self.assertEqual(result["merged"][0]["text"], "S")
+
+    @override_settings(**AI_ON)
+    def test_compute_grouping_failure_not_an_error(self):
+        from basicbar_integrations import ai
+        self._cast("Keine Namen")
+        self.ot.wordcloud_grouping = "nach Rolle"
+        self.ot.save()
+        reply = {"statements": [{"label": "S", "cluster": "Thema", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json", side_effect=[reply, ai.AIError("x")]
+        ):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertFalse(result["error"])
+        self.assertEqual(result["clusters"][0]["label"], "Thema")
 
     def test_vote_schedules_live_summary(self):
         with patch("live.ai_wordcloud_live.schedule") as sched:

@@ -164,8 +164,9 @@ def _compute(run_id, question_id, room_id):
         if run is None or question is None:
             return
         words = words_with_counts(run, question, limit=200)
+        # ``error`` distinguishes "the AI call failed" from "no answers yet".
         if not words:
-            result = {"merged": [], "clusters": [], "pending": False}
+            result = {"merged": [], "clusters": [], "pending": False, "error": False}
         else:
             try:
                 if question.kind == Question.Kind.OPEN_TEXT:
@@ -189,9 +190,10 @@ def _compute(run_id, question_id, room_id):
                     "merged": optimized["merged"],
                     "clusters": optimized["clusters"],
                     "pending": False,
+                    "error": False,
                 }
             except ai.AIError:
-                result = {"merged": [], "clusters": [], "pending": False}
+                result = {"merged": [], "clusters": [], "pending": False, "error": True}
         with _lock:
             # Always store (kept warm, #75); set_active(off) no longer drops it.
             _results[key] = result

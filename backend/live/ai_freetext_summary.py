@@ -18,6 +18,8 @@ presenter renders both with the same components:
 ``keys`` = the answers' moderation keys)."""
 import json
 
+from basicbar_integrations import ai
+
 from .ai_wordcloud import OTHER_CLUSTER
 
 LABEL_MAX = 80
@@ -25,29 +27,42 @@ CLUSTER_MAX = 60
 ANSWER_MAX = 500   # characters per answer sent to the model
 INPUT_MAX = 200    # answers per request (most frequent first)
 ELLIPSIS = "…"
+# Answers the model left out (or gave no label) are pooled under this label —
+# never shown verbatim on the beamer (privacy: verbatim only in "Original").
+LEFTOVER_LABEL = "Weitere Einzelantworten"
 
 RULE_EQUIVALENT = (
-    "- Fasse NUR Antworten zusammen, die inhaltlich dasselbe aussagen — "
-    "also gleichbedeutend sind, auch wenn sie anders formuliert oder "
-    "geschrieben sind (z. B. „Man kennt die Namen nicht“ / „Keine Namen“). "
-    "Antworten, die verschiedene Aspekte nennen, bleiben GETRENNT, auch wenn "
-    "sie thematisch verwandt sind. Im Zweifel NICHT zusammenfassen."
+    "- Fasse Antworten mit derselben Kernaussage zu EINER Kernaussage "
+    "zusammen, auch wenn sie ganz unterschiedlich formuliert, unterschiedlich "
+    "ausführlich oder aus anderer Perspektive geschrieben sind. Entscheidend "
+    "ist, was gemeint ist, nicht der Wortlaut. Beispiele für jeweils EINE "
+    "Kernaussage:\n"
+    "  • „Niemand weiß, wer was geantwortet hat“ + „Die Antworten sind nicht "
+    "zuordenbar“ + „Die Lehrkraft sieht nicht, wer falsch lag“\n"
+    "  • „Ehrlichere Antworten“ + „Man traut sich ehrlicher zu antworten“\n"
+    "  • „Keine Registrierung nötig“ + „Man braucht kein Konto“\n"
+    "  • „Kein Gruppendruck“ + „Man blamiert sich nicht vor anderen“\n"
+    "  Getrennt bleiben Antworten mit verschiedenen Kernaussagen, z. B. "
+    "„keine Namen nötig“ und „ehrlichere Antworten“ oder „ehrlichere "
+    "Antworten“ und „kein Gruppendruck“ (Ursache und Folge oder "
+    "benachbarte Punkte sind verschiedene Aussagen)."
 )
 RULE_SIMILAR = (
-    "- Fasse Antworten zusammen, die dieselbe oder eine sehr ähnliche "
-    "Kernaussage treffen, auch wenn sie unterschiedlich ausführlich sind "
-    "oder leicht unterschiedliche Nuancen setzen. Antworten mit klar "
-    "verschiedenen Kernaussagen bleiben GETRENNT; das thematische Ordnen "
-    "passiert getrennt über \"cluster\"."
+    "- Fasse großzügig zusammen: Antworten, die denselben Aspekt betreffen, "
+    "bilden EINE Kernaussage — auch verwandte Punkte, die sich ergänzen oder "
+    "auseinander folgen (z. B. „Niemand weiß, wer was geantwortet hat“ + "
+    "„Keine Namen nötig“ + „Keine IP-Adressen gespeichert“ → Anonymität der "
+    "Teilnahme; „Ehrlichere Antworten“ + „Weniger Hemmungen“ + „Kein "
+    "Gruppendruck“ → offenere Antworten). Antworten zu klar verschiedenen "
+    "Aspekten bleiben getrennt."
 )
 
 
 STATEMENTS_FIRST = (
     "Arbeite in zwei getrennten Schritten:\n"
     "Schritt 1 — Kernaussagen bilden: Fasse die Antworten AUSSCHLIESSLICH "
-    "nach der folgenden Regel zu Kernaussagen zusammen. Ein Thema spielt "
-    "dafür KEINE Rolle: Zwei Antworten werden nicht deshalb "
-    "zusammengefasst, weil sie zum selben Thema gehören."
+    "nach der folgenden Regel zu Kernaussagen zusammen; ein "
+    "Gruppierungskriterium spielt dafür keine Rolle."
 )
 CLUSTER_ONLY = (
     "Schritt 2 — Gruppieren: Ordne erst danach jeder fertigen Kernaussage "
@@ -87,8 +102,9 @@ def summary_system(*, merge_similar=False):
         "- Jede Kernaussage listet in \"members\" die Nummern (\"id\") der "
         "Antworten, die sie zusammenfasst. Verwende nur vorgegebene "
         "Nummern; erfinde keine.\n"
-        "- Jede Antwort gehört zu höchstens einer Kernaussage. Antworten, die "
-        "mit keiner anderen übereinstimmen, bilden eine eigene Kernaussage.\n"
+        "- Jede Antwort gehört zu höchstens einer Kernaussage. Eine Antwort, "
+        "die mit keiner anderen übereinstimmt, bildet eine eigene Kernaussage "
+        "(auch z. B. „weiß nicht“ oder ein genannter Nachteil).\n"
         f"- \"label\" formuliert die Kernaussage knapp und neutral auf "
         f"Deutsch (höchstens {LABEL_MAX} Zeichen), ohne wörtliche Zitate, "
         "Namen oder persönliche Angaben aus den Antworten.\n"
@@ -176,13 +192,15 @@ def apply_summary(words, data):
 
     `words` is the ``words_with_counts`` output ([{text, count, keys}, …]) in
     the order sent by ``build_summary_prompt`` (id = position + 1). Unknown,
-    out-of-range or repeated ids are ignored; answers the model left out keep
-    their own statement (label = truncated answer, cluster "Weitere"), so the
-    counts always sum to the total.
+    out-of-range or repeated ids are ignored. Answers the model left out and
+    statements without a label are pooled into ONE statement
+    ``LEFTOVER_LABEL`` (cluster "Weitere", sorted last) — no answer text ever
+    becomes a label — so the counts always sum to the total.
     """
     words = list(words[:INPUT_MAX])
     consumed = set()
     statements = []
+    leftover = []
     raw = data.get("statements") if isinstance(data, dict) else None
     for item in raw if isinstance(raw, list) else []:
         if not isinstance(item, dict):
@@ -203,22 +221,27 @@ def apply_summary(words, data):
             continue
         label = str(item.get("label") or "").strip()[:LABEL_MAX]
         if not label:
-            top = max(idxs, key=lambda i: words[i]["count"])
-            label = _truncate(str(words[top]["text"]), LABEL_MAX)
+            leftover.extend(idxs)
+            continue
         cluster = str(item.get("cluster") or "").strip()[:CLUSTER_MAX] or OTHER_CLUSTER
         statements.append(_statement(words, idxs, label, cluster))
 
-    for i, word in enumerate(words):
-        if i not in consumed:
-            statements.append(_statement(
-                words, [i], _truncate(str(word["text"]), LABEL_MAX), OTHER_CLUSTER
-            ))
+    leftover += [i for i in range(len(words)) if i not in consumed]
+    if leftover:
+        statements.append(
+            _statement(words, sorted(leftover), LEFTOVER_LABEL, OTHER_CLUSTER)
+        )
 
-    merged = sorted((_public(s) for s in statements), key=lambda s: -s["count"])
+    merged = sorted((_public(s) for s in statements), key=_statement_order)
     return {
         "clusters": _cluster_list((st["cluster"], _public(st)) for st in statements),
         "merged": merged,
     }
+
+
+def _statement_order(statement):
+    """By count, the pooled leftover statement always last."""
+    return (statement["text"] == LEFTOVER_LABEL, -statement["count"])
 
 
 def apply_grouping(summary, data):
@@ -239,7 +262,12 @@ def apply_grouping(summary, data):
             if num is not None and 1 <= num <= len(statements) and num - 1 not in assigned:
                 assigned[num - 1] = label
     pairs = (
-        (assigned.get(i, OTHER_CLUSTER), _public(st)) for i, st in enumerate(statements)
+        (
+            OTHER_CLUSTER if st["text"] == LEFTOVER_LABEL
+            else assigned.get(i, OTHER_CLUSTER),
+            _public(st),
+        )
+        for i, st in enumerate(statements)
     )
     return {"clusters": _cluster_list(pairs), "merged": statements}
 
@@ -247,17 +275,21 @@ def apply_grouping(summary, data):
 def summarize(words, *, grouping="", merge_similar=False, chat_json):
     """Key statements (step 1) and, only with a grouping criterion, a separate
     re-clustering of those fixed statements (step 2). ``chat_json`` is
-    ``ai.chat_json`` (passed in so callers keep their own error handling;
-    ``ai.AIError`` propagates)."""
+    ``ai.chat_json``. An ``ai.AIError`` in step 1 propagates (the caller
+    reports the failure); one in step 2 falls back to the step-1 statements
+    with their automatic themes."""
     summary = apply_summary(
         words,
         chat_json(summary_system(merge_similar=merge_similar), build_summary_prompt(words)),
     )
     if grouping and grouping.strip() and summary["merged"]:
-        summary = apply_grouping(
-            summary,
-            chat_json(grouping_system(grouping), build_grouping_prompt(summary["merged"])),
-        )
+        try:
+            data = chat_json(
+                grouping_system(grouping), build_grouping_prompt(summary["merged"])
+            )
+        except ai.AIError:
+            return summary  # keep the statements, auto themes instead
+        summary = apply_grouping(summary, data)
     return summary
 
 
@@ -271,7 +303,7 @@ def _cluster_list(pairs):
         {
             "label": name,
             "count": sum(s["count"] for s in items),
-            "words": sorted(items, key=lambda s: -s["count"]),
+            "words": sorted(items, key=_statement_order),
         }
         for name, items in clusters.items()
     ]
