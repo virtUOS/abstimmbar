@@ -205,7 +205,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     }
   };
   // whoami bits the AI panel needs (easy mode, AI provider configured).
-  const [whoAi, setWhoAi] = useState({ easy: false, ai: false });
+  // Until whoami answers, assume easy mode: no editing/AI handles flash up.
+  const [whoAi, setWhoAi] = useState({ easy: true, ai: false });
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -269,9 +270,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     : indexRef.current;
 
   const activeKind = state?.question?.kind;
+  // Word-cloud editing and the AI views are expert-mode tools; easy mode
+  // shows the plain cloud only.
+  const expert = !whoAi.easy;
   // AI cleanup/grouping views are opt-in per question (#Wortwolke-KI).
   const aiCloud =
-    activeKind === "word_cloud" && state?.question?.wordcloud_ai_enabled === true;
+    expert && activeKind === "word_cloud" && state?.question?.wordcloud_ai_enabled === true;
 
   // Each new question starts on the raw view; so does a cloud whose AI was
   // just switched off (the AI views would otherwise linger).
@@ -379,7 +383,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      if (activeKind !== "word_cloud") return;
+      if (activeKind !== "word_cloud" || !expert) return;
       // Don't hijack native undo while the presenter types in a field.
       if (isTextField(e.target)) return;
       e.preventDefault();
@@ -389,7 +393,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKind, runId, activeId]);
+  }, [activeKind, runId, activeId, expert]);
 
   const cycleWcView = useCallback(() => {
     setWcView((v) =>
@@ -446,9 +450,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     activeKind === "word_cloud" &&
     (phase === "results" ||
       (phase === "open" && state?.question?.wordcloud_live !== false));
-  const showModHandle = wcCloudShown && (wcHasWords || wcHasMod);
-  const showAiButton =
-    wcCloudShown && whoAi.ai && (whoAi.easy ? aiCloud && showModHandle : true);
+  const showModHandle = expert && wcCloudShown && (wcHasWords || wcHasMod);
+  const showAiButton = expert && wcCloudShown && whoAi.ai;
   // Below the pencil when it is shown, otherwise in its place.
   const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
   // Regroup stays busy until a grouped result arrives *after* the save
@@ -1566,7 +1569,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <WordCloud
                   words={rampWords(state.words ?? [])}
                   animate
-                  onModerate={onModerateWord}
+                  onModerate={expert ? onModerateWord : undefined}
                 />
               )
             ) : (

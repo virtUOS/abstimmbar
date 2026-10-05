@@ -229,6 +229,13 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
 - **→** wechselt zur nächsten Frage, **←** zurück.
 - **Beenden** (Esc) schließt die Durchführung und speichert die Ergebnisse.
 - Das QR-Symbol blendet QR-Code und Zugangscode jederzeit wieder ein.
+- **Wortwolken bearbeiten (Experten-Modus):** Ziehen Sie einen Begriff auf
+  einen anderen, um beide zusammenzuführen; mit × blenden Sie einen Begriff aus.
+  Der Stift am rechten Rand öffnet die Liste zum Wiederherstellen, Trennen und
+  Umbenennen. Der Stern darunter schaltet die KI-Ansichten ein: **Aufgeräumt**
+  fasst Schreibvarianten, Synonyme und auf Wunsch ähnliche Konzepte zusammen,
+  **Gruppiert** ordnet die Begriffe nach einer Anweisung, die Sie spontan
+  anpassen können. Beides wird an der Frage gespeichert.
 - Optional lässt sich Ihr Einrichtungs-Logo im Präsentationsmodus ein- oder
   ausblenden.
 
