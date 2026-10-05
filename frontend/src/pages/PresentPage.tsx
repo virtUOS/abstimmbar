@@ -28,7 +28,7 @@ import VoteRing from "../results/VoteRing";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
-import { INK, evalColor, categoryColor, categoryHue, hashHue, termColor } from "../results/palette";
+import { INK, evalColor, categoryColor, categoryHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -2188,13 +2188,14 @@ function hueColor(hue: number, t: number): string {
 function isWarm(hue: number): boolean {
   return hue >= 40 && hue <= 100;
 }
-// Single cloud: each term keeps a stable palette hue; frequency darkens it
-// (darker than the bar fills so text stays legible on white).
-function rampColor(hue: number, t: number): string {
-  const warm = isWarm(hue);
-  const L = warm ? 0.68 - 0.08 * t : 0.62 - 0.16 * t;
-  const C = warm ? 0.13 + 0.05 * t : 0.10 + 0.05 * t;
-  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${hue})`;
+// Single cloud (Original / Cleaned up): a calm teal→green frequency ramp —
+// rare terms light teal, frequent ones a deeper green. The grouped view uses
+// palette hues instead, because there colour tells the groups apart.
+function rampColor(t: number): string {
+  const L = 0.62 - 0.22 * t;
+  const C = 0.07 + 0.09 * t;
+  const H = 195 - 45 * t; // teal (195) → brand green (150)
+  return `oklch(${L.toFixed(3)} ${C.toFixed(3)} ${H.toFixed(0)})`;
 }
 
 type CloudWord = { text: string; count: number; color: string; cluster?: number; keys?: string[] };
@@ -2232,16 +2233,18 @@ function layoutWordCloud(
     return { cx: Math.cos(theta) * size.w * 0.26, cy: Math.sin(theta) * size.h * 0.26 };
   };
   const placed: PlacedWord[] = [];
-  const estWidth = (p: PlacedWord) => p.text.length * p.size * 0.56;
-  const overlaps = (x: number, y: number, w: number, h: number) =>
+  // Bold glyphs run wider than 0.56 em on average; and the gap between two
+  // terms grows with their size, so large words don't touch their neighbours.
+  const estWidth = (p: PlacedWord) => p.text.length * p.size * 0.6;
+  const overlaps = (x: number, y: number, w: number, h: number, size: number) =>
     placed.some(
       (p) =>
-        Math.abs(x - p.x) * 2 < w + estWidth(p) + 10 &&
-        Math.abs(y - p.y) * 2 < h + p.size * 1.15 + 8,
+        Math.abs(x - p.x) * 2 < w + estWidth(p) + 14 + 0.3 * (size + p.size) &&
+        Math.abs(y - p.y) * 2 < h + p.size * 1.15 + 6 + 0.12 * (size + p.size),
     );
   words.forEach((word, rank) => {
     const wsize = sizeOf(word.count);
-    const w = word.text.length * wsize * 0.56;
+    const w = word.text.length * wsize * 0.6;
     const h = wsize * 1.15;
     const { cx, cy } = centroid(word.cluster);
     let angle = 0;
@@ -2250,7 +2253,7 @@ function layoutWordCloud(
     let guard = 0;
     // Spiral out from the (cluster) centroid until the box clears the ones
     // already placed.
-    while (overlaps(x, y, w, h) && guard++ < 1500) {
+    while (overlaps(x, y, w, h, wsize) && guard++ < 1500) {
       angle += 0.35;
       const r = 5 * angle;
       x = cx + r * Math.cos(angle);
@@ -2267,7 +2270,7 @@ function rampWords(words: { text: string; count: number; keys?: string[] }[]): C
   const min = Math.min(...words.map((w) => w.count));
   const t = (c: number) => (max === min ? 1 : (c - min) / (max - min));
   return words.map((w) => ({
-    text: w.text, count: w.count, color: rampColor(hashHue(w.text), t(w.count)), keys: w.keys,
+    text: w.text, count: w.count, color: rampColor(t(w.count)), keys: w.keys,
   }));
 }
 
@@ -2351,7 +2354,7 @@ function WordCloud({
       const py = ev.clientY - rect.top;
       const target = (frozen.current ?? []).find((p) => {
         if (wordId(p) === drag.id || !p.keys?.length) return false;
-        const halfW = (p.text.length * p.size * 0.56) / 2 + 6;
+        const halfW = (p.text.length * p.size * 0.6) / 2 + 6;
         const halfH = (p.size * 1.15) / 2 + 6;
         return Math.abs(px - p.x) < halfW && Math.abs(py - p.y) < halfH;
       });
