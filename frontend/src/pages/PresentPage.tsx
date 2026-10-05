@@ -4,7 +4,7 @@
 /** Presentation mode (concept §6.1): a reduced fullscreen view for the
  * beamer. Keyboard-first — S start/stop, E/R results, ←/→ navigate,
  * A reveal correct answers (in "after_close" mode), Esc ends. */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Users, Vote, X } from "lucide-react";
@@ -334,7 +334,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // Each new question starts on its default view (raw; "results" for
   // AI-evaluated free text); a question whose AI was just switched off falls
   // back to it as well (the AI views would otherwise linger).
-  useEffect(() => {
+  // Layout effect: corrected before paint, so an AI-evaluated question never
+  // flashes the verbatim chips of a leftover "Original" view for a frame.
+  useLayoutEffect(() => {
     setWcView(defaultView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
@@ -510,8 +512,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         (phase === "open" && state?.question?.wordcloud_live !== false))) ||
     (isOpenText && phase === "results");
   // No pencil over the free-text verdict bars (nothing to moderate there).
+  // Free text: the drawer lists raw keys (verbatim answers), so it is only
+  // offered in "Original" (restoring stays possible there).
   const showModHandle =
-    expert && wcCloudShown && wcView !== "results" && (wcHasWords || wcHasMod);
+    expert &&
+    wcCloudShown &&
+    wcView !== "results" &&
+    !(isOpenText && isAiView) &&
+    (wcHasWords || wcHasMod);
   const showAiButton = expert && wcCloudShown && whoAi.ai;
   // Below the pencil when it is shown, otherwise in its place.
   const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
@@ -900,7 +908,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     : walkDefaultView;
   const walkAiKey = runId != null && walkItem ? `${runId}:${walkItem.id}` : "";
   const walkWantsAi = walkView === "consolidated" || walkView === "grouped";
-  useEffect(() => {
+  // Before paint (no one-frame flash of verbatim chips on an evaluated slide).
+  useLayoutEffect(() => {
     setWalkView(walkDefaultView);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [walk, walkIndex]);
@@ -2103,7 +2112,7 @@ function WalkthroughResultBody({
     if (ai === "error") {
       return (
         <div className="mt-10 text-center text-slate-500">
-          <p className="text-xl">{t("The AI summary could not be created.")}</p>
+          <p className="text-xl">{t("The AI summary is currently unavailable.")}</p>
           {onRetryAi && (
             <button
               type="button"
@@ -2964,11 +2973,77 @@ function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: Mo
   );
 }
 
-/** Break out of the 4xl question column: statements need the beamer width. */
-const WIDE = "relative left-1/2 w-[min(76rem,calc(100vw-5rem))] -translate-x-1/2";
+/** Optimistic moderation of a free-text AI result (key statements) while it is
+ * being recomputed. Unlike `applyModToAi` it never shows a merge's label: a
+ * merge made in "Original" is labelled with a verbatim answer, which must not
+ * reach the beamer in these views. Fully hidden statements drop out; several
+ * statements hit by one merge (stale result) fold into the largest one's
+ * label with summed count and the union of keys. */
+function applyModToFreeText(words: AiWord[], mod?: WordCloudModeration): AiWord[] {
+  if (!mod) return words;
+  const hidden = new Set(mod.hidden.map((h) => h.key));
+  let out = words.filter((w) => !w.keys?.length || !w.keys.every((k) => hidden.has(k)));
+  for (const m of mod.merges) {
+    const group = new Set(m.keys);
+    const hit = out.filter((w) => w.keys?.some((k) => group.has(k)));
+    if (hit.length < 2) continue;
+    const largest = hit.reduce((a, w) => (w.count > a.count ? w : a), hit[0]);
+    const merged: AiWord = {
+      text: largest.text,
+      count: hit.reduce((a, w) => a + w.count, 0),
+      keys: [...new Set(hit.flatMap((w) => w.keys ?? []))],
+    };
+    const first = out.indexOf(hit[0]);
+    out = out.filter((w) => !hit.includes(w));
+    out.splice(Math.min(first, out.length), 0, merged);
+  }
+  return out;
+}
+
+/** Scale a block down (never up) so it fits above the bottom chrome of the
+ * beamer (LiveStats pill, footer) instead of scrolling. `ref` goes on the
+ * block, `outerStyle` on its wrapper (keeps the layout height in step). */
+function useFitScale(deps: unknown[], clearance = 96) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [fit, setFit] = useState({ scale: 1, height: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight; // unaffected by the transform
+      const wrapper = el.parentElement ?? el;
+      const bottom = el.closest("main")?.getBoundingClientRect().bottom ?? window.innerHeight;
+      const avail = bottom - wrapper.getBoundingClientRect().top - clearance;
+      const scale = h > 0 ? Math.max(0.55, Math.min(1, avail / h)) : 1;
+      setFit((f) => (Math.abs(f.scale - scale) < 0.01 && f.height === h ? f : { scale, height: h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  const scaled = fit.scale < 1 && fit.height > 0;
+  return {
+    ref,
+    outerStyle: scaled ? { height: fit.height * fit.scale } : undefined,
+    innerStyle: {
+      transform: `translateX(-50%)${scaled ? ` scale(${fit.scale})` : ""}`,
+      transformOrigin: "top center",
+    },
+  };
+}
+
+/** Break out of the 4xl question column: statements need the beamer width
+ *  (horizontal centring via `useFitScale`'s inline transform). */
+const WIDE = "relative left-1/2 w-[min(80rem,calc(100vw-5rem))]";
 /** Max key statements on the beamer (the rest is counted as "+N more"). */
 const STATEMENTS_MAX = 12;
-const CLUSTER_STATEMENTS_MAX = 6;
+const CLUSTER_STATEMENTS_MAX = 4;
 
 /** Free-text AI views (#Freitext-KI): "consolidated" = key statements (one row
  * per statement, count badge, most frequent first), "grouped" = statements
@@ -2992,15 +3067,27 @@ function FreeTextAiView({
     () =>
       aiRaw && {
         ...aiRaw,
-        merged: applyModToAi(aiRaw.merged, mod),
-        clusters: aiRaw.clusters.map((c) => ({ ...c, words: applyModToAi(c.words, mod) })),
+        merged: applyModToFreeText(aiRaw.merged, mod),
+        clusters: aiRaw.clusters.map((c) => ({ ...c, words: applyModToFreeText(c.words, mod) })),
       },
     [aiRaw, mod],
   );
   const findInAi = (d: typeof ai, id: string) =>
     d && [...d.merged, ...d.clusters.flatMap((c) => c.words)].find((w) => wordId(w) === id);
   const { shown, drag, chipProps } = useChipDrag(ai, findInAi, onModerate);
+  const fit = useFitScale([view, shown]);
   if (!shown || shown.pending) return <AiWait />;
+  const empty = (
+    <p className="mt-8 text-center text-slate-400">
+      {shown.error ? t("The AI summary is currently unavailable.") : t("No answers yet …")}
+    </p>
+  );
+  // A failed recompute that still has an older result keeps showing it.
+  const errorNote = shown.error ? (
+    <p className="mt-3 text-center text-sm text-slate-400">
+      {t("The AI summary is currently unavailable.")}
+    </p>
+  ) : null;
 
   const row = (w: AiWord, color: string, i: number, big: boolean) => {
     const can = !!onModerate && !!w.keys?.length;
@@ -3009,20 +3096,20 @@ function FreeTextAiView({
       <li
         key={wordId(w)}
         {...cp}
-        className={`ab-chip-in group relative flex items-center rounded-2xl border border-slate-200 bg-white shadow-sm ${big ? "gap-4 py-2.5 pl-5 pr-3" : "gap-3 py-2 pl-4 pr-2.5"} ${cp.className}`}
+        className={`ab-chip-in group relative flex items-center rounded-2xl border border-slate-200 bg-white shadow-sm ${big ? "gap-4 py-2.5 pl-5 pr-3" : "gap-2 py-1.5 pl-3 pr-2 shadow-none"} ${cp.className}`}
         style={{
           ...cp.style,
-          borderLeft: `${big ? 10 : 6}px solid ${color}`,
+          borderLeft: `${big ? 10 : 5}px solid ${color}`,
           animationDelay: reduced ? undefined : `${Math.min(i, 12) * 60}ms`,
         }}
       >
         <span
-          className={`flex-1 font-semibold leading-snug text-slate-800 ${big ? "text-2xl" : "text-lg"}`}
+          className={`flex-1 font-semibold leading-snug text-slate-800 ${big ? "text-2xl" : "text-base"}`}
         >
           {w.text}
         </span>
         <span
-          className={`shrink-0 rounded-full px-3 py-0.5 text-center font-bold tabular-nums ${big ? "min-w-[3.5rem] text-xl" : "min-w-[2.5rem] text-base"}`}
+          className={`shrink-0 rounded-full px-3 py-0.5 text-center font-bold tabular-nums ${big ? "min-w-[3.5rem] text-xl" : "min-w-[2.25rem] text-sm"}`}
           style={{ background: color, color: INK }}
         >
           {w.count}
@@ -3034,12 +3121,11 @@ function FreeTextAiView({
 
   if (view === "consolidated") {
     const sorted = [...shown.merged].sort((a, b) => b.count - a.count);
-    if (sorted.length === 0) {
-      return <p className="mt-8 text-center text-slate-400">{t("No answers yet …")}</p>;
-    }
+    if (sorted.length === 0) return empty;
     const top = sorted.slice(0, STATEMENTS_MAX);
     return (
-      <div className={`mt-8 ${WIDE}`}>
+      <div className="mt-8" style={fit.outerStyle}>
+      <div ref={fit.ref} className={WIDE} style={fit.innerStyle}>
         <ol className={`grid gap-3 ${top.length > 6 ? "lg:grid-cols-2" : ""}`}>
           {top.map((w, i) => row(w, termColor(w.text), i, true))}
         </ol>
@@ -3048,45 +3134,56 @@ function FreeTextAiView({
             {t("+{{count}} more statements", { count: sorted.length - top.length })}
           </p>
         )}
-        <ChipGhost drag={drag} />
+        {errorNote}
+      </div>
+      <ChipGhost drag={drag} />
       </div>
     );
   }
 
   const visible = shown.clusters.filter((c) => c.words.length > 0);
-  if (visible.length === 0) {
-    return <p className="mt-8 text-center text-slate-400">{t("No answers yet …")}</p>;
-  }
+  if (visible.length === 0) return empty;
   return (
-    <div
-      className={`mt-8 grid items-start gap-5 ${WIDE}`}
-      style={{ gridTemplateColumns: `repeat(${Math.min(visible.length, 3)}, minmax(0, 1fr))` }}
-    >
-      {visible.map((cluster, ci) => {
-        const words = [...cluster.words].sort((a, b) => b.count - a.count);
-        const top = words.slice(0, CLUSTER_STATEMENTS_MAX);
-        return (
-          <section
-            key={cluster.label}
-            className="rounded-2xl border border-slate-200 bg-slate-50/60 p-4"
-            style={{ borderTop: `6px solid ${categoryColor(ci)}` }}
-          >
-            <h3
-              className="mb-3 flex items-baseline gap-2 text-2xl font-bold"
-              style={{ color: categoryDeep(ci) }}
+    <div className="mt-6" style={fit.outerStyle}>
+      <div
+        ref={fit.ref}
+        className={`grid items-start gap-4 ${WIDE}`}
+        // Auto-fit columns, at most four (min 15rem each).
+        style={{
+          ...fit.innerStyle,
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(max(15rem, calc((100% - 3rem) / 4)), 1fr))",
+        }}
+      >
+        {visible.map((cluster, ci) => {
+          const words = [...cluster.words].sort((a, b) => b.count - a.count);
+          const top = words.slice(0, CLUSTER_STATEMENTS_MAX);
+          // Header count from the (moderated) statements actually shown.
+          const count = words.reduce((a, w) => a + w.count, 0);
+          return (
+            <section
+              key={cluster.label}
+              className="rounded-xl border border-slate-200 bg-slate-50/60 p-3"
+              style={{ borderTop: `5px solid ${categoryColor(ci)}` }}
             >
-              <span className="min-w-0 break-words">{cluster.label}</span>
-              <span className="shrink-0 text-lg font-semibold text-slate-400">· {cluster.count}</span>
-            </h3>
-            <ul className="space-y-2">{top.map((w, i) => row(w, categoryColor(ci), i, false))}</ul>
-            {words.length > top.length && (
-              <p className="mt-2 text-sm text-slate-400">
-                {t("+{{count}} more statements", { count: words.length - top.length })}
-              </p>
-            )}
-          </section>
-        );
-      })}
+              <h3
+                className="mb-2 flex items-baseline gap-2 text-xl font-bold leading-tight"
+                style={{ color: categoryDeep(ci) }}
+              >
+                <span className="min-w-0 break-words">{cluster.label}</span>
+                <span className="shrink-0 text-base font-semibold text-slate-400">· {count}</span>
+              </h3>
+              <ul className="space-y-1.5">{top.map((w, i) => row(w, categoryColor(ci), i, false))}</ul>
+              {words.length > top.length && (
+                <p className="mt-1.5 text-sm text-slate-400">
+                  {t("+{{count}} more statements", { count: words.length - top.length })}
+                </p>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {errorNote}
       <ChipGhost drag={drag} />
     </div>
   );

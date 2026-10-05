@@ -868,7 +868,7 @@
   "Merge again": "Neu zusammenfassen",
   "Tip: the star switches the AI views on and lets you adjust the grouping on the spot.": "Tipp: Mit dem Stern schalten Sie die KI-Ansichten ein und passen die Gruppierung spontan an.",
   "Evaluation": "Bewertung",
-  "The AI summary could not be created.": "Die KI-Zusammenfassung konnte nicht erstellt werden.",
+  "The AI summary is currently unavailable.": "Die KI-Zusammenfassung ist gerade nicht verfügbar.",
   "AI summary (presentation)": "KI-Zusammenfassung (Präsentation)",
   "AI summary (key statements, grouping)": "KI-Zusammenfassung (Kernaussagen, Gruppierung)",
   "In presentation mode, switch to Key statements or Grouped with the “a” key / “View” button. The beamer then shows AI statements with counts instead of the answers.": "Im Präsentationsmodus wechseln Sie mit der Taste „a“ bzw. „Ansicht“ zu Kernaussagen oder Gruppiert. Der Beamer zeigt dann KI-Aussagen mit Anzahl statt der Antworten.",

@@ -997,6 +997,8 @@ export interface WordCloudAI {
   merged: WordCloudAIWord[];
   clusters: { label: string; count: number; words: WordCloudAIWord[] }[];
   pending: boolean;
+  /** True when the last AI computation failed (live free-text summary). */
+  error?: boolean;
 }
 
 /** Priorities question aggregation (#58): per-option average/min/max points
