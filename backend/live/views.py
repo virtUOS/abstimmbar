@@ -455,9 +455,9 @@ def vote(request, code):
     # updated presenter snapshot. Only for opted-in open_text questions.
     if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
         ai_evaluation.schedule(vote_obj.pk, room.pk)
-    # Live word-cloud AI (consolidate/group): only recomputes while the
-    # presenter is showing an AI view for this question (throttled).
-    if question.kind == Question.Kind.WORD_CLOUD:
+    # Live word-cloud / free-text AI (consolidate/summarise + group): only
+    # recomputes while the presenter is showing an AI view (throttled).
+    if question.kind in Question.TEXT_KINDS:
         ai_wordcloud_live.schedule(run.pk, question.pk, room.pk)
     payload = {"status": "ok"}
     if run.mode == Run.Mode.SELF_PACED:
@@ -1442,7 +1442,7 @@ def control_run(request, run_id):
     # the presenter can switch to the AI views instantly (kept warm afterwards).
     if phase in (Run.Phase.CLOSED, Run.Phase.RESULTS):
         q = run.active_question
-        if q and q.kind == Question.Kind.WORD_CLOUD and q.wordcloud_ai_enabled:
+        if q and q.kind in Question.TEXT_KINDS and q.wordcloud_ai_enabled:
             ai_wordcloud_live.ensure_result(run.pk, q.pk, room.pk)
     broadcast(room)
     return Response({"status": "ok", "phase": run.phase})
@@ -1583,7 +1583,9 @@ MERGE_FLAG_KEYS = ("merge_variants", "merge_synonyms", "merge_concepts")
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def wordcloud_ai_settings(request, run_id, question_id):
-    """Presenter edits a word cloud's permanent AI settings: switch the AI
+    """Presenter edits a word cloud's (or free-text question's — key
+    statements; ``merge_concepts`` = also merge similar statements) permanent
+    AI settings: switch the AI
     views on/off, change the grouping instruction and/or what the
     consolidated view merges. Body: {"ai_enabled"?: bool, "grouping"?: str,
     "merge_variants"?: bool, "merge_synonyms"?: bool, "merge_concepts"?:
@@ -1599,7 +1601,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
         Question,
         pk=question_id,
         question_set=run.question_set,
-        kind=Question.Kind.WORD_CLOUD,
+        kind__in=Question.TEXT_KINDS,  # word cloud or free text (key statements)
     )
     # Validate every input before any side effect (save, live loop, refresh,
     # broadcast): a 400/409 leaves the question and the live state unchanged.
@@ -1671,7 +1673,8 @@ def wordcloud_ai(request, run_id):
 
     Body: {"question": <id>, "active": bool}. While active, the LLM keeps the
     consolidated + grouped views fresh (throttled); turning it off frees the
-    in-memory result. Only for word-cloud questions of this run."""
+    in-memory result. Only for word-cloud and free-text questions of this run
+    (free text: AI key statements + grouping)."""
     run = get_object_or_404(Run.objects.select_related("question_set__room"), pk=run_id)
     room = run.question_set.room
     if not _require_owner(request.user, room):
@@ -1684,7 +1687,7 @@ def wordcloud_ai(request, run_id):
         # Deactivation is always allowed (also after AI was switched off).
         ai_wordcloud_live.set_active(run.pk, question.pk, room.pk, False)
         return Response({"status": "ok", "active": False})
-    if question.kind != Question.Kind.WORD_CLOUD or not question.wordcloud_ai_enabled:
+    if question.kind not in Question.TEXT_KINDS or not question.wordcloud_ai_enabled:
         return Response(
             {"detail": "KI-Aufräumen ist für diese Frage nicht aktiviert."},
             status=400,

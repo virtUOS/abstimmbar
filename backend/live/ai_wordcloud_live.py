@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
-"""Live AI word-cloud views during a run.
+"""Live AI word-cloud views during a run — and, with the same machinery, the
+AI key statements/grouping of free-text (open_text) answers
+(``ai_freetext_summary``).
 
 While the presenter shows an AI view (consolidated or grouped), the raw terms
 are periodically sent to the LLM, which merges spelling variants/synonyms and
@@ -23,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from basicbar_integrations import ai
 from django.db import connections
 
-from . import ai_wordcloud
+from . import ai_freetext_summary, ai_wordcloud
 
 MIN_INTERVAL = 4.0  # seconds between LLM recomputes for the same word cloud
 
@@ -166,14 +168,25 @@ def _compute(run_id, question_id, room_id):
             result = {"merged": [], "clusters": [], "pending": False}
         else:
             try:
-                data = ai.chat_json(
-                    ai_wordcloud.optimize_system(
-                        question.wordcloud_grouping,
-                        **ai_wordcloud.merge_flags(question),
-                    ),
-                    ai_wordcloud.build_optimize_prompt(words),
-                )
-                optimized = ai_wordcloud.apply_optimization(words, data)
+                if question.kind == Question.Kind.OPEN_TEXT:
+                    # Free text: key statements + grouping (same output shape).
+                    data = ai.chat_json(
+                        ai_freetext_summary.summary_system(
+                            question.wordcloud_grouping,
+                            merge_similar=question.wordcloud_merge_concepts,
+                        ),
+                        ai_freetext_summary.build_summary_prompt(words),
+                    )
+                    optimized = ai_freetext_summary.apply_summary(words, data)
+                else:
+                    data = ai.chat_json(
+                        ai_wordcloud.optimize_system(
+                            question.wordcloud_grouping,
+                            **ai_wordcloud.merge_flags(question),
+                        ),
+                        ai_wordcloud.build_optimize_prompt(words),
+                    )
+                    optimized = ai_wordcloud.apply_optimization(words, data)
                 result = {
                     "merged": optimized["merged"],
                     "clusters": optimized["clusters"],

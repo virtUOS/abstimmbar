@@ -198,12 +198,11 @@ def build_payloads(room):
             }
             if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
                 presenter["evaluation"] = freetext_evaluation(run, question)
-            # Live AI word-cloud views (consolidated/grouped), only while the
-            # presenter has switched to an AI view for this question.
-            if question.kind == Question.Kind.WORD_CLOUD:
-                ai_view = ai_wordcloud_live.get_result(run.pk, question.pk)
-                if ai_view is not None:
-                    presenter["wordcloud_ai"] = ai_view
+            # Live AI views (word cloud: consolidated/grouped; free text: key
+            # statements/grouped), once computed (active or kept warm).
+            ai_view = ai_wordcloud_live.get_result(run.pk, question.pk)
+            if ai_view is not None:
+                presenter["wordcloud_ai"] = ai_view
         elif question.kind == Question.Kind.PRIORITIES:
             presenter["priorities"] = priority_stats(run, question)
         elif question.kind == Question.Kind.ORDERING:
