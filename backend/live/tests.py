@@ -4736,8 +4736,8 @@ class AiFreetextSummaryTests(LiveTestCase):
     # --- prompts --------------------------------------------------------------
 
     def test_system_equivalent_only_vs_similar(self):
-        strict = ai_freetext_summary.summary_system("", merge_similar=False)
-        broad = ai_freetext_summary.summary_system("", merge_similar=True)
+        strict = ai_freetext_summary.summary_system(merge_similar=False)
+        broad = ai_freetext_summary.summary_system(merge_similar=True)
         self.assertIn(ai_freetext_summary.RULE_EQUIVALENT, strict)
         self.assertNotIn(ai_freetext_summary.RULE_SIMILAR, strict)
         self.assertIn(ai_freetext_summary.RULE_SIMILAR, broad)
@@ -4745,12 +4745,65 @@ class AiFreetextSummaryTests(LiveTestCase):
         for prompt in (strict, broad):
             self.assertIn("ausschließlich mit JSON", prompt)
             self.assertIn("höchstens einer", prompt)
+            # Statements first, by the merge rule alone; themes only after.
+            self.assertLess(
+                prompt.index(ai_freetext_summary.STATEMENTS_FIRST),
+                prompt.index(ai_freetext_summary.CLUSTER_ONLY),
+            )
 
-    def test_system_grouping_criterion(self):
-        prompt = ai_freetext_summary.summary_system("nach Vor- und Nachteilen")
-        self.assertIn("nach Vor- und Nachteilen", prompt)
+    def test_grouping_criterion_only_in_second_step(self):
+        # The statement prompt never sees a criterion (it cannot take one).
+        with self.assertRaises(TypeError):
+            ai_freetext_summary.summary_system("Studierende vs. Lehrende")
+        prompt = ai_freetext_summary.grouping_system("Studierende vs. Lehrende")
+        self.assertIn("Studierende vs. Lehrende", prompt)
+        self.assertIn(ai_freetext_summary.POLES_RULE, prompt)
         self.assertIn(ai_freetext_summary.OTHER_CLUSTER, prompt)
-        self.assertNotIn("nach Vor- und Nachteilen", ai_freetext_summary.summary_system(""))
+        self.assertIn("stehen fest", prompt)
+
+    def test_apply_grouping_keeps_statements_and_reclusters(self):
+        summary = ai_freetext_summary.apply_summary(self.WORDS, {"statements": [
+            {"label": "Keine Identifikation", "cluster": "Anonymität", "members": [1, 2]},
+            {"label": "Ehrlicher", "cluster": "Qualität", "members": [3]},
+        ]})
+        grouping_prompt = ai_freetext_summary.build_grouping_prompt(summary["merged"])
+        self.assertIn('"id": 1', grouping_prompt)
+        self.assertIn("Keine Identifikation", grouping_prompt)
+        out = ai_freetext_summary.apply_grouping(summary, {"clusters": [
+            {"label": "Vorteil für Studierende", "members": [1, 1, 99]},
+            {"label": "Vorteil für Lehrende", "members": [2, 1]},
+            "kaputt",
+        ]})
+        self.assertEqual(out["merged"], summary["merged"])  # statements untouched
+        clusters = {c["label"]: [w["text"] for w in c["words"]] for c in out["clusters"]}
+        self.assertEqual(clusters["Vorteil für Studierende"], ["Keine Identifikation"])
+        self.assertEqual(clusters["Vorteil für Lehrende"], ["Ehrlicher"])
+        # The unassigned third statement (long "x…" answer) → "Weitere", last.
+        self.assertEqual(out["clusters"][-1]["label"], ai_freetext_summary.OTHER_CLUSTER)
+        self.assertEqual(sum(c["count"] for c in out["clusters"]), 8)
+
+    def test_summarize_two_calls_only_with_grouping(self):
+        step1 = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        calls = []
+
+        def fake(system, prompt):
+            calls.append(system)
+            return step1 if len(calls) == 1 else {
+                "clusters": [{"label": "G", "members": [1]}]
+            }
+
+        out = ai_freetext_summary.summarize(self.WORDS, chat_json=fake)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(out["clusters"][0]["label"], "T")
+        calls.clear()
+        out2 = ai_freetext_summary.summarize(
+            self.WORDS, grouping="nach Rolle", chat_json=fake
+        )
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("nach Rolle", calls[0])  # statements never see it
+        self.assertIn("nach Rolle", calls[1])
+        self.assertEqual(out2["merged"], out["merged"])
+        self.assertEqual(out2["clusters"][0]["label"], "G")
 
     def test_build_prompt_numbers_and_truncates(self):
         words = [{"text": "a" * 900, "count": 2, "keys": ["k"]},
@@ -4783,11 +4836,16 @@ class AiFreetextSummaryTests(LiveTestCase):
             {"label": "Identität bleibt verborgen", "cluster": "Anonymität",
              "members": [1, 2]},
         ]}
-        with patch("basicbar_integrations.ai.chat_json", return_value=reply) as chat:
+        regroup = {"clusters": [{"label": "Anonymität", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json", side_effect=[reply, regroup]
+        ) as chat:
             ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
-        system, prompt = chat.call_args[0]
+        self.assertEqual(chat.call_count, 2)
+        system, prompt = chat.call_args_list[0][0]
         self.assertIn(ai_freetext_summary.RULE_SIMILAR, system)
-        self.assertIn("nach Aspekt", system)
+        self.assertNotIn("nach Aspekt", system)  # criterion: second call only
+        self.assertIn("nach Aspekt", chat.call_args_list[1][0][0])
         self.assertNotIn("Beleidigung", prompt)  # hidden → never sent
         self.assertIn("Unerkannt", prompt)       # moderation merge = one input
         self.assertNotIn("Man bleibt unerkannt", prompt)

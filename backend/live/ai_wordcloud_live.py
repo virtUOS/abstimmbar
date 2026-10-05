@@ -170,14 +170,12 @@ def _compute(run_id, question_id, room_id):
             try:
                 if question.kind == Question.Kind.OPEN_TEXT:
                     # Free text: key statements + grouping (same output shape).
-                    data = ai.chat_json(
-                        ai_freetext_summary.summary_system(
-                            question.wordcloud_grouping,
-                            merge_similar=question.wordcloud_merge_concepts,
-                        ),
-                        ai_freetext_summary.build_summary_prompt(words),
+                    optimized = ai_freetext_summary.summarize(
+                        words,
+                        grouping=question.wordcloud_grouping,
+                        merge_similar=question.wordcloud_merge_concepts,
+                        chat_json=ai.chat_json,
                     )
-                    optimized = ai_freetext_summary.apply_summary(words, data)
                 else:
                     data = ai.chat_json(
                         ai_wordcloud.optimize_system(

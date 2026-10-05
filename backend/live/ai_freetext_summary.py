@@ -3,8 +3,9 @@
 
 """Prompts and server-side validation for the optional AI summary of
 free-text answers (open_text): condense equivalent answers into short key
-statements with counts, and group those statements (automatic themes or the
-question's own grouping criterion).
+statements with counts, and group those statements (automatic themes, or the
+question's own grouping criterion applied in a separate second call on the
+finished statements, so the criterion never changes the statements).
 
 Same contract as the word-cloud optimisation (``ai_wordcloud``): the model
 only *groups* the numbered answers we send and names the groups; every count
@@ -41,30 +42,46 @@ RULE_SIMILAR = (
 )
 
 
-def summary_system(grouping="", *, merge_similar=False):
-    """System prompt for key statements + grouping. ``grouping`` (optional) is
-    the presenter's grouping criterion; empty falls back to automatic themes.
-    ``merge_similar`` (question.wordcloud_merge_concepts) also merges answers
-    with a similar core message; off = only equivalent answers."""
-    if grouping and grouping.strip():
-        cluster_rule = (
-            "- \"cluster\" ordnet die Aussage nach folgendem Kriterium ein: "
-            f"„{grouping.strip()}“. Bilde daraus wenige aussagekräftige "
-            "Gruppen; Aussagen, die nicht passen, bekommen den cluster "
-            f"\"{OTHER_CLUSTER}\".\n"
-        )
-    else:
-        cluster_rule = (
-            "- \"cluster\" ist ein kurzer thematischer Oberbegriff (1–3 "
-            "Wörter). Aussagen zum selben Thema bekommen denselben "
-            "\"cluster\"-Text; bilde wenige Themen.\n"
-        )
+STATEMENTS_FIRST = (
+    "Arbeite in zwei getrennten Schritten:\n"
+    "Schritt 1 — Kernaussagen bilden: Fasse die Antworten AUSSCHLIESSLICH "
+    "nach der folgenden Regel zu Kernaussagen zusammen. Ein Thema spielt "
+    "dafür KEINE Rolle: Zwei Antworten werden nicht deshalb "
+    "zusammengefasst, weil sie zum selben Thema gehören."
+)
+CLUSTER_ONLY = (
+    "Schritt 2 — Gruppieren: Ordne erst danach jeder fertigen Kernaussage "
+    "einen \"cluster\" zu. Das Gruppieren verändert die Kernaussagen nicht "
+    "(keine Kernaussage wird dafür zusammengelegt, geteilt oder umformuliert)."
+)
+POLES_RULE = (
+    "- Nennt das Kriterium mehrere Seiten oder Pole (z. B. „A vs. B“, "
+    "„Vorteile/Nachteile“), dann ist JEDE Seite eine eigene Gruppe, benannt "
+    "nach der Seite (z. B. „Vorteil für A“, „Vorteil für B“). Prüfe jede "
+    "Kernaussage einzeln: Welcher Seite kommt sie HAUPTSÄCHLICH zugute bzw. "
+    "welcher entspricht sie am ehesten? Verteile die Kernaussagen auf die "
+    "Seiten; lege nicht alles auf eine Seite, nur weil es dort auch "
+    "irgendwie passt."
+)
+
+
+def summary_system(*, merge_similar=False):
+    """System prompt for the key statements (step 1). ``merge_similar``
+    (question.wordcloud_merge_concepts) also merges answers with a similar
+    core message; off = only equivalent answers. Statements are formed by the
+    merge rule alone and get an automatic theme as ``cluster``. A presenter's
+    grouping criterion is deliberately NOT part of this prompt: it is applied
+    in a separate call (``grouping_system``) on the finished statements, so
+    it can never change how answers are condensed."""
     return (
         "Du fasst die Freitext-Antworten einer Umfrage aus einer "
         "Lehrveranstaltung zu Kernaussagen zusammen. Du erhältst eine "
         "nummerierte Liste von Antworten mit Häufigkeiten.\n"
-        "Zusammenfassen:\n"
+        + STATEMENTS_FIRST
+        + "\n"
         + (RULE_SIMILAR if merge_similar else RULE_EQUIVALENT)
+        + "\n"
+        + CLUSTER_ONLY
         + "\n"
         "Regeln:\n"
         "- Jede Kernaussage listet in \"members\" die Nummern (\"id\") der "
@@ -76,10 +93,47 @@ def summary_system(grouping="", *, merge_similar=False):
         f"Deutsch (höchstens {LABEL_MAX} Zeichen), ohne wörtliche Zitate, "
         "Namen oder persönliche Angaben aus den Antworten.\n"
         "- Bewerte die Antworten nicht (richtig/falsch spielt keine Rolle).\n"
-        + cluster_rule
-        + "- Zähle oder gewichte nichts; die Häufigkeiten werden separat "
+        "- \"cluster\" ist ein kurzer thematischer Oberbegriff (1–3 "
+        "Wörter). Kernaussagen zum selben Thema bekommen denselben "
+        "\"cluster\"-Text; bilde wenige Themen.\n"
+        "- Zähle oder gewichte nichts; die Häufigkeiten werden separat "
         "berechnet.\n"
         "- Antworte ausschließlich mit JSON."
+    )
+
+
+def grouping_system(grouping):
+    """System prompt for step 2: assign the finished key statements to groups
+    derived from the presenter's criterion. The statements are fixed."""
+    return (
+        "Du ordnest Kernaussagen aus einer Umfrage in einer "
+        "Lehrveranstaltung Gruppen zu. Die Kernaussagen stehen fest: Du "
+        "veränderst, teilst oder verbindest sie nicht.\n"
+        f"Gruppierungskriterium: „{grouping.strip()}“.\n"
+        "Regeln:\n"
+        "- Leite aus dem Kriterium wenige aussagekräftige Gruppen ab.\n"
+        + POLES_RULE
+        + "\n"
+        "- Kernaussagen, die zu keiner Gruppe passen, kommen in die Gruppe "
+        f"\"{OTHER_CLUSTER}\".\n"
+        f"- Gruppennamen höchstens {CLUSTER_MAX} Zeichen. Jede Kernaussage "
+        "gehört zu genau einer Gruppe; verwende nur vorgegebene Nummern.\n"
+        "- Antworte ausschließlich mit JSON."
+    )
+
+
+def build_grouping_prompt(statements):
+    """User prompt for step 2: the statements (``merged``), numbered from 1."""
+    payload = [
+        {"id": i, "text": st["text"], "count": st["count"]}
+        for i, st in enumerate(statements, start=1)
+    ]
+    return (
+        "Kernaussagen:\n"
+        + json.dumps(payload, ensure_ascii=False)
+        + "\n\nGib JSON in genau dieser Form zurück:\n"
+        '{"clusters": [{"label": "Vorteil für A", "members": [1, 3]}, '
+        '{"label": "Vorteil für B", "members": [2]}]}'
     )
 
 
@@ -160,9 +214,59 @@ def apply_summary(words, data):
                 words, [i], _truncate(str(word["text"]), LABEL_MAX), OTHER_CLUSTER
             ))
 
+    merged = sorted((_public(s) for s in statements), key=lambda s: -s["count"])
+    return {
+        "clusters": _cluster_list((st["cluster"], _public(st)) for st in statements),
+        "merged": merged,
+    }
+
+
+def apply_grouping(summary, data):
+    """Re-cluster finished key statements (``summary["merged"]``, numbered
+    from 1 as in ``build_grouping_prompt``) by the model's step-2 answer
+    ``{clusters: [{label, members: [ids]}]}``. The statements themselves stay
+    exactly as they are; unknown/repeated ids are ignored and unassigned
+    statements land in "Weitere"."""
+    statements = list(summary["merged"])
+    assigned = {}
+    raw = data.get("clusters") if isinstance(data, dict) else None
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("members"), list):
+            continue
+        label = str(item.get("label") or "").strip()[:CLUSTER_MAX] or OTHER_CLUSTER
+        for member in item["members"]:
+            num = _as_id(member)
+            if num is not None and 1 <= num <= len(statements) and num - 1 not in assigned:
+                assigned[num - 1] = label
+    pairs = (
+        (assigned.get(i, OTHER_CLUSTER), _public(st)) for i, st in enumerate(statements)
+    )
+    return {"clusters": _cluster_list(pairs), "merged": statements}
+
+
+def summarize(words, *, grouping="", merge_similar=False, chat_json):
+    """Key statements (step 1) and, only with a grouping criterion, a separate
+    re-clustering of those fixed statements (step 2). ``chat_json`` is
+    ``ai.chat_json`` (passed in so callers keep their own error handling;
+    ``ai.AIError`` propagates)."""
+    summary = apply_summary(
+        words,
+        chat_json(summary_system(merge_similar=merge_similar), build_summary_prompt(words)),
+    )
+    if grouping and grouping.strip() and summary["merged"]:
+        summary = apply_grouping(
+            summary,
+            chat_json(grouping_system(grouping), build_grouping_prompt(summary["merged"])),
+        )
+    return summary
+
+
+def _cluster_list(pairs):
+    """[(cluster label, statement)] → cluster list, biggest first, the
+    catch-all "Weitere" always last; statements by count within a cluster."""
     clusters = {}
-    for st in statements:
-        clusters.setdefault(st["cluster"], []).append(_public(st))
+    for name, st in pairs:
+        clusters.setdefault(name, []).append(st)
     cluster_list = [
         {
             "label": name,
@@ -171,10 +275,8 @@ def apply_summary(words, data):
         }
         for name, items in clusters.items()
     ]
-    # Biggest clusters first; the catch-all "Weitere" always sinks to the end.
     cluster_list.sort(key=lambda c: (c["label"] == OTHER_CLUSTER, -c["count"]))
-    merged = sorted((_public(s) for s in statements), key=lambda s: -s["count"])
-    return {"clusters": cluster_list, "merged": merged}
+    return cluster_list
 
 
 def _statement(words, idxs, label, cluster):
