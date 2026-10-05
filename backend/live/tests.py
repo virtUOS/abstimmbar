@@ -4958,3 +4958,135 @@ class AiFreetextSummaryTests(LiveTestCase):
         payloads = build_payloads(self.room)
         self.assertEqual(payloads["presenter"]["wordcloud_ai"]["merged"][0]["text"], "S")
         self.assertNotIn("wordcloud_ai", payloads["participant"])
+
+
+class FreetextAiSummaryEndpointTests(LiveTestCase):
+    """One-shot AI key statements (+ grouping) of a free-text question for the
+    Quiz-Block walkthrough: POST /api/runs/<run>/questions/<q>/ai-summary/."""
+
+    def setUp(self):
+        super().setUp()
+        self.ot = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            text="<p>Was zeichnet eine anonyme Umfrage aus?</p>", position=8,
+            wordcloud_ai_enabled=True,
+        )
+        self.run = self.open_question(self.ot)
+        for raw in ["Keine Namen", "keine namen", "Ehrlicher", "Peinlich", "Kein Login"]:
+            self.vote(self.join(), text=raw)
+        self.run.phase = Run.Phase.FINISHED
+        self.run.save()
+        self.url = f"/api/runs/{self.run.pk}/questions/{self.ot.pk}/ai-summary/"
+
+    REPLY = {
+        "statements": [
+            {"label": "Anonymität", "cluster": "Schutz", "members": [1, 4]},
+            {"label": "Ehrlichkeit", "cluster": "Qualität", "members": [2]},
+        ]
+    }
+
+    @override_settings(**AI_ON)
+    def test_returns_statements_in_wordcloud_shape(self):
+        with patch("basicbar_integrations.ai.chat_json", return_value=self.REPLY) as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(set(data), {"merged", "clusters"})
+        self.assertEqual(sum(s["count"] for s in data["merged"]), 5)
+        top = data["merged"][0]
+        self.assertEqual(top["text"], "Anonymität")
+        self.assertEqual(top["count"], 3)  # 2× "Keine Namen" + 1 other
+        self.assertIn("keine namen", top["keys"])
+        # No grouping criterion → a single call (key statements only).
+        self.assertEqual(chat.call_count, 1)
+        self.assertIn(ai_freetext_summary.RULE_EQUIVALENT, chat.call_args_list[0][0][0])
+
+    @override_settings(**AI_ON)
+    def test_uses_merge_flag_and_grouping_of_question(self):
+        self.ot.wordcloud_merge_concepts = True
+        self.ot.wordcloud_grouping = "nach Vorteil für Studierende vs. Lehrende"
+        self.ot.save()
+        replies = [self.REPLY, {"clusters": [{"label": "Studierende", "members": [1, 2]}]}]
+        with patch("basicbar_integrations.ai.chat_json", side_effect=replies) as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(chat.call_count, 2)
+        self.assertIn(ai_freetext_summary.RULE_SIMILAR, chat.call_args_list[0][0][0])
+        self.assertIn("nach Vorteil für Studierende", chat.call_args_list[1][0][0])
+        self.assertEqual(response.json()["clusters"][0]["label"], "Studierende")
+
+    @override_settings(**AI_ON)
+    def test_respects_moderation(self):
+        from .models import WordCloudModeration
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.ot, hidden=["peinlich"],
+            merges=[{"keys": ["ehrlicher", "kein login"], "label": "Ehrlich"}],
+        )
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"statements": []}
+        ) as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        prompt = chat.call_args[0][1]
+        self.assertNotIn("Peinlich", prompt)
+        self.assertIn("Ehrlich", prompt)
+        self.assertNotIn("Kein Login", prompt)
+        # Unreferenced answers still appear as their own statement.
+        self.assertEqual(sum(s["count"] for s in response.json()["merged"]), 4)
+
+    @override_settings(**AI_ON)
+    def test_model_error_returns_502(self):
+        from basicbar_integrations import ai
+        with patch("basicbar_integrations.ai.chat_json", side_effect=ai.AIError("x")):
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(self.url).status_code, 502)
+
+    @override_settings(**AI_OFF)
+    def test_disabled_returns_503(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.post(self.url).status_code, 503)
+
+    @override_settings(**AI_ON)
+    def test_requires_owner(self):
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(User.objects.create_user(username="eve"))
+            self.assertEqual(self.client.post(self.url).status_code, 404)
+        chat.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_anonymous_rejected(self):
+        self.assertIn(self.client.post(self.url).status_code, (401, 403))
+
+    @override_settings(**AI_ON)
+    def test_non_open_text_rejected(self):
+        url = f"/api/runs/{self.run.pk}/questions/{self.question.pk}/ai-summary/"
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(url).status_code, 400)
+        chat.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_ai_summary_off_for_question_rejected(self):
+        self.ot.wordcloud_ai_enabled = False
+        self.ot.save()
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(self.url).status_code, 400)
+        chat.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_no_answers_skips_model(self):
+        empty = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            position=9, wordcloud_ai_enabled=True,
+        )
+        url = f"/api/runs/{self.run.pk}/questions/{empty.pk}/ai-summary/"
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"merged": [], "clusters": []})
+        chat.assert_not_called()

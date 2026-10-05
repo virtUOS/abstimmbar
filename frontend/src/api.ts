@@ -1064,7 +1064,7 @@ export interface RunResults {
     before_question: number | null;
     options?: LiveOption[];
     likert?: LikertSummary;
-    words?: { text: string; count: number; onsite?: number; recording?: number }[];
+    words?: { text: string; count: number; onsite?: number; recording?: number; keys?: string[] }[];
     evaluation?: FreeTextEvalSummary;
     /** Priorities (#58): per-option avg/min/max/n. */
     priorities?: PriorityStat[];
@@ -1105,6 +1105,13 @@ export const results = {
   optimizeWordCloud: (runId: number, questionId: number) =>
     request<WordCloudOptimization>(
       `/api/runs/${runId}/questions/${questionId}/ai-wordcloud/`,
+      { method: "POST" },
+    ),
+  /** One-shot AI key statements (+ grouping) of a free-text question of a
+   *  finished run (Quiz-Block walkthrough); same shape as the live result. */
+  freeTextSummary: (runId: number, questionId: number) =>
+    request<WordCloudOptimization>(
+      `/api/runs/${runId}/questions/${questionId}/ai-summary/`,
       { method: "POST" },
     ),
   /** Optional AI evaluation of free-text answers (korrekt/unklar/falsch). */

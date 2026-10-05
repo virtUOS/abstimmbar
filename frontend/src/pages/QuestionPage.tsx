@@ -479,6 +479,7 @@ export default function QuestionPage() {
     setError("");
     try {
       const parsedLimit = parseInt(timeLimit, 10);
+      const textKind = question.kind === "word_cloud" || question.kind === "open_text";
       const payload = {
         kind: question.kind,
         text,
@@ -507,8 +508,10 @@ export default function QuestionPage() {
           wordcloudMaxAnswers !== 1 &&
           wordcloudBatchSubmit,
         wordcloud_live: question.kind !== "word_cloud" || wordcloudLive,
-        wordcloud_ai_enabled: question.kind === "word_cloud" && wordcloudAiEnabled,
-        wordcloud_grouping: question.kind === "word_cloud" ? wordcloudGrouping : "",
+        // Word clouds (AI cleanup) and free text (AI key statements) share
+        // these fields; other kinds reset them.
+        wordcloud_ai_enabled: textKind && wordcloudAiEnabled,
+        wordcloud_grouping: textKind ? wordcloudGrouping : "",
         wordcloud_merge_variants: wordcloudMergeVariants,
         wordcloud_merge_synonyms: wordcloudMergeSynonyms,
         wordcloud_merge_concepts: wordcloudMergeConcepts,
@@ -1602,6 +1605,57 @@ export default function QuestionPage() {
                     {t("Show each participant the evaluation of their own answer")}
                   </label>
                 )}
+              </div>
+            )}
+          </AiAssistPanel>
+        )}
+
+        {/* Free-text AI summary (presentation): key statements + grouping in
+            the beamer views and the Quiz-Block walkthrough. Self-checks have
+            no beamer. Shares the word-cloud fields: merge_concepts = also
+            merge similar statements, grouping = grouping instruction. */}
+        {question.kind === "open_text" && aiEnabled && set?.type !== "self_check" && (
+          <AiAssistPanel title={t("AI summary (presentation)")}>
+            <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+              <input
+                type="checkbox"
+                role="switch"
+                checked={wordcloudAiEnabled}
+                onChange={(event) => setWordcloudAiEnabled(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+              />
+              {t("AI summary (key statements, grouping)")}
+            </label>
+            <p className="mt-1 text-xs text-slate-400">
+              {t(
+                "In presentation mode, switch to Key statements or Grouped with the “a” key / “View” button. The beamer then shows AI statements with counts instead of the answers.",
+              )}
+            </p>
+            {wordcloudAiEnabled && (
+              <div className="mt-3 grid gap-3">
+                <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                  <input
+                    type="checkbox"
+                    checked={wordcloudMergeConcepts}
+                    onChange={(event) => setWordcloudMergeConcepts(event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  />
+                  {t("Also merge similar statements")}
+                </label>
+                <label className="grid gap-1 text-sm text-slate-700 dark:text-slate-300">
+                  {t("Grouping instruction")}
+                  <textarea
+                    value={wordcloudGrouping}
+                    onChange={(event) => setWordcloudGrouping(event.target.value)}
+                    rows={2}
+                    maxLength={1000}
+                    placeholder={t("e.g. “by advantage for students vs. teachers” — empty = automatic topics")}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                  />
+                  <span className="text-xs text-slate-400">
+                    {t("Controls the “Grouped” view; the key statements stay the same.")}
+                  </span>
+                </label>
               </div>
             )}
           </AiAssistPanel>

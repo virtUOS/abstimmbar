@@ -33,7 +33,14 @@ from common.markdown import render_markdown
 from common.models import SiteConfig
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
-from . import ai_evaluation, ai_freetext, ai_report, ai_wordcloud, ai_wordcloud_live
+from . import (
+    ai_evaluation,
+    ai_freetext,
+    ai_freetext_summary,
+    ai_report,
+    ai_wordcloud,
+    ai_wordcloud_live,
+)
 from .ai_freetext import clean_categories
 from .hub import hub, sse_frame
 from .models import (
@@ -1573,6 +1580,44 @@ def optimize_wordcloud(request, run_id, question_id):
     except ai.AIError as exc:
         return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
     return Response(ai_wordcloud.apply_optimization(words, data))
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def freetext_summary(request, run_id, question_id):
+    """One-shot AI key statements (+ grouping) of a free-text question for
+    the Quiz-Block walkthrough of a finished run. Same ``{merged, clusters}``
+    shape as the live presenter result; uses the question's settings
+    (``wordcloud_merge_concepts``, ``wordcloud_grouping``) and the run's
+    moderation overlay. Non-destructive and not cached server-side."""
+    if not ai.is_enabled():
+        return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+    run = get_object_or_404(Run.objects.select_related("question_set__room"), pk=run_id)
+    if not _require_owner(request.user, run.question_set.room):
+        raise Http404
+    question = get_object_or_404(
+        Question, pk=question_id, question_set=run.question_set
+    )
+    if question.kind != Question.Kind.OPEN_TEXT:
+        return Response({"detail": "Nur für Freitext-Fragen verfügbar."}, status=400)
+    if not question.wordcloud_ai_enabled:
+        return Response(
+            {"detail": "KI-Zusammenfassung ist für diese Frage nicht aktiviert."},
+            status=400,
+        )
+    words = words_with_counts(run, question, limit=ai_freetext_summary.INPUT_MAX)
+    if not words:
+        return Response({"merged": [], "clusters": []})
+    try:
+        result = ai_freetext_summary.summarize(
+            words,
+            grouping=question.wordcloud_grouping,
+            merge_similar=question.wordcloud_merge_concepts,
+            chat_json=ai.chat_json,
+        )
+    except ai.AIError as exc:
+        return Response({"detail": f"KI-Fehler: {exc}"}, status=502)
+    return Response({"merged": result["merged"], "clusters": result["clusters"]})
 
 
 WORDCLOUD_GROUPING_MAX = 1000

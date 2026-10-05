@@ -36,6 +36,26 @@ const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
  *  reads "consolidated" as key statements; "results" = its AI verdict bars. */
 type WcView = "raw" | "results" | "consolidated" | "grouped";
 
+/** View options of a free-text question (live presenter and the Quiz-Block
+ *  walkthrough share them): Original, Evaluation (AI verdict bars, only when
+ *  evaluated), Key statements + Grouped (only with the AI summary on). */
+function freeTextViewOptions(
+  t: (key: string) => string,
+  hasEval: boolean,
+  ai: boolean,
+): { value: WcView; label: string }[] {
+  return [
+    { value: "raw", label: t("Original") },
+    ...(hasEval ? [{ value: "results" as const, label: t("Evaluation") }] : []),
+    ...(ai
+      ? [
+          { value: "consolidated" as const, label: t("Key statements") },
+          { value: "grouped" as const, label: t("Grouped") },
+        ]
+      : []),
+  ];
+}
+
 function evalLabel(verdict: string) {
   return verdict ? verdict[0].toUpperCase() + verdict.slice(1) : verdict;
 }
@@ -118,6 +138,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [presentResultsAfter, setPresentResultsAfter] = useState(true);
   const [walk, setWalk] = useState<RunResults["questions"] | null>(null);
   const [walkIndex, setWalkIndex] = useState(0);
+  // Walkthrough view of a free-text slide (Original / Evaluation / Key
+  // statements / Grouped) and the one-shot AI summaries, cached per
+  // "run:question" ("error" = the last request failed; absent = not loaded).
+  const [walkViewState, setWalkView] = useState<WcView>("raw");
+  const [walkAi, setWalkAi] = useState<Record<string, WordCloudAI | "error">>({});
+  const walkAiLoading = useRef<Set<string>>(new Set());
   const [runId, setRunId] = useState<number | null>(null);
   // Recording mode (#53): opted in on the set page (checkbox), carried here as
   // ?recording=1; live only (self-paced is already async).
@@ -290,16 +316,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const defaultView: WcView = hasEval ? "results" : "raw";
   // One option list for the footer dropdown, the `A` cycle and the AI panel.
   const wcViewOptions: { value: WcView; label: string }[] = isOpenText
-    ? [
-        { value: "raw", label: t("Original") },
-        ...(hasEval ? [{ value: "results" as const, label: t("Results") }] : []),
-        ...(aiCloud
-          ? [
-              { value: "consolidated" as const, label: t("Key statements") },
-              { value: "grouped" as const, label: t("Grouped") },
-            ]
-          : []),
-      ]
+    ? freeTextViewOptions(t, hasEval, aiCloud)
     : [
         { value: "raw", label: t("Original") },
         ...(aiCloud
@@ -865,6 +882,53 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     setWalkIndex((i) => Math.max(0, i - 1));
   }, []);
 
+  // Free-text slides get the live view picker (expert-gated AI views, fed by
+  // an on-demand one-shot summary of the stored votes instead of the live
+  // loop). Other kinds have a single view.
+  const walkItem = walk ? walk[walkIndex] : undefined;
+  const walkIsOpenText = walkItem?.kind === "open_text";
+  const walkHasEval = walkIsOpenText && !!walkItem?.evaluation;
+  const walkAiOn =
+    walkIsOpenText &&
+    expert &&
+    whoAi.ai &&
+    questions.find((q) => q.id === walkItem?.id)?.wordcloud_ai_enabled === true;
+  const walkDefaultView: WcView = walkHasEval ? "results" : "raw";
+  const walkViewOptions = walkIsOpenText ? freeTextViewOptions(t, walkHasEval, walkAiOn) : [];
+  const walkView: WcView = walkViewOptions.some((o) => o.value === walkViewState)
+    ? walkViewState
+    : walkDefaultView;
+  const walkAiKey = runId != null && walkItem ? `${runId}:${walkItem.id}` : "";
+  const walkWantsAi = walkView === "consolidated" || walkView === "grouped";
+  useEffect(() => {
+    setWalkView(walkDefaultView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walk, walkIndex]);
+  useEffect(() => {
+    if (!walkWantsAi || !walkAiKey || !walkItem || runId == null) return;
+    if (walkAi[walkAiKey] !== undefined || walkAiLoading.current.has(walkAiKey)) return;
+    const key = walkAiKey;
+    walkAiLoading.current.add(key);
+    void results
+      .freeTextSummary(runId, walkItem.id)
+      .then((res) => setWalkAi((m) => ({ ...m, [key]: { ...res, pending: false } })))
+      .catch(() => setWalkAi((m) => ({ ...m, [key]: "error" })))
+      .finally(() => walkAiLoading.current.delete(key));
+  }, [walkWantsAi, walkAiKey, walkItem, runId, walkAi]);
+  const retryWalkAi = () =>
+    setWalkAi((m) => {
+      const next = { ...m };
+      delete next[walkAiKey];
+      return next;
+    });
+  const walkViewKey = walkViewOptions.map((o) => o.value).join(",");
+  const cycleWalkView = useCallback(() => {
+    const values = walkViewKey.split(",") as WcView[];
+    if (values.length < 2) return;
+    const i = values.indexOf(walkView);
+    setWalkView(values[(i + 1) % values.length]);
+  }, [walkViewKey, walkView]);
+
   // Memoized so the keydown effect (which lists it as a dependency) doesn't
   // re-register the window listener on every render — including the live
   // path's frequent SSE-driven re-renders (#75). Declared before onKey, which
@@ -897,6 +961,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         if (key === "escape") leavePresentation();
         else if (advance || key === "arrowright") walkAdvance();
         else if (key === "arrowleft") walkBack();
+        else if (key === "a") cycleWalkView();
         return;
       }
       // On the closing slide (#32) any advance/Esc leaves to management.
@@ -961,7 +1026,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, leavePresentation],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation],
   );
 
   useEffect(() => {
@@ -1065,12 +1130,31 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         logo={beamerLogo}
         footer={
           <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
-            <span>
-              {t("Question {{current}}/{{total}}", {
-                current: walkIndex + 1,
-                total: walk.length,
-              })}
-            </span>
+            <div className="flex items-center gap-3">
+              <span>
+                {t("Question {{current}}/{{total}}", {
+                  current: walkIndex + 1,
+                  total: walk.length,
+                })}
+              </span>
+              {walkViewOptions.length > 1 && (
+                <label className={`${btn} gap-2`}>
+                  {t("View")}
+                  <select
+                    value={walkView}
+                    onChange={(event) => setWalkView(event.target.value as WcView)}
+                    className="bg-transparent font-medium text-slate-700 focus:outline-none dark:text-slate-200"
+                  >
+                    {walkViewOptions.map((view) => (
+                      <option key={view.value} value={view.value}>
+                        {view.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Kbd>A</Kbd>
+                </label>
+              )}
+            </div>
             <div className="flex gap-2">
               <button className={`${btn} text-red-700`} onClick={leavePresentation}>
                 {t("Back to overview")} <Kbd>Esc</Kbd>
@@ -1095,7 +1179,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
             html={localizedText(item.text)}
           />
-          <WalkthroughResultBody item={item} />
+          <WalkthroughResultBody
+            item={item}
+            view={walkView}
+            ai={walkAi[walkAiKey]}
+            onRetryAi={retryWalkAi}
+          />
         </div>
       </Shell>
     );
@@ -1975,9 +2064,21 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
  * rendering above kind-for-kind but fed from stored results instead of
  * `state`, and with correct answers always revealed (no reveal-level gate —
  * self-paced has no live audience to hide them from once the quiz is over). */
-function WalkthroughResultBody({ item }: { item: RunResults["questions"][number] }) {
+function WalkthroughResultBody({
+  item,
+  view = "raw",
+  ai,
+  onRetryAi,
+}: {
+  item: RunResults["questions"][number];
+  /** Free-text view (the other kinds have only one). */
+  view?: WcView;
+  /** One-shot AI summary for the key-statement/grouped views (undefined =
+   *  loading, "error" = failed). */
+  ai?: WordCloudAI | "error";
+  onRetryAi?: () => void;
+}) {
   const { t } = useTranslation();
-  const reduced = useReducedMotion();
   const total = item.votes ?? 0;
 
   if (item.kind === "likert" && item.likert) {
@@ -1998,7 +2099,27 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
     return <OrderingResult ordering={item.ordering} animate />;
   }
 
-  if (item.kind === "open_text" && item.evaluation) {
+  if (item.kind === "open_text" && (view === "consolidated" || view === "grouped")) {
+    if (ai === "error") {
+      return (
+        <div className="mt-10 text-center text-slate-500">
+          <p className="text-xl">{t("The AI summary could not be created.")}</p>
+          {onRetryAi && (
+            <button
+              type="button"
+              onClick={onRetryAi}
+              className="mt-4 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              {t("Try again")}
+            </button>
+          )}
+        </div>
+      );
+    }
+    return <FreeTextAiView view={view} ai={ai} />;
+  }
+
+  if (item.kind === "open_text" && item.evaluation && view === "results") {
     const evaluation = item.evaluation;
     const evalTotal = evaluation.groups.reduce((s, g) => s + g.count, 0);
     return (
@@ -2030,23 +2151,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
   }
 
   if (item.kind === "open_text") {
-    return (
-      <ul className="mt-8 flex max-h-96 flex-wrap gap-3 overflow-auto">
-        {(item.words ?? []).map((entry, i) => (
-          <li
-            key={entry.text}
-            className="ab-chip-in rounded-full px-4 py-2 text-xl"
-            style={{ background: termColor(entry.text), color: INK, animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms` }}
-          >
-            {entry.text}
-            {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
-          </li>
-        ))}
-        {(item.words ?? []).length === 0 && (
-          <p className="text-slate-400">{t("No answers yet …")}</p>
-        )}
-      </ul>
-    );
+    return <AnswerChips words={item.words ?? []} />;
   }
 
   if (item.kind === "word_cloud") {

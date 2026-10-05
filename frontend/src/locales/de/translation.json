@@ -866,5 +866,12 @@
   "Synonyms and word forms (e.g. einsam / Einsamkeit)": "Synonyme und Wortformen (z. B. einsam / Einsamkeit)",
   "Similar concepts (e.g. Gebäude / Haus / Wohnung)": "Ähnliche Konzepte (z. B. Gebäude / Haus / Wohnung)",
   "Merge again": "Neu zusammenfassen",
-  "Tip: the star switches the AI views on and lets you adjust the grouping on the spot.": "Tipp: Mit dem Stern schalten Sie die KI-Ansichten ein und passen die Gruppierung spontan an."
+  "Tip: the star switches the AI views on and lets you adjust the grouping on the spot.": "Tipp: Mit dem Stern schalten Sie die KI-Ansichten ein und passen die Gruppierung spontan an.",
+  "Evaluation": "Bewertung",
+  "The AI summary could not be created.": "Die KI-Zusammenfassung konnte nicht erstellt werden.",
+  "AI summary (presentation)": "KI-Zusammenfassung (Präsentation)",
+  "AI summary (key statements, grouping)": "KI-Zusammenfassung (Kernaussagen, Gruppierung)",
+  "In presentation mode, switch to Key statements or Grouped with the “a” key / “View” button. The beamer then shows AI statements with counts instead of the answers.": "Im Präsentationsmodus wechseln Sie mit der Taste „a“ bzw. „Ansicht“ zu Kernaussagen oder Gruppiert. Der Beamer zeigt dann KI-Aussagen mit Anzahl statt der Antworten.",
+  "e.g. “by advantage for students vs. teachers” — empty = automatic topics": "z. B. „nach Vorteil für Studierende vs. Lehrende“ – leer = automatische Themen",
+  "Controls the “Grouped” view; the key statements stay the same.": "Steuert die Ansicht „Gruppiert“; die Kernaussagen bleiben unverändert."
 }
