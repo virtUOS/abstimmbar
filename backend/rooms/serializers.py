@@ -394,7 +394,9 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             "binary_choice",
             "time_limit", "position", "options", "ai_evaluate", "evaluation_hint",
             "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
-            "wordcloud_grouping", "wordcloud_max_answers", "wordcloud_batch_submit",
+            "wordcloud_grouping", "wordcloud_merge_variants",
+            "wordcloud_merge_synonyms", "wordcloud_merge_concepts",
+            "wordcloud_max_answers", "wordcloud_batch_submit",
             "evaluation_categories", "evaluation_chart",
             "model_solution", "participant_feedback",
             "reveal_answers", "before_question", "after_question", "is_after",
@@ -413,6 +415,15 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
 
     def validate_text(self, value):
         return clean_html(value)
+
+    def validate_wordcloud_grouping(self, value):
+        # Same cap as the presenter's ai-settings endpoint; an unchanged
+        # (legacy, longer) stored value stays saveable.
+        if len(value) > 1000 and not (
+            self.instance is not None and value == self.instance.wordcloud_grouping
+        ):
+            raise serializers.ValidationError("Max. 1000 characters.")
+        return value
 
     def validate_evaluation_categories(self, value):
         # 2–5 trimmed, unique, non-empty labels; else the default scale.

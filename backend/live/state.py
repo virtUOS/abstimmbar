@@ -182,6 +182,12 @@ def build_payloads(room):
         presenter["ends_at"] = ends_at
     if question:
         presenter["question"] = question_payload(question, shuffle_seed=run.pk)
+        # Presenter-only (not in the participant payload): the AI grouping
+        # instruction shown/edited in the word-cloud AI panel.
+        presenter["question"]["wordcloud_grouping"] = question.wordcloud_grouping
+        for flag in ("variants", "synonyms", "concepts"):
+            field = f"wordcloud_merge_{flag}"
+            presenter["question"][field] = getattr(question, field)
         presenter["votes"] = run.votes.filter(question=question).count()
         if question.kind in Question.TEXT_KINDS:
             presenter["words"] = words_with_counts(run, question)

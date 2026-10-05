@@ -847,5 +847,17 @@
   "Texts shown before login and to participants after every vote.": "Texte vor dem Login und für Teilnehmende nach jeder Abstimmung.",
   "Privacy notice and limits for the AI features.": "Datenschutzhinweis und Limits für die KI-Funktionen.",
   "Limits how many free-text answers the AI assesses per self-check within 60 seconds. Beyond that, learners see the model solution instead of an AI assessment. Useful for paid external AI services; 0 = unlimited (fine for a local model).": "Begrenzt, wie viele Freitext-Antworten die KI je Lernkontrolle innerhalb von 60 Sekunden bewertet. Darüber hinaus sehen Lernende statt einer KI-Bewertung die Musterlösung. Sinnvoll bei kostenpflichtigen externen KI-Diensten; 0 = unbegrenzt (passend für ein lokales Modell).",
-  "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.": "Tipp: Ziehen Sie einen Begriff auf einen anderen, um beide zusammenzuführen; mit × blenden Sie einen Begriff aus; der Stift rechts öffnet die Bearbeitung."
+  "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.": "Tipp: Ziehen Sie einen Begriff auf einen anderen, um beide zusammenzuführen; mit × blenden Sie einen Begriff aus; der Stift rechts öffnet die Bearbeitung.",
+  "AI word cloud": "KI-Wortwolke",
+  "Use AI for this word cloud": "KI für diese Wortwolke nutzen",
+  "Saved on the question.": "Wird an der Frage gespeichert.",
+  "Grouping instruction": "Gruppierungs-Anweisung",
+  "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.": "Leer = die KI findet selbst Themen. Z. B. „positiv / neutral / negativ“ oder „nach Themen der Vorlesung“.",
+  "Regroup": "Neu gruppieren",
+  "“Cleaned up” merges:": "„Aufgeräumt“ fasst zusammen:",
+  "Spelling variants and typos (e.g. müde / muede / mühde)": "Schreibvarianten und Tippfehler (z. B. müde / muede / mühde)",
+  "Synonyms and word forms (e.g. einsam / Einsamkeit)": "Synonyme und Wortformen (z. B. einsam / Einsamkeit)",
+  "Similar concepts (e.g. Gebäude / Haus / Wohnung)": "Ähnliche Konzepte (z. B. Gebäude / Haus / Wohnung)",
+  "Merge again": "Neu zusammenfassen",
+  "Tip: the star switches the AI views on and lets you adjust the grouping on the spot.": "Tipp: Mit dem Stern schalten Sie die KI-Ansichten ein und passen die Gruppierung spontan an."
 }
