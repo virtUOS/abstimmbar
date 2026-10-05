@@ -31,30 +31,34 @@ ELLIPSIS = "…"
 # never shown verbatim on the beamer (privacy: verbatim only in "Original").
 LEFTOVER_LABEL = "Weitere Einzelantworten"
 
+# Examples deliberately from a neutral domain (course feedback), not from any
+# particular question, so the model learns the principle, not a topic.
 RULE_EQUIVALENT = (
     "- Fasse Antworten mit derselben Kernaussage zu EINER Kernaussage "
     "zusammen, auch wenn sie ganz unterschiedlich formuliert, unterschiedlich "
     "ausführlich oder aus anderer Perspektive geschrieben sind. Entscheidend "
-    "ist, was gemeint ist, nicht der Wortlaut. Beispiele für jeweils EINE "
-    "Kernaussage:\n"
-    "  • „Niemand weiß, wer was geantwortet hat“ + „Die Antworten sind nicht "
-    "zuordenbar“ + „Die Lehrkraft sieht nicht, wer falsch lag“\n"
-    "  • „Ehrlichere Antworten“ + „Man traut sich ehrlicher zu antworten“\n"
-    "  • „Keine Registrierung nötig“ + „Man braucht kein Konto“\n"
-    "  • „Kein Gruppendruck“ + „Man blamiert sich nicht vor anderen“\n"
+    "ist, was gemeint ist, nicht der Wortlaut. Beispiele (Feedback zu einer "
+    "Vorlesung) für jeweils EINE Kernaussage:\n"
+    "  • „Die Folien sind zu voll“ + „zu viel Text auf den Slides“\n"
+    "  • „Tempo zu hoch“ + „es geht zu schnell“ + „man kommt beim "
+    "Mitschreiben nicht hinterher“\n"
+    "  • „Mikrofon ist hinten kaum zu hören“ + „akustisch schlecht zu "
+    "verstehen“\n"
     "  Getrennt bleiben Antworten mit verschiedenen Kernaussagen, z. B. "
-    "„keine Namen nötig“ und „ehrlichere Antworten“ oder „ehrlichere "
-    "Antworten“ und „kein Gruppendruck“ (Ursache und Folge oder "
-    "benachbarte Punkte sind verschiedene Aussagen)."
+    "„mehr Beispiele“ und „der Praxisbezug fehlt“ oder „Tempo zu hoch“ und "
+    "„Stoff ist zu schwer“ (benachbarte Punkte oder Ursache und Folge sind "
+    "verschiedene Aussagen). Jede Kernaussage enthält genau EINEN Gedanken: "
+    "Braucht das Label „und“, „durch“ oder „ermöglicht“, um mehrere Antworten "
+    "abzudecken, sind es meist zwei Kernaussagen."
 )
 RULE_SIMILAR = (
     "- Fasse großzügig zusammen: Antworten, die denselben Aspekt betreffen, "
     "bilden EINE Kernaussage — auch verwandte Punkte, die sich ergänzen oder "
-    "auseinander folgen (z. B. „Niemand weiß, wer was geantwortet hat“ + "
-    "„Keine Namen nötig“ + „Keine IP-Adressen gespeichert“ → Anonymität der "
-    "Teilnahme; „Ehrlichere Antworten“ + „Weniger Hemmungen“ + „Kein "
-    "Gruppendruck“ → offenere Antworten). Antworten zu klar verschiedenen "
-    "Aspekten bleiben getrennt."
+    "auseinander folgen (Beispiele aus Feedback zu einer Vorlesung: „mehr "
+    "Beispiele“ + „der Praxisbezug fehlt“ + „Übungsaufgaben aus dem Alltag“ "
+    "→ mehr Anwendungsbezug; „Folien sind zu voll“ + „Schrift zu klein“ → "
+    "Folien schwer lesbar). Antworten zu klar verschiedenen Aspekten bleiben "
+    "getrennt."
 )
 
 
@@ -169,9 +173,9 @@ def build_summary_prompt(words):
         + "\n\nGib JSON in genau dieser Form zurück (das Beispiel zeigt nur das "
         "Format — was zusammengefasst wird, bestimmen allein die Regeln):\n"
         '{"statements": ['
-        '{"label": "Teilnehmende bleiben unerkannt", "cluster": "Anonymität", '
+        '{"label": "Vortragstempo ist zu hoch", "cluster": "Tempo", '
         '"members": [1, 4]}, '
-        '{"label": "Ehrlichere Antworten", "cluster": "Qualität", '
+        '{"label": "Mehr Beispiele gewünscht", "cluster": "Inhalt", '
         '"members": [2]}]}'
     )
 

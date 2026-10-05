@@ -4786,11 +4786,17 @@ class AiFreetextSummaryTests(LiveTestCase):
     def test_strict_rule_is_core_message_with_examples(self):
         strict = ai_freetext_summary.summary_system(merge_similar=False)
         self.assertIn("Kernaussage", ai_freetext_summary.RULE_EQUIVALENT)
-        for example in ("zuordenbar", "Registrierung", "ehrlicher"):
+        for example in ("Folien sind zu voll", "zu schnell", "Praxisbezug"):
             self.assertIn(example, strict)
         self.assertNotIn("Im Zweifel NICHT", strict)
         broad = ai_freetext_summary.summary_system(merge_similar=True)
         self.assertIn("Aspekt", broad)
+        # Neutral domain: no examples from the test topic (anonymous surveys),
+        # neither in the rules nor in the format example (no answers sent).
+        for text in (strict, broad, ai_freetext_summary.build_summary_prompt([])):
+            for topic_word in ("nonym", "zuordenbar", "Registrierung", "hrlicher",
+                               "Gruppendruck", "unerkannt"):
+                self.assertNotIn(topic_word, text)
 
     def test_grouping_criterion_only_in_second_step(self):
         # The statement prompt never sees a criterion (it cannot take one).
