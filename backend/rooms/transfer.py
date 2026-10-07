@@ -260,6 +260,8 @@ def export_set(question_set):
                 "evaluation_hint": question.evaluation_hint,
                 "evaluation_categories": question.evaluation_categories,
                 "evaluation_chart": question.evaluation_chart,
+                "model_solution": question.model_solution,
+                "participant_feedback": question.participant_feedback,
                 "section": section_index.get(question.section_id),
                 "options": [
                     {
@@ -405,6 +407,9 @@ def import_set(room, data):
             evaluation_hint=str(item.get("evaluation_hint") or "")[:2000],
             evaluation_categories=_import_categories(item.get("evaluation_categories")),
             evaluation_chart=bool(item.get("evaluation_chart")),
+            # Missing in older exports → empty solution, feedback off.
+            model_solution=str(item.get("model_solution") or "")[:2000],
+            participant_feedback=bool(item.get("participant_feedback")),
             reveal_answers=(
                 item.get("reveal_answers")
                 if item.get("reveal_answers") in Question.RevealAnswers.values

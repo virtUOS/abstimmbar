@@ -1275,6 +1275,48 @@ class TransferTests(ApiTestCase):
         imported = import_set(target, data)
         self.assertEqual(imported.quiz_time_limit, 300)
 
+    def test_export_import_roundtrip_preserves_model_solution_and_feedback(self):
+        """A free-text question's model solution and participant-feedback
+        switch survive export/import (they were silently dropped before)."""
+        from .transfer import export_set, import_set
+
+        Question.objects.create(
+            question_set=self.question_set,
+            kind=Question.Kind.OPEN_TEXT,
+            text_de="Was zeichnet eine anonyme Umfrage aus?",
+            model_solution="Keine Rückschlüsse auf die antwortende Person.",
+            participant_feedback=True,
+            ai_evaluate=True,
+            position=99,
+        )
+        data = export_set(self.question_set)
+        item = next(q for q in data["questions"] if q["kind"] == Question.Kind.OPEN_TEXT)
+        self.assertEqual(item["model_solution"], "Keine Rückschlüsse auf die antwortende Person.")
+        self.assertTrue(item["participant_feedback"])
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        q = imported.questions.get(kind=Question.Kind.OPEN_TEXT)
+        self.assertEqual(q.model_solution, "Keine Rückschlüsse auf die antwortende Person.")
+        self.assertTrue(q.participant_feedback)
+
+    def test_import_without_model_solution_keys_uses_defaults(self):
+        """Older export files lack the keys → empty solution, feedback off."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "x",
+                "questions": [{"kind": "open_text", "text": {"de": "Frage"}, "options": []}],
+            },
+        )
+        q = imported.questions.get()
+        self.assertEqual(q.model_solution, "")
+        self.assertFalse(q.participant_feedback)
+
     def test_import_rejects_invalid_quiz_time_limit(self):
         """A foreign/legacy file with an implausible ``quiz_time_limit``
         (negative, non-int, or out of range) imports as None rather than
