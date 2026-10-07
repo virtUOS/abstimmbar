@@ -5904,7 +5904,7 @@ class MindmapPayloadTests(MindmapTestCase):
         wind = mindmap["nodes"][0]
         self.assertEqual(
             set(wind), {"id", "text", "count", "descriptions", "seeded", "children"}
-        )
+        )  # "teacher" only appears on presenter-added nodes
         self.assertEqual(wind["id"], a)
         self.assertEqual(wind["count"], 2)
         self.assertEqual(wind["descriptions"], ["Rotoren", "Offshore"])
@@ -6337,3 +6337,559 @@ class MindmapFixRoundTests(MindmapTestCase):
             self.assertEqual(csv_safe(raw), "'" + raw)
         self.assertEqual(csv_safe("Wind"), "Wind")
         self.assertEqual(csv_safe(3), 3)
+
+
+class MindmapModerationTestCase(MindmapTestCase):
+    """Stage 2: the presenter's moderation operations (owner-only)."""
+
+    def setUp(self):
+        super().setUp()
+        self.run = self.open_mindmap()
+
+    def mod(self, op, run=None, **body):
+        return self.client.post(
+            f"/api/runs/{(run or self.run).pk}/mindmap/{self.mq.pk}/{op}",
+            body, content_type="application/json",
+        )
+
+    def owner_mod(self, op, **body):
+        self.client.force_login(self.owner)
+        with patch("live.views.broadcast"):
+            return self.mod(op, **body)
+
+    def node(self, text, parent=None):
+        return MindmapNode.objects.get(
+            run=self.run, question=self.mq, text_key=text.casefold(), parent=parent
+        )
+
+    def contribute(self, text, parent=None, token=None, **extra):
+        token = token or self.join()
+        response = self.add(token, text, parent=parent, **extra)
+        self.assertEqual(response.status_code, 201, response.content)
+        return response.json()["node_id"]
+
+    def shape(self):
+        """{text: (parent text, count)} of all nodes — for exact-restore checks."""
+        result = {}
+        for node in MindmapNode.objects.filter(run=self.run, question=self.mq):
+            result[(node.parent.text if node.parent else None, node.text)] = (
+                node.contributions.count(), node.seeded, node.teacher, node.hidden,
+                node.description,
+            )
+        return result
+
+
+class MindmapModerationAccessTests(MindmapModerationTestCase):
+    OPS = ("add", "merge", "unmerge", "move", "rename", "delete")
+
+    def test_non_owner_gets_404_everywhere(self):
+        node = self.contribute("Wind")
+        self.client.force_login(User.objects.create_user(username="eve"))
+        for op in self.OPS:
+            self.assertEqual(
+                self.mod(op, node=node, text="X", parent=None, source=node,
+                         target=node, undo="x").status_code, 404, op,
+            )
+        self.assertEqual(MindmapNode.objects.get(pk=node).text, "Wind")
+
+    def test_anonymous_refused(self):
+        for op in self.OPS:
+            self.assertIn(self.mod(op, text="X").status_code, (401, 403), op)
+
+    def test_non_mindmap_question_404(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/runs/{self.run.pk}/mindmap/{self.question.pk}/add",
+            {"parent": None, "text": "X"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_broadcasts_after_change(self):
+        self.client.force_login(self.owner)
+        with patch("live.views.broadcast") as bc:
+            self.assertEqual(self.mod("add", parent=None, text="Wind").status_code, 201)
+        bc.assert_called_once()
+
+
+class MindmapTeacherAddTests(MindmapModerationTestCase):
+    def test_add_creates_teacher_node_without_contribution(self):
+        response = self.owner_mod("add", parent=None, text="  Solar  ")
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        self.assertEqual(set(body), {"node_id", "merged"})
+        self.assertFalse(body["merged"])
+        node = MindmapNode.objects.get(pk=body["node_id"])
+        self.assertEqual((node.text, node.text_key, node.parent), ("Solar", "solar", None))
+        self.assertTrue(node.teacher)
+        self.assertFalse(node.seeded)
+        self.assertFalse(node.contributions.exists())
+        tree = self.tree()
+        self.assertEqual(tree["nodes"][0]["count"], 0)
+        self.assertTrue(tree["nodes"][0]["teacher"])
+
+    def test_teacher_flag_only_on_teacher_nodes_in_payload(self):
+        self.contribute("Wind")
+        self.assertNotIn("teacher", self.tree()["nodes"][0])
+
+    def test_add_same_name_returns_existing_node(self):
+        existing = self.contribute("Wind")
+        response = self.owner_mod("add", parent=None, text="WIND")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"node_id": existing, "merged": True})
+        node = MindmapNode.objects.get(pk=existing)
+        self.assertFalse(node.teacher)
+        self.assertEqual(node.contributions.count(), 1)
+
+    def test_add_child_and_depth(self):
+        self.mq.mindmap_depth = 2
+        self.mq.save()
+        a = self.owner_mod("add", parent=None, text="A").json()["node_id"]
+        b = self.owner_mod("add", parent=a, text="B")
+        self.assertEqual(b.status_code, 201)
+        response = self.owner_mod("add", parent=b.json()["node_id"], text="C")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Maximum depth reached.")
+
+    def test_add_description_only_when_enabled(self):
+        node = self.owner_mod("add", parent=None, text="A", description="d").json()
+        self.assertEqual(MindmapNode.objects.get(pk=node["node_id"]).description, "")
+        self.mq.mindmap_descriptions = True
+        self.mq.save()
+        node = self.owner_mod("add", parent=None, text="B", description=" Erklärung ").json()
+        self.assertEqual(MindmapNode.objects.get(pk=node["node_id"]).description, "Erklärung")
+        self.assertEqual(self.tree()["nodes"][1]["descriptions"], ["Erklärung"])
+
+    def test_add_validation(self):
+        self.assertEqual(self.owner_mod("add", parent=None, text="  ").status_code, 400)
+        self.assertEqual(self.owner_mod("add", parent=None, text="x" * 61).status_code, 400)
+        self.assertEqual(self.owner_mod("add", parent=None, text=5).status_code, 400)
+        self.assertEqual(self.owner_mod("add", parent="1", text="A").status_code, 400)
+        self.assertEqual(self.owner_mod("add", parent=True, text="A").status_code, 400)
+        self.assertEqual(
+            self.owner_mod("add", parent=None, text="A", description=3).status_code, 400
+        )
+        self.assertEqual(self.owner_mod("add", parent=999999, text="A").status_code, 404)
+        hidden = self.contribute("H")
+        MindmapNode.objects.filter(pk=hidden).update(hidden=True)
+        self.assertEqual(self.owner_mod("add", parent=hidden, text="A").status_code, 409)
+        self.assertFalse(MindmapNode.objects.filter(text="A").exists())
+
+    def test_add_respects_node_cap(self):
+        from live import mindmap as mm
+
+        with patch.object(mm, "MINDMAP_MAX_NODES", 1):
+            self.owner_mod("add", parent=None, text="A")
+            response = self.owner_mod("add", parent=None, text="B")
+        self.assertEqual(response.status_code, 409)
+
+    def test_participants_cannot_delete_teacher_node_and_no_quota(self):
+        self.mq.mindmap_max_per_person = 1
+        self.mq.save()
+        node = self.owner_mod("add", parent=None, text="Wind").json()["node_id"]
+        token = self.join()
+        # Joining the teacher's term costs the participant one contribution …
+        self.assertEqual(self.add(token, "wind").status_code, 201)
+        response = self.remove(token, node)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["deleted"])
+        self.assertTrue(MindmapNode.objects.filter(pk=node).exists())
+        # … but the teacher's own nodes never count towards anyone's quota.
+        self.owner_mod("add", parent=None, text="Solar")
+        self.assertEqual(self.add(token, "Biogas").status_code, 201)
+
+
+class MindmapTeacherDeleteTests(MindmapModerationTestCase):
+    def test_delete_teacher_leaf(self):
+        node = self.owner_mod("add", parent=None, text="A").json()["node_id"]
+        response = self.owner_mod("delete", node=node)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertFalse(MindmapNode.objects.filter(pk=node).exists())
+
+    def test_delete_refusals(self):
+        participant = self.contribute("P")
+        self.assertEqual(self.owner_mod("delete", node=participant).status_code, 409)
+        teacher = self.owner_mod("add", parent=None, text="T").json()["node_id"]
+        self.contribute("t")
+        self.assertEqual(self.owner_mod("delete", node=teacher).status_code, 409)
+        parent = self.owner_mod("add", parent=None, text="Q").json()["node_id"]
+        self.owner_mod("add", parent=parent, text="child")
+        self.assertEqual(self.owner_mod("delete", node=parent).status_code, 409)
+        self.assertEqual(self.owner_mod("delete", node=999999).status_code, 404)
+        self.assertEqual(self.owner_mod("delete", node="1").status_code, 400)
+        self.assertEqual(MindmapNode.objects.count(), 4)
+
+
+class MindmapMergeTests(MindmapModerationTestCase):
+    def test_merge_moves_contributions_and_deletes_source(self):
+        t1, t2, t3 = self.join(), self.join(), self.join()
+        source = self.contribute("Windrad", token=t1)
+        self.contribute("Windrad", token=t2)
+        target = self.contribute("Windkraft", token=t2)
+        self.contribute("Windkraft", token=t3)
+        response = self.owner_mod("merge", source=source, target=target)
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(set(body), {"undo"})
+        self.assertIsInstance(body["undo"], str)
+        self.assertFalse(MindmapNode.objects.filter(pk=source).exists())
+        # Distinct contributors: t2's duplicate is dropped.
+        self.assertEqual(MindmapNode.objects.get(pk=target).contributions.count(), 3)
+        # Anonymity: no participant token in the undo data.
+        for token in (t1, t2, t3):
+            self.assertNotIn(token, json.dumps(body))
+
+    def test_merge_reparents_children_and_merges_same_named_recursively(self):
+        source = self.contribute("Wind")
+        target = self.contribute("Windenergie")
+        rotor_s = self.contribute("Rotor", parent=source)
+        self.contribute("Blatt", parent=rotor_s)
+        rotor_t = self.contribute("rotor", parent=target)
+        self.contribute("blatt", parent=rotor_t)
+        mast = self.contribute("Mast", parent=source)
+        response = self.owner_mod("merge", source=source, target=target)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(MindmapNode.objects.get(pk=mast).parent_id, target)
+        self.assertFalse(MindmapNode.objects.filter(pk=rotor_s).exists())
+        rotor = MindmapNode.objects.get(pk=rotor_t)
+        self.assertEqual(rotor.contributions.count(), 2)
+        blatt = rotor.children.get()
+        self.assertEqual(blatt.contributions.count(), 2)
+        self.assertEqual(MindmapNode.objects.count(), 4)
+
+    def test_merge_refusals(self):
+        a = self.contribute("A")
+        b = self.contribute("B", parent=a)
+        c = self.contribute("C")
+        self.assertEqual(self.owner_mod("merge", source=a, target=a).status_code, 400)
+        self.assertEqual(self.owner_mod("merge", source=a, target=b).status_code, 409)
+        self.assertEqual(self.owner_mod("merge", source=b, target=a).status_code, 409)
+        self.assertEqual(self.owner_mod("merge", source=a, target=999999).status_code, 404)
+        self.assertEqual(self.owner_mod("merge", source="1", target=c).status_code, 400)
+        self.assertEqual(self.owner_mod("merge", source=None, target=c).status_code, 400)
+        MindmapNode.objects.filter(pk=c).update(hidden=True)
+        self.assertEqual(self.owner_mod("merge", source=b, target=c).status_code, 409)
+        self.assertEqual(self.owner_mod("merge", source=c, target=b).status_code, 409)
+        self.assertEqual(MindmapNode.objects.count(), 3)
+
+    def test_merge_refused_into_hidden_subtree(self):
+        a = self.contribute("A")
+        b = self.contribute("B", parent=a)
+        c = self.contribute("C")
+        MindmapNode.objects.filter(pk=a).update(hidden=True)
+        self.assertEqual(self.owner_mod("merge", source=c, target=b).status_code, 409)
+
+    def test_merge_refused_beyond_depth(self):
+        self.mq.mindmap_depth = 3
+        self.mq.save()
+        deep_parent = self.contribute("P")
+        target = self.contribute("T", parent=self.contribute("Q", parent=deep_parent))
+        source = self.contribute("S")
+        self.contribute("child", parent=source)
+        response = self.owner_mod("merge", source=source, target=target)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Maximum depth reached.")
+
+    def test_merge_inherits_protection(self):
+        source = self.owner_mod("add", parent=None, text="T").json()["node_id"]
+        target = self.contribute("P")
+        self.owner_mod("merge", source=source, target=target)
+        self.assertTrue(MindmapNode.objects.get(pk=target).teacher)
+
+    def test_merging_away_seeded_node_keeps_seed_materialised(self):
+        self.mq.mindmap_seed = [{"text": "Wind", "description": "", "children": []}]
+        self.mq.save()
+        self.tree()
+        seeded = self.node("Wind")
+        target = self.contribute("Windkraft")
+        self.assertEqual(self.owner_mod("merge", source=seeded.pk, target=target).status_code, 200)
+        self.tree()  # ensure_seed must not re-create the merged seed node
+        self.assertFalse(MindmapNode.objects.filter(text_key="wind").exists())
+        self.assertTrue(MindmapNode.objects.get(pk=target).seeded)
+
+
+class MindmapUnmergeTests(MindmapModerationTestCase):
+    def build(self):
+        t1, t2, t3 = self.join(), self.join(), self.join()
+        self.source = self.contribute("Wind", token=t1, description="")
+        self.contribute("Wind", token=t2)
+        self.target = self.contribute("Windkraft", token=t2)
+        self.contribute("Windkraft", token=t3)
+        rotor_s = self.contribute("Rotor", parent=self.source, token=t1)
+        self.contribute("Blatt", parent=rotor_s, token=t1)
+        rotor_t = self.contribute("Rotor", parent=self.target, token=t1)
+        self.contribute("Nabe", parent=rotor_t, token=t2)
+        hidden = self.contribute("Mast", parent=self.source, token=t3)
+        MindmapNode.objects.filter(pk=hidden).update(hidden=True)
+        self.tokens = (t1, t2, t3)
+
+    def test_unmerge_restores_exactly(self):
+        self.build()
+        before = self.shape()
+        ids = set(MindmapNode.objects.values_list("id", flat=True))
+        undo = self.owner_mod("merge", source=self.source, target=self.target).json()["undo"]
+        self.assertNotEqual(self.shape(), before)
+        response = self.owner_mod("unmerge", undo=undo)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"status": "ok"})
+        self.assertEqual(self.shape(), before)
+        # Same node ids (the beamer keeps its layout/undo stack valid).
+        self.assertEqual(set(MindmapNode.objects.values_list("id", flat=True)), ids)
+        # Own-term lists of participants are intact.
+        self.assertIn(self.source, self.mine(self.tokens[0]).json()["nodes"])
+        self.assertIn(self.source, self.mine(self.tokens[1]).json()["nodes"])
+
+    def test_unmerge_restores_target_flags(self):
+        self.mq.mindmap_descriptions = True
+        self.mq.save()
+        source = self.owner_mod("add", parent=None, text="T", description="Info").json()["node_id"]
+        target = self.contribute("P")
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        node = MindmapNode.objects.get(pk=target)
+        self.assertEqual((node.teacher, node.description), (True, "Info"))
+        self.assertEqual(self.owner_mod("unmerge", undo=undo).status_code, 200)
+        node.refresh_from_db()
+        self.assertEqual((node.teacher, node.description), (False, ""))
+        self.assertTrue(MindmapNode.objects.get(pk=source).teacher)
+
+    def test_unmerge_conflict_when_contribution_withdrawn(self):
+        self.build()
+        undo = self.owner_mod("merge", source=self.source, target=self.target).json()["undo"]
+        # t1's moved "Wind" contribution disappears in the meantime.
+        MindmapContribution.objects.filter(
+            node_id=self.target, token__key=self.tokens[0]
+        ).delete()
+        before = self.shape()
+        response = self.owner_mod("unmerge", undo=undo)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("detail", response.json())
+        self.assertEqual(self.shape(), before)  # nothing half-restored
+
+    def test_unmerge_conflict_when_child_moved_away(self):
+        source = self.contribute("A")
+        target = self.contribute("B")
+        child = self.contribute("C", parent=source)
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        self.owner_mod("move", node=child, parent=None)
+        self.assertEqual(self.owner_mod("unmerge", undo=undo).status_code, 409)
+
+    def test_unmerge_conflict_when_name_taken_again(self):
+        source = self.contribute("A")
+        target = self.contribute("B")
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        self.contribute("a")
+        self.assertEqual(self.owner_mod("unmerge", undo=undo).status_code, 409)
+
+    def test_unmerge_twice_conflicts(self):
+        source = self.contribute("A")
+        target = self.contribute("B")
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        self.assertEqual(self.owner_mod("unmerge", undo=undo).status_code, 200)
+        self.assertEqual(self.owner_mod("unmerge", undo=undo).status_code, 409)
+
+    def test_unmerge_rejects_forged_or_foreign_data(self):
+        source = self.contribute("A")
+        target = self.contribute("B")
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        self.assertEqual(self.owner_mod("unmerge", undo=undo + "x").status_code, 400)
+        self.assertEqual(self.owner_mod("unmerge", undo={"source": 1}).status_code, 400)
+        self.assertEqual(self.owner_mod("unmerge").status_code, 400)
+        other = Run.objects.create(
+            question_set=self.question_set, phase=Run.Phase.FINISHED, active_question=self.mq
+        )
+        self.client.force_login(self.owner)
+        with patch("live.views.broadcast"):
+            self.assertEqual(self.mod("unmerge", run=other, undo=undo).status_code, 400)
+
+
+class MindmapMoveTests(MindmapModerationTestCase):
+    def test_move_to_other_parent_and_back(self):
+        a = self.contribute("A")
+        b = self.contribute("B")
+        c = self.contribute("C", parent=a)
+        response = self.owner_mod("move", node=c, parent=b)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"undo": {"node": c, "parent": a}})
+        self.assertEqual(MindmapNode.objects.get(pk=c).parent_id, b)
+        response = self.owner_mod("move", node=c, parent=None)
+        self.assertEqual(response.json(), {"undo": {"node": c, "parent": b}})
+        self.assertIsNone(MindmapNode.objects.get(pk=c).parent_id)
+
+    def test_move_not_into_own_subtree(self):
+        a = self.contribute("A")
+        b = self.contribute("B", parent=a)
+        self.assertEqual(self.owner_mod("move", node=a, parent=b).status_code, 409)
+        self.assertEqual(self.owner_mod("move", node=a, parent=a).status_code, 409)
+
+    def test_move_depth_counts_deepest_descendant(self):
+        self.mq.mindmap_depth = 3
+        self.mq.save()
+        a = self.contribute("A")
+        b = self.contribute("B", parent=a)
+        x = self.contribute("X")
+        self.contribute("Y", parent=x)
+        response = self.owner_mod("move", node=x, parent=b)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Maximum depth reached.")
+        self.assertEqual(self.owner_mod("move", node=x, parent=a).status_code, 200)
+
+    def test_move_clash_suggests_merge(self):
+        a = self.contribute("A")
+        existing = self.contribute("Rotor", parent=a)
+        other = self.contribute("rotor")
+        response = self.owner_mod("move", node=other, parent=a)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["conflict"], existing)
+        self.assertIn("detail", response.json())
+
+    def test_move_refusals(self):
+        a = self.contribute("A")
+        h = self.contribute("H")
+        MindmapNode.objects.filter(pk=h).update(hidden=True)
+        self.assertEqual(self.owner_mod("move", node=a, parent=h).status_code, 409)
+        self.assertEqual(self.owner_mod("move", node=a, parent=999999).status_code, 404)
+        self.assertEqual(self.owner_mod("move", node=999999, parent=None).status_code, 404)
+        self.assertEqual(self.owner_mod("move", node=a, parent="x").status_code, 400)
+        self.assertEqual(self.owner_mod("move", node=a).status_code, 400)  # parent missing
+
+    def test_move_same_parent_is_noop(self):
+        a = self.contribute("A")
+        response = self.owner_mod("move", node=a, parent=None)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"undo": {"node": a, "parent": None}})
+
+
+class MindmapRenameTests(MindmapModerationTestCase):
+    def test_rename_and_undo(self):
+        a = self.contribute("Wnd")
+        response = self.owner_mod("rename", node=a, text=" Wind ")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual((body["node_id"], body["merged"]), (a, False))
+        node = MindmapNode.objects.get(pk=a)
+        self.assertEqual((node.text, node.text_key), ("Wind", "wind"))
+        self.assertEqual(self.owner_mod("unmerge", undo=body["undo"]).status_code, 200)
+        node.refresh_from_db()
+        self.assertEqual((node.text, node.text_key), ("Wnd", "wnd"))
+
+    def test_rename_case_only(self):
+        a = self.contribute("wind")
+        body = self.owner_mod("rename", node=a, text="Wind").json()
+        self.assertFalse(body["merged"])
+        self.assertEqual(MindmapNode.objects.get(pk=a).text, "Wind")
+
+    def test_rename_seeded_drops_stale_translation_and_undo_restores_it(self):
+        self.mq.mindmap_seed = [
+            {"text": {"de": "Wind", "en": "Wind power"}, "description": "", "children": []}
+        ]
+        self.mq.save()
+        self.tree()
+        seeded = self.node("Wind")
+        undo = self.owner_mod("rename", node=seeded.pk, text="Windkraft").json()["undo"]
+        node = self.tree()["nodes"][0]
+        self.assertEqual(node["text_i18n"]["de"], "Windkraft")
+        self.assertEqual(node["text_i18n"]["en"], "")
+        self.owner_mod("unmerge", undo=undo)
+        node = self.tree()["nodes"][0]
+        self.assertEqual(node["text_i18n"], {"de": "Wind", "en": "Wind power"})
+
+    def test_rename_clash_merges_into_existing(self):
+        t1, t2 = self.join(), self.join()
+        a = self.contribute("Wnd", token=t1)
+        b = self.contribute("Wind", token=t2)
+        child = self.contribute("Rotor", parent=a)
+        before = self.shape()
+        response = self.owner_mod("rename", node=a, text="wind")
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual((body["node_id"], body["merged"]), (b, True))
+        self.assertFalse(MindmapNode.objects.filter(pk=a).exists())
+        self.assertEqual(MindmapNode.objects.get(pk=child).parent_id, b)
+        self.assertEqual(MindmapNode.objects.get(pk=b).contributions.count(), 2)
+        self.assertEqual(self.owner_mod("unmerge", undo=body["undo"]).status_code, 200)
+        self.assertEqual(self.shape(), before)
+
+    def test_rename_clash_with_hidden_sibling_refused(self):
+        a = self.contribute("Wnd")
+        b = self.contribute("Wind")
+        MindmapNode.objects.filter(pk=b).update(hidden=True)
+        self.assertEqual(self.owner_mod("rename", node=a, text="Wind").status_code, 409)
+
+    def test_rename_validation(self):
+        a = self.contribute("A")
+        self.assertEqual(self.owner_mod("rename", node=a, text="").status_code, 400)
+        self.assertEqual(self.owner_mod("rename", node=a, text="x" * 61).status_code, 400)
+        self.assertEqual(self.owner_mod("rename", node=a, text=None).status_code, 400)
+        self.assertEqual(self.owner_mod("rename", node=999999, text="B").status_code, 404)
+
+    def test_rename_undo_conflict_when_old_name_taken(self):
+        a = self.contribute("A")
+        undo = self.owner_mod("rename", node=a, text="B").json()["undo"]
+        self.contribute("a")
+        self.assertEqual(self.owner_mod("unmerge", undo=undo).status_code, 409)
+        self.assertEqual(MindmapNode.objects.get(pk=a).text, "B")
+
+
+class MindmapHideUndoTests(MindmapModerationTestCase):
+    def test_hide_echoes_node_and_state(self):
+        a = self.contribute("A")
+        response = self.owner_mod("hide", node=a, hidden=True)
+        self.assertEqual(response.json(), {"status": "ok", "node": a, "hidden": True})
+
+
+class MindmapModerationConcurrencyTests(TransactionTestCase):
+    """Two presenter tabs merging the same source at the same moment: exactly
+    one merge happens, the other is refused cleanly."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="frank")
+        self.room = Room.objects.create(title="Bio 101")
+        self.room.owners.add(self.owner)
+        qs = QuestionSet.objects.create(room=self.room, title="Termin 1")
+        self.mq = Question.objects.create(
+            question_set=qs, kind=Question.Kind.MINDMAP, text="<p>Energie?</p>"
+        )
+        self.run = Run.objects.create(
+            question_set=qs, phase=Run.Phase.OPEN, active_question=self.mq
+        )
+        self.source = MindmapNode.objects.create(
+            run=self.run, question=self.mq, text="A", text_key="a"
+        )
+        self.targets = [
+            MindmapNode.objects.create(
+                run=self.run, question=self.mq, text=t, text_key=t.lower()
+            )
+            for t in ("B", "C")
+        ]
+        for node in (self.source, *self.targets):
+            MindmapContribution.objects.create(
+                node=node, token=ParticipantToken.objects.create(room=self.room)
+            )
+
+    def test_simultaneous_merges_of_one_source(self):
+        barrier = threading.Barrier(2)
+        results = [None] * 2
+
+        def worker(index):
+            client = Client()
+            client.force_login(self.owner)
+            try:
+                barrier.wait(timeout=5)
+                with patch("live.views.broadcast"):
+                    results[index] = client.post(
+                        f"/api/runs/{self.run.pk}/mindmap/{self.mq.pk}/merge",
+                        {"source": self.source.pk, "target": self.targets[index].pk},
+                        content_type="application/json",
+                    )
+            finally:
+                connections.close_all()
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        codes = sorted(r.status_code for r in results)
+        self.assertEqual(codes, [200, 404])
+        self.assertFalse(MindmapNode.objects.filter(pk=self.source.pk).exists())
+        self.assertEqual(MindmapContribution.objects.count(), 3)

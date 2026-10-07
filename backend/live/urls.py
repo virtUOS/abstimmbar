@@ -43,6 +43,30 @@ api_urlpatterns = [
         views.mindmap_hide,
     ),
     path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/add",
+        views.mindmap_teacher_add,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/delete",
+        views.mindmap_teacher_delete,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/merge",
+        views.mindmap_merge,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/unmerge",
+        views.mindmap_unmerge,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/move",
+        views.mindmap_move,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/rename",
+        views.mindmap_rename,
+    ),
+    path(
         "runs/<int:run_id>/wordcloud/<int:question_id>/ai-settings",
         views.wordcloud_ai_settings,
     ),

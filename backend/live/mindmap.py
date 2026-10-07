@@ -18,8 +18,10 @@ descriptions) and assembled in Python.
 from collections import defaultdict
 
 import nh3
+from django.core import signing
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Exists, OuterRef, Q
+from django.utils.dateparse import parse_datetime
 
 from common.i18n_fields import translated_map
 from rooms.mindmap import (
@@ -42,12 +44,17 @@ ROOT_LABEL_MAX = 80
 
 
 class MindmapError(Exception):
-    """A refused participant action: ``detail`` + HTTP ``status``."""
+    """A refused action: ``detail`` + HTTP ``status`` (+ ``extra`` fields for
+    the response body, e.g. ``conflict``)."""
 
-    def __init__(self, detail, status=400):
+    def __init__(self, detail, status=400, **extra):
         super().__init__(detail)
         self.detail = detail
         self.status = status
+        self.extra = extra
+
+    def body(self):
+        return {"detail": self.detail, **self.extra}
 
 
 def answered_runs_q(run_ref="pk"):
@@ -152,7 +159,7 @@ def build_tree(run, question, *, presenter):
         .order_by("created_at", "pk")
         .values(
             "id", "parent_id", "text", "text_key", "description", "seeded",
-            "seed_i18n", "hidden",
+            "seed_i18n", "hidden", "teacher",
         )
     )
     ids = [row["id"] for row in rows]
@@ -208,6 +215,10 @@ def build_tree(run, question, *, presenter):
                 "descriptions": unique_descriptions(row["id"]),
                 "seeded": row["seeded"],
             }
+            if row["teacher"]:
+                # Presenter-added (stage 2): protected like a seeded node.
+                # Only sent when set, to keep the broadcast small.
+                node["teacher"] = True
             if row["seeded"]:
                 _add_seed_i18n(node, row["seed_i18n"], row["description"])
             if presenter:
@@ -385,7 +396,8 @@ def add_term(run, question, token, parent, text, description=""):
 
 def remove_term(run, question, token, node):
     """Withdraw the caller's own contribution. Returns True when the node
-    itself was deleted (last contribution of a non-seeded node)."""
+    itself was deleted (last contribution of a node that is neither seeded
+    nor presenter-added)."""
     node_id = _parse_id(node)
     with transaction.atomic():
         _lock_run(run)
@@ -402,7 +414,7 @@ def remove_term(run, question, token, node):
         if node.children.exists():
             raise MindmapError("Terms hang below this one.", 409)
         contribution.delete()
-        if not node.seeded and not node.contributions.exists():
+        if not (node.seeded or node.teacher) and not node.contributions.exists():
             node.delete()
             return True
     return False
@@ -419,6 +431,446 @@ def set_hidden(run, question, node, hidden):
             hidden=bool(hidden)
         )
     )
+
+
+# --- Stage 2: presenter moderation (owner-only; views check ownership) -----
+#
+# All writes run under the run lock and validate everything before the first
+# side effect. Merges and renames hand back an opaque, signed ``undo`` string
+# (``django.core.signing``: tamper-proof, bound to run + question) that
+# ``restore`` replays exactly — or refuses with 409 when the map changed in a
+# way that makes exact restoration impossible. The blob holds node data,
+# contribution ids and timestamps but never participant tokens: a duplicate
+# contribution dropped by a merge is recorded via its "twin" (the target's
+# contribution of the same participant), whose token is reused on restore.
+
+UNDO_SALT = "live.mindmap.undo"
+_MAX_LEVELS = 64
+
+
+def _clean_term(text):
+    text = normalize_text(text)
+    if not text:
+        raise MindmapError("Empty term.")
+    if len(text) > MINDMAP_TEXT_MAX:
+        raise MindmapError("Term too long.")
+    return text
+
+
+def _load_tree(run, question):
+    """{id: (parent_id, hidden)} of the whole map (call under the lock)."""
+    return {
+        node_id: (pid, hidden)
+        for node_id, pid, hidden in MindmapNode.objects.filter(
+            run=run, question=question
+        ).values_list("id", "parent_id", "hidden")
+    }
+
+
+def _path(tree, node_id):
+    """The node and all its ancestors (bottom-up); [] for the root (None)."""
+    path, current = [], node_id
+    while current is not None:
+        if len(path) > _MAX_LEVELS:
+            raise MindmapError("Corrupt mind map.", 409)
+        path.append(current)
+        current = tree[current][0]
+    return path
+
+
+def _level(tree, node_id):
+    """Level of a node (main branches = 1; the root = 0)."""
+    return len(_path(tree, node_id))
+
+
+def _effectively_hidden(tree, node_id):
+    return any(tree[ancestor][1] for ancestor in _path(tree, node_id))
+
+
+def _height(tree, node_id):
+    """Levels of the subtree rooted at ``node_id`` (a leaf = 1)."""
+    children = defaultdict(list)
+    for nid, (pid, _hidden) in tree.items():
+        children[pid].append(nid)
+
+    def walk(nid, guard):
+        if guard > _MAX_LEVELS:
+            raise MindmapError("Corrupt mind map.", 409)
+        return 1 + max((walk(c, guard + 1) for c in children[nid]), default=0)
+
+    return walk(node_id, 0)
+
+
+def _node_or_404(tree, node_id, detail="Unknown term."):
+    if node_id not in tree:
+        raise MindmapError(detail, 404)
+    return node_id
+
+
+def teacher_add(run, question, parent_id, text, description=""):
+    """The presenter adds a term (no contribution, no quota). A term that
+    already exists under ``parent_id`` is returned as is. ``(node, merged)``."""
+    text = _clean_term(text)
+    description = normalize_text(description) if question.mindmap_descriptions else ""
+    if len(description) > MINDMAP_DESCRIPTION_MAX:
+        raise MindmapError("Description too long.")
+    key = text_key(text)
+    ensure_seed(run, question)
+    with transaction.atomic():
+        _lock_run(run)
+        tree = _load_tree(run, question)
+        if parent_id is not None:
+            _node_or_404(tree, parent_id, "Unknown parent.")
+            if _effectively_hidden(tree, parent_id):
+                raise MindmapError("This branch is hidden.", 409)
+        if _level(tree, parent_id) + 1 > question.mindmap_depth:
+            raise MindmapError("Maximum depth reached.")
+        node = MindmapNode.objects.filter(
+            run=run, question=question, parent_id=parent_id, text_key=key
+        ).first()
+        if node is not None:
+            return node, True
+        if len(tree) >= MINDMAP_MAX_NODES:
+            raise MindmapError("The mind map is full.", 409)
+        node = MindmapNode.objects.create(
+            run=run, question=question, parent_id=parent_id, text=text,
+            text_key=key, description=description, teacher=True,
+        )
+    return node, False
+
+
+def teacher_delete(run, question, node_id):
+    """Exact undo of a presenter's add: delete a presenter-added term that
+    nothing hangs below and nobody has joined."""
+    with transaction.atomic():
+        _lock_run(run)
+        node = MindmapNode.objects.filter(pk=node_id, run=run, question=question).first()
+        if node is None:
+            raise MindmapError("Unknown term.", 404)
+        if not node.teacher or node.seeded:
+            raise MindmapError("Only terms added by the presenter can be deleted.", 409)
+        if node.children.exists():
+            raise MindmapError("Terms hang below this one.", 409)
+        if node.contributions.exists():
+            raise MindmapError("Participants have added this term too.", 409)
+        node.delete()
+
+
+def _sign(run, question, data):
+    return signing.dumps(
+        {"run": run.pk, "question": question.pk, **data}, salt=UNDO_SALT, compress=True
+    )
+
+
+def _snapshot(node):
+    return {
+        "id": node.pk,
+        "parent": node.parent_id,
+        "text": node.text,
+        "text_key": node.text_key,
+        "description": node.description,
+        "seeded": node.seeded,
+        "teacher": node.teacher,
+        "seed_i18n": node.seed_i18n,
+        "hidden": node.hidden,
+        "created_at": node.created_at.isoformat(),
+    }
+
+
+def _merge(source, target):
+    """Merge ``source`` into ``target`` (validated by the caller, under the
+    lock) and return the undo record. Same-named children merge recursively;
+    contributions move over, one per participant."""
+    undo = {
+        "source": _snapshot(source),
+        "target": {
+            "id": target.pk,
+            "seeded": target.seeded,
+            "teacher": target.teacher,
+            "description": target.description,
+            "seed_i18n": target.seed_i18n,
+        },
+        "moved": [],
+        "dropped": [],
+        "children": [],
+        "nested": [],
+    }
+    twins = {child.text_key: child for child in target.children.all()}
+    for child in source.children.order_by("created_at", "pk"):
+        twin = twins.get(child.text_key)
+        if twin is not None:
+            undo["nested"].append(_merge(child, twin))
+        else:
+            undo["children"].append(child.pk)
+    if undo["children"]:
+        MindmapNode.objects.filter(pk__in=undo["children"]).update(parent=target)
+
+    target_tokens = dict(target.contributions.values_list("token_id", "id"))
+    dropped_ids = []
+    for contribution in source.contributions.order_by("created_at", "pk"):
+        twin_id = target_tokens.get(contribution.token_id)
+        if twin_id is None:
+            undo["moved"].append(contribution.pk)
+        else:
+            dropped_ids.append(contribution.pk)
+            undo["dropped"].append({
+                "twin": twin_id,
+                "description": contribution.description,
+                "created_at": contribution.created_at.isoformat(),
+            })
+    if undo["moved"]:
+        MindmapContribution.objects.filter(pk__in=undo["moved"]).update(node=target)
+    if dropped_ids:
+        MindmapContribution.objects.filter(pk__in=dropped_ids).delete()
+
+    # The merged node inherits the source's protection (and, if it has none,
+    # its predefined description) — keeps ensure_seed from re-creating a
+    # merged-away seed node and participants from deleting it.
+    fields = []
+    if source.seeded and not target.seeded:
+        target.seeded = True
+        fields.append("seeded")
+    if source.teacher and not target.teacher:
+        target.teacher = True
+        fields.append("teacher")
+    if source.description and not target.description:
+        target.description = source.description
+        fields.append("description")
+        desc_i18n = (source.seed_i18n or {}).get("description")
+        if desc_i18n and not (target.seed_i18n or {}).get("description"):
+            target.seed_i18n = {**(target.seed_i18n or {}), "description": desc_i18n}
+            fields.append("seed_i18n")
+    if fields:
+        target.save(update_fields=fields)
+    source.delete()
+    return undo
+
+
+def _check_merge(tree, question, source_id, target_id):
+    _node_or_404(tree, source_id)
+    _node_or_404(tree, target_id)
+    if source_id == target_id:
+        raise MindmapError("A term cannot be merged with itself.")
+    if source_id in _path(tree, target_id) or target_id in _path(tree, source_id):
+        raise MindmapError("A term cannot be merged with its own branch.", 409)
+    if _effectively_hidden(tree, source_id) or _effectively_hidden(tree, target_id):
+        raise MindmapError("This branch is hidden.", 409)
+    if _level(tree, target_id) + _height(tree, source_id) - 1 > question.mindmap_depth:
+        raise MindmapError("Maximum depth reached.", 409)
+
+
+def merge_nodes(run, question, source_id, target_id):
+    """Merge ``source`` into ``target``; returns the signed undo string."""
+    ensure_seed(run, question)
+    with transaction.atomic():
+        _lock_run(run)
+        _check_merge(_load_tree(run, question), question, source_id, target_id)
+        source = MindmapNode.objects.get(pk=source_id)
+        target = MindmapNode.objects.get(pk=target_id)
+        undo = _merge(source, target)
+    return _sign(run, question, {"op": "merge", "merge": undo})
+
+
+def move_node(run, question, node_id, parent_id):
+    """Re-attach a node (with its subtree) below ``parent_id`` (None = main
+    branch). Returns the plain undo ``{node, parent}`` (the old parent)."""
+    with transaction.atomic():
+        _lock_run(run)
+        tree = _load_tree(run, question)
+        _node_or_404(tree, node_id)
+        old_parent = tree[node_id][0]
+        if parent_id is not None:
+            _node_or_404(tree, parent_id, "Unknown parent.")
+            if node_id in _path(tree, parent_id):
+                raise MindmapError("A term cannot be moved into its own branch.", 409)
+            if _effectively_hidden(tree, parent_id):
+                raise MindmapError("This branch is hidden.", 409)
+        undo = {"node": node_id, "parent": old_parent}
+        if parent_id == old_parent:
+            return undo
+        if _level(tree, parent_id) + _height(tree, node_id) > question.mindmap_depth:
+            raise MindmapError("Maximum depth reached.", 409)
+        node = MindmapNode.objects.get(pk=node_id)
+        clash = (
+            MindmapNode.objects.filter(
+                run=run, question=question, parent_id=parent_id, text_key=node.text_key
+            )
+            .exclude(pk=node_id)
+            .values_list("pk", flat=True)
+            .first()
+        )
+        if clash is not None:
+            raise MindmapError(
+                "A term with this name already exists there — merge instead.",
+                409, conflict=clash,
+            )
+        node.parent_id = parent_id
+        node.save(update_fields=["parent"])
+    return undo
+
+
+def rename_node(run, question, node_id, text):
+    """Rename a term. A name clash with a sibling merges into that sibling.
+    Returns ``(node_id, merged, signed undo)``."""
+    text = _clean_term(text)
+    key = text_key(text)
+    ensure_seed(run, question)
+    with transaction.atomic():
+        _lock_run(run)
+        tree = _load_tree(run, question)
+        _node_or_404(tree, node_id)
+        node = MindmapNode.objects.get(pk=node_id)
+        clash = (
+            MindmapNode.objects.filter(
+                run=run, question=question, parent_id=node.parent_id, text_key=key
+            )
+            .exclude(pk=node_id)
+            .first()
+        )
+        if clash is not None:
+            _check_merge(tree, question, node_id, clash.pk)
+            undo = _merge(node, clash)
+            return clash.pk, True, _sign(run, question, {"op": "merge", "merge": undo})
+        undo = {
+            "op": "rename",
+            "node": node.pk,
+            "text": node.text,
+            "text_key": node.text_key,
+            "seed_i18n": node.seed_i18n,
+            "new_key": key,
+        }
+        node.text = text
+        node.text_key = key
+        fields = ["text", "text_key"]
+        if node.seeded:
+            # The predefined translations no longer match: show the new
+            # canonical term in every language (undo restores them).
+            canonical, langs = seed_langs()
+            node.seed_i18n = {
+                **(node.seed_i18n or {}),
+                "text": {lang: text if lang == canonical else "" for lang in langs},
+            }
+            fields.append("seed_i18n")
+        node.save(update_fields=fields)
+    return node.pk, False, _sign(run, question, undo)
+
+
+def _unsign(run, question, blob):
+    if not isinstance(blob, str):
+        raise MindmapError("Invalid undo data.")
+    try:
+        data = signing.loads(blob, salt=UNDO_SALT)
+    except signing.BadSignature as error:
+        raise MindmapError("Invalid undo data.") from error
+    if (
+        not isinstance(data, dict)
+        or data.get("run") != run.pk
+        or data.get("question") != question.pk
+        or data.get("op") not in ("merge", "rename")
+    ):
+        raise MindmapError("Invalid undo data.")
+    return data
+
+
+_CHANGED = "The mind map has changed in the meantime — this can no longer be undone."
+
+
+def _restore_merge(run, question, undo):
+    src = undo["source"]
+    target = MindmapNode.objects.filter(
+        pk=undo["target"]["id"], run=run, question=question
+    ).first()
+    if target is None or MindmapNode.objects.filter(pk=src["id"]).exists():
+        raise MindmapError(_CHANGED, 409)
+    if src["parent"] is not None and not MindmapNode.objects.filter(
+        pk=src["parent"], run=run, question=question
+    ).exists():
+        raise MindmapError(_CHANGED, 409)
+    if MindmapNode.objects.filter(
+        run=run, question=question, parent_id=src["parent"], text_key=src["text_key"]
+    ).exists():
+        raise MindmapError(_CHANGED, 409)
+    node = MindmapNode(
+        id=src["id"], run=run, question=question, parent_id=src["parent"],
+        text=src["text"], text_key=src["text_key"], description=src["description"],
+        seeded=src["seeded"], teacher=src["teacher"], seed_i18n=src["seed_i18n"],
+        hidden=src["hidden"],
+    )
+    node.save(force_insert=True)
+    MindmapNode.objects.filter(pk=node.pk).update(created_at=parse_datetime(src["created_at"]))
+
+    for nested in undo["nested"]:
+        _restore_merge(run, question, nested)
+
+    children = undo["children"]
+    if children and MindmapNode.objects.filter(
+        pk__in=children, parent=target
+    ).update(parent=node) != len(children):
+        raise MindmapError(_CHANGED, 409)
+
+    moved = undo["moved"]
+    if moved and MindmapContribution.objects.filter(
+        pk__in=moved, node=target
+    ).update(node=node) != len(moved):
+        raise MindmapError(_CHANGED, 409)
+
+    twins = dict(
+        MindmapContribution.objects.filter(
+            pk__in=[d["twin"] for d in undo["dropped"]], node=target
+        ).values_list("pk", "token_id")
+    )
+    for dropped in undo["dropped"]:
+        token_id = twins.get(dropped["twin"])
+        if token_id is None:
+            raise MindmapError(_CHANGED, 409)
+        contribution = MindmapContribution.objects.create(
+            node=node, token_id=token_id, description=dropped["description"]
+        )
+        MindmapContribution.objects.filter(pk=contribution.pk).update(
+            created_at=parse_datetime(dropped["created_at"])
+        )
+
+    flags = undo["target"]
+    MindmapNode.objects.filter(pk=target.pk).update(
+        seeded=flags["seeded"], teacher=flags["teacher"],
+        description=flags["description"], seed_i18n=flags["seed_i18n"],
+    )
+
+
+def _restore_rename(run, question, undo):
+    node = MindmapNode.objects.filter(pk=undo["node"], run=run, question=question).first()
+    if node is None or node.text_key != undo["new_key"]:
+        raise MindmapError(_CHANGED, 409)
+    if (
+        MindmapNode.objects.filter(
+            run=run, question=question, parent_id=node.parent_id, text_key=undo["text_key"]
+        )
+        .exclude(pk=node.pk)
+        .exists()
+    ):
+        raise MindmapError(_CHANGED, 409)
+    node.text = undo["text"]
+    node.text_key = undo["text_key"]
+    node.seed_i18n = undo["seed_i18n"]
+    node.save(update_fields=["text", "text_key", "seed_i18n"])
+
+
+def restore(run, question, blob):
+    """Undo a merge or rename from its signed ``undo`` string — all or
+    nothing (409 + rollback when the map changed in between)."""
+    data = _unsign(run, question, blob)
+    try:
+        with transaction.atomic():
+            _lock_run(run)
+            if data["op"] == "merge":
+                _restore_merge(run, question, data["merge"])
+            else:
+                _restore_rename(run, question, data)
+            tree = _load_tree(run, question)
+            if any(_level(tree, nid) > question.mindmap_depth for nid in tree):
+                raise MindmapError(_CHANGED, 409)
+    except IntegrityError as error:
+        raise MindmapError(_CHANGED, 409) from error
 
 
 def csv_rows(tree):

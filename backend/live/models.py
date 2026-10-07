@@ -263,7 +263,8 @@ class MindmapNode(models.Model):
     is the question, not a row). Identical terms under the same parent merge:
     ``text_key`` (``rooms.mindmap.text_key``) is unique per run/question/parent
     (NULL parents included). ``seeded`` nodes come from the question's
-    predefined branches and are never deleted by participants; ``hidden`` is
+    predefined branches and are never deleted by participants (nor are
+    ``teacher`` nodes, added by the presenter); ``hidden`` is
     the presenter's reversible moderation (the subtree is hidden with it).
     The count of a node is its number of contributions — anonymous rows.
     """
@@ -286,6 +287,12 @@ class MindmapNode(models.Model):
     # ``text_key``/``description`` above stay the canonical language, so
     # participants' terms merge with a seeded node on the canonical term.
     seed_i18n = models.JSONField(default=dict, blank=True)
+    # Added by the presenter (stage 2 moderation, "+" on the beamer): like a
+    # seeded node it is never deleted by participants' withdrawals and costs
+    # nobody quota (it carries no contribution). Kept apart from ``seeded``
+    # because ``ensure_seed`` keys its idempotency on seeded rows and only
+    # teacher nodes may be deleted again (exact undo of an add).
+    teacher = models.BooleanField(default=False)
     hidden = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

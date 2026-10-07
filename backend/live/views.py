@@ -1698,10 +1698,149 @@ def mindmap_hide(request, run_id, question_id):
     hidden = request.data.get("hidden")
     if not isinstance(hidden, bool):
         return Response({"detail": "hidden must be true or false."}, status=400)
-    if not mindmap.set_hidden(run, question, request.data.get("node"), hidden):
+    node = request.data.get("node")
+    if not mindmap.set_hidden(run, question, node, hidden):
         raise Http404
     broadcast(room)
-    return Response({"status": "ok"})
+    # Echo for the beamer's undo stack (inverse = the same call with !hidden).
+    return Response({"status": "ok", "node": node, "hidden": hidden})
+
+
+def _mindmap_moderation(request, run_id, question_id):
+    """(run, room, question) for the owner-only moderation endpoints; 404
+    for anyone else and for non-mindmap questions."""
+    run = get_object_or_404(
+        Run.objects.select_related("question_set__room"), pk=run_id
+    )
+    room = run.question_set.room
+    if not _require_owner(request.user, room):
+        raise Http404
+    question = get_object_or_404(
+        Question, pk=question_id, question_set=run.question_set,
+        kind=Question.Kind.MINDMAP,
+    )
+    return run, room, question
+
+
+class _BadField(Exception):
+    pass
+
+
+def _strict_id(data, field, *, nullable=False):
+    """A JSON integer node id (``null`` only when ``nullable``); the field
+    must be present. Strings and booleans are refused."""
+    if field not in data:
+        raise _BadField(f"{field} is required.")
+    value = data[field]
+    if value is None and nullable:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise _BadField(f"{field} must be a node id.")
+    return value
+
+
+def _strict_str(data, field, *, required=True):
+    value = data.get(field, None if required else "")
+    if not isinstance(value, str):
+        raise _BadField(f"{field} must be text.")
+    return value
+
+
+def _mindmap_moderate(request, run_id, question_id, action, status=200):
+    """Shared shell: ownership, strict-type and MindmapError mapping, then a
+    broadcast after the change."""
+    run, room, question = _mindmap_moderation(request, run_id, question_id)
+    if not isinstance(request.data, dict):
+        return Response({"detail": "Invalid request."}, status=400)
+    try:
+        body = action(run, question, request.data)
+    except _BadField as error:
+        return Response({"detail": str(error)}, status=400)
+    except mindmap.MindmapError as error:
+        return Response(error.body(), status=error.status)
+    broadcast(room)
+    return Response(body, status=status)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_teacher_add(request, run_id, question_id):
+    """Presenter adds a term: ``{parent: id|null, text, description?}`` →
+    201 ``{node_id, merged}`` (merged = the term already existed there)."""
+
+    def action(run, question, data):
+        parent = _strict_id(data, "parent", nullable=True)
+        text = _strict_str(data, "text")
+        description = _strict_str(data, "description", required=False)
+        node, merged = mindmap.teacher_add(run, question, parent, text, description)
+        return {"node_id": node.pk, "merged": merged}
+
+    return _mindmap_moderate(request, run_id, question_id, action, status=201)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_teacher_delete(request, run_id, question_id):
+    """Undo of a presenter's add: ``{node}`` → 200 ``{status: "ok"}``."""
+
+    def action(run, question, data):
+        mindmap.teacher_delete(run, question, _strict_id(data, "node"))
+        return {"status": "ok"}
+
+    return _mindmap_moderate(request, run_id, question_id, action)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_merge(request, run_id, question_id):
+    """``{source, target}`` → 200 ``{undo: "<signed>"}``."""
+
+    def action(run, question, data):
+        source = _strict_id(data, "source")
+        target = _strict_id(data, "target")
+        return {"undo": mindmap.merge_nodes(run, question, source, target)}
+
+    return _mindmap_moderate(request, run_id, question_id, action)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_unmerge(request, run_id, question_id):
+    """Undo a merge or rename: ``{undo: "<signed>"}`` → 200 ``{status: "ok"}``
+    or 409 ``{detail}`` when the map changed in between."""
+
+    def action(run, question, data):
+        mindmap.restore(run, question, data.get("undo"))
+        return {"status": "ok"}
+
+    return _mindmap_moderate(request, run_id, question_id, action)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_move(request, run_id, question_id):
+    """``{node, parent: id|null}`` → 200 ``{undo: {node, parent}}``."""
+
+    def action(run, question, data):
+        node = _strict_id(data, "node")
+        parent = _strict_id(data, "parent", nullable=True)
+        return {"undo": mindmap.move_node(run, question, node, parent)}
+
+    return _mindmap_moderate(request, run_id, question_id, action)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_rename(request, run_id, question_id):
+    """``{node, text}`` → 200 ``{node_id, merged, undo: "<signed>"}``."""
+
+    def action(run, question, data):
+        node = _strict_id(data, "node")
+        text = _strict_str(data, "text")
+        node_id, merged, undo = mindmap.rename_node(run, question, node, text)
+        return {"node_id": node_id, "merged": merged, "undo": undo}
+
+    return _mindmap_moderate(request, run_id, question_id, action)
 
 
 @api_view(["POST"])
