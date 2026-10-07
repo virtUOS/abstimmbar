@@ -946,5 +946,8 @@
   "+{{count}} below": "+{{count}} darunter",
   "Zoom in (+)": "Vergrößern (+)",
   "Zoom out (−)": "Verkleinern (−)",
-  "Fit to screen (0)": "An Bildschirm anpassen (0)"
+  "Fit to screen (0)": "An Bildschirm anpassen (0)",
+  "A sub-term with the same name is hidden — please show it first.": "Ein gleichnamiger Unterbegriff ist ausgeblendet – bitte blenden Sie ihn zuerst wieder ein.",
+  "This term already exists there but is hidden.": "Diesen Begriff gibt es dort schon, er ist ausgeblendet.",
+  "This undo step has expired.": "Dieser Schritt kann nicht mehr rückgängig gemacht werden (abgelaufen)."
 }
