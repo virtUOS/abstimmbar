@@ -81,7 +81,9 @@ class OnboardingSeedOnWhoamiTests(TestCase):
         room = rooms.get()
         question_set = room.question_sets.get()
         kinds = set(question_set.questions.values_list("kind", flat=True))
-        self.assertEqual(kinds, set(Question.Kind.values))
+        # The mindmap kind (stage 1) is not part of the example room yet —
+        # it would need a tour step and sample results.
+        self.assertEqual(kinds, set(Question.Kind.values) - {Question.Kind.MINDMAP})
 
     @override_settings(**LT_OFF)
     def test_second_whoami_does_not_duplicate_the_room(self):
