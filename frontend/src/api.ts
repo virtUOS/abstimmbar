@@ -1013,6 +1013,8 @@ export interface LiveMindmapNode {
   /** Up to 3 descriptions ([] when descriptions are off). */
   descriptions: string[];
   seeded: boolean;
+  /** Added by the presenter (only present when true). */
+  teacher?: boolean;
   /** Seeded nodes: the term in all languages (`text` = canonical). Resolve
    *  via `mindmapNodeText`. */
   text_i18n?: LocalizedText;
@@ -1275,10 +1277,52 @@ export const live = {
     ),
   /** Presenter mindmap moderation: hide a node with its subtree, or show it again. */
   mindmapHide: (runId: number, questionId: number, node: number, hidden: boolean) =>
-    request<{ status: string }>(`/api/runs/${runId}/mindmap/${questionId}/hide`, {
+    request<{ status: string; node: number; hidden: boolean }>(
+      `/api/runs/${runId}/mindmap/${questionId}/hide`,
+      { method: "POST", body: JSON.stringify({ node, hidden }) },
+    ),
+  /** Presenter adds a term (`parent` null = main branch). `merged`: the term
+   *  already existed there — nothing was added. */
+  mindmapAdd: (
+    runId: number,
+    questionId: number,
+    body: { parent: number | null; text: string; description?: string },
+  ) =>
+    request<{ node_id: number; merged: boolean }>(
+      `/api/runs/${runId}/mindmap/${questionId}/add`,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
+  /** Deletes a presenter-added leaf without contributions (undo of an add). */
+  mindmapDelete: (runId: number, questionId: number, node: number) =>
+    request<{ status: string }>(`/api/runs/${runId}/mindmap/${questionId}/delete`, {
       method: "POST",
-      body: JSON.stringify({ node, hidden }),
+      body: JSON.stringify({ node }),
     }),
+  /** Merges `source` (with its subtree) into `target`; `undo` is opaque. */
+  mindmapMerge: (runId: number, questionId: number, source: number, target: number) =>
+    request<{ undo: string }>(`/api/runs/${runId}/mindmap/${questionId}/merge`, {
+      method: "POST",
+      body: JSON.stringify({ source, target }),
+    }),
+  /** Reverts a merge or rename (409 when the map changed in between). */
+  mindmapUnmerge: (runId: number, questionId: number, undo: string) =>
+    request<{ status: string }>(`/api/runs/${runId}/mindmap/${questionId}/unmerge`, {
+      method: "POST",
+      body: JSON.stringify({ undo }),
+    }),
+  /** Re-attaches `node` below `parent` (null = main branch). */
+  mindmapMove: (runId: number, questionId: number, node: number, parent: number | null) =>
+    request<{ undo: { node: number; parent: number | null } }>(
+      `/api/runs/${runId}/mindmap/${questionId}/move`,
+      { method: "POST", body: JSON.stringify({ node, parent }) },
+    ),
+  /** Renames a term; a name clash with a sibling merges it into that sibling
+   *  (`merged`, `node_id` = the sibling). Undo either way via `mindmapUnmerge`. */
+  mindmapRename: (runId: number, questionId: number, node: number, text: string) =>
+    request<{ node_id: number; merged: boolean; undo: string }>(
+      `/api/runs/${runId}/mindmap/${questionId}/rename`,
+      { method: "POST", body: JSON.stringify({ node, text }) },
+    ),
   /** Presenter word-cloud moderation (#Wortwolke): hide/unhide a term, merge
    *  several keys under one label, unmerge, or rename a merge's label. */
   wordcloudModeration: (

@@ -11,11 +11,22 @@
  *  - `MindMap` — measures the node boxes with a canvas (no layout thrash: no
  *    DOM reads per node), renders absolutely positioned pills plus an SVG for
  *    the connectors, animates layout changes via CSS transitions, and offers
- *    zoom/pan (wheel, drag, + / − / 0, Shift+arrows) with auto-fit. */
+ *    zoom/pan (wheel, drag, + / − / 0, Shift+arrows) with auto-fit.
+ *
+ * Stage 2 (expert mode, presenter only): "+" on hover adds a term (also on
+ * the root), dragging a term onto another merges it, dragging it onto the
+ * "attach here" tab beside a term (or onto the root) moves it there, double-
+ * click renames. Invalid targets are shown red with the reason; the checks
+ * mirror the server's (`backend/live/mindmap.py`). */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  ReactNode,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
-import { Maximize2, Minus, Plus, X } from "lucide-react";
+import { CornerDownRight, Maximize2, Minus, Plus, X } from "lucide-react";
 import { localizedText } from "@basicbar/ui";
 import type { LiveMindmapNode } from "../api";
 import { INK } from "./palette";
@@ -513,6 +524,13 @@ const MAX_ZOOM = 4;
 const MAX_FIT = 1.3;
 const FIT_PAD = 28;
 const TRANSITION_MS = 600;
+/** Drop-target colours (valid / invalid). */
+const GOOD = "oklch(0.52 0.15 250)";
+const GOOD_BG = "oklch(0.95 0.03 250 / 0.85)";
+const BAD = "oklch(0.55 0.2 27)";
+const BAD_BG = "oklch(0.95 0.04 27 / 0.85)";
+const PLUS_BTN =
+  "flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900";
 
 /** Side assignments survive a remount (e.g. the brief "closed" phase between
  * open and results, or navigating back to the question), keyed by
@@ -535,6 +553,12 @@ export default function MindMap({
   detailed = false,
   highlightDuplicates = true,
   onHide,
+  onAdd,
+  onMerge,
+  onMove,
+  onRename,
+  maxDepth = 8,
+  withDescriptions = false,
   keyboard = true,
   memoryKey,
 }: {
@@ -546,6 +570,18 @@ export default function MindMap({
   highlightDuplicates?: boolean;
   /** Expert mode: × on hover hides a term with its subtree. */
   onHide?: (node: LiveMindmapNode) => void;
+  /** Expert mode: "+" on hover adds a term below a node (`null` = root). */
+  onAdd?: (parent: number | null, text: string, description?: string) => void;
+  /** Expert mode: drag a term onto another one. */
+  onMerge?: (source: number, target: number) => void;
+  /** Expert mode: drag a term onto the "attach here" tab (or the root). */
+  onMove?: (node: number, parent: number | null, from: number | null) => void;
+  /** Expert mode: double-click renames a term. */
+  onRename?: (node: number, text: string) => void;
+  /** Levels below the root terms may occupy (the question's depth). */
+  maxDepth?: number;
+  /** The "+" form asks for a description too. */
+  withDescriptions?: boolean;
   /** Zoom/pan keys (+ / − / 0 / F, Shift+arrows) on the window. */
   keyboard?: boolean;
   /** Identifies the map (run + question) so the branch sides are kept. */
@@ -602,6 +638,27 @@ export default function MindMap({
     });
     return new Set([...seen].filter(([, c]) => c > 1).map(([k]) => k));
   }, [byId]);
+
+  // Full tree (incl. hidden terms — the server counts them for depth and
+  // name clashes): parent, level (main branch = 1) and subtree height.
+  const tree = useMemo(() => {
+    const parent = new Map<number, number | null>();
+    const level = new Map<number, number>();
+    const height = new Map<number, number>();
+    const node = new Map<number, LiveMindmapNode>();
+    const walk = (list: LiveMindmapNode[], p: number | null, depth: number): number =>
+      list.reduce((max, n) => {
+        parent.set(n.id, p);
+        level.set(n.id, depth);
+        node.set(n.id, n);
+        const h = 1 + walk(n.children, n.id, depth + 1);
+        height.set(n.id, h);
+        return Math.max(max, h);
+      }, 0);
+    walk(allNodes, null, 1);
+    return { parent, level, height, node };
+  }, [allNodes]);
+  const moderating = !!(onMerge || onMove);
 
   const sidesRef = useRef<Map<number, Side>>(
     (memoryKey && sideMemory.get(memoryKey)) || new Map(),
@@ -668,7 +725,9 @@ export default function MindMap({
     });
   }
   useEffect(() => {
-    byId.forEach((_, id) => seenRef.current!.add(id));
+    // The previous render's ids: re-appearing terms (unhidden, an undone
+    // merge) pop in like new ones.
+    seenRef.current = new Set(byId.keys());
     freshRef.current.forEach((until, id) => {
       if (until < Date.now()) freshRef.current.delete(id);
     });
@@ -753,30 +812,219 @@ export default function MindMap({
     return () => el.removeEventListener("wheel", onWheel);
   }, []);
 
-  // Drag to pan (on the background or a node; not on buttons).
-  const drag = useRef<{ id: number; x: number; y: number; vx: number; vy: number } | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0 || (e.target as Element).closest("button")) return;
-    const v = viewRef.current;
-    drag.current = { id: e.pointerId, x: e.clientX, y: e.clientY, vx: v.x, vy: v.y };
-    e.currentTarget.setPointerCapture(e.pointerId);
+  // --- moderation: why a drop target is invalid (null = fine) ---
+  const keyOf = (n: LiveMindmapNode) => n.key ?? n.text.toLowerCase();
+  const isAncestor = (a: number, of: number) => {
+    for (let p = tree.parent.get(of) ?? null; p !== null; p = tree.parent.get(p) ?? null)
+      if (p === a) return true;
+    return false;
   };
-  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    const d = drag.current;
+  const tooDeep = t("Too deep: the branch would go beyond the allowed number of levels.");
+  const mergeProblem = (source: number, target: number): string | null => {
+    if (isAncestor(source, target) || isAncestor(target, source))
+      return t("A term cannot be merged with its own branch.");
+    if ((tree.level.get(target) ?? 1) + (tree.height.get(source) ?? 1) - 1 > maxDepth)
+      return tooDeep;
+    return null;
+  };
+  const moveProblem = (node: number, parent: number | null): string | null => {
+    if ((tree.parent.get(node) ?? null) === parent)
+      return parent === null ? t("It already is a main branch.") : t("It is already attached here.");
+    if (parent !== null && (parent === node || isAncestor(node, parent)))
+      return t("A term cannot be moved into its own branch.");
+    if ((parent === null ? 0 : (tree.level.get(parent) ?? 0)) + (tree.height.get(node) ?? 1) > maxDepth)
+      return tooDeep;
+    const moved = tree.node.get(node);
+    const siblings = parent === null ? allNodes : (tree.node.get(parent)?.children ?? []);
+    if (moved && siblings.some((c) => c.id !== node && keyOf(c) === keyOf(moved)))
+      return t("A term with this name already exists there — drop it onto that term to merge.");
+    return null;
+  };
+
+  // --- pointer: drag a term (moderation) or pan (background / root) ---
+  type Target = { kind: "merge" | "move"; id: number | null; problem: string | null };
+  interface NodeDrag {
+    id: number;
+    /** Pointer in world coordinates and the grab offset from the box centre. */
+    wx: number;
+    wy: number;
+    ox: number;
+    oy: number;
+    /** Term whose body or "attach here" tab the pointer is over. */
+    active: number | null;
+    target: Target | null;
+  }
+  const [nodeDrag, setNodeDrag] = useState<NodeDrag | null>(null);
+  const press = useRef<{
+    id: number;
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    /** Set when the press started on a draggable term. */
+    node: number | null;
+    started: boolean;
+  } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const toWorld = (clientX: number, clientY: number) => {
+    const rect = containerRef.current!.getBoundingClientRect();
+    const v = viewRef.current;
+    return { x: (clientX - rect.left - v.x) / v.s, y: (clientY - rect.top - v.y) / v.s };
+  };
+  const placedById = useMemo(() => new Map(layout.nodes.map((p) => [p.id, p])), [layout]);
+  // The "attach here" tab must never cover another term (bodies are merge
+  // targets): beside a leaf the space is empty, so it is wide and labelled;
+  // a term with children only has the gap before them (icon only). It stays
+  // within the term's own band, so siblings are never covered either.
+  const TAB_W = 128;
+  const tabRect = (p: PlacedNode) => {
+    const h = Math.max(p.h, 40);
+    const w = (byId.get(p.id)?.children.length ?? 0) > 0 ? MIND_GAPS.x - 6 : TAB_W;
+    const x0 = p.side === 1 ? p.x + p.w / 2 + 3 : p.x - p.w / 2 - 3 - w;
+    return { x: x0, y: p.y - h / 2, w, h, narrow: w < TAB_W };
+  };
+  const inside = (r: { x: number; y: number; w: number; h: number }, x: number, y: number) =>
+    x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h;
+  const hitTest = (
+    dragId: number,
+    x: number,
+    y: number,
+    active: number | null,
+  ): { active: number | null; target: Target | null } => {
+    const act = active !== null ? placedById.get(active) : undefined;
+    if (act && inside(tabRect(act), x, y))
+      return { active, target: { kind: "move", id: active, problem: moveProblem(dragId, active) } };
+    for (let i = layout.nodes.length - 1; i >= 0; i--) {
+      const p = layout.nodes[i];
+      if (!inside({ x: p.x - p.w / 2 - 3, y: p.y - p.h / 2 - 3, w: p.w + 6, h: p.h + 6 }, x, y))
+        continue;
+      if (p.id === dragId) return { active: null, target: null };
+      return { active: p.id, target: { kind: "merge", id: p.id, problem: mergeProblem(dragId, p.id) } };
+    }
+    const r = layout.root;
+    if (Math.abs(x) <= r.w / 2 + 16 && Math.abs(y) <= r.h / 2 + 16)
+      return { active: null, target: { kind: "move", id: null, problem: moveProblem(dragId, null) } };
+    return { active: null, target: null };
+  };
+
+  // Move/up are followed on the window while a press lasts (more robust
+  // than pointer capture: a release anywhere ends the drag, never leaving a
+  // stale one behind that the next click would complete).
+  const nodeDragRef = useRef(nodeDrag);
+  nodeDragRef.current = nodeDrag;
+  const winHandlers = useRef<{
+    move: (e: PointerEvent) => void;
+    up: (e: PointerEvent) => void;
+    cancel: () => void;
+  }>(null!);
+  const detach = useRef<(() => void) | null>(null);
+  useEffect(() => () => detach.current?.(), []);
+  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0 || (e.target as Element).closest("button, input, textarea, form")) return;
+    if (editor) setEditor(null);
+    detach.current?.();
+    const move = (ev: PointerEvent) => winHandlers.current.move(ev);
+    const up = (ev: PointerEvent) => winHandlers.current.up(ev);
+    // Leaving the window (alt-tab, …) cancels like a drop on empty space.
+    const blur = () => winHandlers.current.cancel();
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    window.addEventListener("blur", blur);
+    detach.current = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("blur", blur);
+      detach.current = null;
+    };
+    const v = viewRef.current;
+    const nodeEl = moderating
+      ? (e.target as Element).closest<HTMLElement>("[data-mm-node]")
+      : null;
+    press.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      vx: v.x,
+      vy: v.y,
+      node: nodeEl ? Number(nodeEl.dataset.mmNode) : null,
+      started: false,
+    };
+  };
+  const onPointerMove = (e: PointerEvent) => {
+    const d = press.current;
     if (!d || d.id !== e.pointerId) return;
+    // Button released where we didn't see it (e.g. outside the window).
+    if (e.buttons === 0) {
+      onPointerUp(e);
+      return;
+    }
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
-    if (!dragging && Math.hypot(dx, dy) < 3) return;
-    if (!dragging) setDragging(true);
+    if (!d.started) {
+      if (Math.hypot(dx, dy) < 4) return;
+      d.started = true;
+      // Captured only once it really is a drag (plain clicks and double-
+      // clicks still reach the term), so moves beyond the map keep coming.
+      try {
+        containerRef.current?.setPointerCapture(e.pointerId);
+      } catch {
+        /* pointer already gone */
+      }
+      if (d.node !== null) {
+        const p = placedById.get(d.node);
+        const start = toWorld(d.x, d.y);
+        if (p) {
+          setNodeDrag({ id: d.node, wx: start.x, wy: start.y, ox: start.x - p.x, oy: start.y - p.y, active: null, target: null });
+        } else d.node = null;
+      }
+      if (d.node === null) setDragging(true);
+    }
+    if (d.node !== null) {
+      const w = toWorld(e.clientX, e.clientY);
+      setNodeDrag((nd) => {
+        if (!nd) return nd;
+        const hit = hitTest(nd.id, w.x, w.y, nd.active);
+        return { ...nd, wx: w.x, wy: w.y, ...hit };
+      });
+      return;
+    }
     manual.current = true;
     setView((v) => ({ ...v, x: d.vx + dx, y: d.vy + dy, smooth: false }));
   };
-  const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (drag.current?.id !== e.pointerId) return;
-    drag.current = null;
+  const onPointerUp = (e: PointerEvent) => {
+    const d = press.current;
+    if (d?.id !== e.pointerId) return;
+    press.current = null;
+    detach.current?.();
     setDragging(false);
+    const nd = nodeDragRef.current;
+    if (d.node === null || !nd) return;
+    const { id, target } = nd;
+    nodeDragRef.current = null;
+    setNodeDrag(null);
+    // Dropped on empty space or an invalid target: nothing happens.
+    if (e.type !== "pointerup" || !target || target.problem) return;
+    if (target.kind === "merge" && target.id !== null) onMerge?.(id, target.id);
+    else if (target.kind === "move") onMove?.(id, target.id, tree.parent.get(id) ?? null);
   };
+
+  const cancelPress = () => {
+    press.current = null;
+    detach.current?.();
+    setDragging(false);
+    nodeDragRef.current = null;
+    setNodeDrag(null);
+  };
+  winHandlers.current = { move: onPointerMove, up: onPointerUp, cancel: cancelPress };
+
+  // --- inline editor: "+" (add below a term / the root) and rename ---
+  const [editor, setEditor] = useState<{ mode: "add" | "rename"; id: number | null } | null>(null);
+  useEffect(() => {
+    // The term went away (hidden, merged by someone else): close.
+    if (editor && editor.id !== null && !placedById.has(editor.id)) setEditor(null);
+  }, [editor, placedById]);
 
   // Keys: + / − zoom, 0 or F fit, Shift+arrows pan. Plain arrows stay the
   // presenter's question navigation.
@@ -811,22 +1059,40 @@ export default function MindMap({
     const colors = nodeColors(p.depth, hue);
     const repeated = highlightDuplicates && repeatedKeys.has(n.key ?? n.text.toLowerCase());
     const roundish = box.lines.length === 1 && box.desc.length === 0;
+    const target =
+      nodeDrag?.target?.kind === "merge" && nodeDrag.target.id === p.id ? nodeDrag.target : null;
+    const ring = target
+      ? `3px solid ${target.problem ? BAD : GOOD}`
+      : repeated
+        ? `2px dashed ${deep(hue)}`
+        : undefined;
     return (
       <div
         key={p.id}
         className="absolute left-0 top-0"
+        data-mm-node={moderating ? p.id : undefined}
         style={{
           width: box.w,
           height: box.h,
           transform: `translate(${p.x - box.w / 2}px, ${p.y - box.h / 2}px)`,
-          transition: move ? `transform ${move}, width ${move}, height ${move}` : undefined,
+          transition: move ? `transform ${move}, width ${move}, height ${move}, opacity 150ms` : undefined,
+          opacity: dimmed.has(p.id) ? 0.3 : 1,
+          cursor: moderating ? (nodeDrag ? "grabbing" : "grab") : undefined,
         }}
+        onDoubleClick={
+          onRename
+            ? (e) => {
+                e.stopPropagation();
+                setEditor({ mode: "rename", id: p.id });
+              }
+            : undefined
+        }
       >
         <div
           className={`group relative h-full w-full hover:z-10 focus-within:z-10 focus:outline-none ${isFresh(p.id) ? "ab-pop" : ""}`}
           title={n.count > 1 ? `${n.count}×` : undefined}
           // With moderation the node takes focus (Tab), which reveals its ×.
-          tabIndex={onHide ? 0 : undefined}
+          tabIndex={onHide || onAdd ? 0 : undefined}
           style={{
             background: colors.bg,
             border: `2px solid ${colors.border}`,
@@ -836,10 +1102,13 @@ export default function MindMap({
             fontSize: box.font,
             fontWeight: box.weight,
             lineHeight: LINE,
-            outline: repeated ? `2px dashed ${deep(hue)}` : undefined,
-            outlineOffset: repeated ? 2 : undefined,
+            outline: ring,
+            outlineOffset: ring ? 2 : undefined,
             boxShadow: p.depth === 1 ? "0 2px 6px rgba(15,23,42,0.08)" : undefined,
-            transition: move ? `font-size ${move}` : undefined,
+            // Moved terms take on their new branch's colour smoothly.
+            transition: move
+              ? `font-size ${move}, background-color ${move}, border-color ${move}`
+              : undefined,
           }}
         >
           <div className="flex items-center" style={{ gap: box.badge ? BADGE_GAP : 0 }}>
@@ -877,7 +1146,7 @@ export default function MindMap({
               ))}
             </div>
           )}
-          {onHide && (
+          {onHide && !nodeDrag && (
             <button
               type="button"
               onClick={(e) => {
@@ -892,8 +1161,226 @@ export default function MindMap({
               <X className="h-3.5 w-3.5" strokeWidth={2.5} />
             </button>
           )}
+          {onAdd && p.depth < maxDepth && !nodeDrag && (
+            // In the gap on the outward side (clear of the × and the count);
+            // the padding bridges the way from the term, so hover holds.
+            <span
+              className={`absolute top-1/2 hidden -translate-y-1/2 group-focus-within:flex group-hover:flex ${
+                p.side === 1 ? "-right-10 pl-3" : "-left-10 pr-3"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.blur();
+                  setEditor({ mode: "add", id: p.id });
+                }}
+                className={PLUS_BTN}
+                aria-label={t("Add a term below {{word}}", { word: mindmapNodeText(n) })}
+                title={t("Add a term below {{word}}", { word: mindmapNodeText(n) })}
+              >
+                <Plus className="h-4 w-4" strokeWidth={2.75} />
+              </button>
+            </span>
+          )}
         </div>
       </div>
+    );
+  };
+
+  // While dragging: the dragged term's branch is dimmed, a ghost follows the
+  // pointer, the hovered term offers its "attach here" tab, and a bubble
+  // names the action (or why it isn't possible).
+  const dimmed = useMemo(() => {
+    const out = new Set<number>();
+    if (!nodeDrag) return out;
+    const walk = (n: LiveMindmapNode) => {
+      out.add(n.id);
+      n.children.forEach(walk);
+    };
+    const n = byId.get(nodeDrag.id);
+    if (n) walk(n);
+    return out;
+  }, [nodeDrag, byId]);
+  const dragOverlay = (): {
+    world: ReactNode;
+    bubble: { x: number; y: number; text: string; bad: boolean } | null;
+  } | null => {
+    if (!nodeDrag) return null;
+    const src = byId.get(nodeDrag.id);
+    const srcBox = boxes.get(nodeDrag.id);
+    const srcPlaced = placedById.get(nodeDrag.id);
+    if (!src || !srcBox || !srcPlaced) return null;
+    const hue = branchHue[srcPlaced.branch] ?? MINDMAP_HUES[0];
+    const colors = nodeColors(srcPlaced.depth, hue);
+    const tgt = nodeDrag.target;
+    const act = nodeDrag.active !== null ? placedById.get(nodeDrag.active) : undefined;
+    const tabOn = tgt?.kind === "move" && tgt.id !== null && tgt.id === nodeDrag.active;
+    const tabBad = tabOn && !!tgt?.problem;
+    // Bubble anchor (world): above the target.
+    let bubble: { x: number; y: number; text: string; bad: boolean } | null = null;
+    if (tgt) {
+      const word = (id: number) => mindmapNodeText(byId.get(id)!);
+      if (tgt.kind === "merge" && tgt.id !== null) {
+        const p = placedById.get(tgt.id)!;
+        bubble = {
+          x: p.x,
+          y: p.y - p.h / 2 - 10,
+          text: tgt.problem ?? t("Merge into “{{word}}”", { word: word(tgt.id) }),
+          bad: !!tgt.problem,
+        };
+      } else if (tgt.id !== null && act) {
+        const r = tabRect(act);
+        bubble = {
+          x: r.x + r.w / 2,
+          y: r.y - 10,
+          text: tgt.problem ?? t("Attach below “{{word}}”", { word: word(tgt.id) }),
+          bad: !!tgt.problem,
+        };
+      } else if (tgt.id === null) {
+        bubble = {
+          x: 0,
+          y: -layout.root.h / 2 - 22,
+          text: tgt.problem ?? t("Make it a main branch"),
+          bad: !!tgt.problem,
+        };
+      }
+    }
+    const rootOn = tgt?.kind === "move" && tgt.id === null;
+    const r = layout.root;
+    const world = (
+      <>
+        {/* Root zone: always marked while dragging. */}
+        <div
+          className="pointer-events-none absolute left-0 top-0 rounded-3xl"
+          style={{
+            width: r.w + 32,
+            height: r.h + 32,
+            transform: `translate(${-r.w / 2 - 16}px, ${-r.h / 2 - 16}px)`,
+            border: `3px dashed ${rootOn ? (tgt?.problem ? BAD : GOOD) : "rgba(100,116,139,0.45)"}`,
+            background: rootOn ? (tgt?.problem ? BAD_BG : GOOD_BG) : undefined,
+          }}
+        />
+        {act && (
+          <div
+            data-mm-tab=""
+            className="pointer-events-none absolute left-0 top-0 flex items-center justify-center gap-1 rounded-xl text-sm font-semibold"
+            style={{
+              ...(() => {
+                const tr = tabRect(act);
+                return { width: tr.w, height: tr.h, transform: `translate(${tr.x}px, ${tr.y}px)` };
+              })(),
+              border: `2px dashed ${tabOn ? (tabBad ? BAD : GOOD) : "rgba(100,116,139,0.6)"}`,
+              background: tabOn ? (tabBad ? BAD_BG : GOOD_BG) : "rgba(255,255,255,0.85)",
+              color: tabOn ? (tabBad ? BAD : GOOD) : "#475569",
+            }}
+          >
+            <CornerDownRight className="h-4 w-4 shrink-0" aria-hidden />
+            {!tabRect(act).narrow && t("Attach here")}
+          </div>
+        )}
+        {/* Ghost of the dragged term. */}
+        <div
+          className="pointer-events-none absolute left-0 top-0 rounded-[14px] shadow-xl"
+          style={{
+            width: srcBox.w,
+            height: srcBox.h,
+            transform: `translate(${nodeDrag.wx - nodeDrag.ox - srcBox.w / 2}px, ${nodeDrag.wy - nodeDrag.oy - srcBox.h / 2}px) rotate(-2deg)`,
+            background: colors.bg,
+            border: `2px solid ${colors.border}`,
+            color: INK,
+            padding: `${srcBox.padY - 2}px ${srcBox.padX - 2}px`,
+            fontSize: srcBox.font,
+            fontWeight: srcBox.weight,
+            lineHeight: LINE,
+            opacity: 0.78,
+          }}
+        >
+          {srcBox.lines.map((line, i) => (
+            <div key={i} className="whitespace-nowrap">
+              {line}
+            </div>
+          ))}
+        </div>
+      </>
+    );
+    return { world, bubble };
+  };
+  const drag = dragOverlay();
+  // The bubble lives in screen space (readable at any zoom), kept inside the
+  // map's edges.
+  const bubbleEl = () => {
+    const b = drag?.bubble;
+    if (!b) return null;
+    const half = 170;
+    const x = Math.min(
+      Math.max(view.x + b.x * view.s, half),
+      Math.max(half, viewport.w - half),
+    );
+    const y = Math.max(view.y + b.y * view.s, 8);
+    return (
+      <div
+        role="status"
+        className="pointer-events-none absolute z-20 max-w-xs rounded-lg px-2.5 py-1 text-center text-sm font-semibold text-white shadow-md"
+        style={{
+          left: x,
+          top: y,
+          transform: `translate(-50%, ${y > 40 ? "-100%" : "0"})`,
+          width: "max-content",
+          background: b.bad ? BAD : GOOD,
+        }}
+      >
+        {b.text}
+      </div>
+    );
+  };
+
+  // The inline form sits in screen space next to its term (not scaled with
+  // the zoom, so it stays readable).
+  const editorEl = () => {
+    if (!editor) return null;
+    const p = editor.id !== null ? placedById.get(editor.id) : undefined;
+    if (editor.id !== null && !p) return null;
+    const n = editor.id !== null ? byId.get(editor.id) : undefined;
+    const sx = (wx: number) => view.x + wx * view.s;
+    const sy = (wy: number) => view.y + wy * view.s;
+    // Top-left corner of the form (approximate size), kept inside the map.
+    const W = 290;
+    const H = withDescriptions && editor.mode === "add" ? 160 : 120;
+    let left: number;
+    let top: number;
+    if (editor.mode === "rename" && p) {
+      left = sx(p.x) - W / 2;
+      top = sy(p.y) - H / 2;
+    } else if (p) {
+      const edge = sx(p.x + p.side * (p.w / 2 + 18));
+      left = p.side === 1 ? edge : edge - W;
+      top = sy(p.y) - H / 2;
+    } else {
+      left = sx(0) - W / 2;
+      top = sy(layout.root.h / 2 + 18);
+    }
+    const style: CSSProperties = {
+      left: Math.max(8, Math.min(left, viewport.w - W - 8)),
+      top: Math.max(8, Math.min(top, viewport.h - H - 8)),
+    };
+    return (
+      <MindEditor
+        key={`${editor.mode}:${editor.id}`}
+        style={style}
+        mode={editor.mode}
+        initial={editor.mode === "rename" && n ? mindmapNodeText(n) : ""}
+        parentLabel={editor.mode === "add" ? (n ? mindmapNodeText(n) : rootLabel) : ""}
+        withDescription={editor.mode === "add" && withDescriptions}
+        onCancel={() => setEditor(null)}
+        onSubmit={(text, description) => {
+          setEditor(null);
+          if (editor.mode === "add") onAdd?.(editor.id, text, description);
+          else if (editor.id !== null && n && text !== mindmapNodeText(n))
+            onRename?.(editor.id, text);
+        }}
+      />
     );
   };
 
@@ -902,12 +1389,9 @@ export default function MindMap({
   return (
     <div
       ref={containerRef}
-      className={`relative h-full w-full select-none overflow-hidden ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
+      className={`relative h-full w-full select-none overflow-hidden ${dragging || nodeDrag ? "cursor-grabbing" : "cursor-grab"}`}
       style={{ touchAction: "none" }}
       onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
       data-testid="mindmap"
     >
       <div
@@ -944,7 +1428,8 @@ export default function MindMap({
         </svg>
         {/* Root: clearly the centre. */}
         <div
-          className="absolute left-0 top-0 flex flex-col items-center justify-center rounded-2xl text-center text-white shadow-lg"
+          className="group absolute left-0 top-0 flex flex-col items-center justify-center rounded-2xl text-center text-white shadow-lg focus:outline-none"
+          tabIndex={onAdd ? 0 : undefined}
           style={{
             width: rootBox.w,
             height: rootBox.h,
@@ -961,9 +1446,27 @@ export default function MindMap({
               {line}
             </div>
           ))}
+          {onAdd && !nodeDrag && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.currentTarget.blur();
+                setEditor({ mode: "add", id: null });
+              }}
+              className={`${PLUS_BTN} absolute -bottom-3.5 left-1/2 hidden -translate-x-1/2 group-focus-within:flex group-hover:flex`}
+              aria-label={t("Add a main branch")}
+              title={t("Add a main branch")}
+            >
+              <Plus className="h-4 w-4" strokeWidth={2.75} />
+            </button>
+          )}
         </div>
         {layout.nodes.map(nodeEl)}
+        {drag?.world}
       </div>
+      {bubbleEl()}
+      {editor && editorEl()}
       {visible.length === 0 && (
         <p
           className="pointer-events-none absolute inset-x-0 text-center text-lg text-slate-400"
@@ -1012,5 +1515,107 @@ export default function MindMap({
         </button>
       </div>
     </div>
+  );
+}
+
+/** Inline form for "+" (term + optional description) and rename. Enter
+ * submits, Esc cancels; the limits match the participant page. */
+function MindEditor({
+  style,
+  mode,
+  initial,
+  parentLabel,
+  withDescription,
+  onSubmit,
+  onCancel,
+}: {
+  style: CSSProperties;
+  mode: "add" | "rename";
+  initial: string;
+  parentLabel: string;
+  withDescription: boolean;
+  onSubmit: (text: string, description?: string) => void;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const [text, setText] = useState(initial);
+  const [description, setDescription] = useState("");
+  const titleRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    titleRef.current?.focus();
+    titleRef.current?.select();
+  }, []);
+  const submit = () => {
+    const term = text.trim();
+    if (!term) return;
+    onSubmit(term, description.trim() || undefined);
+  };
+  const onKeyDown = (e: ReactKeyboardEvent) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submit();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+    }
+  };
+  const field =
+    "w-64 rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-base text-slate-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-200";
+  return (
+    <form
+      className="absolute z-20 flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur"
+      style={style}
+      onPointerDown={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <label className="text-xs font-semibold text-slate-500">
+        {mode === "add"
+          ? t("New term below “{{word}}”", { word: parentLabel })
+          : t("Rename term")}
+      </label>
+      <input
+        ref={titleRef}
+        value={text}
+        maxLength={60}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={onKeyDown}
+        placeholder={t("Term")}
+        aria-label={t("Term")}
+        className={field}
+      />
+      {withDescription && (
+        <input
+          value={description}
+          maxLength={200}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={onKeyDown}
+          placeholder={t("Description (optional)")}
+          aria-label={t("Description (optional)")}
+          className={field}
+        />
+      )}
+      <div className="flex items-center justify-end gap-1.5 text-sm">
+        <span className="mr-auto text-xs text-slate-400">{t("Enter saves · Esc cancels")}</span>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-lg px-2 py-1 text-slate-600 hover:bg-slate-100"
+        >
+          {t("Cancel")}
+        </button>
+        <button
+          type="submit"
+          disabled={!text.trim()}
+          className="rounded-lg bg-brand-600 px-2.5 py-1 font-semibold text-white hover:bg-brand-700 disabled:opacity-40"
+        >
+          {mode === "add" ? t("Add") : t("Save")}
+        </button>
+      </div>
+    </form>
   );
 }

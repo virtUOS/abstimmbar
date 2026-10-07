@@ -29,6 +29,7 @@ import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
 import MindMap, { hiddenMindmapNodes } from "../results/MindMap";
+import { useMindmapModeration } from "../results/mindmapModeration";
 import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -221,10 +222,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       /* ignore */
     }
   };
-  // Mindmap counterpart of the moderation hint (× hides, pencil restores).
+  // Mindmap counterpart of the moderation hint (+, drag, double-click, ×,
+  // undo). "_v2": shown again once for the stage-2 gestures.
   const [mmHintSeen, setMmHintSeen] = useState(() => {
     try {
-      return localStorage.getItem("abstimmbar_mm_moderation_hint") === "1";
+      return localStorage.getItem("abstimmbar_mm_moderation_hint_v2") === "1";
     } catch {
       return false;
     }
@@ -232,7 +234,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const dismissMmHint = () => {
     setMmHintSeen(true);
     try {
-      localStorage.setItem("abstimmbar_mm_moderation_hint", "1");
+      localStorage.setItem("abstimmbar_mm_moderation_hint_v2", "1");
     } catch {
       /* ignore */
     }
@@ -571,18 +573,45 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const mmHidden = mindmap ? hiddenMindmapNodes(mindmap.nodes) : [];
   const showMmHandle = expert && mmShown && (mindmap?.total ?? 0) > 0;
   // The hint also goes away by itself once it has been readable for ~20 s.
-  const mmHintVisible = showMmHandle && !mmHintSeen;
+  // ("+" works on an empty map too, so it doesn't wait for terms.)
+  const mmHintVisible = expert && mmShown && !mmHintSeen;
   useEffect(() => {
     if (!mmHintVisible) return;
     const id = window.setTimeout(dismissMmHint, 20_000);
     return () => window.clearTimeout(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mmHintVisible]);
-  const hideMindmapNode = (node: number, hidden: boolean) => {
-    if (runId == null || activeId == null) return;
-    if (hidden && !mmHintSeen) dismissMmHint();
-    void live.mindmapHide(runId, activeId, node, hidden);
-  };
+  // Moderation (add / merge / move / rename / hide) with undo/redo; server
+  // refusals (409 details) show up as a small toast.
+  const [mmToast, setMmToast] = useState<{ text: string; n: number } | null>(null);
+  useEffect(() => {
+    if (!mmToast) return;
+    const id = window.setTimeout(() => setMmToast(null), 6000);
+    return () => window.clearTimeout(id);
+  }, [mmToast]);
+  const mmMod = useMindmapModeration(runId, activeKind === "mindmap" ? activeId : null, {
+    onError: (detail) => setMmToast((p) => ({ text: t(detail), n: (p?.n ?? 0) + 1 })),
+    onInfo: (msg) => setMmToast((p) => ({ text: t(msg), n: (p?.n ?? 0) + 1 })),
+    onAction: () => {
+      if (!mmHintSeen) dismissMmHint();
+    },
+  });
+  const hideMindmapNode = (node: number, hidden: boolean) => mmMod.hide(node, hidden);
+  const mmModRef = useRef(mmMod);
+  mmModRef.current = mmMod;
+  useEffect(() => {
+    if (!(expert && mmShown)) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      // Don't hijack native undo while the presenter types in a field.
+      if (isTextField(e.target)) return;
+      e.preventDefault();
+      if (e.shiftKey) mmModRef.current.redo();
+      else mmModRef.current.undo();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [expert, mmShown]);
   // Below the pencil when it is shown, otherwise in its place.
   const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
   // Regroup / merge again stay busy until a finished AI result computed
@@ -1591,11 +1620,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               (compact / detailed from the footer view picker). */}
           {/* One-time moderation hint as a slim banner in the flow (the map
               fits itself around it instead of being covered). */}
-          {mmShown && showMmHandle && !mmHintSeen && (
+          {mmHintVisible && (
             <div className="mx-auto mt-2 flex max-w-3xl items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm text-slate-700">
               <Info className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
               <p className="flex-1">
-                {t("Tip: × hides a term together with everything below it, the pencil on the right lists hidden terms.")}
+                {t("Tip: + adds a term. Drag a term onto another to merge them, or onto “Attach here” beside it to move it there; double-click renames, × hides (the pencil on the right lists hidden terms). Ctrl+Z undoes.")}
               </p>
               <button
                 type="button"
@@ -1618,6 +1647,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 detailed={wcView === "detailed"}
                 highlightDuplicates={mindmap.highlight_duplicates}
                 onHide={expert ? (n) => hideMindmapNode(n.id, true) : undefined}
+                onAdd={expert ? mmMod.add : undefined}
+                onMerge={expert ? mmMod.merge : undefined}
+                onMove={expert ? mmMod.move : undefined}
+                onRename={expert ? mmMod.rename : undefined}
+                maxDepth={mindmap.depth}
+                withDescriptions={mindmap.descriptions}
                 memoryKey={`${runId}:${question.id}`}
               />
             </div>
@@ -1956,6 +1991,25 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               </>
             )}
 
+          {/* Mindmap moderation refusals (e.g. undo no longer possible). */}
+          {mmToast && mmShown && (
+            <div
+              key={mmToast.n}
+              role="status"
+              className="ab-fade-in fixed bottom-24 left-1/2 z-50 flex max-w-lg -translate-x-1/2 items-start gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm text-white shadow-lg"
+            >
+              <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+              <p className="flex-1">{mmToast.text}</p>
+              <button
+                type="button"
+                onClick={() => setMmToast(null)}
+                aria-label={t("Dismiss")}
+                className="rounded p-0.5 text-slate-300 hover:text-white"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           {showMmHandle && (
             <>
               <button
@@ -1981,6 +2035,28 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 }`}
               >
                 <div className="flex items-center justify-between border-b border-slate-100 p-3">
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={mmMod.undo}
+                      disabled={!mmMod.canUndo}
+                      title={t("Undo")}
+                      aria-label={t("Undo")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                    >
+                      <Undo2 className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={mmMod.redo}
+                      disabled={!mmMod.canRedo}
+                      title={t("Redo")}
+                      aria-label={t("Redo")}
+                      className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100 disabled:opacity-30"
+                    >
+                      <Redo2 className="h-5 w-5" />
+                    </button>
+                  </div>
                   <span className="text-sm font-semibold text-slate-600">{t("Moderate")}</span>
                   <button
                     type="button"
