@@ -19,7 +19,7 @@ from collections import defaultdict
 
 import nh3
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q
+from django.db.models import Count, Exists, OuterRef, Q
 
 from common.i18n_fields import translated_map
 from rooms.mindmap import (
@@ -30,10 +30,13 @@ from rooms.mindmap import (
     text_key,
 )
 
-from .models import MindmapContribution, MindmapNode, Run
+from .models import MindmapContribution, MindmapNode, Run, Vote
 
 MINDMAP_MAX_NODES = 300
 MINDMAP_MAX_DESCRIPTIONS = 3
+# Mind-map adds/withdrawals coalesce into at most ~1 snapshot per second per
+# room (the 300-node tree is the biggest live payload).
+BROADCAST_DEBOUNCE = 1.0
 ROOT_LABEL_MAX = 80
 
 
@@ -46,18 +49,33 @@ class MindmapError(Exception):
         self.status = status
 
 
-def answered_runs_q():
-    """Runs that collected answers: votes or mind-map contributions (use with
-    ``.distinct()``)."""
-    return Q(votes__isnull=False) | Q(mindmap_nodes__contributions__isnull=False)
+def answered_runs_q(run_ref="pk"):
+    """Q for runs that collected answers — votes or mind-map contributions —
+    as EXISTS subqueries (no multiplying JOINs, no ``.distinct()`` needed).
+    ``run_ref`` is the outer reference to the run id (e.g. ``"runs"`` when
+    filtering/annotating question sets)."""
+    return Q(Exists(Vote.objects.filter(run=OuterRef(run_ref)))) | Q(
+        Exists(MindmapContribution.objects.filter(node__run=OuterRef(run_ref)))
+    )
 
 
 def run_has_contributions(run):
     return MindmapContribution.objects.filter(node__run=run).exists()
 
 
+def run_has_answers(run):
+    """A run "has results": votes or mind-map contributions."""
+    return run.votes.exists() or run_has_contributions(run)
+
+
+def contribution_total(run):
+    return MindmapContribution.objects.filter(node__run=run).count()
+
+
 def _lock_run(run):
-    Run.objects.select_for_update().filter(pk=run.pk).first()
+    # FOR NO KEY UPDATE: serialises mind-map writes per run without blocking
+    # inserts of rows that reference the run (votes, nodes) via FK checks.
+    Run.objects.select_for_update(no_key=True).filter(pk=run.pk).first()
 
 
 def root_label(question):
@@ -176,12 +194,15 @@ def build_tree(run, question, *, presenter):
             node = {
                 "id": row["id"],
                 "text": row["text"],
-                "key": row["text_key"],
                 "count": counts.get(row["id"], 0),
                 "descriptions": unique_descriptions(row["id"]),
                 "seeded": row["seeded"],
             }
             if presenter:
+                # Presenter only: merge key (duplicate highlighting on the
+                # beamer) and moderation state. Kept out of the participant
+                # broadcast to keep it small.
+                node["key"] = row["text_key"]
                 node["hidden"] = row["hidden"]
             node["children"] = walk(row["id"])
             result.append(node)
@@ -214,7 +235,6 @@ def preview_tree(question):
             result.append({
                 "id": next_id,
                 "text": entry["text"],
-                "key": text_key(entry["text"]),
                 "count": 0,
                 "descriptions": (
                     [entry["description"]]
@@ -276,9 +296,7 @@ def add_term(run, question, token, parent, text, description=""):
         raise MindmapError("Empty term.")
     if len(text) > MINDMAP_TEXT_MAX:
         raise MindmapError("Term too long.")
-    description = (
-        " ".join(str(description or "").split()) if question.mindmap_descriptions else ""
-    )
+    description = normalize_text(description) if question.mindmap_descriptions else ""
     if len(description) > MINDMAP_DESCRIPTION_MAX:
         raise MindmapError("Description too long.")
     parent_id = None

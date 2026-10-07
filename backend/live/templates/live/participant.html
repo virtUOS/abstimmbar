@@ -2758,7 +2758,7 @@ survives the live updates.
     if (merged) return; // merged into a node we don't see (hidden)
     const list = mmChildrenOf(parentId);
     if (!list) return;
-    list.push({ id: nodeId, text, key: text.toLowerCase(), count: 1,
+    list.push({ id: nodeId, text, count: 1,
       descriptions: mm.descriptions && description ? [description] : [], seeded: false, children: [] });
     mm.total = (mm.total || 0) + 1;
   }
@@ -2775,7 +2775,7 @@ survives the live updates.
     if (PREVIEW) {
       // Editor preview: no run — simulate locally so the author can try it.
       const siblings = mmChildrenOf(parentId) || [];
-      const same = siblings.find((n) => n.key === text.toLowerCase());
+      const same = siblings.find((n) => n.text.toLowerCase() === text.toLowerCase());
       if (same && mmMineSet.has(same.id)) { fail(I18N.mmAlready); return; }
       const id = same ? same.id : mmPreviewId--;
       mmApplyAdd(parentId, id, !!same, text, description);

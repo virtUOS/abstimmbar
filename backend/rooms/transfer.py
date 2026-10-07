@@ -339,7 +339,10 @@ def import_set(room, data):
     for item in questions:
         if not isinstance(item, dict) or item.get("kind") not in VALID_KINDS:
             raise serializers.ValidationError({"questions": "Invalid question."})
-        if item["kind"] not in allowed_kinds:
+        # Hard reject only for mindmap (a shared live activity; live polls
+        # only). Other kinds a set type would not offer in the editor still
+        # import as before — legacy exports must keep working.
+        if item["kind"] == Question.Kind.MINDMAP and item["kind"] not in allowed_kinds:
             raise serializers.ValidationError(
                 {"questions": "Question type not allowed in this set type."}
             )

@@ -4772,6 +4772,57 @@ class MindmapAuthoringTests(ApiTestCase):
         question.refresh_from_db()
         self.assertEqual(question.question_set, self.question_set)
 
+    def test_move_with_mindmap_contributions_blocked(self):
+        question = self._mindmap_question()
+        target = QuestionSet.objects.create(room=self.room, title="Andere")
+        run = Run.objects.create(question_set=self.question_set)
+        node = MindmapNode.objects.create(run=run, question=question, text="A", text_key="a")
+        MindmapContribution.objects.create(
+            node=node, token=ParticipantToken.objects.create(room=self.room)
+        )
+        response = self.client.post(
+            f"/api/questions/{question.pk}/move/", {"question_set": target.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 409)
+        question.refresh_from_db()
+        self.assertEqual(question.question_set, self.question_set)
+
+    def test_import_keeps_other_kinds_the_set_type_disallows(self):
+        # Only mindmap is a hard reject; legacy files with other kinds a set
+        # type would not offer in the editor still import (no regression).
+        from .transfer import import_set
+
+        imported = import_set(self.room, {
+            "format": "abstimmbar-set-v2",
+            "title": {"de": "Alt", "en": ""},
+            "type": "self_check",
+            "questions": [{"kind": "word_cloud", "text": {"de": "<p>W</p>", "en": ""}}],
+        })
+        self.assertEqual(imported.questions.get().kind, "word_cloud")
+
+    def test_set_list_has_results_uses_exists_subqueries(self):
+        question = self._mindmap_question()
+        response = self.client.get(f"/api/question-sets/?room={self.room.pk}")
+        self.assertFalse(response.json()["results"][0]["has_results"])
+        run = Run.objects.create(question_set=self.question_set)
+        token = ParticipantToken.objects.create(room=self.room)
+        for i in range(3):
+            node = MindmapNode.objects.create(
+                run=run, question=question, text=f"A{i}", text_key=f"a{i}"
+            )
+            MindmapContribution.objects.create(node=node, token=token)
+        response = self.client.get(f"/api/question-sets/?room={self.room.pk}")
+        self.assertTrue(response.json()["results"][0]["has_results"])
+        from .views import QuestionSetViewSet
+
+        view = QuestionSetViewSet()
+        view.request = type("R", (), {"user": self.owner, "query_params": {}})()
+        sql = str(view.get_queryset().query).upper()
+        self.assertIn("EXISTS", sql)
+        # No multiplying JOIN over runs/votes/contributions.
+        self.assertNotIn("COUNT(DISTINCT \"LIVE_", sql)
+
     def test_copy_into_self_paced_set_rejected(self):
         question = self._mindmap_question()
         target = QuestionSet.objects.create(room=self.room, title="Quiz", type="self_paced")
@@ -4791,6 +4842,29 @@ class MindmapAuthoringTests(ApiTestCase):
 
 
 class MindmapSeedHelperTests(SimpleTestCase):
+    def test_normalisation_nfkc_and_control_characters(self):
+        from .mindmap import normalize_text, text_key
+
+        self.assertEqual(normalize_text("Ab\x00c\u200b d\tef\n"), "Abc d ef")
+        self.assertEqual(normalize_text("\u200b\u200d\x00"), "")
+        self.assertEqual(text_key("Cafe\u0301"), text_key("Café"))
+
+    def test_text_key_fits_its_column(self):
+        from .mindmap import MINDMAP_TEXT_MAX, text_key
+
+        self.assertEqual(len(text_key("ß" * 60)), MINDMAP_TEXT_MAX)
+
+    def test_seed_text_and_description_normalised(self):
+        from .mindmap import SeedError, clean_seed
+
+        seed = clean_seed(
+            [{"text": "Wi\x00nd", "description": "Ro\u200btoren\x00 \n x", "children": []}], 3
+        )
+        self.assertEqual(seed[0]["text"], "Wind")
+        self.assertEqual(seed[0]["description"], "Rotoren x")
+        with self.assertRaises(SeedError):
+            clean_seed([{"text": "\u200b\x00", "children": []}], 3)
+
     def test_text_key_merges_case_and_whitespace(self):
         from .mindmap import text_key
 

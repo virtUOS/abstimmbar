@@ -5695,7 +5695,8 @@ class MindmapAddTests(MindmapTestCase):
         with patch("live.views.broadcast") as bc:
             self.add(token, "Wind")
         bc.assert_called_once()
-        self.assertTrue(bc.call_args.kwargs.get("debounce"))
+        # Mind-map bursts coalesce into ~1 snapshot per second.
+        self.assertEqual(bc.call_args.kwargs.get("debounce"), 1.0)
 
     def test_vote_endpoint_refuses_mindmap(self):
         self.open_mindmap()
@@ -5881,7 +5882,7 @@ class MindmapPayloadTests(MindmapTestCase):
         )
         wind = mindmap["nodes"][0]
         self.assertEqual(
-            set(wind), {"id", "text", "key", "count", "descriptions", "seeded", "children"}
+            set(wind), {"id", "text", "count", "descriptions", "seeded", "children"}
         )
         self.assertEqual(wind["id"], a)
         self.assertEqual(wind["count"], 2)
@@ -6111,3 +6112,126 @@ class MindmapConcurrencyTests(TransactionTestCase):
             self.assertEqual(response.status_code, 201, response.content)
         self.assertEqual(MindmapNode.objects.count(), 1)
         self.assertEqual(MindmapContribution.objects.count(), 4)
+
+
+class MindmapFixRoundTests(MindmapTestCase):
+    """Final-review fixes: run lifecycle counts contributions, key overflow,
+    normalisation, strict moderation input, CSV injection."""
+
+    def _contribute(self):
+        run = self.open_mindmap()
+        self.add(self.join(), "Wind")
+        return run
+
+    def test_other_set_start_keeps_mindmap_only_run(self):
+        run = self._contribute()
+        other = QuestionSet.objects.create(room=self.room, title="Termin 2")
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/question-sets/{other.pk}/start-run/", {}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.phase, Run.Phase.FINISHED)
+        self.assertEqual(MindmapContribution.objects.count(), 1)
+
+    def test_archive_start_finishes_stale_mindmap_run(self):
+        run = self._contribute()
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"existing": "archive"}, content_type="application/json",
+        )
+        self.assertNotEqual(response.json()["run"], run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.phase, Run.Phase.FINISHED)
+
+    def test_live_status_counts_contributions(self):
+        self._contribute()
+        self.client.force_login(self.owner)
+        data = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/live-status/"
+        ).json()
+        self.assertTrue(data["has_votes"])
+        self.assertTrue(data["active_run_has_votes"])
+
+    def test_votes_total_includes_contributions(self):
+        run = self._contribute()
+        self.add(self.join(), "Sonne")
+        self.vote(self.join(), options=[self.correct.pk])  # other question not open
+        from .results import run_results
+
+        self.assertEqual(run_results(run)["votes_total"], 2)
+
+    def test_sharp_s_term_fits_text_key(self):
+        self.open_mindmap()
+        response = self.add(self.join(), "ß" * 60)
+        self.assertEqual(response.status_code, 201, response.content)
+        node = MindmapNode.objects.get()
+        self.assertEqual(len(node.text_key), 60)
+        # The same term again merges (same truncated key).
+        self.assertTrue(self.add(self.join(), "ß" * 60).json()["merged"])
+
+    def test_sharp_s_seed_materialises(self):
+        self.open_mindmap(mindmap_seed=[{"text": "ß" * 60, "description": "", "children": []}])
+        self.assertEqual(self.tree()["nodes"][0]["text"], "ß" * 60)
+
+    def test_nul_and_zero_width_terms(self):
+        self.open_mindmap(mindmap_descriptions=True)
+        token = self.join()
+        response = self.add(token, "Wi\x00nd", description="Ro\x00tor")
+        self.assertEqual(response.status_code, 201, response.content)
+        node = MindmapNode.objects.get()
+        self.assertEqual(node.text, "Wind")
+        self.assertEqual(MindmapContribution.objects.get().description, "Rotor")
+        response = self.add(token, "\u200b\u200b")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Empty term.")
+
+    def test_nfc_and_nfd_merge(self):
+        self.open_mindmap()
+        first = self.add(self.join(), "Caf\u00e9").json()["node_id"]
+        response = self.add(self.join(), "Cafe\u0301")
+        self.assertEqual(response.json()["node_id"], first)
+
+    def test_hide_requires_boolean(self):
+        run = self._contribute()
+        node = MindmapNode.objects.get().pk
+        self.client.force_login(self.owner)
+        for bad in ("false", 0, None, "yes"):
+            response = self.hide(run, node, hidden=bad)
+            self.assertEqual(response.status_code, 400, bad)
+            self.assertEqual(response.json()["detail"], "hidden must be true or false.")
+        self.assertFalse(MindmapNode.objects.get().hidden)
+
+    def test_participant_tree_has_no_key_presenter_has(self):
+        self._contribute()
+        self.assertNotIn("key", self.tree("participant")["nodes"][0])
+        self.assertEqual(self.tree("presenter")["nodes"][0]["key"], "wind")
+
+    def test_csv_escapes_formula_cells(self):
+        run = self.open_mindmap()
+        self.add(self.join(), "=HYPERLINK(1)")
+        wc = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>W</p>", position=2,
+        )
+        Vote.objects.create(
+            run=run, question=wc, token=ParticipantToken.objects.create(room=self.room),
+            text="@SUM(A1)",
+        )
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8")
+        self.assertIn(";'=HYPERLINK(1);", body)
+        self.assertIn(";'@SUM(A1);", body)
+        self.assertNotIn(";=HYPERLINK", body)
+
+    def test_csv_safe_helper(self):
+        from common.csv_safe import csv_safe
+
+        for raw in ("=1", "+1", "-1", "@x", "\tx", "\rx"):
+            self.assertEqual(csv_safe(raw), "'" + raw)
+        self.assertEqual(csv_safe("Wind"), "Wind")
+        self.assertEqual(csv_safe(3), 3)

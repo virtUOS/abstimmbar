@@ -28,6 +28,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from common.markdown import render_markdown
 from common.models import SiteConfig
@@ -762,7 +763,7 @@ def mindmap_add(request, code):
         )
     except mindmap.MindmapError as error:
         return Response({"detail": error.detail}, status=error.status)
-    broadcast(room, debounce=True)
+    broadcast(room, debounce=mindmap.BROADCAST_DEBOUNCE)
     return Response(
         {
             "node_id": node.pk,
@@ -785,7 +786,7 @@ def mindmap_remove(request, code):
         deleted = mindmap.remove_term(run, question, token, request.data.get("node"))
     except mindmap.MindmapError as error:
         return Response({"detail": error.detail}, status=error.status)
-    broadcast(room, debounce=True)
+    broadcast(room, debounce=mindmap.BROADCAST_DEBOUNCE)
     return Response(
         {
             "status": "ok",
@@ -1315,10 +1316,11 @@ def live_status(request, set_id):
         .exclude(phase=Run.Phase.FINISHED)
         .first()
     )
-    has_votes = Vote.objects.filter(run__question_set=question_set).exists()
+    # "Votes" here means any stored answers, mind-map contributions included.
+    has_votes = question_set.runs.filter(mindmap.answered_runs_q()).exists()
     # Whether the run the start dialog would resume already carries answers —
     # lets the UI offer archive/delete instead of silently appending (#70).
-    active_run_has_votes = bool(run and run.votes.exists())
+    active_run_has_votes = bool(run and mindmap.run_has_answers(run))
     return Response(
         {
             "active_run": run.pk if run else None,
@@ -1331,7 +1333,8 @@ def live_status(request, set_id):
 
 
 def _finish_other_room_runs(room, keep_set):
-    """Enforce one active run per room: archive (has votes, or a minted
+    """Enforce one active run per room: archive (has votes or mind-map
+    contributions, or a minted
     recording token) or delete (neither) the unfinished runs of *other* sets
     in ``room`` before a new run is activated. The participant page shows a
     single active run, but the per-set constraint
@@ -1349,7 +1352,7 @@ def _finish_other_room_runs(room, keep_set):
         .exclude(question_set=keep_set)
     )
     for other in others:
-        if other.votes.exists() or other.recording_token:
+        if mindmap.run_has_answers(other) or other.recording_token:
             other.phase = Run.Phase.FINISHED
             other.ended_at = timezone.now()
             other.save(update_fields=["phase", "ended_at", "updated_at"])
@@ -1414,7 +1417,6 @@ def start_run(request, set_id):
             else:
                 last = (
                     question_set.runs.filter(mindmap.answered_runs_q())
-                    .distinct()
                     .order_by("-created_at")
                     .first()
                 )
@@ -1437,7 +1439,7 @@ def start_run(request, set_id):
                 Run.objects.filter(question_set=question_set)
                 .exclude(phase=Run.Phase.FINISHED)
             ):
-                if stale.votes.exists():
+                if mindmap.run_has_answers(stale):
                     stale.phase = Run.Phase.FINISHED
                     stale.ended_at = timezone.now()
                     stale.save(update_fields=["phase", "ended_at", "updated_at"])
@@ -1609,7 +1611,6 @@ def set_results(request, set_id):
     # a Durchführung is only worth listing once it collected answers.
     runs = (
         question_set.runs.filter(mindmap.answered_runs_q())
-        .distinct()
         .order_by("-created_at")
     )
     return Response({"results": [run_results(run) for run in runs]})
@@ -1694,9 +1695,10 @@ def mindmap_hide(request, run_id, question_id):
         Question, pk=question_id, question_set=run.question_set,
         kind=Question.Kind.MINDMAP,
     )
-    if not mindmap.set_hidden(
-        run, question, request.data.get("node"), request.data.get("hidden", True)
-    ):
+    hidden = request.data.get("hidden")
+    if not isinstance(hidden, bool):
+        return Response({"detail": "hidden must be true or false."}, status=400)
+    if not mindmap.set_hidden(run, question, request.data.get("node"), hidden):
         raise Http404
     broadcast(room)
     return Response({"status": "ok"})
@@ -2009,9 +2011,7 @@ def archive_results(request, set_id):
     )
     # Finish a Durchführung only if it actually collected answers; an empty
     # unfinished run is already the "fresh" run we would create.
-    if active is not None and (
-        active.votes.exists() or mindmap.run_has_contributions(active)
-    ):
+    if active is not None and mindmap.run_has_answers(active):
         active.phase = Run.Phase.FINISHED
         active.ended_at = timezone.now()
         active.save(update_fields=["phase", "ended_at", "updated_at"])
@@ -2059,12 +2059,12 @@ def results_csv(request, set_id):
                 # ("Wind > Rotor") and its count in "stimmen".
                 tree = mindmap.build_tree(run, question, presenter=False)
                 for path, count in mindmap.csv_rows(tree):
-                    writer.writerow(base + [path, "", count, "", "", ""])
+                    writer.writerow(base + [csv_safe(path), "", count, "", "", ""])
             elif question.kind in Question.TEXT_KINDS:
                 for word in words_with_counts(run, question, limit=100000):
                     writer.writerow(
                         base
-                        + [word["text"], "", word["count"],
+                        + [csv_safe(word["text"]), "", word["count"],
                            word.get("onsite", ""), word.get("recording", ""), ""]
                     )
             elif question.kind == Question.Kind.PRIORITIES:

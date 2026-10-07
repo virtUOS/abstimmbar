@@ -541,7 +541,11 @@ export default function MindMap({
   // Same term under several parents: a dashed ring marks each of them.
   const repeatedKeys = useMemo(() => {
     const seen = new Map<string, number>();
-    byId.forEach((n) => seen.set(n.key, (seen.get(n.key) ?? 0) + 1));
+    byId.forEach((n) => {
+      // `key` is presenter-only; results trees fall back to the lowercased text.
+      const k = n.key ?? n.text.toLowerCase();
+      seen.set(k, (seen.get(k) ?? 0) + 1);
+    });
     return new Set([...seen].filter(([, c]) => c > 1).map(([k]) => k));
   }, [byId]);
 
@@ -736,7 +740,7 @@ export default function MindMap({
     if (!n || !box) return null;
     const ci = branchColor[p.branch] ?? p.branch;
     const colors = nodeColors(p.depth, ci);
-    const repeated = highlightDuplicates && repeatedKeys.has(n.key);
+    const repeated = highlightDuplicates && repeatedKeys.has(n.key ?? n.text.toLowerCase());
     const roundish = box.lines.length === 1 && box.desc.length === 0;
     return (
       <div

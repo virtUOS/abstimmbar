@@ -1004,8 +1004,9 @@ export interface LiveState {
 export interface LiveMindmapNode {
   id: number;
   text: string;
-  /** Casefolded merge key (duplicate highlighting across parents). */
-  key: string;
+  /** Casefolded merge key (duplicate highlighting across parents). Presenter
+   *  payload only — absent in participant and results trees. */
+  key?: string;
   count: number;
   /** Up to 3 descriptions ([] when descriptions are off). */
   descriptions: string[];

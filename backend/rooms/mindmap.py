@@ -12,6 +12,8 @@ participants' terms merge (``text_key``), so materialising the seed per run
 never collides with the live uniqueness constraint.
 """
 
+import unicodedata
+
 MINDMAP_MIN_DEPTH = 1
 MINDMAP_MAX_DEPTH = 8
 MINDMAP_DEFAULT_DEPTH = 5
@@ -27,14 +29,27 @@ class SeedError(ValueError):
 
 
 def normalize_text(value):
-    """Strip and collapse inner whitespace (how terms are stored)."""
-    return " ".join(str(value or "").split())
+    """How terms and descriptions are stored: Unicode NFKC (so composed and
+    decomposed "Café" are the same string), every whitespace character a
+    plain space, other control/format characters (Cc/Cf: NUL, zero-width
+    space/joiner, BOM, bidi marks …) dropped, whitespace collapsed and
+    stripped. NUL must never reach Postgres."""
+    text = unicodedata.normalize("NFKC", str(value or ""))
+    cleaned = []
+    for char in text:
+        if char.isspace():
+            cleaned.append(" ")
+        elif unicodedata.category(char) not in ("Cc", "Cf"):
+            cleaned.append(char)
+    return " ".join("".join(cleaned).split())
 
 
 def text_key(value):
-    """Merge key for terms under one parent: case-insensitive, whitespace-
-    collapsed. Shared with the live side (identical terms = one node)."""
-    return normalize_text(value).casefold()
+    """Merge key for terms under one parent: normalised, case-insensitive.
+    Shared with the live side (identical terms = one node). Casefolding can
+    lengthen a term ("ß" → "ss"), so the key is cut to the column length
+    (MINDMAP_TEXT_MAX): two terms differing only beyond that point merge."""
+    return normalize_text(value).casefold()[:MINDMAP_TEXT_MAX]
 
 
 def clean_seed(value, max_level, *, strict=True):
@@ -62,7 +77,7 @@ def clean_seed(value, max_level, *, strict=True):
                     raise SeedError("Invalid branch.")
                 continue
             text = normalize_text(raw.get("text"))
-            description = str(raw.get("description") or "").strip()
+            description = normalize_text(raw.get("description"))
             children = raw.get("children") or []
             if not text:
                 if strict:
