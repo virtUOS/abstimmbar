@@ -134,6 +134,10 @@ Folgende Fragetypen stehen zur Verfügung:
   bis „trifft nicht zu").
 - **Freitext** — offene Antworten in eigenen Worten (bis 500 Zeichen), angezeigt
   als Liste.
+- **Mindmap** — Teilnehmende bauen gemeinsam einen Begriffsbaum auf; gleiche
+  Begriffe werden mit Anzahl zusammengefasst. Einstellbar sind die Tiefe, die
+  Anzahl der Begriffe pro Person, Titel + Beschreibung sowie vorgegebene Äste.
+  Nur in Live-Umfragen möglich.
 - **Prioritäten** — Ihre Teilnehmenden verteilen bis zu **100 Punkte** auf die
   Antworten: je wichtiger, desto mehr Punkte. Die Auswertung zeigt je Antwort
   den Durchschnitt (mit Minimum und Maximum), absteigend sortiert — so sehen
@@ -229,6 +233,10 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
 - **→** wechselt zur nächsten Frage, **←** zurück.
 - **Beenden** (Esc) schließt die Durchführung und speichert die Ergebnisse.
 - Das QR-Symbol blendet QR-Code und Zugangscode jederzeit wieder ein.
+- **Mindmap:** Die Mindmap wächst live mit den Beiträgen. Mit Mausrad und Ziehen
+  zoomen und verschieben Sie sie; die Ansicht lässt sich zwischen **kompakt** und
+  **ausführlich** (mit Beschreibungen) umschalten. Im Experten-Modus blenden Sie
+  einen Begriff samt Teilbaum aus.
 - **Wortwolken bearbeiten (Experten-Modus):** Ziehen Sie einen Begriff auf
   einen anderen, um beide zusammenzuführen; mit × blenden Sie einen Begriff aus.
   Der Stift am rechten Rand öffnet die Liste zum Wiederherstellen, Trennen und

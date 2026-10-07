@@ -1129,6 +1129,8 @@ export interface RunResults {
     /** Priorities (#58): per-option avg/min/max/n. */
     priorities?: PriorityStat[];
     ordering?: OrderingResults;
+    /** Mindmap: visible tree (hidden nodes already excluded). */
+    mindmap?: LiveMindmap;
   }[];
 }
 

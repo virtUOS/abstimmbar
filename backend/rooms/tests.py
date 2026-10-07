@@ -12,7 +12,7 @@ from PIL import Image, ImageDraw
 from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin, resolve_translated_text
-from live.models import Run, Vote
+from live.models import MindmapContribution, MindmapNode, ParticipantToken, Run, Vote
 
 from . import ai_generate, set_types
 from .images import InvalidImageError, normalize_image
@@ -280,6 +280,18 @@ class QuestionSetApiTests(ApiTestCase):
         listing = self.client.get(f"/api/question-sets/?room={self.room.pk}").json()
         self.assertEqual(listing["results"][0]["question_count"], 0)
         self.assertFalse(listing["results"][0]["has_results"])
+
+    def test_has_results_counts_mindmap_contributions(self):
+        qs = QuestionSet.objects.create(room=self.room, title="Termin 1")
+        question = Question.objects.create(question_set=qs, kind="mindmap", text="Q", position=0)
+        run = Run.objects.create(question_set=qs)
+        node = MindmapNode.objects.create(run=run, question=question, text="Wind", text_key="wind")
+        token = ParticipantToken.objects.create(room=self.room)
+        MindmapContribution.objects.create(node=node, token=token)
+        listing = self.client.get(f"/api/question-sets/?room={self.room.pk}").json()
+        self.assertTrue(listing["results"][0]["has_results"])
+        detail = self.client.get(f"/api/question-sets/{qs.pk}/").json()
+        self.assertTrue(detail["has_results"])
 
     def test_description_html_is_sanitized_on_write(self):
         # #49/#50: description is now authored HTML; validate_description

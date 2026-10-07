@@ -11,6 +11,7 @@ import {
   api,
   results,
   type FreeTextEvaluation,
+  type LiveMindmapNode,
   type Question,
   type QuestionSet,
   type RunResults,
@@ -653,6 +654,12 @@ export default function ResultsPage() {
                               )}
                             </div>
                           )}
+                          {question.kind === "mindmap" && (
+                            <MindmapOutline
+                              nodes={question.mindmap?.nodes ?? []}
+                              root={localizedText(question.mindmap?.root.label) || stripHtml(localizedText(question.text))}
+                            />
+                          )}
                           {question.words && question.kind === "word_cloud" && (
                             <WordCloudResult
                               runId={run.run}
@@ -685,6 +692,37 @@ export default function ResultsPage() {
 }
 
 type ResultQuestion = RunResults["questions"][number];
+
+/** Mindmap result (visible nodes only): root, then the terms as an indented
+ * outline with count pills (> 1) and muted descriptions. */
+function MindmapOutline({ nodes, root }: { nodes: LiveMindmapNode[]; root: string }) {
+  const { t } = useTranslation();
+  if (nodes.length === 0) return <span className="text-slate-400">{t("No answers yet.")}</span>;
+  const render = (list: LiveMindmapNode[], level: number) => (
+    <ul className={level ? "ml-4 border-l border-slate-200 pl-3 dark:border-slate-700" : "space-y-1"}>
+      {list.map((n) => (
+        <li key={n.id} className="py-0.5">
+          <span className="text-sm text-slate-800 dark:text-slate-100">{n.text}</span>
+          {n.count > 1 && (
+            <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand-700 dark:bg-brand-950 dark:text-brand-300">
+              {n.count}
+            </span>
+          )}
+          {n.descriptions.length > 0 && (
+            <div className="text-xs text-slate-500 dark:text-slate-400">{n.descriptions.join(" · ")}</div>
+          )}
+          {n.children.length > 0 && render(n.children, level + 1)}
+        </li>
+      ))}
+    </ul>
+  );
+  return (
+    <div>
+      <div className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-50">{root}</div>
+      {render(nodes, 0)}
+    </div>
+  );
+}
 
 /** Before/after choice comparison (#54): per option the before bar (lighter)
  * sits above the after bar, each labelled. Options are paired by position;

@@ -11,7 +11,7 @@ Option order follows array order.
 from typing import ClassVar
 
 from django.conf import settings
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from django.utils.html import strip_tags
 from rest_framework import serializers
 
@@ -228,7 +228,9 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         annotated = getattr(obj, "vote_count", None)
         if annotated is not None:
             return annotated > 0
-        return obj.runs.filter(votes__isnull=False).exists()
+        return obj.runs.filter(
+            Q(votes__isnull=False) | Q(mindmap_nodes__contributions__isnull=False)
+        ).exists()
 
     def validate_room(self, room):
         user = self.context["request"].user

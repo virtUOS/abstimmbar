@@ -443,7 +443,8 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = QuestionSet.objects.annotate(
             question_count=Count("questions", distinct=True),
-            vote_count=Count("runs__votes", distinct=True),
+            vote_count=Count("runs__votes", distinct=True)
+            + Count("runs__mindmap_nodes__contributions", distinct=True),
         )
         user = self.request.user
         if not user.is_staff:
