@@ -23,6 +23,7 @@ import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
+import { mindmapNodeDescriptions, mindmapNodeText } from "../results/MindMap";
 import PriorityBar from "../results/PriorityBar";
 import ResultBar from "../results/ResultBar";
 import { INK, evalColor, termColor } from "../results/palette";
@@ -702,14 +703,16 @@ function MindmapOutline({ nodes, root }: { nodes: LiveMindmapNode[]; root: strin
     <ul className={level ? "ml-4 border-l border-slate-200 pl-3 dark:border-slate-700" : "space-y-1"}>
       {list.map((n) => (
         <li key={n.id} className="py-0.5">
-          <span className="text-sm text-slate-800 dark:text-slate-100">{n.text}</span>
+          <span className="text-sm text-slate-800 dark:text-slate-100">{mindmapNodeText(n)}</span>
           {n.count > 1 && (
             <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand-700 dark:bg-brand-950 dark:text-brand-300">
               {n.count}
             </span>
           )}
           {n.descriptions.length > 0 && (
-            <div className="text-xs text-slate-500 dark:text-slate-400">{n.descriptions.join(" · ")}</div>
+            <div className="text-xs text-slate-500 dark:text-slate-400">
+              {mindmapNodeDescriptions(n).join(" · ")}
+            </div>
           )}
           {n.children.length > 0 && render(n.children, level + 1)}
         </li>

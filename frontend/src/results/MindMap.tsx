@@ -16,6 +16,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Maximize2, Minus, Plus, X } from "lucide-react";
+import { localizedText } from "@basicbar/ui";
 import type { LiveMindmapNode } from "../api";
 import { INK } from "./palette";
 import { EASE, useReducedMotion } from "./motion";
@@ -261,6 +262,20 @@ export function fitTransform(
   return { s, x: rootAt(b.minX, b.maxX, vw), y: rootAt(b.minY, b.maxY, vh) };
 }
 
+/** Display term of a node: seeded nodes carry both languages (`text_i18n`),
+ * resolved to the UI language; `text` is the canonical fallback (and the
+ * merge key — never use this for comparisons). */
+export function mindmapNodeText(n: LiveMindmapNode): string {
+  return (n.text_i18n && localizedText(n.text_i18n)) || n.text;
+}
+
+/** Display descriptions: the predefined (seeded) one, if present, is first
+ * and resolved to the UI language. */
+export function mindmapNodeDescriptions(n: LiveMindmapNode): string[] {
+  if (!n.description_i18n || n.descriptions.length === 0) return n.descriptions;
+  return [localizedText(n.description_i18n) || n.descriptions[0], ...n.descriptions.slice(1)];
+}
+
 /** The presenter payload carries hidden nodes; a hidden node hides its whole
  * subtree. */
 export function visibleMindmap(nodes: LiveMindmapNode[]): LiveMindmapNode[] {
@@ -278,8 +293,8 @@ export function hiddenMindmapNodes(
   const size = (n: LiveMindmapNode): number =>
     n.children.reduce((sum, c) => sum + 1 + size(c), 0);
   return nodes.flatMap((n) => [
-    ...(n.hidden ? [{ id: n.id, text: n.text, path, below: size(n) }] : []),
-    ...hiddenMindmapNodes(n.children, [...path, n.text]),
+    ...(n.hidden ? [{ id: n.id, text: mindmapNodeText(n), path, below: size(n) }] : []),
+    ...hiddenMindmapNodes(n.children, [...path, mindmapNodeText(n)]),
   ]);
 }
 
@@ -536,7 +551,10 @@ export default function MindMap({
   /** Identifies the map (run + question) so the branch sides are kept. */
   memoryKey?: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  // Seeded terms resolve to the UI language (mindmapNodeText): re-measure on
+  // a language switch.
+  const uiLang = i18n.resolvedLanguage;
   const reduced = useReducedMotion();
   const animate = !reduced;
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -597,9 +615,9 @@ export default function MindMap({
       (node, depth) => {
         const n = node as LiveMindmapNode;
         const box = boxFor(
-          n.text,
+          mindmapNodeText(n),
           n.count,
-          n.descriptions,
+          mindmapNodeDescriptions(n),
           depth,
           highlightDuplicates,
           detailed,
@@ -613,7 +631,7 @@ export default function MindMap({
     return { layout, boxes, rootBox };
     // fontTick: re-measure after web fonts have loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, rootLabel, detailed, highlightDuplicates, family, fontTick]);
+  }, [visible, rootLabel, detailed, highlightDuplicates, family, fontTick, uiLang]);
   // Hue per main branch (indexed like `PlacedNode.branch`): stable rank by
   // id over the full tree (hidden branches keep their rank), neighbours in
   // clockwise display order never share a hue.
@@ -868,8 +886,8 @@ export default function MindMap({
                 onHide(n);
               }}
               className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-focus-within:flex group-hover:flex"
-              aria-label={t("Hide {{word}}", { word: n.text })}
-              title={t("Hide {{word}}", { word: n.text })}
+              aria-label={t("Hide {{word}}", { word: mindmapNodeText(n) })}
+              title={t("Hide {{word}}", { word: mindmapNodeText(n) })}
             >
               <X className="h-3.5 w-3.5" strokeWidth={2.5} />
             </button>

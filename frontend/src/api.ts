@@ -137,9 +137,11 @@ export type QuestionKind =
 
 /** One predefined branch of a mindmap question (plain canonical-language
  *  text; level 1 = child of the root). */
+/** A predefined mindmap branch. `text`/`description` are `{de, en}` maps
+ *  (a legacy plain string = canonical language is still accepted on save). */
 export interface MindmapSeedNode {
-  text: string;
-  description: string;
+  text: LocalizedText;
+  description: LocalizedText;
   children: MindmapSeedNode[];
 }
 
@@ -1011,6 +1013,12 @@ export interface LiveMindmapNode {
   /** Up to 3 descriptions ([] when descriptions are off). */
   descriptions: string[];
   seeded: boolean;
+  /** Seeded nodes: the term in all languages (`text` = canonical). Resolve
+   *  via `mindmapNodeText`. */
+  text_i18n?: LocalizedText;
+  /** Seeded nodes whose first description is the predefined one: that
+   *  description in all languages (`descriptions[0]` = canonical). */
+  description_i18n?: LocalizedText;
   hidden?: boolean;
   children: LiveMindmapNode[];
 }

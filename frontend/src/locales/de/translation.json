@@ -894,6 +894,8 @@
   "Optional terms the mind map starts with. Participants can add to them but not delete them.": "Optionale Begriffe, mit denen die Mindmap startet. Teilnehmende können darunter ergänzen, sie aber nicht löschen.",
   "The predefined branches are deeper than the allowed depth.": "Die vorgegebenen Äste reichen tiefer als die eingestellte Tiefe.",
   "Every predefined branch needs a term.": "Jeder vorgegebene Ast braucht einen Begriff.",
+  "Every predefined branch needs a term in {{language}}.": "Jeder vorgegebene Ast braucht einen Begriff auf {{language}}.",
+  "Language of the predefined branches": "Sprache der vorgegebenen Äste",
   "“{{term}}” appears twice at the same place.": "„{{term}}“ steht doppelt an derselben Stelle.",
   "Term": "Begriff",
   "Term (level {{level}})": "Begriff (Ebene {{level}})",
