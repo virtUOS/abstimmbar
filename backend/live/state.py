@@ -15,7 +15,7 @@ from django.db.models import Count
 from common.i18n_fields import translated_map
 from rooms.models import Question
 
-from . import ai_wordcloud_live
+from . import ai_wordcloud_live, mindmap
 from .hub import hub
 from .models import Run, WordCloudModeration
 from .results import (
@@ -131,15 +131,28 @@ def build_payloads(room):
     effective_reveal = question.effective_reveal if question else question_set.reveal_answers
     reveal_correct = effective_reveal == "immediately" or run.answers_revealed
 
+    is_mindmap = question is not None and question.kind == Question.Kind.MINDMAP
+    if is_mindmap:
+        # Predefined branches belong to every run's tree from the start.
+        mindmap.ensure_seed(run, question)
+
     participant = dict(base)
     if ends_at:
         participant["ends_at"] = ends_at
     if question and run.phase == Run.Phase.OPEN:
         participant["question"] = question_payload(question, shuffle_seed=run.pk)
+    if is_mindmap and run.phase in (
+        Run.Phase.OPEN, Run.Phase.CLOSED, Run.Phase.RESULTS
+    ):
+        # The shared tree stays readable on devices after closing (read-only
+        # outside "open"); hidden nodes are left out entirely.
+        participant["question"] = question_payload(question, shuffle_seed=run.pk)
+        participant["mindmap"] = mindmap.build_tree(run, question, presenter=False)
     # Results on participant devices (v2, per-set option): only while the
     # beamer shows results, correct flags only once revealed.
     if (
         question
+        and not is_mindmap
         and run.phase == Run.Phase.RESULTS
         and question_set.show_results_to_participants
     ):
@@ -196,7 +209,12 @@ def build_payloads(room):
             field = f"wordcloud_merge_{flag}"
             presenter["question"][field] = getattr(question, field)
         presenter["votes"] = run.votes.filter(question=question).count()
-        if question.kind in Question.TEXT_KINDS:
+        if is_mindmap:
+            # Every node incl. hidden ones (flagged) for the restore drawer.
+            presenter["mindmap"] = mindmap.build_tree(run, question, presenter=True)
+            # "votes" of a mind map = distinct contributing participants.
+            presenter["votes"] = mindmap.contributor_count(run, question)
+        elif question.kind in Question.TEXT_KINDS:
             presenter["words"] = words_with_counts(run, question)
             mod = WordCloudModeration.objects.filter(run=run, question=question).first()
             presenter["wordcloud_moderation"] = {

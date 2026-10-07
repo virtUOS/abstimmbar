@@ -254,3 +254,65 @@ class SelfCheckAttempt(models.Model):
 
     def __str__(self):
         return f"attempt on set {self.question_set_id} ({self.correct}/{self.scored})"
+
+
+class MindmapNode(models.Model):
+    """One term of a run's shared mind map (stage 1).
+
+    ``parent`` null = a main branch directly below the root (the root itself
+    is the question, not a row). Identical terms under the same parent merge:
+    ``text_key`` (``rooms.mindmap.text_key``) is unique per run/question/parent
+    (NULL parents included). ``seeded`` nodes come from the question's
+    predefined branches and are never deleted by participants; ``hidden`` is
+    the presenter's reversible moderation (the subtree is hidden with it).
+    The count of a node is its number of contributions — anonymous rows.
+    """
+
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="mindmap_nodes")
+    question = models.ForeignKey(
+        "rooms.Question", on_delete=models.CASCADE, related_name="mindmap_nodes"
+    )
+    parent = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.CASCADE, related_name="children"
+    )
+    text = models.CharField(max_length=60)
+    text_key = models.CharField(max_length=60)
+    # Predefined-branch description (seeded nodes only); participants'
+    # descriptions live on their contributions.
+    description = models.CharField(max_length=200, blank=True, default="")
+    seeded = models.BooleanField(default=False)
+    hidden = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["run", "question", "parent", "text_key"],
+                nulls_distinct=False,
+                name="one_mindmap_node_per_parent_key",
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.text} (run {self.run_id})"
+
+
+class MindmapContribution(models.Model):
+    """One participant's contribution of a mind-map term (anonymous: only the
+    opaque token, used for the per-person cap and own-withdrawal)."""
+
+    node = models.ForeignKey(
+        MindmapNode, on_delete=models.CASCADE, related_name="contributions"
+    )
+    token = models.ForeignKey(
+        ParticipantToken, on_delete=models.CASCADE, related_name="mindmap_contributions"
+    )
+    description = models.CharField(max_length=200, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["node", "token"], name="one_mindmap_contribution_per_token"
+            )
+        ]

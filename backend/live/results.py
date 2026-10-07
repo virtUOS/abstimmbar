@@ -11,6 +11,7 @@ from django.db.models import Avg, Count, Max, Min
 from common.i18n_fields import translated_map
 from rooms.models import Question
 
+from .mindmap import build_tree, contributor_count
 from .models import Vote
 
 
@@ -392,7 +393,10 @@ def run_results(run):
             # so the results view can pair them for comparison (null otherwise).
             "before_question": question.before_question_id,
         }
-        if question.kind in Question.TEXT_KINDS:
+        if question.kind == Question.Kind.MINDMAP:
+            item["mindmap"] = build_tree(run, question, presenter=False)
+            item["votes"] = contributor_count(run, question)
+        elif question.kind in Question.TEXT_KINDS:
             item["words"] = words_with_counts(run, question)
             if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
                 item["evaluation"] = freetext_evaluation(run, question)
