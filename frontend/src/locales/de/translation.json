@@ -925,6 +925,8 @@
   "A term cannot be moved into its own branch.": "Ein Begriff lässt sich nicht in seinen eigenen Zweig verschieben.",
   "A term with this name already exists there — drop it onto that term to merge.": "Dort gibt es schon einen Begriff mit diesem Namen – ziehen Sie ihn auf diesen, um beide zusammenzuführen.",
   "This term already exists there.": "Diesen Begriff gibt es dort schon.",
+  "This term already exists there, but it is hidden.": "Diesen Begriff gibt es dort schon, er ist ausgeblendet.",
+  "Predefined terms are renamed in their original language.": "Vorgegebene Begriffe werden in ihrer Originalsprache umbenannt.",
   "A term with this name already exists there — merge instead.": "Dort gibt es schon einen Begriff mit diesem Namen – führen Sie die beiden stattdessen zusammen.",
   "A term cannot be merged with itself.": "Ein Begriff lässt sich nicht mit sich selbst zusammenführen.",
   "The mind map has changed in the meantime — this can no longer be undone.": "Die Mindmap hat sich inzwischen verändert – das lässt sich nicht mehr rückgängig machen.",

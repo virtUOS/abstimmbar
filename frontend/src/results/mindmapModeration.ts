@@ -25,15 +25,21 @@ interface Stacks {
   redo: Entry[];
 }
 
-/** `detail` of a failed request (the API throws the JSON body as message). */
-export function requestDetail(err: unknown): string {
+/** JSON body of a failed request (the API throws it as the message). */
+function requestBody(err: unknown): Record<string, unknown> | null {
   try {
     const parsed = JSON.parse((err as Error).message);
-    if (parsed && typeof parsed.detail === "string") return parsed.detail;
+    if (parsed && typeof parsed === "object") return parsed;
   } catch {
     /* not JSON */
   }
-  return String((err as Error)?.message ?? err);
+  return null;
+}
+
+/** `detail` of a failed request. */
+export function requestDetail(err: unknown): string {
+  const detail = requestBody(err)?.detail;
+  return typeof detail === "string" ? detail : String((err as Error)?.message ?? err);
 }
 
 function remap(entry: Entry, from: number, to: number): Entry {
@@ -59,6 +65,7 @@ export function useMindmapModeration(
     onError,
     onInfo,
     onAction,
+    onHiddenConflict,
   }: {
     /** A request failed (`detail` from the server, untranslated). */
     onError: (detail: string) => void;
@@ -66,13 +73,15 @@ export function useMindmapModeration(
     onInfo?: (message: string) => void;
     /** Any moderation action was taken (e.g. to dismiss the hint). */
     onAction?: () => void;
+    /** An add hit an existing but hidden term (`node`) at that place. */
+    onHiddenConflict?: (node: number) => void;
   },
 ) {
   const all = useRef(new Map<string, Stacks>());
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const [, setTick] = useState(0);
-  const cbs = useRef({ onError, onInfo, onAction });
-  cbs.current = { onError, onInfo, onAction };
+  const cbs = useRef({ onError, onInfo, onAction, onHiddenConflict });
+  cbs.current = { onError, onInfo, onAction, onHiddenConflict };
 
   const key = runId != null && questionId != null ? `${runId}:${questionId}` : null;
   const stacksFor = (k: string) => {
@@ -92,7 +101,14 @@ export function useMindmapModeration(
     const stacks = stacksFor(key);
     queue.current = queue.current
       .then(() => task(rid, qid, stacks))
-      .catch((err) => cbs.current.onError(requestDetail(err)))
+      .catch((err) => {
+        // 409 {hidden: true, conflict}: the term exists there but is hidden
+        // — offered to be shown again instead of a plain error.
+        const body = requestBody(err);
+        if (body?.hidden === true && typeof body.conflict === "number" && cbs.current.onHiddenConflict)
+          cbs.current.onHiddenConflict(body.conflict);
+        else cbs.current.onError(requestDetail(err));
+      })
       .finally(() => setTick((n) => n + 1));
   };
 
@@ -106,13 +122,16 @@ export function useMindmapModeration(
           text: e.text,
           ...(e.description ? { description: e.description } : {}),
         });
-        if (res.merged) {
-          cbs.current.onInfo?.("This term already exists there.");
-          return null;
-        }
+        // Redo: later entries still name the old id — point them at the
+        // term as it exists now (also when it came back `merged`).
         if (res.node_id !== e.node && e.node > 0) {
           stacks.undo = stacks.undo.map((x) => remap(x, e.node, res.node_id));
           stacks.redo = stacks.redo.map((x) => remap(x, e.node, res.node_id));
+        }
+        if (res.merged) {
+          // Someone else's (or an existing) term: nothing to undo.
+          cbs.current.onInfo?.("This term already exists there.");
+          return null;
         }
         return { ...e, node: res.node_id };
       }
@@ -120,9 +139,11 @@ export function useMindmapModeration(
         const res = await live.mindmapMerge(rid, qid, e.source, e.target);
         return { ...e, undo: res.undo };
       }
-      case "move":
-        await live.mindmapMove(rid, qid, e.node, e.to);
-        return e;
+      case "move": {
+        // The server's old parent is authoritative (the client tree may lag).
+        const res = await live.mindmapMove(rid, qid, e.node, e.to);
+        return { ...e, from: res.undo.parent };
+      }
       case "rename": {
         const res = await live.mindmapRename(rid, qid, e.node, e.text);
         return { ...e, undo: res.undo };

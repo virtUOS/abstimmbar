@@ -1370,15 +1370,17 @@ export default function MindMap({
         key={`${editor.mode}:${editor.id}`}
         style={style}
         mode={editor.mode}
-        initial={editor.mode === "rename" && n ? mindmapNodeText(n) : ""}
+        // Predefined terms are renamed in the canonical language: pre-fill
+        // that (`text`), not the UI-language display.
+        initial={editor.mode === "rename" && n ? n.text : ""}
+        canonicalNote={editor.mode === "rename" && !!n && mindmapNodeText(n) !== n.text}
         parentLabel={editor.mode === "add" ? (n ? mindmapNodeText(n) : rootLabel) : ""}
         withDescription={editor.mode === "add" && withDescriptions}
         onCancel={() => setEditor(null)}
         onSubmit={(text, description) => {
           setEditor(null);
           if (editor.mode === "add") onAdd?.(editor.id, text, description);
-          else if (editor.id !== null && n && text !== mindmapNodeText(n))
-            onRename?.(editor.id, text);
+          else if (editor.id !== null && n && text !== n.text) onRename?.(editor.id, text);
         }}
       />
     );
@@ -1526,10 +1528,14 @@ function MindEditor({
   initial,
   parentLabel,
   withDescription,
+  canonicalNote = false,
   onSubmit,
   onCancel,
 }: {
   style: CSSProperties;
+  /** Rename of a predefined term shown in another language than the
+   *  canonical one: say which language is edited. */
+  canonicalNote?: boolean;
   mode: "add" | "rename";
   initial: string;
   parentLabel: string;
@@ -1588,6 +1594,11 @@ function MindEditor({
         aria-label={t("Term")}
         className={field}
       />
+      {canonicalNote && (
+        <p className="w-64 text-xs text-slate-500">
+          {t("Predefined terms are renamed in their original language.")}
+        </p>
+      )}
       {withDescription && (
         <input
           value={description}

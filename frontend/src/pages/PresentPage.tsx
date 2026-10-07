@@ -583,7 +583,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   }, [mmHintVisible]);
   // Moderation (add / merge / move / rename / hide) with undo/redo; server
   // refusals (409 details) show up as a small toast.
-  const [mmToast, setMmToast] = useState<{ text: string; n: number } | null>(null);
+  const [mmToast, setMmToast] = useState<{
+    text: string;
+    n: number;
+    action?: { label: string; run: () => void };
+  } | null>(null);
   useEffect(() => {
     if (!mmToast) return;
     const id = window.setTimeout(() => setMmToast(null), 6000);
@@ -595,6 +599,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     onAction: () => {
       if (!mmHintSeen) dismissMmHint();
     },
+    onHiddenConflict: (node) =>
+      setMmToast((p) => ({
+        text: t("This term already exists there, but it is hidden."),
+        n: (p?.n ?? 0) + 1,
+        action: { label: t("Show again"), run: () => mmModRef.current.hide(node, false) },
+      })),
   });
   const hideMindmapNode = (node: number, hidden: boolean) => mmMod.hide(node, hidden);
   const mmModRef = useRef(mmMod);
@@ -2000,6 +2010,18 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             >
               <Info className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
               <p className="flex-1">{mmToast.text}</p>
+              {mmToast.action && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    mmToast.action?.run();
+                    setMmToast(null);
+                  }}
+                  className="shrink-0 rounded font-semibold text-brand-200 underline-offset-2 hover:text-white hover:underline"
+                >
+                  {mmToast.action.label}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setMmToast(null)}
