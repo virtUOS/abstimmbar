@@ -4434,8 +4434,10 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
     def test_enable_saves(self):
         resp = self._post({"ai_enabled": True})
         self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIsInstance(data.pop("ai_seq"), int)
         self.assertEqual(
-            resp.json(),
+            data,
             {
                 "ai_enabled": True, "grouping": "",
                 "merge_variants": True, "merge_synonyms": True,
@@ -4938,10 +4940,126 @@ class AiFreetextSummaryTests(LiveTestCase):
         self._cast("Keine Namen")
         with patch("basicbar_integrations.ai.chat_json", side_effect=ai.AIError("x")):
             ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertIsInstance(result.pop("seq"), int)
         self.assertEqual(
-            ai_wordcloud_live.get_result(self.run.pk, self.ot.pk),
-            {"merged": [], "clusters": [], "pending": False, "error": True},
+            result, {"merged": [], "clusters": [], "pending": False, "error": True},
         )
+
+    # --- seq: every finished compute is distinguishable -------------------
+
+    @override_settings(**AI_ON)
+    def test_compute_seq_increases_even_for_identical_result_and_error(self):
+        from basicbar_integrations import ai
+        self._cast("Keine Namen")
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        seqs = []
+        for side_effect in ([reply], [reply], ai.AIError("x")):
+            with patch("basicbar_integrations.ai.chat_json", side_effect=side_effect):
+                ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+            seqs.append(ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)["seq"])
+        self.assertLess(seqs[0], seqs[1])
+        self.assertLess(seqs[1], seqs[2])
+
+    @override_settings(**AI_ON)
+    def test_placeholder_seq_is_below_any_mark(self):
+        mark = ai_wordcloud_live.current_seq()
+        with patch("live.ai_wordcloud_live.schedule"):
+            ai_wordcloud_live.set_active(self.run.pk, self.ot.pk, self.room.pk, True)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertTrue(result["pending"])
+        self.assertLessEqual(result["seq"], mark)
+
+    @override_settings(**AI_ON)
+    def test_settings_response_has_ai_seq_mark_below_next_compute(self):
+        self._cast("Keine Namen")
+        self.client.force_login(self.owner)
+        url = f"/api/runs/{self.run.pk}/wordcloud/{self.ot.pk}/ai-settings"
+        with patch("live.views.ai_wordcloud_live.refresh"):
+            resp = self.client.post(
+                url, {"grouping": "nach Aspekt", "regroup": True},
+                content_type="application/json",
+            )
+        mark = resp.json()["ai_seq"]
+        self.assertIsInstance(mark, int)
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch("basicbar_integrations.ai.chat_json", side_effect=[reply, {}]):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        self.assertGreater(
+            ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)["seq"], mark
+        )
+
+    # --- question context in both prompts ----------------------------------
+
+    CONTEXT = {
+        "question": "Erklären Sie kurz, was eine anonyme Umfrage auszeichnet.",
+        "model_solution": "Keine Rückschlüsse auf die antwortende Person.",
+        "hint": "Personenbezug fehlt",
+    }
+
+    def test_context_block_in_both_user_prompts(self):
+        words = [{"text": "Keine Namen", "count": 1, "keys": ["keine namen"]}]
+        step1 = ai_freetext_summary.build_summary_prompt(words, context=self.CONTEXT)
+        step2 = ai_freetext_summary.build_grouping_prompt(
+            [{"text": "S", "count": 1}], context=self.CONTEXT
+        )
+        for prompt in (step1, step2):
+            self.assertIn("Frage: Erklären Sie kurz", prompt)
+            self.assertIn("Musterlösung: Keine Rückschlüsse", prompt)
+            self.assertIn("Bewertungshinweis: Personenbezug fehlt", prompt)
+            # Context before the data.
+            self.assertLess(prompt.index("Frage:"), prompt.index('"id": 1'))
+
+    def test_context_without_model_solution_or_hint(self):
+        ctx = {"question": "Was ist X?", "model_solution": "", "hint": ""}
+        words = [{"text": "a", "count": 1, "keys": ["a"]}]
+        for prompt in (
+            ai_freetext_summary.build_summary_prompt(words, context=ctx),
+            ai_freetext_summary.build_grouping_prompt(
+                [{"text": "S", "count": 1}], context=ctx
+            ),
+        ):
+            self.assertIn("Frage: Was ist X?", prompt)
+            self.assertNotIn("Musterlösung", prompt)
+            self.assertNotIn("Bewertungshinweis", prompt)
+        # No context at all → no block.
+        self.assertNotIn("Frage:", ai_freetext_summary.build_summary_prompt(words))
+
+    def test_grouping_system_has_correctness_rule(self):
+        prompt = ai_freetext_summary.grouping_system("korrekt / falsch / neutral")
+        self.assertIn(ai_freetext_summary.CORRECTNESS_RULE, prompt)
+        self.assertIn("Musterlösung", ai_freetext_summary.CORRECTNESS_RULE)
+
+    def test_question_context_plain_canonical(self):
+        self.ot.text_de = "<p>Was zeichnet eine <b>anonyme</b> Umfrage aus?</p>"
+        self.ot.text_en = "<p>What makes a survey anonymous?</p>"
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.save()
+        with translation.override("en"):
+            ctx = ai_freetext_summary.question_context(self.ot)
+        self.assertEqual(ctx["question"], "Was zeichnet eine anonyme Umfrage aus?")
+        self.assertEqual(ctx["model_solution"], "Keine Rückschlüsse")
+        self.assertEqual(ctx["hint"], "")
+
+    @override_settings(**AI_ON)
+    def test_compute_passes_question_context_to_both_steps(self):
+        self._cast("Keine Namen")
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.evaluation_hint = "Personenbezug"
+        self.ot.wordcloud_grouping = "korrekt / falsch"
+        self.ot.save()
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            side_effect=[reply, {"clusters": [{"label": "korrekt", "members": [1]}]}],
+        ) as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        for call in chat.call_args_list:
+            prompt = call[0][1]
+            self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", prompt)
+            self.assertIn("Musterlösung: Keine Rückschlüsse auf Personen", prompt)
+            self.assertIn("Bewertungshinweis: Personenbezug", prompt)
+            self.assertNotIn("<p>", prompt)
 
     @override_settings(**AI_ON)
     def test_compute_success_and_no_answers_flag_no_error(self):
@@ -5115,6 +5233,20 @@ class FreetextAiSummaryEndpointTests(LiveTestCase):
         self.assertIn(ai_freetext_summary.RULE_SIMILAR, chat.call_args_list[0][0][0])
         self.assertIn("nach Vorteil für Studierende", chat.call_args_list[1][0][0])
         self.assertEqual(response.json()["clusters"][0]["label"], "Studierende")
+        # Both steps know the question (plain text).
+        for call in chat.call_args_list:
+            self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", call[0][1])
+
+    @override_settings(**AI_ON)
+    def test_passes_model_solution_context(self):
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.save()
+        with patch("basicbar_integrations.ai.chat_json", return_value=self.REPLY) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(self.url)
+        self.assertIn(
+            "Musterlösung: Keine Rückschlüsse auf Personen", chat.call_args_list[0][0][1]
+        )
 
     @override_settings(**AI_ON)
     def test_respects_moderation(self):

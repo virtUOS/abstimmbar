@@ -19,7 +19,12 @@ presenter renders both with the same components:
 import json
 
 from basicbar_integrations import ai
+from django.conf import settings
+from django.utils import translation
 
+from common.i18n_fields import resolve_translated_text, translated_map
+
+from .ai_report import _plain
 from .ai_wordcloud import OTHER_CLUSTER
 
 LABEL_MAX = 80
@@ -72,6 +77,15 @@ CLUSTER_ONLY = (
     "Schritt 2 — Gruppieren: Ordne erst danach jeder fertigen Kernaussage "
     "einen \"cluster\" zu. Das Gruppieren verändert die Kernaussagen nicht "
     "(keine Kernaussage wird dafür zusammengelegt, geteilt oder umformuliert)."
+)
+CORRECTNESS_RULE = (
+    "- Fragt das Kriterium nach Richtigkeit (z. B. korrekt/falsch, "
+    "richtig/teilweise/falsch), dann beurteile jede Kernaussage inhaltlich "
+    "an der Frage und — falls angegeben — an der Musterlösung und dem "
+    "Bewertungshinweis: Eine Kernaussage, die sinngemäß der Musterlösung "
+    "entspricht, ist korrekt, auch wenn sie anders formuliert oder knapper "
+    "ist. „Neutral“ bzw. „unklar“ nur, wenn sie die Frage weder richtig noch "
+    "falsch beantwortet."
 )
 POLES_RULE = (
     "- Nennt das Kriterium mehrere Seiten oder Pole (z. B. „A vs. B“, "
@@ -134,6 +148,8 @@ def grouping_system(grouping):
         "- Leite aus dem Kriterium wenige aussagekräftige Gruppen ab.\n"
         + POLES_RULE
         + "\n"
+        + CORRECTNESS_RULE
+        + "\n"
         "- Kernaussagen, die zu keiner Gruppe passen, kommen in die Gruppe "
         f"\"{OTHER_CLUSTER}\".\n"
         f"- Gruppennamen höchstens {CLUSTER_MAX} Zeichen. Jede Kernaussage "
@@ -142,14 +158,45 @@ def grouping_system(grouping):
     )
 
 
-def build_grouping_prompt(statements):
-    """User prompt for step 2: the statements (``merged``), numbered from 1."""
+def question_context(question):
+    """The question's own context for both prompts: its text as plain text in
+    the content-canonical language (#33 — this also runs on a worker thread,
+    whose active language is not the canonical one), plus the plain
+    ``model_solution`` and ``evaluation_hint`` (empty when unset)."""
+    with translation.override(settings.MODELTRANSLATION_DEFAULT_LANGUAGE):
+        text = resolve_translated_text(translated_map(question, "text"))
+    return {
+        "question": _plain(text),
+        "model_solution": _plain(question.model_solution),
+        "hint": _plain(question.evaluation_hint),
+    }
+
+
+def context_block(context):
+    """Prompt lines for ``question_context`` (empty without context);
+    model solution and evaluation hint only when set."""
+    if not context:
+        return ""
+    lines = []
+    if context.get("question"):
+        lines.append(f"Frage: {context['question']}")
+    if context.get("model_solution"):
+        lines.append(f"Musterlösung: {context['model_solution']}")
+    if context.get("hint"):
+        lines.append(f"Bewertungshinweis: {context['hint']}")
+    return "\n".join(lines) + "\n\n" if lines else ""
+
+
+def build_grouping_prompt(statements, context=None):
+    """User prompt for step 2: the statements (``merged``), numbered from 1,
+    after the question context (``question_context``)."""
     payload = [
         {"id": i, "text": st["text"], "count": st["count"]}
         for i, st in enumerate(statements, start=1)
     ]
     return (
-        "Kernaussagen:\n"
+        context_block(context)
+        + "Kernaussagen:\n"
         + json.dumps(payload, ensure_ascii=False)
         + "\n\nGib JSON in genau dieser Form zurück:\n"
         '{"clusters": [{"label": "Vorteil für A", "members": [1, 3]}, '
@@ -161,14 +208,17 @@ def _truncate(text, limit):
     return text if len(text) <= limit else text[: limit - 1] + ELLIPSIS
 
 
-def build_summary_prompt(words):
-    """User prompt: the (moderated) answers, numbered from 1 in input order."""
+def build_summary_prompt(words, context=None):
+    """User prompt: the question context (``question_context``, to understand
+    the answers), then the (moderated) answers, numbered from 1 in input
+    order."""
     payload = [
         {"id": i, "text": _truncate(str(w["text"]), ANSWER_MAX), "count": w["count"]}
         for i, w in enumerate(words[:INPUT_MAX], start=1)
     ]
     return (
-        "Antworten (mit Häufigkeit):\n"
+        context_block(context)
+        + "Antworten (mit Häufigkeit):\n"
         + json.dumps(payload, ensure_ascii=False)
         + "\n\nGib JSON in genau dieser Form zurück (das Beispiel zeigt nur das "
         "Format — was zusammengefasst wird, bestimmen allein die Regeln):\n"
@@ -276,20 +326,25 @@ def apply_grouping(summary, data):
     return {"clusters": _cluster_list(pairs), "merged": statements}
 
 
-def summarize(words, *, grouping="", merge_similar=False, chat_json):
+def summarize(words, *, grouping="", merge_similar=False, context=None, chat_json):
     """Key statements (step 1) and, only with a grouping criterion, a separate
-    re-clustering of those fixed statements (step 2). ``chat_json`` is
+    re-clustering of those fixed statements (step 2). ``context`` is
+    ``question_context(question)`` (sent to both steps); ``chat_json`` is
     ``ai.chat_json``. An ``ai.AIError`` in step 1 propagates (the caller
     reports the failure); one in step 2 falls back to the step-1 statements
     with their automatic themes."""
     summary = apply_summary(
         words,
-        chat_json(summary_system(merge_similar=merge_similar), build_summary_prompt(words)),
+        chat_json(
+            summary_system(merge_similar=merge_similar),
+            build_summary_prompt(words, context),
+        ),
     )
     if grouping and grouping.strip() and summary["merged"]:
         try:
             data = chat_json(
-                grouping_system(grouping), build_grouping_prompt(summary["merged"])
+                grouping_system(grouping),
+                build_grouping_prompt(summary["merged"], context),
             )
         except ai.AIError:
             return summary  # keep the statements, auto themes instead

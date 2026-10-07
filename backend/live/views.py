@@ -1613,6 +1613,7 @@ def freetext_summary(request, run_id, question_id):
             words,
             grouping=question.wordcloud_grouping,
             merge_similar=question.wordcloud_merge_concepts,
+            context=ai_freetext_summary.question_context(question),
             chat_json=ai.chat_json,
         )
     except ai.AIError as exc:
@@ -1698,6 +1699,10 @@ def wordcloud_ai_settings(request, run_id, question_id):
             settings_changed = True
     if fields:
         question.save(update_fields=fields)
+    # Taken after the save and before the recompute is triggered: the next AI
+    # result with a higher ``seq`` reflects these settings (the presenter's
+    # busy state ends on it, even if the content comes out identical).
+    ai_seq = ai_wordcloud_live.current_seq()
     if settings_changed or data.get("regroup") is True:
         # A shown/warm AI result was built with the old instruction/flags.
         ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
@@ -1705,6 +1710,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
     response = {
         "ai_enabled": question.wordcloud_ai_enabled,
         "grouping": question.wordcloud_grouping,
+        "ai_seq": ai_seq,
     }
     for key in MERGE_FLAG_KEYS:
         response[key] = getattr(question, f"wordcloud_{key}")
