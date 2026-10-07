@@ -904,5 +904,12 @@
   "Root (question text)": "Wurzel (Fragetext)",
   "Add branch": "Ast hinzufügen",
   "At most {{max}} predefined terms.": "Höchstens {{max}} vorgegebene Begriffe.",
-  "The mind map is built on the participants' devices.": "Die Mindmap entsteht auf den Geräten der Teilnehmenden."
+  "Compact": "Kompakt",
+  "Detailed": "Ausführlich",
+  "Tip: × hides a term together with everything below it, the pencil on the right lists hidden terms.": "Tipp: × blendet einen Begriff samt allem darunter aus, der Stift rechts listet die ausgeblendeten Begriffe.",
+  "Nothing hidden yet. × on a term hides it together with everything below it.": "Noch nichts ausgeblendet. × an einem Begriff blendet ihn samt allem darunter aus.",
+  "+{{count}} below": "+{{count}} darunter",
+  "Zoom in (+)": "Vergrößern (+)",
+  "Zoom out (−)": "Verkleinern (−)",
+  "Fit to screen (0)": "An Bildschirm anpassen (0)"
 }

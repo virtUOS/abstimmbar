@@ -28,13 +28,16 @@ import VoteRing from "../results/VoteRing";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
+import MindMap, { hiddenMindmapNodes } from "../results/MindMap";
 import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 /** Beamer view of a word cloud / free-text question (#Wortwolke-KI). Free text
  *  reads "consolidated" as key statements; "results" = its AI verdict bars. */
-type WcView = "raw" | "results" | "consolidated" | "grouped";
+/** Mindmaps reuse the view mechanism: "raw" = compact, "detailed" = with
+ *  descriptions. */
+type WcView = "raw" | "results" | "consolidated" | "grouped" | "detailed";
 
 /** View options of a free-text question (live presenter and the Quiz-Block
  *  walkthrough share them): Original, Evaluation (AI verdict bars, only when
@@ -218,6 +221,22 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       /* ignore */
     }
   };
+  // Mindmap counterpart of the moderation hint (× hides, pencil restores).
+  const [mmHintSeen, setMmHintSeen] = useState(() => {
+    try {
+      return localStorage.getItem("abstimmbar_mm_moderation_hint") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const dismissMmHint = () => {
+    setMmHintSeen(true);
+    try {
+      localStorage.setItem("abstimmbar_mm_moderation_hint", "1");
+    } catch {
+      /* ignore */
+    }
+  };
   // Second one-time hint, for the AI panel button (shown after the
   // moderation hint has been dismissed — never both at once).
   const [aiHintSeen, setAiHintSeen] = useState(() => {
@@ -317,7 +336,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // One option list for the footer dropdown, the `A` cycle and the AI panel.
   const wcViewOptions: { value: WcView; label: string }[] = isOpenText
     ? freeTextViewOptions(t, hasEval, aiCloud)
-    : [
+    : activeKind === "mindmap"
+      ? [
+          { value: "raw", label: t("Compact") },
+          ...(state?.mindmap?.descriptions
+            ? [{ value: "detailed" as const, label: t("Detailed") }]
+            : []),
+        ]
+      : [
         { value: "raw", label: t("Original") },
         ...(aiCloud
           ? [
@@ -513,6 +539,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   }, [activeId, serverMergeVariants, serverMergeSynonyms, serverMergeConcepts]);
   useEffect(() => {
     setShowAiPanel(false);
+    setShowModPanel(false);
     setAiBusy(null);
     setAiError(null);
   }, [activeId]);
@@ -535,6 +562,19 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     !(isOpenText && isAiView) &&
     (wcHasWords || wcHasMod);
   const showAiButton = expert && wcCloudShown && whoAi.ai;
+  // Mindmap: the map grows live while open and stays on "Ergebnis"; on
+  // "Frage" (closed/preview) only the question text is shown.
+  const mindmap = activeKind === "mindmap" ? state?.mindmap : undefined;
+  const mmShown = !!mindmap && (phase === "open" || phase === "results");
+  // Expert mode: × hides a term with its subtree; the pencil drawer lists the
+  // hidden ones to restore.
+  const mmHidden = mindmap ? hiddenMindmapNodes(mindmap.nodes) : [];
+  const showMmHandle = expert && mmShown && (mindmap?.total ?? 0) > 0;
+  const hideMindmapNode = (node: number, hidden: boolean) => {
+    if (runId == null || activeId == null) return;
+    if (hidden && !mmHintSeen) dismissMmHint();
+    void live.mindmapHide(runId, activeId, node, hidden);
+  };
   // Below the pencil when it is shown, otherwise in its place.
   const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
   // Regroup / merge again stay busy until a finished AI result computed
@@ -973,6 +1013,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       }
       if (!runId) return;
       const key = event.key.toLowerCase();
+      // Shift+arrows pan the mind map (MindMap's own listener) — they must
+      // not also navigate between questions.
+      if (event.shiftKey && key.startsWith("arrow") && activeKind === "mindmap") return;
       // Enter/Space on a focused drawer control activate that control
       // natively — they must not also advance the presentation.
       if ((key === "enter" || key === " ") && inWcDrawer(event.target)) return;
@@ -1026,9 +1069,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       else if (key === "arrowleft") goPrev();
       else if (advance) {
         if (phase === "open")
-          // Word clouds freeze onto the results view (cloud stays visible),
-          // matching the Stop button; other kinds just close.
-          activeKind === "word_cloud"
+          // Word clouds and mindmaps freeze onto the results view (they stay
+          // visible), matching the Stop button; other kinds just close.
+          activeKind === "word_cloud" || activeKind === "mindmap"
             ? void showResults()
             : void live.control(runId, { phase: "closed" });
         else if (phase === "preview" || phase === "closed" || phase === "results")
@@ -1408,7 +1451,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               ? // Word clouds jump straight to results on close so the cloud
                 // stays on screen (and #30's deferred cloud appears); "Frage"
                 // then hides it. Other kinds close first, reveal on demand.
-                activeKind === "word_cloud"
+                activeKind === "word_cloud" || activeKind === "mindmap"
                 ? void showResults()
                 : void live.control(runId!, { phase: "closed" })
               : phase === "lobby"
@@ -1510,7 +1553,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       )}
 
       {question && phase !== "lobby" && (
-        <div key={question.id} className="ab-fade-in mx-auto flex min-h-full max-w-4xl flex-col justify-center">
+        <div
+          key={question.id}
+          className={
+            mmShown
+              ? "ab-fade-in flex h-full flex-col"
+              : "ab-fade-in mx-auto flex min-h-full max-w-4xl flex-col justify-center"
+          }
+        >
           {phase === "open" && remaining !== null && (
             <div
               className={`fixed left-6 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${
@@ -1521,16 +1571,27 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             </div>
           )}
           <RichText
-            className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
+            className={
+              mmShown
+                ? "mx-auto line-clamp-2 max-w-4xl text-center text-lg font-semibold leading-snug md:text-xl [&_img]:hidden"
+                : "text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
+            }
             html={localizedText(question.text)}
           />
 
-          {/* Mindmap (stage 1): the live map is a later step — until then a
-              neutral placeholder instead of an empty option list / bars. */}
-          {question.kind === "mindmap" && phase !== "preview" && (
-            <p className="mt-8 text-lg text-slate-400">
-              {t("The mind map is built on the participants' devices.")}
-            </p>
+          {/* Mindmap: the shared tree, live while open and on "Ergebnis"
+              (compact / detailed from the footer view picker). */}
+          {mmShown && mindmap && (
+            <div className="mt-3 min-h-0 flex-1">
+              <MindMap
+                rootLabel={localizedText(mindmap.root.label)}
+                nodes={mindmap.nodes}
+                detailed={wcView === "detailed"}
+                highlightDuplicates={mindmap.highlight_duplicates}
+                onHide={expert ? (n) => hideMindmapNode(n.id, true) : undefined}
+                memoryKey={`${runId}:${question.id}`}
+              />
+            </div>
           )}
 
           {question.kind !== "word_cloud" && question.kind !== "open_text" &&
@@ -1865,6 +1926,100 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 </div>
               </>
             )}
+
+          {showMmHandle && (
+            <>
+              {/* Bottom right, beside the zoom controls: a mind map's corners
+                  are its emptiest part. */}
+              {!mmHintSeen && !showModPanel && (
+                <div className="fixed bottom-24 right-24 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+                  <p className="flex-1">
+                    {t("Tip: × hides a term together with everything below it, the pencil on the right lists hidden terms.")}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={dismissMmHint}
+                    aria-label={t("Dismiss")}
+                    className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                {...{ [WC_DRAWER_ATTR]: "" }}
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  setShowModPanel((s) => !s);
+                }}
+                aria-label={t("Moderate")}
+                title={t("Moderate")}
+                className={`fixed right-0 top-[62%] z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
+                  showModPanel ? "pointer-events-none opacity-0" : "opacity-100"
+                }`}
+              >
+                <Pencil className="h-5 w-5" />
+              </button>
+              <div
+                {...{ [WC_DRAWER_ATTR]: "" }}
+                onClick={blurClickedButton}
+                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
+                  showModPanel ? "translate-x-0" : "translate-x-full"
+                }`}
+              >
+                <div className="flex items-center justify-between border-b border-slate-100 p-3">
+                  <span className="text-sm font-semibold text-slate-600">{t("Moderate")}</span>
+                  <button
+                    type="button"
+                    onClick={() => setShowModPanel(false)}
+                    aria-label={t("Close")}
+                    className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 text-left text-sm">
+                  {mmHidden.length === 0 ? (
+                    <p className="text-slate-400">
+                      {t("Nothing hidden yet. × on a term hides it together with everything below it.")}
+                    </p>
+                  ) : (
+                    <>
+                      <h3 className="mb-1 font-semibold text-slate-600">{t("Hidden")}</h3>
+                      {mmHidden.map((h) => (
+                        <div key={h.id} className="flex items-start justify-between gap-2 py-1">
+                          <div className="min-w-0">
+                            <p className="truncate">{h.text}</p>
+                            {(h.path.length > 0 || h.below > 0) && (
+                              <p className="truncate text-xs text-slate-400">
+                                {[
+                                  h.path.join(" › "),
+                                  h.below > 0 ? t("+{{count}} below", { count: h.below }) : "",
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="shrink-0 text-brand-700 hover:underline"
+                            onClick={() => hideMindmapNode(h.id, false)}
+                            title={t("Show this entry on the beamer again")}
+                            aria-label={t("Show {{word}} on the beamer again", { word: h.text })}
+                          >
+                            {t("Show again")}
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
 
           {showAiButton && (
             <>

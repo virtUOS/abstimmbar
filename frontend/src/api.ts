@@ -995,6 +995,34 @@ export interface LiveState {
   wordcloud_ai?: WordCloudAI;
   /** Presenter-side moderation state (hidden terms, manual merges, #Wortwolke). */
   wordcloud_moderation?: WordCloudModeration;
+  /** Mindmap: the shared tree (presenter form incl. hidden nodes). */
+  mindmap?: LiveMindmap;
+}
+
+/** One node of the live mind map. `hidden` is only sent to the presenter and
+ *  set only on the explicitly hidden node — its subtree counts as hidden too. */
+export interface LiveMindmapNode {
+  id: number;
+  text: string;
+  /** Casefolded merge key (duplicate highlighting across parents). */
+  key: string;
+  count: number;
+  /** Up to 3 descriptions ([] when descriptions are off). */
+  descriptions: string[];
+  seeded: boolean;
+  hidden?: boolean;
+  children: LiveMindmapNode[];
+}
+
+export interface LiveMindmap {
+  root: { label: LocalizedText };
+  depth: number;
+  max_per_person: number;
+  descriptions: boolean;
+  highlight_duplicates: boolean;
+  max_nodes: number;
+  total: number;
+  nodes: LiveMindmapNode[];
 }
 
 export interface WordCloudWord {
@@ -1234,6 +1262,12 @@ export const live = {
       `/api/runs/${runId}/wordcloud-ai/`,
       { method: "POST", body: JSON.stringify({ question: questionId, active }) },
     ),
+  /** Presenter mindmap moderation: hide a node with its subtree, or show it again. */
+  mindmapHide: (runId: number, questionId: number, node: number, hidden: boolean) =>
+    request<{ status: string }>(`/api/runs/${runId}/mindmap/${questionId}/hide`, {
+      method: "POST",
+      body: JSON.stringify({ node, hidden }),
+    }),
   /** Presenter word-cloud moderation (#Wortwolke): hide/unhide a term, merge
    *  several keys under one label, unmerge, or rename a merge's label. */
   wordcloudModeration: (
