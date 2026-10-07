@@ -236,6 +236,13 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
   fasst Schreibvarianten, Synonyme und auf Wunsch ähnliche Konzepte zusammen,
   **Gruppiert** ordnet die Begriffe nach einer Anweisung, die Sie spontan
   anpassen können. Beides wird an der Frage gespeichert.
+- **Freitext-Antworten (Experten-Modus):** Die Antworten lassen sich ebenso
+  bearbeiten. Über die Ansicht wählen Sie **Original** (die Antworten selbst),
+  **Bewertung** (Balken der KI-Bewertung, falls eingeschaltet),
+  **Kernaussagen** (die KI fasst gleiche Aussagen mit Anzahl zusammen) und
+  **Gruppiert** (Kernaussagen nach Ihrer Anweisung, z. B. „korrekt / falsch“;
+  auf Wunsch unter Berücksichtigung der Musterlösung, die im Panel zugeklappt
+  bleibt). Wörtliche Antworten zeigt der Beamer nur in „Original“.
 - Optional lässt sich Ihr Einrichtungs-Logo im Präsentationsmodus ein- oder
   ausblenden.
 
