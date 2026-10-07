@@ -233,22 +233,21 @@ export default function MindmapSeedEditor({
   return (
     <div>
       <div className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-800">
-        <div className="mb-1 inline-block rounded-full bg-brand-100 px-2.5 py-0.5 text-sm font-semibold text-brand-800 dark:bg-brand-950 dark:text-brand-200">
-          {rootLabel || t("Root (question text)")}
-        </div>
-        {value.length > 0 && (
-          <ul className="ml-3 border-l border-slate-200 pl-3 dark:border-slate-700">
-            {renderRows(value, 1)}
-          </ul>
-        )}
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {/* "+" sits right behind the root, like behind every other term. */}
+        <div className="mb-1 flex flex-wrap items-center gap-1.5">
+          <span className="inline-block rounded-full bg-brand-100 px-2.5 py-0.5 text-sm font-semibold text-brand-800 dark:bg-brand-950 dark:text-brand-200">
+            {rootLabel || t("Root (question text)")}
+          </span>
           <Button
+            variant="ghost"
+            aria-label={t("Add branch")}
+            title={t("Add branch")}
             disabled={full}
             onClick={() => {
               if (!full) onChange([...value, newNode()]);
             }}
           >
-            + {t("Add branch")}
+            <Plus aria-hidden className="h-4 w-4" />
           </Button>
           {full && (
             <span className="text-xs text-slate-400">
@@ -256,6 +255,11 @@ export default function MindmapSeedEditor({
             </span>
           )}
         </div>
+        {value.length > 0 && (
+          <ul className="ml-3 border-l border-slate-200 pl-3 dark:border-slate-700">
+            {renderRows(value, 1)}
+          </ul>
+        )}
       </div>
     </div>
   );
