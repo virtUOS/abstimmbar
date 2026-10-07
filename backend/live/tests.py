@@ -16,7 +16,14 @@ from common.models import SiteConfig
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import ai_evaluation, ai_freetext_summary, ai_wordcloud, ai_wordcloud_live
-from .models import ParticipantToken, Run, SelfCheckAttempt, Vote
+from .models import (
+    MindmapContribution,
+    MindmapNode,
+    ParticipantToken,
+    Run,
+    SelfCheckAttempt,
+    Vote,
+)
 from .results import freetext_evaluation
 from .state import active_run, build_payloads
 
@@ -3876,6 +3883,52 @@ class QuestionPreviewTests(LiveTestCase):
         self.assertIn("frame-ancestors", resp.headers.get("Content-Security-Policy", ""))
         self.assertNotIn("X-Frame-Options", resp.headers)
 
+    def test_preview_mindmap_carries_seed_tree(self):
+        # The editor preview has no run: the predefined branches are shown as
+        # a local tree (negative ids, nothing stored).
+        self.client.force_login(self.owner)
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.MINDMAP,
+            text_de="<p>Energie</p>", position=1, mindmap_depth=3,
+            mindmap_seed=[{"text": "Wind", "description": "",
+                           "children": [{"text": "Offshore", "description": ""}]}],
+        )
+        resp = self.client.get(f"/question-preview/{q.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        state = json.loads(
+            resp.content.decode().split('id="preview-state" type="application/json">')[1]
+            .split("</script>")[0]
+        )
+        tree = state["mindmap"]
+        self.assertEqual(tree["depth"], 3)
+        self.assertEqual(tree["total"], 2)
+        wind = tree["nodes"][0]
+        self.assertEqual(wind["text"], "Wind")
+        self.assertLess(wind["id"], 0)
+        self.assertEqual(wind["children"][0]["text"], "Offshore")
+        self.assertEqual(wind["text_i18n"], {"de": "Wind", "en": ""})
+        self.assertFalse(MindmapNode.objects.exists())
+
+    def test_preview_mindmap_seed_is_bilingual(self):
+        self.client.force_login(self.owner)
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.MINDMAP,
+            text_de="<p>Energie</p>", position=1, mindmap_descriptions=True,
+            mindmap_seed=[{"text": {"de": "Sonne", "en": "Sun"},
+                           "description": {"de": "Licht", "en": "Light"},
+                           "children": []}],
+        )
+        resp = self.client.get(f"/question-preview/{q.pk}/")
+        state = json.loads(
+            resp.content.decode().split('id="preview-state" type="application/json">')[1]
+            .split("</script>")[0]
+        )
+        node = state["mindmap"]["nodes"][0]
+        self.assertEqual(node["text"], "Sonne")
+        self.assertEqual(node["text_i18n"], {"de": "Sonne", "en": "Sun"})
+        self.assertEqual(node["descriptions"], ["Licht"])
+        self.assertEqual(node["description_i18n"], {"de": "Licht", "en": "Light"})
+
 
 class ConcurrentStartRunTests(TransactionTestCase):
     """#66: two presenters opening the same set within milliseconds both
@@ -5439,3 +5492,848 @@ class FreetextAiSummaryEndpointTests(LiveTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"merged": [], "clusters": []})
         chat.assert_not_called()
+
+
+# --- mind map (stage 1) -------------------------------------------------------
+
+
+class MindmapTestCase(LiveTestCase):
+    def setUp(self):
+        super().setUp()
+        self.mq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.MINDMAP,
+            text="<p>Was gehört zur <b>Energiewende</b>?</p>", position=1,
+        )
+
+    def open_mindmap(self, **fields):
+        for key, value in fields.items():
+            setattr(self.mq, key, value)
+        self.mq.save()
+        return self.open_question(self.mq)
+
+    def add(self, token, text, parent=None, question=None, **extra):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/mindmap/add/",
+            {"token": token, "question": question or self.mq.pk, "parent": parent,
+             "text": text, **extra},
+            content_type="application/json",
+        )
+
+    def remove(self, token, node, question=None):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/mindmap/remove/",
+            {"token": token, "question": question or self.mq.pk, "node": node},
+            content_type="application/json",
+        )
+
+    def mine(self, token, question=None):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/mindmap/mine/",
+            {"token": token, "question": question or self.mq.pk},
+            content_type="application/json",
+        )
+
+    def hide(self, run, node, hidden=True):
+        return self.client.post(
+            f"/api/runs/{run.pk}/mindmap/{self.mq.pk}/hide",
+            {"node": node, "hidden": hidden},
+            content_type="application/json",
+        )
+
+    def tree(self, role="participant"):
+        return build_payloads(self.room)[role]["mindmap"]
+
+
+class MindmapAddTests(MindmapTestCase):
+    def test_add_creates_root_level_node(self):
+        run = self.open_mindmap()
+        token = self.join()
+        response = self.add(token, "  Solar   Energie ")
+        self.assertEqual(response.status_code, 201, response.content)
+        body = response.json()
+        node = MindmapNode.objects.get(pk=body["node_id"])
+        self.assertEqual(node.run, run)
+        self.assertIsNone(node.parent)
+        self.assertEqual(node.text, "Solar Energie")
+        self.assertEqual(node.text_key, "solar energie")
+        self.assertFalse(body["merged"])
+        self.assertEqual(body["mine"], [node.pk])
+
+    def test_same_term_merges_case_and_whitespace_insensitive(self):
+        self.open_mindmap()
+        first = self.add(self.join(), "Energie").json()["node_id"]
+        response = self.add(self.join(), "  ENERGIE ")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["node_id"], first)
+        self.assertTrue(response.json()["merged"])
+        self.assertEqual(MindmapNode.objects.count(), 1)
+        nodes = self.tree()["nodes"]
+        self.assertEqual(len(nodes), 1)
+        self.assertEqual(nodes[0]["count"], 2)
+        # The first contributor's spelling is displayed.
+        self.assertEqual(nodes[0]["text"], "Energie")
+
+    def test_same_term_under_different_parents_is_two_nodes(self):
+        self.open_mindmap()
+        token = self.join()
+        a = self.add(token, "A").json()["node_id"]
+        b = self.add(token, "B").json()["node_id"]
+        x1 = self.add(token, "X", parent=a).json()["node_id"]
+        x2 = self.add(token, "x", parent=b).json()["node_id"]
+        self.assertNotEqual(x1, x2)
+
+    def test_contribution_per_token_is_unique(self):
+        self.open_mindmap()
+        token = self.join()
+        self.add(token, "Energie")
+        response = self.add(token, "energie")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Already added.")
+        self.assertEqual(MindmapContribution.objects.count(), 1)
+
+    def test_depth_limit(self):
+        self.open_mindmap(mindmap_depth=2)
+        token = self.join()
+        level1 = self.add(token, "L1").json()["node_id"]
+        level2 = self.add(token, "L2", parent=level1).json()["node_id"]
+        response = self.add(token, "L3", parent=level2)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Maximum depth reached.")
+
+    def test_per_person_cap(self):
+        self.open_mindmap(mindmap_max_per_person=2)
+        token = self.join()
+        self.assertEqual(self.add(token, "A").status_code, 201)
+        self.assertEqual(self.add(token, "B").status_code, 201)
+        response = self.add(token, "C")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Maximum reached.")
+        # Merging into someone else's node counts as well.
+        self.add(self.join(), "D")
+        self.assertEqual(self.add(token, "D").status_code, 409)
+        # Another participant is unaffected.
+        self.assertEqual(self.add(self.join(), "C").status_code, 201)
+
+    def test_per_person_cap_zero_is_unlimited(self):
+        self.open_mindmap(mindmap_max_per_person=0)
+        token = self.join()
+        for i in range(12):
+            self.assertEqual(self.add(token, f"T{i}").status_code, 201)
+
+    def test_total_cap(self):
+        run = self.open_mindmap(mindmap_max_per_person=0)
+        MindmapNode.objects.bulk_create(
+            [MindmapNode(run=run, question=self.mq, text=f"N{i}", text_key=f"n{i}")
+             for i in range(300)]
+        )
+        token = self.join()
+        response = self.add(token, "New")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "The mind map is full.")
+        # Merging into an existing node is still possible.
+        self.assertEqual(self.add(token, "n5").status_code, 201)
+
+    def test_length_limits(self):
+        self.open_mindmap(mindmap_descriptions=True)
+        token = self.join()
+        response = self.add(token, "x" * 61)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Term too long.")
+        response = self.add(token, "   ")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Empty term.")
+        response = self.add(token, "ok", description="d" * 201)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Description too long.")
+        self.assertEqual(self.add(token, "x" * 60, description="d" * 200).status_code, 201)
+
+    def test_description_ignored_when_disabled(self):
+        self.open_mindmap(mindmap_descriptions=False)
+        self.add(self.join(), "Wind", description="Rotoren")
+        self.assertEqual(MindmapContribution.objects.get().description, "")
+
+    def test_phase_rules(self):
+        run = self.open_mindmap()
+        token = self.join()
+        for phase in (Run.Phase.PREVIEW, Run.Phase.CLOSED, Run.Phase.RESULTS):
+            run.phase = phase
+            run.save()
+            response = self.add(token, "Wind")
+            self.assertEqual(response.status_code, 409)
+            self.assertEqual(response.json()["detail"], "Voting is closed.")
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        self.assertEqual(self.add(token, "Wind").status_code, 409)
+
+    def test_question_must_be_the_active_mindmap(self):
+        self.open_mindmap()
+        token = self.join()
+        response = self.add(token, "Wind", question=self.question.pk)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Question is not open.")
+
+    def test_active_question_not_a_mindmap(self):
+        self.open_question(self.question)
+        response = self.add(self.join(), "Wind", question=self.question.pk)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Not a mind map question.")
+
+    def test_unknown_token(self):
+        self.open_mindmap()
+        self.assertEqual(self.add("nope", "Wind").status_code, 403)
+
+    def test_unknown_parent(self):
+        self.open_mindmap()
+        response = self.add(self.join(), "Wind", parent=999999)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Unknown parent.")
+
+    def test_parent_from_another_run_is_unknown(self):
+        other_set = QuestionSet.objects.create(room=self.room, title="Alt")
+        other_run = Run.objects.create(question_set=other_set, phase=Run.Phase.FINISHED)
+        foreign = MindmapNode.objects.create(
+            run=other_run, question=self.mq, text="F", text_key="f"
+        )
+        self.open_mindmap()
+        response = self.add(self.join(), "Wind", parent=foreign.pk)
+        self.assertEqual(response.status_code, 400)
+
+    def test_hidden_parent_blocks_add_including_descendants(self):
+        run = self.open_mindmap()
+        token = self.join()
+        a = self.add(token, "A").json()["node_id"]
+        b = self.add(token, "B", parent=a).json()["node_id"]
+        MindmapNode.objects.filter(pk=a).update(hidden=True)
+        for parent in (a, b):
+            response = self.add(self.join(), "C", parent=parent)
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json()["detail"], "Unknown parent.")
+        self.assertEqual(run.mindmap_nodes.count(), 2)
+
+    def test_add_broadcasts_debounced(self):
+        self.open_mindmap()
+        token = self.join()
+        with patch("live.views.broadcast") as bc:
+            self.add(token, "Wind")
+        bc.assert_called_once()
+        # Mind-map bursts coalesce into ~1 snapshot per second.
+        self.assertEqual(bc.call_args.kwargs.get("debounce"), 1.0)
+
+    def test_vote_endpoint_refuses_mindmap(self):
+        self.open_mindmap()
+        response = self.vote(self.join(), text="Wind")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json()["detail"], "Mind map terms are added via the mind map."
+        )
+        self.assertFalse(Vote.objects.exists())
+
+    def test_recording_vote_refuses_mindmap(self):
+        run = self.open_mindmap()
+        run.enable_recording()
+        response = self.client.post(
+            f"/api/live/recording/{run.recording_token}/vote/",
+            {"token": self.join(), "question": self.mq.pk, "text": "Wind"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_recording_questions_skip_mindmap(self):
+        # Recording viewers can't contribute after the fact, so the mind map
+        # question is not listed at all (the other questions stay).
+        run = self.open_mindmap()
+        run.enable_recording()
+        payload = self.client.get(
+            f"/api/live/recording/{run.recording_token}/"
+        ).json()
+        ids = [q["id"] for q in payload["questions"]]
+        self.assertNotIn(self.mq.pk, ids)
+        self.assertIn(self.question.pk, ids)
+
+
+class MindmapRemoveTests(MindmapTestCase):
+    def test_remove_own_term_deletes_node(self):
+        self.open_mindmap()
+        token = self.join()
+        node = self.add(token, "Wind").json()["node_id"]
+        response = self.remove(token, node)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"status": "ok", "deleted": True, "mine": []})
+        self.assertFalse(MindmapNode.objects.exists())
+
+    def test_remove_decrements_count(self):
+        self.open_mindmap()
+        t1, t2 = self.join(), self.join()
+        node = self.add(t1, "Wind").json()["node_id"]
+        self.add(t2, "wind")
+        response = self.remove(t1, node)
+        self.assertEqual(response.json()["deleted"], False)
+        self.assertEqual(self.tree()["nodes"][0]["count"], 1)
+        # The remaining contributor may withdraw too, then the node is gone.
+        self.remove(t2, node)
+        self.assertFalse(MindmapNode.objects.exists())
+
+    def test_children_block_remove(self):
+        self.open_mindmap()
+        t1, t2 = self.join(), self.join()
+        node = self.add(t1, "Wind").json()["node_id"]
+        child = self.add(t2, "Rotor", parent=node).json()["node_id"]
+        response = self.remove(t1, node)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Terms hang below this one.")
+        # Hidden children block too.
+        MindmapNode.objects.filter(pk=child).update(hidden=True)
+        self.assertEqual(self.remove(t1, node).status_code, 409)
+
+    def test_only_own_contribution(self):
+        self.open_mindmap()
+        node = self.add(self.join(), "Wind").json()["node_id"]
+        response = self.remove(self.join(), node)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["detail"], "Not your term.")
+        self.assertEqual(MindmapContribution.objects.count(), 1)
+
+    def test_unknown_node(self):
+        self.open_mindmap()
+        response = self.remove(self.join(), 999999)
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["detail"], "Unknown term.")
+
+    def test_seeded_node_never_deleted(self):
+        self.open_mindmap(mindmap_seed=[{"text": "Wind", "description": "", "children": []}])
+        token = self.join()
+        node = self.add(token, "wind").json()["node_id"]
+        self.assertTrue(MindmapNode.objects.get(pk=node).seeded)
+        response = self.remove(token, node)
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(response.json()["deleted"])
+        self.assertTrue(MindmapNode.objects.filter(pk=node).exists())
+        self.assertEqual(self.tree()["nodes"][0]["count"], 0)
+
+    def test_remove_only_while_open(self):
+        run = self.open_mindmap()
+        token = self.join()
+        node = self.add(token, "Wind").json()["node_id"]
+        run.phase = Run.Phase.CLOSED
+        run.save()
+        response = self.remove(token, node)
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Voting is closed.")
+
+
+class MindmapMineTests(MindmapTestCase):
+    def test_mine_lists_own_contributions_only(self):
+        self.open_mindmap()
+        t1, t2 = self.join(), self.join()
+        a = self.add(t1, "A").json()["node_id"]
+        self.add(t2, "B")
+        self.add(t1, "B")
+        b = MindmapNode.objects.get(text_key="b").pk
+        response = self.mine(t1)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(sorted(response.json()["nodes"]), sorted([a, b]))
+
+    def test_mine_works_after_close_and_without_run(self):
+        run = self.open_mindmap()
+        token = self.join()
+        a = self.add(token, "A").json()["node_id"]
+        run.phase = Run.Phase.RESULTS
+        run.save()
+        self.assertEqual(self.mine(token).json()["nodes"], [a])
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        self.assertEqual(self.mine(token).json()["nodes"], [])
+
+    def test_mine_unknown_token_and_question(self):
+        self.open_mindmap()
+        self.assertEqual(self.mine("nope").status_code, 403)
+        self.assertEqual(self.mine(self.join(), question=999999).status_code, 404)
+
+
+class MindmapHideTests(MindmapTestCase):
+    def test_owner_hides_and_unhides(self):
+        run = self.open_mindmap()
+        node = self.add(self.join(), "Spam").json()["node_id"]
+        self.client.force_login(self.owner)
+        with patch("live.views.broadcast") as bc:
+            response = self.hide(run, node)
+        self.assertEqual(response.status_code, 200)
+        bc.assert_called_once()
+        self.assertTrue(MindmapNode.objects.get(pk=node).hidden)
+        self.hide(run, node, hidden=False)
+        self.assertFalse(MindmapNode.objects.get(pk=node).hidden)
+
+    def test_non_owner_gets_404(self):
+        run = self.open_mindmap()
+        node = self.add(self.join(), "Spam").json()["node_id"]
+        self.client.force_login(User.objects.create_user(username="eve"))
+        self.assertEqual(self.hide(run, node).status_code, 404)
+        self.assertFalse(MindmapNode.objects.get(pk=node).hidden)
+
+    def test_anonymous_is_refused(self):
+        run = self.open_mindmap()
+        node = self.add(self.join(), "Spam").json()["node_id"]
+        self.assertIn(self.hide(run, node).status_code, (401, 403))
+
+    def test_unknown_node_404(self):
+        run = self.open_mindmap()
+        self.client.force_login(self.owner)
+        self.assertEqual(self.hide(run, 999999).status_code, 404)
+
+
+class MindmapPayloadTests(MindmapTestCase):
+    def test_participant_payload_shape(self):
+        self.open_mindmap(mindmap_descriptions=True, mindmap_depth=3,
+                          mindmap_max_per_person=4)
+        t1, t2 = self.join(), self.join()
+        a = self.add(t1, "Wind", description="Rotoren").json()["node_id"]
+        self.add(t2, "wind", description="Offshore")
+        self.add(t2, "Rotor", parent=a)
+        payload = build_payloads(self.room)["participant"]
+        self.assertEqual(payload["question"]["kind"], "mindmap")
+        mindmap = payload["mindmap"]
+        self.assertEqual(mindmap["depth"], 3)
+        self.assertEqual(mindmap["max_per_person"], 4)
+        self.assertTrue(mindmap["descriptions"])
+        self.assertTrue(mindmap["highlight_duplicates"])
+        self.assertEqual(mindmap["total"], 2)
+        self.assertEqual(mindmap["max_nodes"], 300)
+        self.assertEqual(
+            resolve_translated_text(mindmap["root"]["label"]), "Was gehört zur Energiewende?"
+        )
+        wind = mindmap["nodes"][0]
+        self.assertEqual(
+            set(wind), {"id", "text", "count", "descriptions", "seeded", "children"}
+        )
+        self.assertEqual(wind["id"], a)
+        self.assertEqual(wind["count"], 2)
+        self.assertEqual(wind["descriptions"], ["Rotoren", "Offshore"])
+        self.assertEqual(wind["children"][0]["text"], "Rotor")
+        self.assertEqual(wind["children"][0]["children"], [])
+        # Anonymity: no tokens anywhere in the payload.
+        self.assertNotIn(t1, json.dumps(payload))
+
+    def test_root_label_from_setting(self):
+        self.mq.mindmap_root_de = "Energiewende"
+        self.open_mindmap()
+        self.assertEqual(self.tree()["root"]["label"]["de"], "Energiewende")
+
+    def test_descriptions_capped_at_three_and_off_when_disabled(self):
+        self.open_mindmap(mindmap_descriptions=True)
+        node = None
+        for i in range(5):
+            node = self.add(self.join(), "Wind", description=f"d{i}").json()["node_id"]
+        self.assertEqual(self.tree()["nodes"][0]["descriptions"], ["d0", "d1", "d2"])
+        self.mq.mindmap_descriptions = False
+        self.mq.save()
+        self.assertEqual(self.tree()["nodes"][0]["descriptions"], [])
+        self.assertIsNotNone(node)
+
+    def test_hidden_nodes_excluded_for_participants_included_for_presenter(self):
+        run = self.open_mindmap()
+        token = self.join()
+        a = self.add(token, "A").json()["node_id"]
+        self.add(token, "B", parent=a)
+        self.add(token, "C")
+        MindmapNode.objects.filter(pk=a).update(hidden=True)
+        participant = self.tree("participant")
+        self.assertEqual([n["text"] for n in participant["nodes"]], ["C"])
+        self.assertEqual(participant["total"], 1)
+        self.assertNotIn("hidden", participant["nodes"][0])
+        presenter = self.tree("presenter")
+        self.assertEqual([n["text"] for n in presenter["nodes"]], ["A", "C"])
+        self.assertTrue(presenter["nodes"][0]["hidden"])
+        self.assertFalse(presenter["nodes"][0]["children"][0]["hidden"])
+        self.assertEqual(presenter["total"], 3)
+        self.assertEqual(run.pk, build_payloads(self.room)["presenter"]["run_id"])
+
+    def test_presenter_votes_counts_contributors(self):
+        self.open_mindmap()
+        t1 = self.join()
+        self.add(t1, "A")
+        self.add(t1, "B")
+        self.add(self.join(), "A")
+        self.assertEqual(build_payloads(self.room)["presenter"]["votes"], 2)
+
+    def test_phases_participant(self):
+        run = self.open_mindmap()
+        self.add(self.join(), "A")
+        for phase in (Run.Phase.CLOSED, Run.Phase.RESULTS):
+            run.phase = phase
+            run.save()
+            payload = build_payloads(self.room)["participant"]
+            self.assertEqual(payload["question"]["id"], self.mq.pk)
+            self.assertEqual(payload["mindmap"]["nodes"][0]["text"], "A")
+        run.phase = Run.Phase.PREVIEW
+        run.save()
+        payloads = build_payloads(self.room)
+        self.assertNotIn("mindmap", payloads["participant"])
+        self.assertIn("mindmap", payloads["presenter"])
+
+    def test_non_mindmap_payload_has_no_mindmap(self):
+        self.open_question(self.question)
+        payloads = build_payloads(self.room)
+        self.assertNotIn("mindmap", payloads["participant"])
+        self.assertNotIn("mindmap", payloads["presenter"])
+
+    def test_bounded_queries(self):
+        self.open_mindmap(mindmap_max_per_person=0, mindmap_descriptions=True)
+        token = self.join()
+        parent = None
+        for i in range(5):
+            parent = self.add(token, f"T{i}", parent=parent).json()["node_id"]
+        run = active_run(self.room)
+        from .mindmap import build_tree
+
+        with self.assertNumQueries(3):
+            build_tree(run, self.mq, presenter=True)
+
+
+class MindmapSeedTests(MindmapTestCase):
+    SEED = [
+        {"text": "Wind", "description": "Rotoren", "children": [
+            {"text": "Offshore", "description": "", "children": []},
+        ]},
+        {"text": "Sonne", "description": "", "children": []},
+    ]
+
+    def test_seed_materialised_once_per_run(self):
+        run = self.open_mindmap(mindmap_seed=self.SEED)
+        tree = self.tree()
+        self.assertEqual([n["text"] for n in tree["nodes"]], ["Wind", "Sonne"])
+        wind = tree["nodes"][0]
+        self.assertTrue(wind["seeded"])
+        self.assertEqual(wind["count"], 0)
+        self.assertEqual(wind["descriptions"], [])  # descriptions off
+        self.assertEqual(wind["children"][0]["text"], "Offshore")
+        self.tree()
+        build_payloads(self.room)
+        self.assertEqual(run.mindmap_nodes.count(), 3)
+        # A new run gets its own copy.
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        run2 = self.open_question(self.mq)
+        self.tree()
+        self.assertEqual(run2.mindmap_nodes.count(), 3)
+        self.assertEqual(MindmapNode.objects.count(), 6)
+
+    def test_seed_description_shown_first(self):
+        self.open_mindmap(mindmap_seed=self.SEED, mindmap_descriptions=True)
+        wind = self.tree()["nodes"][0]["id"]
+        self.add(self.join(), "Wind", description="Windkraft")
+        node = self.tree()["nodes"][0]
+        self.assertEqual(node["id"], wind)
+        self.assertEqual(node["descriptions"], ["Rotoren", "Windkraft"])
+
+    def test_add_materialises_seed_first(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        token = self.join()
+        node = self.add(token, "sonne").json()["node_id"]
+        self.assertTrue(MindmapNode.objects.get(pk=node).seeded)
+        self.assertEqual(MindmapNode.objects.count(), 3)
+
+    def test_seed_counts_towards_depth(self):
+        self.open_mindmap(mindmap_seed=self.SEED, mindmap_depth=2)
+        self.tree()
+        offshore = MindmapNode.objects.get(text="Offshore")
+        response = self.add(self.join(), "Turbine", parent=offshore.pk)
+        self.assertEqual(response.status_code, 400)
+
+
+class MindmapSeedI18nTests(MindmapTestCase):
+    SEED = [
+        {"text": {"de": "Wind", "en": "Wind power"},
+         "description": {"de": "Rotoren", "en": "Rotors"}, "children": [
+            {"text": {"de": "Meer", "en": "Offshore"},
+             "description": {"de": "", "en": ""}, "children": []},
+        ]},
+        {"text": "Sonne", "description": "", "children": []},  # legacy string
+    ]
+
+    def test_seeded_nodes_carry_both_languages(self):
+        self.open_mindmap(mindmap_seed=self.SEED, mindmap_descriptions=True)
+        for role in ("participant", "presenter"):
+            nodes = self.tree(role)["nodes"]
+            wind, sonne = nodes
+            # ``text`` stays the canonical string (merge key, CSV, legacy
+            # clients); the maps are added for seeded nodes.
+            self.assertEqual(wind["text"], "Wind", role)
+            self.assertEqual(wind["text_i18n"], {"de": "Wind", "en": "Wind power"}, role)
+            self.assertEqual(wind["descriptions"], ["Rotoren"], role)
+            self.assertEqual(
+                wind["description_i18n"], {"de": "Rotoren", "en": "Rotors"}, role
+            )
+            self.assertEqual(
+                wind["children"][0]["text_i18n"], {"de": "Meer", "en": "Offshore"}, role
+            )
+            self.assertNotIn("description_i18n", wind["children"][0], role)
+            self.assertEqual(sonne["text_i18n"], {"de": "Sonne", "en": ""}, role)
+        node = MindmapNode.objects.get(text="Wind")
+        self.assertEqual(node.text_key, "wind")
+        self.assertEqual(node.description, "Rotoren")
+        self.assertEqual(
+            node.seed_i18n,
+            {"text": {"de": "Wind", "en": "Wind power"},
+             "description": {"de": "Rotoren", "en": "Rotors"}},
+        )
+
+    def test_participant_nodes_have_no_maps(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        self.add(self.join(), "Wasser")
+        water = self.tree()["nodes"][-1]
+        self.assertEqual(water["text"], "Wasser")
+        self.assertNotIn("text_i18n", water)
+        self.assertNotIn("description_i18n", water)
+
+    def test_description_map_only_when_descriptions_on(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        wind = self.tree()["nodes"][0]
+        self.assertEqual(wind["descriptions"], [])
+        self.assertNotIn("description_i18n", wind)
+
+    def test_merge_only_on_canonical_term(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        wind = self.tree()["nodes"][0]["id"]
+        token = self.join()
+        self.assertEqual(self.add(token, "wind").json()["node_id"], wind)
+        other = self.add(token, "Wind power").json()["node_id"]
+        self.assertNotEqual(other, wind)
+
+    def test_results_and_csv_use_canonical(self):
+        run = self.open_mindmap(mindmap_seed=self.SEED)
+        wind = self.tree()["nodes"][0]["id"]
+        self.add(self.join(), "Wind")
+        self.add(self.join(), "Turbine", parent=wind)
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        self.client.force_login(self.owner)
+        results = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results/"
+        ).json()["results"]
+        item = next(q for q in results[0]["questions"] if q["kind"] == "mindmap")
+        node = item["mindmap"]["nodes"][0]
+        self.assertEqual(node["text"], "Wind")
+        self.assertEqual(node["text_i18n"], {"de": "Wind", "en": "Wind power"})
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8")
+        self.assertIn(";Wind > Meer;;0;", body)
+        self.assertNotIn("Wind power", body)
+
+
+class MindmapResultsTests(MindmapTestCase):
+    def _run(self):
+        run = self.open_mindmap()
+        t1 = self.join()
+        a = self.add(t1, "Wind").json()["node_id"]
+        self.add(self.join(), "Rotor", parent=a)
+        self.add(self.join(), "wind")
+        spam = self.add(t1, "Spam").json()["node_id"]
+        MindmapNode.objects.filter(pk=spam).update(hidden=True)
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        return run
+
+    def test_run_results_tree_and_listing(self):
+        self._run()
+        self.client.force_login(self.owner)
+        results = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results/"
+        ).json()["results"]
+        # A run with only mind-map contributions is listed.
+        self.assertEqual(len(results), 1)
+        item = next(q for q in results[0]["questions"] if q["kind"] == "mindmap")
+        self.assertEqual(item["votes"], 3)
+        nodes = item["mindmap"]["nodes"]
+        self.assertEqual([n["text"] for n in nodes], ["Wind"])
+        self.assertEqual(nodes[0]["count"], 2)
+        self.assertEqual(nodes[0]["children"][0]["text"], "Rotor")
+        self.assertNotIn("options", item)
+
+    def test_csv_rows_per_node_path(self):
+        self._run()
+        self.client.force_login(self.owner)
+        response = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.content.decode("utf-8")
+        self.assertIn(";Wind;;2;", body)
+        self.assertIn(";Wind > Rotor;;1;", body)
+        self.assertNotIn("Spam", body)
+
+    def test_archive_results_finishes_run_with_mindmap_only(self):
+        run = self.open_mindmap()
+        self.add(self.join(), "Wind")
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/archive-results/"
+        )
+        self.assertNotEqual(response.json()["run"], run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.phase, Run.Phase.FINISHED)
+
+
+class MindmapConcurrencyTests(TransactionTestCase):
+    """Two participants adding the same term at the same moment end as one
+    node with count 2 (real Postgres concurrency, like ConcurrentStartRunTests)."""
+
+    def setUp(self):
+        self.room = Room.objects.create(title="Bio 101")
+        qs = QuestionSet.objects.create(room=self.room, title="Termin 1")
+        self.mq = Question.objects.create(
+            question_set=qs, kind=Question.Kind.MINDMAP, text="<p>Energie?</p>"
+        )
+        Run.objects.create(question_set=qs, phase=Run.Phase.OPEN, active_question=self.mq)
+        self.tokens = [ParticipantToken.objects.create(room=self.room).key for _ in range(4)]
+
+    def test_simultaneous_same_term(self):
+        barrier = threading.Barrier(4)
+        results = [None] * 4
+
+        def worker(index):
+            client = Client()
+            try:
+                barrier.wait(timeout=5)
+                results[index] = client.post(
+                    f"/api/live/rooms/{self.room.code}/mindmap/add/",
+                    {"token": self.tokens[index], "question": self.mq.pk,
+                     "parent": None, "text": "Energie" if index % 2 else "energie "},
+                    content_type="application/json",
+                )
+            finally:
+                connections.close_all()
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+        for response in results:
+            self.assertIsNotNone(response)
+            self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(MindmapNode.objects.count(), 1)
+        self.assertEqual(MindmapContribution.objects.count(), 4)
+
+
+class MindmapFixRoundTests(MindmapTestCase):
+    """Final-review fixes: run lifecycle counts contributions, key overflow,
+    normalisation, strict moderation input, CSV injection."""
+
+    def _contribute(self):
+        run = self.open_mindmap()
+        self.add(self.join(), "Wind")
+        return run
+
+    def test_other_set_start_keeps_mindmap_only_run(self):
+        run = self._contribute()
+        other = QuestionSet.objects.create(room=self.room, title="Termin 2")
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/question-sets/{other.pk}/start-run/", {}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 200)
+        run.refresh_from_db()
+        self.assertEqual(run.phase, Run.Phase.FINISHED)
+        self.assertEqual(MindmapContribution.objects.count(), 1)
+
+    def test_archive_start_finishes_stale_mindmap_run(self):
+        run = self._contribute()
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"existing": "archive"}, content_type="application/json",
+        )
+        self.assertNotEqual(response.json()["run"], run.pk)
+        run.refresh_from_db()
+        self.assertEqual(run.phase, Run.Phase.FINISHED)
+
+    def test_live_status_counts_contributions(self):
+        self._contribute()
+        self.client.force_login(self.owner)
+        data = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/live-status/"
+        ).json()
+        self.assertTrue(data["has_votes"])
+        self.assertTrue(data["active_run_has_votes"])
+
+    def test_votes_total_includes_contributions(self):
+        run = self._contribute()
+        self.add(self.join(), "Sonne")
+        self.vote(self.join(), options=[self.correct.pk])  # other question not open
+        from .results import run_results
+
+        self.assertEqual(run_results(run)["votes_total"], 2)
+
+    def test_sharp_s_term_fits_text_key(self):
+        self.open_mindmap()
+        response = self.add(self.join(), "ß" * 60)
+        self.assertEqual(response.status_code, 201, response.content)
+        node = MindmapNode.objects.get()
+        self.assertEqual(len(node.text_key), 60)
+        # The same term again merges (same truncated key).
+        self.assertTrue(self.add(self.join(), "ß" * 60).json()["merged"])
+
+    def test_sharp_s_seed_materialises(self):
+        self.open_mindmap(mindmap_seed=[{"text": "ß" * 60, "description": "", "children": []}])
+        self.assertEqual(self.tree()["nodes"][0]["text"], "ß" * 60)
+
+    def test_nul_and_zero_width_terms(self):
+        self.open_mindmap(mindmap_descriptions=True)
+        token = self.join()
+        response = self.add(token, "Wi\x00nd", description="Ro\x00tor")
+        self.assertEqual(response.status_code, 201, response.content)
+        node = MindmapNode.objects.get()
+        self.assertEqual(node.text, "Wind")
+        self.assertEqual(MindmapContribution.objects.get().description, "Rotor")
+        response = self.add(token, "\u200b\u200b")
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["detail"], "Empty term.")
+
+    def test_nfc_and_nfd_merge(self):
+        self.open_mindmap()
+        first = self.add(self.join(), "Caf\u00e9").json()["node_id"]
+        response = self.add(self.join(), "Cafe\u0301")
+        self.assertEqual(response.json()["node_id"], first)
+
+    def test_hide_requires_boolean(self):
+        run = self._contribute()
+        node = MindmapNode.objects.get().pk
+        self.client.force_login(self.owner)
+        for bad in ("false", 0, None, "yes"):
+            response = self.hide(run, node, hidden=bad)
+            self.assertEqual(response.status_code, 400, bad)
+            self.assertEqual(response.json()["detail"], "hidden must be true or false.")
+        self.assertFalse(MindmapNode.objects.get().hidden)
+
+    def test_participant_tree_has_no_key_presenter_has(self):
+        self._contribute()
+        self.assertNotIn("key", self.tree("participant")["nodes"][0])
+        self.assertEqual(self.tree("presenter")["nodes"][0]["key"], "wind")
+
+    def test_csv_escapes_formula_cells(self):
+        run = self.open_mindmap()
+        self.add(self.join(), "=HYPERLINK(1)")
+        wc = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.WORD_CLOUD,
+            text="<p>W</p>", position=2,
+        )
+        Vote.objects.create(
+            run=run, question=wc, token=ParticipantToken.objects.create(room=self.room),
+            text="@SUM(A1)",
+        )
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8")
+        self.assertIn(";'=HYPERLINK(1);", body)
+        self.assertIn(";'@SUM(A1);", body)
+        self.assertNotIn(";=HYPERLINK", body)
+
+    def test_csv_safe_helper(self):
+        from common.csv_safe import csv_safe
+
+        for raw in ("=1", "+1", "-1", "@x", "\tx", "\rx"):
+            self.assertEqual(csv_safe(raw), "'" + raw)
+        self.assertEqual(csv_safe("Wind"), "Wind")
+        self.assertEqual(csv_safe(3), 3)

@@ -33,6 +33,7 @@ const KIND_LABELS: Record<string, string> = {
   open_text: "Free text",
   priorities: "Priorities",
   ordering: "Ordering",
+  mindmap: "Mind map",
 };
 // Literal Tailwind colour classes (so the JIT emits them) for chart segments.
 const PALETTE = [
@@ -43,6 +44,7 @@ const PALETTE = [
   { stroke: "stroke-rose-500", dot: "bg-rose-500", fill: "fill-rose-500" },
   { stroke: "stroke-emerald-500", dot: "bg-emerald-500", fill: "fill-emerald-500" },
   { stroke: "stroke-orange-500", dot: "bg-orange-500", fill: "fill-orange-500" },
+  { stroke: "stroke-teal-500", dot: "bg-teal-500", fill: "fill-teal-500" },
 ];
 
 function slugify(value: string) {

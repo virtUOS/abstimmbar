@@ -63,6 +63,7 @@ class RoomHub:
     def broadcast_threadsafe(self, room_id, build_payloads, debounce=False):
         """Schedule a broadcast; ``build_payloads()`` runs on the loop just
         before sending (so a debounced burst serializes state only once).
+        ``debounce``: False (send now), True (default window) or seconds.
 
         ``build_payloads`` must be thread-safe and cheap-ish; it returns
         ``{"participant": {...}, "presenter": {...}}``.
@@ -96,7 +97,10 @@ class RoomHub:
             if debounce:
                 if room_id in self._pending:
                     return  # a flush is already scheduled
-                self._pending[room_id] = self._loop.call_later(DEBOUNCE_SECONDS, _fire)
+                # ``debounce=True`` uses the default window; a number is the
+                # window in seconds (mind maps coalesce over ~1 s).
+                delay = DEBOUNCE_SECONDS if debounce is True else float(debounce)
+                self._pending[room_id] = self._loop.call_later(delay, _fire)
             else:
                 _fire()
 

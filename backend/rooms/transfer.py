@@ -27,6 +27,7 @@ from rest_framework import serializers
 
 from common.i18n_fields import LANGS, translated_map
 
+from . import mindmap, set_types
 from .models import AnswerOption, Question, QuestionSet, Section
 from .naming import unique_title
 from .sanitize import clean_html, clean_media_url
@@ -103,7 +104,15 @@ QUESTION_CONTENT_FIELDS = (
     "evaluation_chart",
     "model_solution",
     "participant_feedback",
+    "mindmap_depth",
+    "mindmap_max_per_person",
+    "mindmap_descriptions",
+    "mindmap_highlight_duplicates",
+    "mindmap_seed",
 )
+# Translatable Question fields copied column by column (never the bare
+# accessor): the question text and the mindmap root label.
+QUESTION_TRANSLATED_FIELDS = ("text", "mindmap_root")
 
 
 def _copy_options(source, target):
@@ -136,7 +145,11 @@ def duplicate_question(question, *, question_set, section, position):
     clone = Question.objects.create(
         question_set=question_set,
         kind=question.kind,
-        **_lang_columns(question, "text"),
+        **{
+            col: value
+            for base in QUESTION_TRANSLATED_FIELDS
+            for col, value in _lang_columns(question, base).items()
+        },
         **{field: getattr(question, field) for field in QUESTION_CONTENT_FIELDS},
         position=position,
         section=section,
@@ -156,8 +169,9 @@ def sync_after_question(before):
     if after is None:
         return
     after.kind = before.kind
-    for lang in LANGS:
-        setattr(after, f"text_{lang}", getattr(before, f"text_{lang}"))
+    for base in QUESTION_TRANSLATED_FIELDS:
+        for lang in LANGS:
+            setattr(after, f"{base}_{lang}", getattr(before, f"{base}_{lang}"))
     for field in QUESTION_CONTENT_FIELDS:
         setattr(after, field, getattr(before, field))
     after.save()
@@ -262,6 +276,12 @@ def export_set(question_set):
                 "evaluation_chart": question.evaluation_chart,
                 "model_solution": question.model_solution,
                 "participant_feedback": question.participant_feedback,
+                "mindmap_root": translated_map(question, "mindmap_root"),
+                "mindmap_depth": question.mindmap_depth,
+                "mindmap_max_per_person": question.mindmap_max_per_person,
+                "mindmap_descriptions": question.mindmap_descriptions,
+                "mindmap_highlight_duplicates": question.mindmap_highlight_duplicates,
+                "mindmap_seed": question.mindmap_seed,
                 "section": section_index.get(question.section_id),
                 "options": [
                     {
@@ -315,9 +335,17 @@ def import_set(room, data):
     questions = data.get("questions") or []
     if not isinstance(questions, list):
         raise serializers.ValidationError({"questions": "Must be a list."})
+    allowed_kinds = set_types.allowed_kinds(set_type)
     for item in questions:
         if not isinstance(item, dict) or item.get("kind") not in VALID_KINDS:
             raise serializers.ValidationError({"questions": "Invalid question."})
+        # Hard reject only for mindmap (a shared live activity; live polls
+        # only). Other kinds a set type would not offer in the editor still
+        # import as before — legacy exports must keep working.
+        if item["kind"] == Question.Kind.MINDMAP and item["kind"] not in allowed_kinds:
+            raise serializers.ValidationError(
+                {"questions": "Question type not allowed in this set type."}
+            )
 
     # Foreign file: sanitize like any client input — per language (#49).
     description_map = {
@@ -383,10 +411,28 @@ def import_set(room, data):
         text_map = {
             lang: clean_html(v) for lang, v in _lang_map(item.get("text")).items()
         }
+        root_map = {
+            lang: mindmap.normalize_text(v)[: mindmap.MINDMAP_TEXT_MAX].strip()
+            for lang, v in _lang_map(item.get("mindmap_root")).items()
+        }
+        mm_depth = mindmap.clamp_depth(item.get("mindmap_depth"))
         question = Question.objects.create(
             question_set=question_set,
             kind=item["kind"],
             **{f"text_{lang}": (v or None) for lang, v in text_map.items()},
+            **{f"mindmap_root_{lang}": v for lang, v in root_map.items()},
+            mindmap_depth=mm_depth,
+            mindmap_max_per_person=mindmap.clamp_max_per_person(
+                item.get("mindmap_max_per_person")
+            ),
+            mindmap_descriptions=bool(item.get("mindmap_descriptions")),
+            mindmap_highlight_duplicates=bool(
+                item.get("mindmap_highlight_duplicates", True)
+            ),
+            # Foreign file: drop/truncate rather than reject (lenient).
+            mindmap_seed=mindmap.clean_seed(
+                item.get("mindmap_seed"), mm_depth, strict=False
+            ),
             shuffle_options=bool(item.get("shuffle_options")),
             binary_choice=bool(item.get("binary_choice")),
             time_limit=time_limit,
@@ -418,7 +464,7 @@ def import_set(room, data):
             position=position,
             section=section,
         )
-        if item["kind"] in Question.TEXT_KINDS:
+        if item["kind"] in Question.OPTIONLESS_KINDS:
             continue
         options = item.get("options") or []
         AnswerOption.objects.bulk_create(

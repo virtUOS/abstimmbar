@@ -28,6 +28,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from common.markdown import render_markdown
 from common.models import SiteConfig
@@ -35,6 +36,7 @@ from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import (
     ai_evaluation,
+    mindmap,
     ai_freetext,
     ai_freetext_summary,
     ai_report,
@@ -171,6 +173,8 @@ def question_preview(request, question_id):
         "set_title": translated_map(question.question_set, "title"),
         "question": question_payload(question, shuffle_seed=0),
     }
+    if question.kind == Question.Kind.MINDMAP:
+        preview_state["mindmap"] = mindmap.preview_tree(question)
     response = render(
         request,
         "live/participant.html",
@@ -330,6 +334,12 @@ def vote(request, code):
                 return Response(
                     {"detail": "Time is up."}, status=status.HTTP_409_CONFLICT
                 )
+
+    # Mind maps collect terms via the dedicated mind-map endpoints.
+    if question.kind == Question.Kind.MINDMAP:
+        return Response(
+            {"detail": "Mind map terms are added via the mind map."}, status=400
+        )
 
     # Double-vote guard (app-level, since the DB constraint is gone): one
     # submission per participant/question/run — except word clouds marked
@@ -701,6 +711,112 @@ def my_answer(request, code):
     )
 
 
+# --- mind map (stage 1): shared tree, token-scoped ---------------------------
+
+
+def _mindmap_context(request, code):
+    """(room, token, run, question) for a contributing mind-map request, or
+    a refusal Response. Contributions require the open phase of a live run
+    with this mind-map question active (and its countdown not expired)."""
+    room = _room_by_code(code)
+    token = ParticipantToken.objects.filter(
+        room=room, key=request.data.get("token", "")
+    ).first()
+    if token is None:
+        return Response({"detail": "Unknown participant token."}, status=403)
+    run = active_run(room)
+    if (
+        run is None
+        or run.phase != Run.Phase.OPEN
+        or run.mode != Run.Mode.LIVE
+        or run.active_question is None
+    ):
+        return Response({"detail": "Voting is closed."}, status=status.HTTP_409_CONFLICT)
+    question = run.active_question
+    if question.kind != Question.Kind.MINDMAP:
+        return Response({"detail": "Not a mind map question."}, status=400)
+    if str(request.data.get("question")) != str(question.pk):
+        return Response(
+            {"detail": "Question is not open."}, status=status.HTTP_409_CONFLICT
+        )
+    if question.time_limit and run.opened_at:
+        deadline = run.opened_at + timezone.timedelta(seconds=question.time_limit + 1)
+        if timezone.now() > deadline:
+            return Response({"detail": "Time is up."}, status=status.HTTP_409_CONFLICT)
+    return room, token, run, question
+
+
+@api_view(["POST"])
+def mindmap_add(request, code):
+    """Add a term below ``parent`` (null = a main branch below the root), or
+    join the identical term already there (one node, count + 1)."""
+    context = _mindmap_context(request, code)
+    if isinstance(context, Response):
+        return context
+    room, token, run, question = context
+    try:
+        node, merged = mindmap.add_term(
+            run, question, token,
+            request.data.get("parent"),
+            request.data.get("text", ""),
+            request.data.get("description", ""),
+        )
+    except mindmap.MindmapError as error:
+        return Response({"detail": error.detail}, status=error.status)
+    broadcast(room, debounce=mindmap.BROADCAST_DEBOUNCE)
+    return Response(
+        {
+            "node_id": node.pk,
+            "merged": merged,
+            "mine": mindmap.own_node_ids(run, question, token),
+        },
+        status=status.HTTP_201_CREATED,
+    )
+
+
+@api_view(["POST"])
+def mindmap_remove(request, code):
+    """Withdraw the caller's own term while nothing hangs below it; the node
+    disappears with its last contribution unless it is predefined."""
+    context = _mindmap_context(request, code)
+    if isinstance(context, Response):
+        return context
+    room, token, run, question = context
+    try:
+        deleted = mindmap.remove_term(run, question, token, request.data.get("node"))
+    except mindmap.MindmapError as error:
+        return Response({"detail": error.detail}, status=error.status)
+    broadcast(room, debounce=mindmap.BROADCAST_DEBOUNCE)
+    return Response(
+        {
+            "status": "ok",
+            "deleted": deleted,
+            "mine": mindmap.own_node_ids(run, question, token),
+        }
+    )
+
+
+@api_view(["POST"])
+def mindmap_mine(request, code):
+    """The ids of the nodes the CALLER contributed to in the active run
+    (deletability after a reload). Never anyone else's data."""
+    room = _room_by_code(code)
+    token = ParticipantToken.objects.filter(
+        room=room, key=request.data.get("token", "")
+    ).first()
+    if token is None:
+        return Response({"detail": "Unknown participant token."}, status=403)
+    run = active_run(room)
+    if run is None:
+        return Response({"nodes": []})
+    question = Question.objects.filter(
+        question_set=run.question_set, pk=mindmap._parse_id(request.data.get("question"))
+    ).first()
+    if question is None:
+        return Response({"detail": "Unknown question."}, status=404)
+    return Response({"nodes": mindmap.own_node_ids(run, question, token)})
+
+
 # --- recording mode (#53): async viewer voting ------------------------------
 
 
@@ -750,6 +866,8 @@ def _parse_answer(question, data):
 
 def _question_results(run, question):
     """Combined per-question results (all sources) for the viewer client."""
+    if question.kind == Question.Kind.MINDMAP:
+        return {"mindmap": mindmap.build_tree(run, question, presenter=False)}
     if question.kind in Question.TEXT_KINDS:
         return {"words": words_with_counts(run, question)}
     if question.kind == Question.Kind.PRIORITIES:
@@ -771,7 +889,12 @@ def recording_questions(request, token):
     reload/resume shows results for answered questions.
     """
     run = _recording_run(token)
-    questions = list(run.question_set.questions.prefetch_related("options"))
+    # Mind maps are built live only — a recording viewer can't contribute
+    # after the fact, so they are not listed at all.
+    questions = list(
+        run.question_set.questions.exclude(kind=Question.Kind.MINDMAP)
+        .prefetch_related("options")
+    )
     feedback = run.question_set.reveal_answers != "never"
 
     answered = {}
@@ -828,6 +951,11 @@ def recording_vote(request, token):
     ).first()
     if question is None:
         return Response({"detail": "Unknown question."}, status=400)
+    if question.kind == Question.Kind.MINDMAP:
+        # Mind maps are built live only; recordings cannot add terms.
+        return Response(
+            {"detail": "Mind map terms are added via the mind map."}, status=400
+        )
 
     allow_multiple = (
         question.kind == Question.Kind.WORD_CLOUD and question.allow_multiple
@@ -1188,10 +1316,11 @@ def live_status(request, set_id):
         .exclude(phase=Run.Phase.FINISHED)
         .first()
     )
-    has_votes = Vote.objects.filter(run__question_set=question_set).exists()
+    # "Votes" here means any stored answers, mind-map contributions included.
+    has_votes = question_set.runs.filter(mindmap.answered_runs_q()).exists()
     # Whether the run the start dialog would resume already carries answers —
     # lets the UI offer archive/delete instead of silently appending (#70).
-    active_run_has_votes = bool(run and run.votes.exists())
+    active_run_has_votes = bool(run and mindmap.run_has_answers(run))
     return Response(
         {
             "active_run": run.pk if run else None,
@@ -1204,7 +1333,8 @@ def live_status(request, set_id):
 
 
 def _finish_other_room_runs(room, keep_set):
-    """Enforce one active run per room: archive (has votes, or a minted
+    """Enforce one active run per room: archive (has votes or mind-map
+    contributions, or a minted
     recording token) or delete (neither) the unfinished runs of *other* sets
     in ``room`` before a new run is activated. The participant page shows a
     single active run, but the per-set constraint
@@ -1222,7 +1352,7 @@ def _finish_other_room_runs(room, keep_set):
         .exclude(question_set=keep_set)
     )
     for other in others:
-        if other.votes.exists() or other.recording_token:
+        if mindmap.run_has_answers(other) or other.recording_token:
             other.phase = Run.Phase.FINISHED
             other.ended_at = timezone.now()
             other.save(update_fields=["phase", "ended_at", "updated_at"])
@@ -1286,7 +1416,7 @@ def start_run(request, set_id):
                 existing = "continue"
             else:
                 last = (
-                    question_set.runs.filter(votes__isnull=False)
+                    question_set.runs.filter(mindmap.answered_runs_q())
                     .order_by("-created_at")
                     .first()
                 )
@@ -1309,7 +1439,7 @@ def start_run(request, set_id):
                 Run.objects.filter(question_set=question_set)
                 .exclude(phase=Run.Phase.FINISHED)
             ):
-                if stale.votes.exists():
+                if mindmap.run_has_answers(stale):
                     stale.phase = Run.Phase.FINISHED
                     stale.ended_at = timezone.now()
                     stale.save(update_fields=["phase", "ended_at", "updated_at"])
@@ -1480,8 +1610,7 @@ def set_results(request, set_id):
     # Skip runs without any votes (e.g. a freshly prepared archive run, #27):
     # a Durchführung is only worth listing once it collected answers.
     runs = (
-        question_set.runs.filter(votes__isnull=False)
-        .distinct()
+        question_set.runs.filter(mindmap.answered_runs_q())
         .order_by("-created_at")
     )
     return Response({"results": [run_results(run) for run in runs]})
@@ -1547,6 +1676,30 @@ def wordcloud_moderation(request, run_id, question_id):
     # Moderated terms feed the AI views too — refresh a shown/warm AI result
     # (no-op when AI is off or never computed for this word cloud).
     ai_wordcloud_live.refresh(run.pk, question.pk, room.pk)
+    broadcast(room)
+    return Response({"status": "ok"})
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_hide(request, run_id, question_id):
+    """Presenter moderation (expert mode): hide/unhide a mind-map node and,
+    implicitly, its subtree — for everyone. Reversible; nothing is deleted."""
+    run = get_object_or_404(
+        Run.objects.select_related("question_set__room"), pk=run_id
+    )
+    room = run.question_set.room
+    if not _require_owner(request.user, room):
+        raise Http404
+    question = get_object_or_404(
+        Question, pk=question_id, question_set=run.question_set,
+        kind=Question.Kind.MINDMAP,
+    )
+    hidden = request.data.get("hidden")
+    if not isinstance(hidden, bool):
+        return Response({"detail": "hidden must be true or false."}, status=400)
+    if not mindmap.set_hidden(run, question, request.data.get("node"), hidden):
+        raise Http404
     broadcast(room)
     return Response({"status": "ok"})
 
@@ -1858,7 +2011,7 @@ def archive_results(request, set_id):
     )
     # Finish a Durchführung only if it actually collected answers; an empty
     # unfinished run is already the "fresh" run we would create.
-    if active is not None and active.votes.exists():
+    if active is not None and mindmap.run_has_answers(active):
         active.phase = Run.Phase.FINISHED
         active.ended_at = timezone.now()
         active.save(update_fields=["phase", "ended_at", "updated_at"])
@@ -1901,11 +2054,17 @@ def results_csv(request, set_id):
             question_text = resolve_translated_text(translated_map(question, "text"))
             base = [run.pk, started.strftime("%Y-%m-%d %H:%M"),
                     question.position + 1, _plain(question_text)]
-            if question.kind in Question.TEXT_KINDS:
+            if question.kind == Question.Kind.MINDMAP:
+                # One row per visible node: its path from the root's branch
+                # ("Wind > Rotor") and its count in "stimmen".
+                tree = mindmap.build_tree(run, question, presenter=False)
+                for path, count in mindmap.csv_rows(tree):
+                    writer.writerow(base + [csv_safe(path), "", count, "", "", ""])
+            elif question.kind in Question.TEXT_KINDS:
                 for word in words_with_counts(run, question, limit=100000):
                     writer.writerow(
                         base
-                        + [word["text"], "", word["count"],
+                        + [csv_safe(word["text"]), "", word["count"],
                            word.get("onsite", ""), word.get("recording", ""), ""]
                     )
             elif question.kind == Question.Kind.PRIORITIES:

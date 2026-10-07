@@ -10,10 +10,12 @@ import secrets
 from typing import ClassVar
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, models
 
 from common.models import TimeStampedModel
 
+from . import mindmap as mm
 from .wordlist import WORDS
 
 # Room codes are three ASCII words joined by hyphens (ADR-0006), e.g.
@@ -294,10 +296,17 @@ class Question(TimeStampedModel):
         OPEN_TEXT = "open_text", "Open text"
         PRIORITIES = "priorities", "Priorities"
         ORDERING = "ordering", "Ordering"
+        # Shared live tree of terms (stage 1): contributions are live
+        # MindmapNode rows, not Votes; no AnswerOptions.
+        MINDMAP = "mindmap", "Mindmap"
 
     # Kinds whose answers are AnswerOption rows (vs. free text).
     CHOICE_KINDS = ("single_choice", "multiple_choice", "likert")
+    # Kinds answered by free text Votes (word cloud aggregation etc.). Mindmap
+    # is deliberately NOT here: its terms live in their own tables.
     TEXT_KINDS = ("word_cloud", "open_text")
+    # Kinds that never have AnswerOption rows.
+    OPTIONLESS_KINDS = (*TEXT_KINDS, "mindmap")
 
     question_set = models.ForeignKey(
         QuestionSet, on_delete=models.CASCADE, related_name="questions"
@@ -379,6 +388,32 @@ class Question(TimeStampedModel):
     # instead of sending each term immediately. Teacher-chosen (Expert mode);
     # only meaningful for a multi-answer WORD_CLOUD.
     wordcloud_batch_submit = models.BooleanField(default=False)
+    # Mindmap (stage 1) settings — only meaningful for kind == MINDMAP.
+    # Root label (translatable, mindmap_root_de/_en); empty = the beamer and
+    # participant page use the question text's plain short form instead.
+    mindmap_root = models.CharField(max_length=mm.MINDMAP_TEXT_MAX, blank=True, default="")
+    # Levels below the root participants may build (root's children = 1).
+    mindmap_depth = models.PositiveSmallIntegerField(
+        default=mm.MINDMAP_DEFAULT_DEPTH,
+        validators=[
+            MinValueValidator(mm.MINDMAP_MIN_DEPTH),
+            MaxValueValidator(mm.MINDMAP_MAX_DEPTH),
+        ],
+    )
+    # Terms one participant may contribute (0 = unlimited).
+    mindmap_max_per_person = models.PositiveSmallIntegerField(
+        default=mm.MINDMAP_DEFAULT_MAX_PER_PERSON,
+        validators=[MaxValueValidator(mm.MINDMAP_MAX_PER_PERSON_LIMIT)],
+    )
+    # Participants enter a title + optional description per term.
+    mindmap_descriptions = models.BooleanField(default=False)
+    # Beamer emphasises terms named by several people.
+    mindmap_highlight_duplicates = models.BooleanField(default=True)
+    # Predefined branches: nested [{"text", "description", "children"}] with
+    # bilingual {de, en} text/description maps; the canonical term is required
+    # and is the merge key (rooms/mindmap.py clean_seed). Materialised
+    # per run as seeded nodes participants cannot delete.
+    mindmap_seed = models.JSONField(default=list, blank=True)
 
     class RevealAnswers(models.TextChoices):
         # Per-question override of when correct answers are highlighted (#28).

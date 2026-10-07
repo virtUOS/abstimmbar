@@ -14,6 +14,10 @@ api_urlpatterns = [
     path("live/rooms/<str:code>/my-evaluation/", views.my_evaluation),
     path("live/rooms/<str:code>/my-answer/", views.my_answer),
     path("live/rooms/<str:code>/stream/", views.stream),
+    # Mind map (stage 1): shared tree, token-scoped.
+    path("live/rooms/<str:code>/mindmap/add/", views.mindmap_add),
+    path("live/rooms/<str:code>/mindmap/remove/", views.mindmap_remove),
+    path("live/rooms/<str:code>/mindmap/mine/", views.mindmap_mine),
     # Recording mode (#53): async viewer voting, keyed by the run's token.
     path("live/recording/<str:token>/", views.recording_questions),
     path("live/recording/<str:token>/vote/", views.recording_vote),
@@ -33,6 +37,10 @@ api_urlpatterns = [
     path(
         "runs/<int:run_id>/wordcloud/<int:question_id>/moderation",
         views.wordcloud_moderation,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/hide",
+        views.mindmap_hide,
     ),
     path(
         "runs/<int:run_id>/wordcloud/<int:question_id>/ai-settings",

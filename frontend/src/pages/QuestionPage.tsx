@@ -23,8 +23,15 @@ import {
   type LocalizedText,
   RichText,
   isEmptyHtml,
+  stripHtml,
 } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
+import MindmapSeedEditor, {
+  fromEditableSeed,
+  seedProblem,
+  toEditableSeed,
+  type EditableSeedNode,
+} from "../components/MindmapSeedEditor";
 import HomeCrumb from "../components/HomeCrumb";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
@@ -78,13 +85,13 @@ let nextClientId = -1;
 // query param on a new (unsaved) question.
 const QUESTION_KINDS = [
   "single_choice", "multiple_choice", "word_cloud", "likert",
-  "open_text", "priorities", "ordering",
+  "open_text", "priorities", "ordering", "mindmap",
 ] as const;
 
 /** Per-kind default options for a brand-new question, moved out of
  * `SetPage.addQuestion` now that creation is deferred to the first save. */
 function defaultOptions(kind: string, template?: string | null): EditableOption[] {
-  if (kind === "word_cloud" || kind === "open_text" || kind === "likert") return [];
+  if (kind === "word_cloud" || kind === "open_text" || kind === "likert" || kind === "mindmap") return [];
   // The binary preset starts as Ja/Nein; the editor's template quick-fill
   // lets the author switch to Wahr/Falsch or type their own (#79).
   const texts = template === "binary" ? ["Ja", "Nein"] : ["", "", ""];
@@ -233,6 +240,14 @@ export default function QuestionPage() {
   const [wordcloudMergeVariants, setWordcloudMergeVariants] = useState(true);
   const [wordcloudMergeSynonyms, setWordcloudMergeSynonyms] = useState(true);
   const [wordcloudMergeConcepts, setWordcloudMergeConcepts] = useState(false);
+  // Mindmap (stage 1): root label, depth, terms per person, switches and the
+  // predefined branches (outline editor). Defaults mirror the backend.
+  const [mindmapRoot, setMindmapRoot] = useState<LocalizedText>(emptyLoc);
+  const [mindmapDepth, setMindmapDepth] = useState(5);
+  const [mindmapMaxPerPerson, setMindmapMaxPerPerson] = useState(10);
+  const [mindmapDescriptions, setMindmapDescriptions] = useState(false);
+  const [mindmapHighlight, setMindmapHighlight] = useState(true);
+  const [mindmapSeed, setMindmapSeed] = useState<EditableSeedNode[]>([]);
   const [saving, setSaving] = useState(false);
   // #74: switch between editing and an interactive participant preview (iframe).
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -316,6 +331,12 @@ export default function QuestionPage() {
       setWordcloudMergeVariants(data.wordcloud_merge_variants ?? true);
       setWordcloudMergeSynonyms(data.wordcloud_merge_synonyms ?? true);
       setWordcloudMergeConcepts(data.wordcloud_merge_concepts ?? false);
+      setMindmapRoot(data.mindmap_root ?? emptyLoc);
+      setMindmapDepth(data.mindmap_depth ?? 5);
+      setMindmapMaxPerPerson(data.mindmap_max_per_person ?? 10);
+      setMindmapDescriptions(data.mindmap_descriptions ?? false);
+      setMindmapHighlight(data.mindmap_highlight_duplicates ?? true);
+      setMindmapSeed(toEditableSeed(data.mindmap_seed));
       setTimeLimit(data.time_limit ? String(data.time_limit) : "");
       // Options keep the full {de, en} map so each can be edited bilingually
       // (#33 MR2 Task 9).
@@ -474,7 +495,9 @@ export default function QuestionPage() {
       setError(
         textMissing
           ? t("Question text is required.")
-          : t("Add at least two answer options, each with text."),
+          : mindmapProblem
+            ? t(mindmapProblem.key, mindmapProblem.values)
+            : t("Add at least two answer options, each with text."),
       );
       return false;
     }
@@ -519,12 +542,24 @@ export default function QuestionPage() {
         wordcloud_merge_variants: wordcloudMergeVariants,
         wordcloud_merge_synonyms: wordcloudMergeSynonyms,
         wordcloud_merge_concepts: wordcloudMergeConcepts,
+        // Mindmap settings are only sent for a mindmap (others keep defaults).
+        ...(question.kind === "mindmap"
+          ? {
+              mindmap_root: mindmapRoot,
+              mindmap_depth: mindmapDepth,
+              mindmap_max_per_person: mindmapMaxPerPerson,
+              mindmap_descriptions: mindmapDescriptions,
+              mindmap_highlight_duplicates: mindmapHighlight,
+              mindmap_seed: fromEditableSeed(mindmapSeed),
+            }
+          : {}),
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
         // #91: report fields whose (non-canonical) translation now matches
         // what's being saved, so the API re-baselines their sync state.
         synced_fields: Array.from(new Set([...syncedFields, ...extraSynced])),
         options:
-          question.kind === "word_cloud" || question.kind === "open_text"
+          question.kind === "word_cloud" || question.kind === "open_text" ||
+          question.kind === "mindmap"
             ? []
             : question.kind === "likert"
               ? likertOptions()
@@ -693,9 +728,11 @@ export default function QuestionPage() {
 
   if (!question) return null;
   const isLikert = question.kind === "likert";
+  const isMindmap = question.kind === "mindmap";
   const isChoice =
     question.kind !== "word_cloud" &&
     question.kind !== "open_text" &&
+    !isMindmap &&
     !isLikert;
   const isPriorities = question.kind === "priorities";
   const isOrdering = question.kind === "ordering";
@@ -719,7 +756,12 @@ export default function QuestionPage() {
     (o) => (localizedMap(o.text)[canonicalLang] ?? "").trim() !== "" || !!o.image,
   );
   const optionsMissing = isChoice && filledOptions.length < 2;
-  const invalid = textMissing || optionsMissing;
+  // Mindmap: the predefined branches must fit the depth, have a term each and
+  // no duplicate siblings (mirrors backend rooms/mindmap.clean_seed).
+  const mindmapProblem = isMindmap
+    ? seedProblem(fromEditableSeed(mindmapSeed), mindmapDepth)
+    : null;
+  const invalid = textMissing || optionsMissing || !!mindmapProblem;
 
   // Serialized editable state — compared against the baseline to know whether
   // there are unsaved changes before paging to another question (#92).
@@ -737,6 +779,8 @@ export default function QuestionPage() {
       wordcloudMaxAnswers, wordcloudBatchSubmit, wordcloudLive,
       wordcloudAiEnabled, wordcloudGrouping, groupingUseSolution,
       wordcloudMergeVariants, wordcloudMergeSynonyms, wordcloudMergeConcepts,
+      mindmapRoot, mindmapDepth, mindmapMaxPerPerson, mindmapDescriptions,
+      mindmapHighlight, mindmapSeed: fromEditableSeed(mindmapSeed),
     });
   }
 
@@ -1347,6 +1391,94 @@ export default function QuestionPage() {
               })}
             </label>
 
+          </div>
+        )}
+
+        {isMindmap && (
+          <div className="grid gap-4">
+            <p className="rounded-xl bg-brand-50 dark:bg-brand-950 px-4 py-3 text-sm text-slate-700 dark:text-slate-300">
+              <strong>{t("Mind map:")}</strong>{" "}
+              {t(
+                "Participants build one shared mind map together: they add terms below any term (with “+”); identical terms at the same place are merged and counted. There are no answer options here.",
+              )}
+            </p>
+            <TranslatableField
+              label={t("Root term (optional)")}
+              value={mindmapRoot}
+              onChange={setMindmapRoot}
+              placeholder={t("Empty = the question text is used")}
+              inputClassName="max-w-md"
+            />
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                {t("Depth")}
+                <input
+                  type="number"
+                  min={1}
+                  max={8}
+                  value={String(mindmapDepth)}
+                  onChange={(event) =>
+                    setMindmapDepth(Math.min(8, Math.max(1, Number(event.target.value) || 1)))
+                  }
+                  className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                />
+                <InfoHint
+                  text={t(
+                    "How many levels below the root participants may add (1–8).",
+                  )}
+                />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                {t("Terms per person")}
+                <input
+                  type="number"
+                  min={0}
+                  max={300}
+                  value={String(mindmapMaxPerPerson)}
+                  onChange={(event) =>
+                    setMindmapMaxPerPerson(
+                      Math.min(300, Math.max(0, Number(event.target.value) || 0)),
+                    )
+                  }
+                  className="w-20 rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                />
+                <span className="text-slate-400">{t("(0 = no limit)")}</span>
+              </label>
+            </div>
+            <div className="grid gap-2">
+              <ToggleSwitch
+                checked={mindmapDescriptions}
+                onChange={setMindmapDescriptions}
+                label={t("Title + description")}
+              />
+              <ToggleSwitch
+                checked={mindmapHighlight}
+                onChange={setMindmapHighlight}
+                label={t("Highlight duplicate terms")}
+              />
+            </div>
+            <div>
+              <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                {t("Predefined branches")}
+              </span>
+              <p className="mb-2 text-xs text-slate-500 dark:text-slate-400">
+                {t(
+                  "Optional terms the mind map starts with. Participants can add to them but not delete them.",
+                )}
+              </p>
+              <MindmapSeedEditor
+                value={mindmapSeed}
+                onChange={setMindmapSeed}
+                depth={mindmapDepth}
+                descriptions={mindmapDescriptions}
+                rootLabel={localizedText(mindmapRoot) || stripHtml(localizedText(text)).slice(0, 60)}
+              />
+              {mindmapProblem && (
+                <p className="mt-2 text-sm text-red-600 dark:text-red-400">
+                  {t(mindmapProblem.key, mindmapProblem.values)}
+                </p>
+              )}
+            </div>
           </div>
         )}
 

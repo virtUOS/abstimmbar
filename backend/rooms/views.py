@@ -29,6 +29,7 @@ from rest_framework.views import APIView
 
 from common import documents
 from common.i18n_fields import resolve_translated_text, translated_map
+from live.models import MindmapContribution, MindmapNode, Vote
 
 from . import ai_generate, ai_prompts, generation, set_types
 from .images import InvalidImageError, normalize_image
@@ -443,7 +444,14 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         queryset = QuestionSet.objects.annotate(
             question_count=Count("questions", distinct=True),
-            vote_count=Count("runs__votes", distinct=True),
+            # has_results: any run with votes or mind-map contributions — as
+            # EXISTS subqueries, not JOIN counts that multiply per run/vote.
+            has_answers=Exists(Vote.objects.filter(run__question_set=OuterRef("pk")))
+            | Exists(
+                MindmapContribution.objects.filter(
+                    node__run__question_set=OuterRef("pk")
+                )
+            ),
         )
         user = self.request.user
         if not user.is_staff:
@@ -887,9 +895,18 @@ class QuestionViewSet(viewsets.ModelViewSet):
             )
         if target == source:
             return Response({"status": "ok", "question_set": source.pk})
+        # The target's set type must allow this kind (#75; e.g. mindmap is
+        # live-poll only) — same rule as copy-questions.
+        if question.kind not in set_types.allowed_kinds(target.type):
+            return Response(
+                {"detail": "Question type not allowed in this set type."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # Results live on the source set's runs — moving the question would
         # orphan its votes there. Copy instead, or delete the results first.
-        if question.votes.exists():
+        if question.votes.exists() or MindmapNode.objects.filter(
+            question=question, contributions__isnull=False
+        ).exists():
             return Response(
                 {"detail": "Zu dieser Frage liegen Ergebnisse vor. Bitte erst "
                            "die Ergebnisse löschen oder das Set kopieren."},

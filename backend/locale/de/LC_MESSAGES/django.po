@@ -388,3 +388,95 @@ msgstr "neutral"
 #: live/templates/live/participant.html
 msgid "Abstentions"
 msgstr "Enthaltungen"
+
+#: live/templates/live/participant.html
+msgid "Add a term"
+msgstr "Begriff hinzufügen"
+
+#: live/templates/live/participant.html
+msgid "Add a subterm to “{term}”"
+msgstr "Unterbegriff zu „{term}“ hinzufügen"
+
+#: live/templates/live/participant.html
+msgid "Remove your term"
+msgstr "Ihren Begriff entfernen"
+
+#: live/templates/live/participant.html
+msgid "Cannot be removed while terms hang below it."
+msgstr "Kann nicht entfernt werden, solange darunter Begriffe hängen."
+
+#: live/templates/live/participant.html
+msgid "1 term left"
+msgstr "Noch 1 Begriff"
+
+#: live/templates/live/participant.html
+msgid "{n} terms left"
+msgstr "Noch {n} Begriffe"
+
+#: live/templates/live/participant.html
+msgid "You have added all your terms. Remove one of yours to add another."
+msgstr "Sie haben alle Ihre Begriffe eingetragen. Entfernen Sie einen, um einen anderen hinzuzufügen."
+
+#: live/templates/live/participant.html
+msgid "Tap + to add a term below another one."
+msgstr "Tippen Sie auf +, um einen Begriff unter einem anderen hinzuzufügen."
+
+#: live/templates/live/participant.html
+msgid "Term"
+msgstr "Begriff"
+
+#: live/templates/live/participant.html
+msgid "Description (optional)"
+msgstr "Beschreibung (optional)"
+
+#: live/templates/live/participant.html
+msgid "Maximum depth reached"
+msgstr "Maximale Tiefe erreicht"
+
+#: live/templates/live/participant.html
+msgid "Cancel"
+msgstr "Abbrechen"
+
+#: live/templates/live/participant.html
+msgid "You already added this term here."
+msgstr "Diesen Begriff haben Sie hier bereits eingetragen."
+
+#: live/templates/live/participant.html
+msgid "The mind map is full."
+msgstr "Die Mindmap ist voll."
+
+#: live/templates/live/participant.html
+msgid "This term no longer exists."
+msgstr "Diesen Begriff gibt es nicht mehr."
+
+#: live/templates/live/participant.html
+msgid "That did not work. Please try again."
+msgstr "Das hat nicht geklappt. Bitte versuchen Sie es erneut."
+
+#: live/templates/live/participant.html
+msgid "Voting is closed — you can still look at the shared mind map."
+msgstr "Die Abstimmung ist geschlossen – Sie können sich die gemeinsame Mindmap weiter ansehen."
+
+#: live/templates/live/participant.html
+msgid "No terms yet — add the first one!"
+msgstr "Noch keine Begriffe – fügen Sie den ersten hinzu!"
+
+#: live/templates/live/participant.html
+msgid "No terms were added."
+msgstr "Es wurden keine Begriffe eingetragen."
+
+#: live/templates/live/participant.html
+msgid "Collapse “{term}”"
+msgstr "„{term}“ einklappen"
+
+#: live/templates/live/participant.html
+msgid "Expand “{term}”"
+msgstr "„{term}“ ausklappen"
+
+#: live/templates/live/participant.html
+msgid "added {n} times"
+msgstr "{n}-mal eingetragen"
+
+#: live/templates/live/participant.html
+msgid "There are no questions to answer here."
+msgstr "Hier gibt es keine Fragen zu beantworten."

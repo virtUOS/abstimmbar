@@ -132,7 +132,18 @@ export type QuestionKind =
   | "likert"
   | "open_text"
   | "priorities"
-  | "ordering";
+  | "ordering"
+  | "mindmap";
+
+/** One predefined branch of a mindmap question (plain canonical-language
+ *  text; level 1 = child of the root). */
+/** A predefined mindmap branch. `text`/`description` are `{de, en}` maps
+ *  (a legacy plain string = canonical language is still accepted on save). */
+export interface MindmapSeedNode {
+  text: LocalizedText;
+  description: LocalizedText;
+  children: MindmapSeedNode[];
+}
 
 export interface AnswerOption {
   id?: number;
@@ -189,6 +200,18 @@ export interface Question {
   wordcloud_max_answers: number;
   /** word_cloud: collect several terms in fields and submit together (#88). */
   wordcloud_batch_submit: boolean;
+  /** mindmap only: optional root label ({de,en}); empty = question text. */
+  mindmap_root: LocalizedText;
+  /** mindmap only: levels below the root participants may build (1–8). */
+  mindmap_depth: number;
+  /** mindmap only: terms per participant (0 = unlimited). */
+  mindmap_max_per_person: number;
+  /** mindmap only: participants add a title + optional description. */
+  mindmap_descriptions: boolean;
+  /** mindmap only: emphasise terms named by several people on the beamer. */
+  mindmap_highlight_duplicates: boolean;
+  /** mindmap only: predefined branches (not deletable by participants). */
+  mindmap_seed: MindmapSeedNode[];
   /** Per-question reveal override; "inherit" uses the set default (#28). */
   reveal_answers: "inherit" | RevealAnswers;
   /** Before/after pair (#54): the before-question this one mirrors (null if
@@ -974,6 +997,41 @@ export interface LiveState {
   wordcloud_ai?: WordCloudAI;
   /** Presenter-side moderation state (hidden terms, manual merges, #Wortwolke). */
   wordcloud_moderation?: WordCloudModeration;
+  /** Mindmap: the shared tree (presenter form incl. hidden nodes). */
+  mindmap?: LiveMindmap;
+}
+
+/** One node of the live mind map. `hidden` is only sent to the presenter and
+ *  set only on the explicitly hidden node — its subtree counts as hidden too. */
+export interface LiveMindmapNode {
+  id: number;
+  text: string;
+  /** Casefolded merge key (duplicate highlighting across parents). Presenter
+   *  payload only — absent in participant and results trees. */
+  key?: string;
+  count: number;
+  /** Up to 3 descriptions ([] when descriptions are off). */
+  descriptions: string[];
+  seeded: boolean;
+  /** Seeded nodes: the term in all languages (`text` = canonical). Resolve
+   *  via `mindmapNodeText`. */
+  text_i18n?: LocalizedText;
+  /** Seeded nodes whose first description is the predefined one: that
+   *  description in all languages (`descriptions[0]` = canonical). */
+  description_i18n?: LocalizedText;
+  hidden?: boolean;
+  children: LiveMindmapNode[];
+}
+
+export interface LiveMindmap {
+  root: { label: LocalizedText };
+  depth: number;
+  max_per_person: number;
+  descriptions: boolean;
+  highlight_duplicates: boolean;
+  max_nodes: number;
+  total: number;
+  nodes: LiveMindmapNode[];
 }
 
 export interface WordCloudWord {
@@ -1080,6 +1138,8 @@ export interface RunResults {
     /** Priorities (#58): per-option avg/min/max/n. */
     priorities?: PriorityStat[];
     ordering?: OrderingResults;
+    /** Mindmap: visible tree (hidden nodes already excluded). */
+    mindmap?: LiveMindmap;
   }[];
 }
 
@@ -1213,6 +1273,12 @@ export const live = {
       `/api/runs/${runId}/wordcloud-ai/`,
       { method: "POST", body: JSON.stringify({ question: questionId, active }) },
     ),
+  /** Presenter mindmap moderation: hide a node with its subtree, or show it again. */
+  mindmapHide: (runId: number, questionId: number, node: number, hidden: boolean) =>
+    request<{ status: string }>(`/api/runs/${runId}/mindmap/${questionId}/hide`, {
+      method: "POST",
+      body: JSON.stringify({ node, hidden }),
+    }),
   /** Presenter word-cloud moderation (#Wortwolke): hide/unhide a term, merge
    *  several keys under one label, unmerge, or rename a merge's label. */
   wordcloudModeration: (

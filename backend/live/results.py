@@ -11,6 +11,7 @@ from django.db.models import Avg, Count, Max, Min
 from common.i18n_fields import translated_map
 from rooms.models import Question
 
+from .mindmap import build_tree, contribution_total, contributor_count
 from .models import Vote
 
 
@@ -392,7 +393,10 @@ def run_results(run):
             # so the results view can pair them for comparison (null otherwise).
             "before_question": question.before_question_id,
         }
-        if question.kind in Question.TEXT_KINDS:
+        if question.kind == Question.Kind.MINDMAP:
+            item["mindmap"] = build_tree(run, question, presenter=False)
+            item["votes"] = contributor_count(run, question)
+        elif question.kind in Question.TEXT_KINDS:
             item["words"] = words_with_counts(run, question)
             if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
                 item["evaluation"] = freetext_evaluation(run, question)
@@ -413,7 +417,10 @@ def run_results(run):
             run.first_opened_at.isoformat() if run.first_opened_at else None
         ),
         "ended_at": run.ended_at.isoformat() if run.ended_at else None,
-        "votes_total": run.votes.count(),
+        # All stored answers of the run: votes plus mind-map contributions
+        # (one per term a participant added), so a mind-map-only run is not
+        # shown as empty.
+        "votes_total": run.votes.count() + contribution_total(run),
         # Recording mode (#53): total async votes in this run; the view shows
         # the on-site/recording split only when there are any.
         "recording_votes": run.votes.filter(source=Vote.Source.RECORDING).count(),

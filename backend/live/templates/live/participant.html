@@ -85,6 +85,20 @@ multi-line note must use {% comment %} or it renders as text.)
   <button class="primary" id="submit-multi" hidden>{% trans "Submit answer" %}</button>
 </section>
 
+{% comment %}
+Mind map (stage 1): one shared tree, built live by everyone. The tree is
+reconciled in place by the script (keyed by node id), so an open "+" input
+survives the live updates.
+{% endcomment %}
+<section id="mindmap" hidden>
+  <p class="soft" id="mm-countdown" aria-live="polite" hidden></p>
+  <div class="question-text" id="mm-question"></div>
+  <p class="soft" id="mm-intro" style="margin-top:4px" hidden></p>
+  <p id="mm-status" aria-live="polite" style="margin-top:6px;font-weight:600;font-size:14px" hidden></p>
+  <div id="mm-tree"></div>
+  <p class="soft" id="mm-empty" style="margin:8px 0 0 12px" hidden></p>
+</section>
+
 <section id="resultsview" hidden>
   <div class="question-text" id="results-question"></div>
   <div id="results-list" style="margin-top:12px"></div>
@@ -144,6 +158,38 @@ multi-line note must use {% comment %} or it renders as text.)
   .likert-abstain{margin-top:10px;background:transparent;border:1px dashed var(--line);color:var(--ink-soft);font-weight:400;font-size:14px;text-align:center;cursor:pointer;transition:background .12s ease,border-color .12s ease,color .12s ease}
   .likert-abstain:hover{background:var(--brand-soft);border-color:var(--brand-strong);color:var(--brand-strong)}
   .likert-abstain.selected{background:var(--brand-soft);border-style:solid;border-color:var(--brand-strong);color:var(--brand-strong);font-weight:600}
+  /* Mind map (stage 1): indented, collapsible outline of the shared tree. */
+  #mm-tree{margin-top:14px}
+  .mm-list{list-style:none;padding:0;margin:0}
+  .mm-kids{margin-left:13px;padding-left:7px;border-left:2px solid var(--line)}
+  .mm-row{display:flex;align-items:center;gap:6px;min-height:44px;padding:3px 4px 3px 2px;border-radius:10px}
+  .mm-rootnode > .mm-row{padding:6px 6px 6px 12px;margin-bottom:4px;background:var(--brand-soft);border-radius:12px;font-weight:700;font-size:17px}
+  .mm-own > .mm-row{background:var(--brand-soft)}
+  .mm-own > .mm-row .mm-text{font-weight:600}
+  .mm-text{flex:1;min-width:0;overflow-wrap:anywhere;line-height:1.35;padding:4px 0}
+  .mm-more{color:var(--ink-soft);font-size:12px;font-weight:600;margin-left:4px}
+  .mm-pill{flex:none;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--line);color:var(--ink)}
+  .mm-btn{flex:none;width:36px;height:36px;min-height:0;margin:0;padding:0;display:inline-flex;align-items:center;justify-content:center;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink-soft);text-align:center}
+  .mm-btn:hover{border-color:var(--brand-strong)}
+  .mm-add{color:var(--brand-strong)}
+  .mm-del[aria-disabled="true"]{opacity:.45;cursor:help}
+  .mm-toggle{border-color:transparent;background:transparent;width:28px}
+  .mm-toggle svg{transition:transform .15s ease}
+  .mm-toggle[aria-expanded="true"] svg{transform:rotate(90deg)}
+  .mm-spacer{flex:none;width:28px}
+  .mm-rootnode > .mm-row .mm-spacer{display:none}
+  .mm-desc{margin:0 0 4px 36px;font-size:13px;line-height:1.35;color:var(--ink-soft)}
+  .mm-desc p{margin:0 0 2px}
+  .mm-note{margin:2px 0 6px 36px;font-size:13px;color:var(--danger-strong)}
+  .mm-form{margin:4px 0 10px 30px;padding:10px;border:1px solid var(--brand-strong);border-radius:12px;background:var(--surface)}
+  .mm-form input[type=text]{margin-top:0}
+  .mm-form textarea{font:inherit;width:100%;margin-top:8px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);resize:vertical}
+  .mm-form .mm-err{margin-top:6px;font-size:13px;color:var(--danger-strong)}
+  .mm-actions{display:flex;gap:8px}
+  .mm-actions button{margin-top:8px;min-height:44px;padding:10px 12px;text-align:center}
+  .mm-new > .mm-row{animation:mm-pop .4s ease-out}
+  @keyframes mm-pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+  @media (prefers-reduced-motion: reduce){.mm-new > .mm-row{animation:none}.mm-toggle svg{transition:none}}
   /* Result bars (#results refresh): grow from 0 once on render. */
   .rbar { height: 100%; border-radius: 10px; width: 0;
           transition: width .6s cubic-bezier(.2,.8,.2,1); }
@@ -352,6 +398,30 @@ multi-line note must use {% comment %} or it renders as text.)
     aiChecking: "{% trans 'Checking …' %}",
     aiAssessment: "{% trans 'AI assessment' %}",
     aiUnavailable: "{% trans 'AI assessment is not available right now — only the model solution is shown.' %}",
+    // Mind map (stage 1).
+    mmAddRoot: "{% trans 'Add a term' %}",
+    mmAddChild: "{% trans 'Add a subterm to “{term}”' %}",
+    mmRemoveOwn: "{% trans 'Remove your term' %}",
+    mmHasChildren: "{% trans 'Cannot be removed while terms hang below it.' %}",
+    mmLeftOne: "{% trans '1 term left' %}",
+    mmLeftMany: "{% trans '{n} terms left' %}",
+    mmNoneLeft: "{% trans 'You have added all your terms. Remove one of yours to add another.' %}",
+    mmIntro: "{% trans 'Tap + to add a term below another one.' %}",
+    mmTerm: "{% trans 'Term' %}",
+    mmDescription: "{% trans 'Description (optional)' %}",
+    mmMaxDepth: "{% trans 'Maximum depth reached' %}",
+    mmCancel: "{% trans 'Cancel' %}",
+    mmAlready: "{% trans 'You already added this term here.' %}",
+    mmFull: "{% trans 'The mind map is full.' %}",
+    mmGone: "{% trans 'This term no longer exists.' %}",
+    mmFailed: "{% trans 'That did not work. Please try again.' %}",
+    mmClosed: "{% trans 'Voting is closed — you can still look at the shared mind map.' %}",
+    mmEmpty: "{% trans 'No terms yet — add the first one!' %}",
+    mmEmptyClosed: "{% trans 'No terms were added.' %}",
+    mmCollapse: "{% trans 'Collapse “{term}”' %}",
+    mmExpand: "{% trans 'Expand “{term}”' %}",
+    mmCount: "{% trans 'added {n} times' %}",
+    noQuestions: "{% trans 'There are no questions to answer here.' %}",
   };
   // Authored content (question/option text, set title, results labels) now
   // arrives as a {de, en} map — the SSE hub broadcasts one payload to every
@@ -365,7 +435,7 @@ multi-line note must use {% comment %} or it renders as text.)
       Object.values(v).find(Boolean) || "";
   }
   const sections = ["waiting", "question", "done", "closed", "finished",
-                    "resultsview", "review", "quiz", "quiz-done", "recording",
+                    "resultsview", "review", "quiz", "quiz-done", "recording", "mindmap",
                     "check", "check-done", "check-unavailable"].reduce(
     (acc, id) => (acc[id] = document.getElementById(id), acc), {});
   const subtitle = document.getElementById("subtitle");
@@ -1895,6 +1965,15 @@ multi-line note must use {% comment %} or it renders as text.)
       ? (state.run_id ?? "") + ":" + state.question.id : null;
     if (evalKey && evalKey !== evalActiveKey) stopEvalPoll();
     setQuestionPending(false);
+    // Mind map: the shared tree replaces the vote form and stays readable
+    // after closing (closed/results) — no "answered" state, no results view.
+    if (mmIsMindmap()) {
+      window.clearInterval(countdownTimer);
+      renderMindmap();
+      show("mindmap");
+      return;
+    }
+    window.clearInterval(mmTimer);
     if (phase === "open" && state.question) {
       const q = state.question;
       const mark = voteMark();
@@ -2291,6 +2370,495 @@ multi-line note must use {% comment %} or it renders as text.)
     // EventSource reconnects on its own; the first snapshot resyncs us.
   }
 
+  // --- mind map (stage 1): one shared tree per run+question ------------------
+  // The tree arrives with every state broadcast. It is reconciled in place,
+  // keyed by node id (never rebuilt), so an open "+" input keeps its text and
+  // focus and the scroll position stays put. Own node ids (for "remove")
+  // come from the mine endpoint — once per run:question and page load — and
+  // from every add/remove response; they and the collapsed branches are kept
+  // in localStorage per run:question (anonymity: the server never tells
+  // anyone else whose terms these are).
+  const MM_MINE_KEY = "abstimmbar_mm_mine_" + CODE;
+  const MM_COLLAPSED_KEY = "abstimmbar_mm_collapsed_" + CODE;
+  let mmKey = null;            // run:question the tree DOM belongs to
+  let mmEls = new Map();       // node id ("root" for the root) → element refs
+  let mmNodes = new Map();     // node id → { node, level } of the current tree
+  let mmMineSet = new Set();
+  let mmCollapsedSet = new Set();
+  let mmForm = null;           // the one open "+" input: { parentId, el, input, area, err, submit }
+  let mmBusy = false;
+  let mmTimer = null, mmExpired = false, mmEndsAt = null;
+  let mmQuestionHtml = null;
+  let mmPreviewId = -1000;     // editor preview: local ids for simulated adds
+  const mmMineFetched = new Set();
+  const MM_ICONS = {
+    plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+    chevron: '<path d="m9 18 6-6-6-6"/>',
+  };
+  function mmIcon(name, size) {
+    // Constant markup only (never data) — safe to inject.
+    return '<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
+      '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"' +
+      ' stroke-linejoin="round" aria-hidden="true">' + MM_ICONS[name] + "</svg>";
+  }
+
+  function mmLoad(storageKey) {
+    try { return JSON.parse(localStorage.getItem(storageKey)) || {}; } catch { return {}; }
+  }
+  // Only the current run's entries are kept (older runs' ids mean nothing).
+  function mmStore(storageKey, ids) {
+    if (PREVIEW || !mmKey) return;
+    const run = mmKey.split(":")[0];
+    const all = mmLoad(storageKey);
+    for (const k of Object.keys(all)) if (k.split(":")[0] !== run) delete all[k];
+    all[mmKey] = [...ids];
+    try { localStorage.setItem(storageKey, JSON.stringify(all)); } catch { /* ignore */ }
+  }
+  function mmSetMine(ids) {
+    mmMineSet = new Set((ids || []).map(Number));
+    mmStore(MM_MINE_KEY, mmMineSet);
+  }
+  const mmIsMindmap = () => !!(state && state.question && state.question.kind === "mindmap" &&
+    state.mindmap && ["open", "closed", "results"].includes(state.phase));
+  const mmCanContribute = () => state.phase === "open" && !mmExpired;
+  function mmRemaining() {
+    const max = state.mindmap.max_per_person;
+    return max ? Math.max(0, max - mmMineSet.size) : Infinity;
+  }
+
+  async function mmFetchMine(key, questionId) {
+    let data = null;
+    try {
+      const response = await post(`/api/live/rooms/${CODE}/mindmap/mine/`, { token, question: questionId });
+      if (response.ok) data = await response.json();
+    } catch { /* keep the local list */ }
+    if (!data || !Array.isArray(data.nodes)) { mmMineFetched.delete(key); return; }
+    if (mmKey !== key) return;
+    mmSetMine(data.nodes);
+    if (mmIsMindmap()) renderMindmap();
+  }
+
+  function mmCountdown() {
+    const box = document.getElementById("mm-countdown");
+    window.clearInterval(mmTimer);
+    // A re-opened question gets a fresh deadline — contributing again.
+    if ((state.ends_at || null) !== mmEndsAt) { mmEndsAt = state.ends_at || null; mmExpired = false; }
+    if (!state.ends_at || state.phase !== "open") { box.hidden = true; return; }
+    box.hidden = false;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((Date.parse(state.ends_at) - Date.now()) / 1000));
+      box.textContent = "⏱ " + (left > 0 ? I18N.countdownLeft.replace("{n}", String(left)) : I18N.timeUp);
+      if (left <= 0) {
+        window.clearInterval(mmTimer);
+        if (!mmExpired) { mmExpired = true; renderMindmap(); } // → read-only
+      }
+    };
+    tick();
+    if (!mmExpired) mmTimer = window.setInterval(tick, 250);
+  }
+
+  function mmCreate(id) {
+    const isRoot = id === "root";
+    const li = document.createElement("li");
+    li.className = "mm-node" + (isRoot ? " mm-rootnode" : "");
+    li.dataset.id = String(id);
+    const row = document.createElement("div"); row.className = "mm-row";
+    let toggle = null;
+    const spacer = document.createElement("span"); spacer.className = "mm-spacer";
+    if (!isRoot) {
+      toggle = document.createElement("button");
+      toggle.type = "button"; toggle.className = "mm-btn mm-toggle";
+      toggle.innerHTML = mmIcon("chevron", 18);
+      toggle.addEventListener("click", () => mmToggle(id));
+      row.appendChild(toggle);
+    }
+    row.appendChild(spacer);
+    const text = document.createElement("span"); text.className = "mm-text";
+    const label = document.createElement("span");
+    const more = document.createElement("span"); more.className = "mm-more";
+    text.append(label, more);
+    const pill = document.createElement("span"); pill.className = "mm-pill";
+    const add = document.createElement("button");
+    add.type = "button"; add.className = "mm-btn mm-add";
+    add.innerHTML = mmIcon("plus", 20);
+    add.addEventListener("click", () => mmOpenForm(id));
+    const del = document.createElement("button");
+    del.type = "button"; del.className = "mm-btn mm-del";
+    del.innerHTML = mmIcon("x", 18);
+    del.addEventListener("click", () => void mmRemove(id));
+    row.append(text, pill, add, del);
+    const desc = document.createElement("div"); desc.className = "mm-desc";
+    const note = document.createElement("p"); note.className = "mm-note"; note.hidden = true;
+    note.setAttribute("aria-live", "polite");
+    const kids = document.createElement("ul"); kids.className = "mm-list mm-kids";
+    li.append(row, desc, note, kids);
+    const el = { li, toggle, spacer, label, more, pill, add, del, desc, note, kids, descKey: null, noteTimer: null };
+    mmEls.set(id, el);
+    return el;
+  }
+
+  function mmDescendants(node) {
+    return (node.children || []).reduce((n, c) => n + 1 + mmDescendants(c), 0);
+  }
+
+  // Update one node's row in place (only what changed is touched).
+  function mmUpdate(el, node, level, isRoot) {
+    const open = mmCanContribute();
+    // Seeded terms carry both languages (text_i18n); `text` is canonical.
+    const termText = isRoot ? locText(state.mindmap.root.label)
+      : ((node.text_i18n && locText(node.text_i18n)) || node.text);
+    if (el.label.textContent !== termText) el.label.textContent = termText;
+    const kids = isRoot ? state.mindmap.nodes : (node.children || []);
+    const collapsed = !isRoot && kids.length > 0 && mmCollapsedSet.has(node.id);
+    if (el.toggle) {
+      el.toggle.hidden = kids.length === 0;
+      el.spacer.hidden = kids.length > 0;
+      el.toggle.setAttribute("aria-expanded", String(!collapsed));
+      el.toggle.setAttribute("aria-label",
+        (collapsed ? I18N.mmExpand : I18N.mmCollapse).replace("{term}", termText));
+    }
+    el.kids.hidden = collapsed || kids.length === 0;
+    el.more.textContent = collapsed ? "+" + mmDescendants(node) : "";
+    const count = isRoot ? 0 : node.count;
+    el.pill.hidden = !(count > 1);
+    if (count > 1) {
+      el.pill.textContent = String(count);
+      el.pill.title = I18N.mmCount.replace("{n}", String(count));
+      el.pill.setAttribute("aria-label", el.pill.title);
+    }
+    el.add.hidden = !(open && level < state.mindmap.depth && mmRemaining() > 0);
+    const addLabel = isRoot ? I18N.mmAddRoot : I18N.mmAddChild.replace("{term}", termText);
+    el.add.setAttribute("aria-label", addLabel);
+    el.add.title = addLabel;
+    el.add.setAttribute("aria-expanded", String(!!mmForm && mmForm.parentId === (isRoot ? "root" : node.id)));
+    const own = !isRoot && mmMineSet.has(node.id);
+    el.li.classList.toggle("mm-own", own);
+    el.del.hidden = !(open && own);
+    // Not `disabled`: a tap must still explain why it can't be removed.
+    const blocked = kids.length > 0;
+    el.del.setAttribute("aria-disabled", String(blocked));
+    el.del.title = blocked ? I18N.mmHasChildren : I18N.mmRemoveOwn;
+    el.del.setAttribute("aria-label", blocked ? I18N.mmRemoveOwn + " — " + I18N.mmHasChildren : I18N.mmRemoveOwn);
+    let descriptions = isRoot ? [] : (node.descriptions || []);
+    if (node && node.description_i18n && descriptions.length) {
+      descriptions = [locText(node.description_i18n) || descriptions[0], ...descriptions.slice(1)];
+    }
+    const descKey = descriptions.join("\n");
+    if (el.descKey !== descKey) {
+      el.descKey = descKey;
+      el.desc.replaceChildren(...descriptions.map((d) => {
+        const p = document.createElement("p"); p.textContent = d; return p;
+      }));
+    }
+    el.desc.hidden = descriptions.length === 0;
+  }
+
+  // Reconcile `ul` with `nodes`: drop vanished children first (so nothing that
+  // stays — e.g. the branch holding the focused input — is ever moved), then
+  // update/insert in order.
+  function mmSyncList(ul, nodes, level, animate) {
+    const want = new Set(nodes.map((n) => String(n.id)));
+    for (const child of [...ul.children]) if (!want.has(child.dataset.id)) child.remove();
+    let cursor = ul.firstElementChild;
+    for (const node of nodes) {
+      mmNodes.set(node.id, { node, level });
+      let el = mmEls.get(node.id);
+      if (!el) {
+        el = mmCreate(node.id);
+        if (animate) {
+          el.li.classList.add("mm-new");
+          el.li.addEventListener("animationend", () => el.li.classList.remove("mm-new"), { once: true });
+        }
+      }
+      mmUpdate(el, node, level, false);
+      mmSyncList(el.kids, node.children || [], level + 1, animate);
+      if (el.li === cursor) cursor = cursor.nextElementSibling;
+      else ul.insertBefore(el.li, cursor);
+    }
+  }
+
+  function renderMindmap() {
+    const q = state.question, mm = state.mindmap;
+    const key = (state.run_id ?? "") + ":" + q.id;
+    const tree = document.getElementById("mm-tree");
+    if (mmKey !== key) {
+      mmKey = key;
+      mmEls = new Map();
+      mmForm = null;
+      mmExpired = false;
+      mmMineSet = new Set(PREVIEW ? [] : (mmLoad(MM_MINE_KEY)[key] || []).map(Number));
+      mmCollapsedSet = new Set(PREVIEW ? [] : (mmLoad(MM_COLLAPSED_KEY)[key] || []).map(Number));
+      tree.replaceChildren();
+    }
+    if (!PREVIEW && token && !mmMineFetched.has(key)) {
+      mmMineFetched.add(key);
+      void mmFetchMine(key, q.id);
+    }
+    const html = locText(q.text);
+    if (mmQuestionHtml !== html) {
+      mmQuestionHtml = html;
+      document.getElementById("mm-question").innerHTML = html;
+    }
+    mmCountdown();
+    const open = mmCanContribute();
+    const remaining = mmRemaining();
+    const intro = document.getElementById("mm-intro");
+    const status = document.getElementById("mm-status");
+    intro.hidden = !open || remaining === 0;
+    intro.textContent = I18N.mmIntro;
+    status.hidden = false;
+    status.style.color = "";
+    if (!open) {
+      status.textContent = mmExpired ? I18N.timeUp : I18N.mmClosed;
+      status.style.color = "var(--ink-soft)";
+    } else if (remaining === Infinity) {
+      status.hidden = true;
+    } else if (remaining === 0) {
+      status.textContent = I18N.mmNoneLeft;
+    } else {
+      status.textContent = remaining === 1 ? I18N.mmLeftOne : I18N.mmLeftMany.replace("{n}", String(remaining));
+    }
+
+    // The tree: a top-level list holding the root node, its kids below.
+    let rootEl = mmEls.get("root");
+    const animate = !!rootEl; // new nodes pop in, but not on the first build
+    if (!rootEl) {
+      rootEl = mmCreate("root");
+      const top = document.createElement("ul"); top.className = "mm-list";
+      rootEl.kids.classList.add("mm-top");
+      top.appendChild(rootEl.li);
+      tree.appendChild(top);
+    }
+    mmNodes = new Map();
+    mmUpdate(rootEl, null, 0, true);
+    rootEl.kids.hidden = false;
+    mmSyncList(rootEl.kids, mm.nodes || [], 1, animate);
+    for (const id of [...mmEls.keys()]) if (id !== "root" && !mmNodes.has(id)) mmEls.delete(id);
+    const empty = document.getElementById("mm-empty");
+    empty.hidden = (mm.nodes || []).length > 0;
+    empty.textContent = open ? I18N.mmEmpty : I18N.mmEmptyClosed;
+
+    // The open input survives as long as its node exists and adding is possible.
+    if (mmForm) {
+      const parentGone = mmForm.parentId !== "root" && !mmNodes.has(mmForm.parentId);
+      const atDepth = !parentGone && mmForm.parentId !== "root" &&
+        mmNodes.get(mmForm.parentId).level >= mm.depth;
+      if (parentGone || !open || remaining === 0 || atDepth) {
+        const parentId = mmForm.parentId;
+        mmCloseForm(false);
+        if (parentGone && open) mmNote("root", I18N.mmGone);
+        else if (atDepth && mmEls.get(parentId)) mmNote(parentId, I18N.mmMaxDepth);
+      }
+    }
+  }
+
+  function mmToggle(id) {
+    if (mmCollapsedSet.has(id)) mmCollapsedSet.delete(id); else mmCollapsedSet.add(id);
+    mmStore(MM_COLLAPSED_KEY, mmCollapsedSet);
+    renderMindmap();
+  }
+
+  // A short message right under a node's row (where the participant looks).
+  function mmNote(id, text) {
+    const el = mmEls.get(id);
+    if (!el) return;
+    window.clearTimeout(el.noteTimer);
+    el.note.textContent = text;
+    el.note.hidden = !text;
+    if (text) el.noteTimer = window.setTimeout(() => { el.note.hidden = true; }, 5000);
+  }
+
+  function mmOpenForm(id) {
+    if (!mmCanContribute()) return;
+    if (mmForm && mmForm.parentId === id) { mmForm.input.focus(); return; }
+    mmCloseForm(false);
+    const el = mmEls.get(id);
+    if (!el) return;
+    if (id !== "root" && mmCollapsedSet.has(id)) mmToggle(id); // show where it lands
+    const form = document.createElement("form");
+    form.className = "mm-form";
+    const input = document.createElement("input");
+    input.type = "text"; input.maxLength = 60; input.autocomplete = "off";
+    input.placeholder = I18N.mmTerm;
+    input.setAttribute("aria-label", el.add.getAttribute("aria-label"));
+    form.appendChild(input);
+    let area = null;
+    if (state.mindmap.descriptions) {
+      area = document.createElement("textarea");
+      area.maxLength = 200; area.rows = 2;
+      area.placeholder = I18N.mmDescription;
+      area.setAttribute("aria-label", I18N.mmDescription);
+      form.appendChild(area);
+    }
+    const err = document.createElement("p");
+    err.className = "mm-err"; err.hidden = true; err.setAttribute("aria-live", "polite");
+    const actions = document.createElement("div"); actions.className = "mm-actions";
+    const submit = document.createElement("button");
+    submit.type = "submit"; submit.className = "primary"; submit.textContent = I18N.add;
+    const cancel = document.createElement("button");
+    cancel.type = "button"; cancel.textContent = I18N.mmCancel;
+    cancel.addEventListener("click", () => mmCloseForm(true));
+    actions.append(submit, cancel);
+    form.append(err, actions);
+    form.addEventListener("submit", (e) => { e.preventDefault(); void mmSubmit(); });
+    form.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") { e.preventDefault(); mmCloseForm(true); }
+      else if (e.key === "Enter" && !e.shiftKey && e.target === area && !e.isComposing) {
+        e.preventDefault(); void mmSubmit();
+      }
+    });
+    input.addEventListener("input", () => { err.hidden = true; });
+    el.li.insertBefore(form, el.kids); // below the row, above the subterms
+    mmForm = { parentId: id, el: form, input, area, err, submit };
+    el.add.setAttribute("aria-expanded", "true");
+    input.focus();
+  }
+
+  function mmCloseForm(refocus) {
+    if (!mmForm) return;
+    const { parentId, el } = mmForm;
+    mmForm = null;
+    el.remove();
+    const owner = mmEls.get(parentId);
+    if (owner) {
+      owner.add.setAttribute("aria-expanded", "false");
+      if (refocus && !owner.add.hidden) owner.add.focus();
+    }
+  }
+
+  function mmErrorText(detail) {
+    switch (detail) {
+      case "Already added.": return I18N.mmAlready;
+      case "Maximum reached.": return I18N.wcLimitReached;
+      case "Maximum depth reached.": return I18N.mmMaxDepth;
+      case "The mind map is full.": return I18N.mmFull;
+      case "Unknown parent.": case "Unknown term.": return I18N.mmGone;
+      case "Terms hang below this one.": return I18N.mmHasChildren;
+      case "Time is up.": return I18N.timeUp;
+      case "Voting is closed.": case "Question is not open.": return I18N.mmClosed;
+      default: return I18N.mmFailed;
+    }
+  }
+
+  function mmChildrenOf(parentId) {
+    if (parentId == null) return state.mindmap.nodes;
+    const hit = mmNodes.get(parentId);
+    return hit ? (hit.node.children ||= []) : null;
+  }
+
+  // Apply our own add locally right away; the (debounced) broadcast that
+  // follows carries the authoritative tree.
+  function mmApplyAdd(parentId, nodeId, merged, text, description) {
+    const mm = state.mindmap;
+    const hit = mmNodes.get(nodeId);
+    if (hit) {
+      hit.node.count += 1;
+      if (mm.descriptions && description && hit.node.descriptions.length < 3 &&
+          !hit.node.descriptions.some((d) => d.toLowerCase() === description.toLowerCase())) {
+        hit.node.descriptions.push(description);
+      }
+      return;
+    }
+    if (merged) return; // merged into a node we don't see (hidden)
+    const list = mmChildrenOf(parentId);
+    if (!list) return;
+    list.push({ id: nodeId, text, count: 1,
+      descriptions: mm.descriptions && description ? [description] : [], seeded: false, children: [] });
+    mm.total = (mm.total || 0) + 1;
+  }
+
+  async function mmSubmit() {
+    if (mmBusy || !mmForm) return;
+    const form = mmForm;
+    const text = form.input.value.trim().split(/\s+/).join(" ");
+    if (!text) { form.input.focus(); return; }
+    const description = form.area ? form.area.value.trim().split(/\s+/).join(" ") : "";
+    const parentId = form.parentId === "root" ? null : form.parentId;
+    const key = mmKey;
+    const fail = (msg) => { form.err.textContent = msg; form.err.hidden = false; form.input.focus(); };
+    if (PREVIEW) {
+      // Editor preview: no run — simulate locally so the author can try it.
+      const siblings = mmChildrenOf(parentId) || [];
+      const same = siblings.find((n) => n.text.toLowerCase() === text.toLowerCase());
+      if (same && mmMineSet.has(same.id)) { fail(I18N.mmAlready); return; }
+      const id = same ? same.id : mmPreviewId--;
+      mmApplyAdd(parentId, id, !!same, text, description);
+      mmMineSet.add(id);
+      mmCloseForm(true);
+      renderMindmap();
+      return;
+    }
+    mmBusy = true;
+    form.submit.disabled = true;
+    try {
+      let response, data = {};
+      try {
+        const body = { token, question: state.question.id, parent: parentId, text };
+        if (state.mindmap.descriptions && description) body.description = description;
+        response = await post(`/api/live/rooms/${CODE}/mindmap/add/`, body);
+        data = await response.json().catch(() => ({}));
+      } catch { fail(I18N.mmFailed); return; }
+      if (mmKey !== key || !mmIsMindmap()) return;
+      if (response.status === 201) {
+        mmSetMine(data.mine);
+        mmApplyAdd(parentId, data.node_id, data.merged, text, description);
+        if (mmForm === form) mmCloseForm(true);
+        renderMindmap();
+      } else if (mmForm === form) {
+        fail(mmErrorText(data.detail));
+      }
+    } finally {
+      mmBusy = false;
+      form.submit.disabled = false;
+    }
+  }
+
+  async function mmRemove(id) {
+    const hit = mmNodes.get(id);
+    if (!hit || !mmCanContribute() || mmBusy) return;
+    if ((hit.node.children || []).length) { mmNote(id, I18N.mmHasChildren); return; }
+    const key = mmKey;
+    const drop = (deleted) => {
+      const parent = [...mmNodes.values()].find((h) => (h.node.children || []).includes(hit.node));
+      const list = parent ? parent.node.children : state.mindmap.nodes;
+      if (deleted) {
+        const i = list.indexOf(hit.node);
+        if (i >= 0) list.splice(i, 1);
+        state.mindmap.total = Math.max(0, (state.mindmap.total || 1) - 1);
+      } else {
+        hit.node.count = Math.max(0, hit.node.count - 1);
+      }
+    };
+    if (PREVIEW) {
+      mmMineSet.delete(id);
+      drop(hit.node.count <= 1 && !hit.node.seeded);
+      renderMindmap();
+      return;
+    }
+    mmBusy = true;
+    try {
+      let response, data = {};
+      try {
+        response = await post(`/api/live/rooms/${CODE}/mindmap/remove/`,
+          { token, question: state.question.id, node: id });
+        data = await response.json().catch(() => ({}));
+      } catch { mmNote(id, I18N.mmFailed); return; }
+      if (mmKey !== key || !mmIsMindmap()) return;
+      if (response.ok) {
+        mmSetMine(data.mine);
+        if (mmNodes.get(id)) drop(!!data.deleted);
+        renderMindmap();
+      } else {
+        if (response.status === 403) mmSetMine([...mmMineSet].filter((n) => n !== id));
+        mmNote(id, mmErrorText(data.detail));
+        renderMindmap();
+      }
+    } finally {
+      mmBusy = false;
+    }
+  }
+
   // --- recording mode (#53): async viewer of a recorded run ------------------
   // Self-contained (no SSE): loads the recorded run's questions, lets the
   // viewer navigate with ←/→, vote once per question, and see the combined
@@ -2317,6 +2885,13 @@ multi-line note must use {% comment %} or it renders as text.)
     if (!response.ok) { subtitle.textContent = I18N.almostThere; return; }
     rec = await response.json();
     recWc = {};
+    if (!rec.questions.length) {
+      // e.g. a set of mind maps only — they can't be built after the fact.
+      subtitle.textContent = locText(rec.set_title);
+      document.getElementById("waiting-text").textContent = I18N.noQuestions;
+      show("waiting");
+      return;
+    }
     subtitle.textContent = locText(rec.set_title);
     recIndex = 0;
     if (REC_ENTRY) {
