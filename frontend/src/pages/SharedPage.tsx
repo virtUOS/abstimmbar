@@ -23,6 +23,7 @@ const KIND_LABEL_KEYS: Record<string, string> = {
   open_text: "Free text",
   priorities: "Priorities",
   ordering: "Ordering",
+  mindmap: "Mind map",
 };
 
 export default function SharedPage() {

@@ -887,6 +887,13 @@ class QuestionViewSet(viewsets.ModelViewSet):
             )
         if target == source:
             return Response({"status": "ok", "question_set": source.pk})
+        # The target's set type must allow this kind (#75; e.g. mindmap is
+        # live-poll only) — same rule as copy-questions.
+        if question.kind not in set_types.allowed_kinds(target.type):
+            return Response(
+                {"detail": "Question type not allowed in this set type."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         # Results live on the source set's runs — moving the question would
         # orphan its votes there. Copy instead, or delete the results first.
         if question.votes.exists():

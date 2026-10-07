@@ -3773,7 +3773,10 @@ class OnboardingSeedTests(TestCase):
     def test_one_question_of_every_kind(self):
         question_set = self.room.question_sets.get()
         kinds = list(question_set.questions.values_list("kind", flat=True))
-        self.assertEqual(sorted(kinds), sorted(Question.Kind.values))
+        # The mindmap kind (stage 1) is not part of the example room / guided
+        # tour yet — that needs its own tour step and sample results.
+        expected = [k for k in Question.Kind.values if k != Question.Kind.MINDMAP]
+        self.assertEqual(sorted(kinds), sorted(expected))
         self.assertEqual(len(kinds), len(set(kinds)))  # exactly one each
 
     def test_every_question_has_bilingual_text(self):
@@ -3977,7 +3980,10 @@ class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):
         allk = tuple(k for k, _ in Question.Kind.choices)
         self.assertEqual(set(set_types.allowed_kinds("live_poll")), set(allk))
-        self.assertEqual(set(set_types.allowed_kinds("self_paced")), set(allk))
+        # Mindmap is a shared live activity: live polls only.
+        self.assertEqual(
+            set(set_types.allowed_kinds("self_paced")), set(allk) - {"mindmap"}
+        )
 
     def test_allowed_kinds_self_check(self):
         self.assertEqual(
@@ -4503,3 +4509,277 @@ class GenerationWorkerTests(TransactionTestCase):
             generation.run_generation_job(job.id)
         job.refresh_from_db()
         self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
+
+
+class MindmapAuthoringTests(ApiTestCase):
+    """Mindmap question kind (stage 1, Task 1): settings, predefined
+    branches (seed), set-type gating and transfer."""
+
+    def setUp(self):
+        super().setUp()
+        self.question_set = QuestionSet.objects.create(room=self.room, title_de="Live")
+
+    def _create(self, question_set=None, **overrides):
+        payload = {
+            "question_set": (question_set or self.question_set).pk,
+            "kind": "mindmap",
+            "text": {"de": "<p>Was gehört zu Nachhaltigkeit?</p>", "en": ""},
+            "options": [],
+        }
+        payload.update(overrides)
+        return self.client.post("/api/questions/", payload, content_type="application/json")
+
+    def _update(self, question, **fields):
+        return self.client.patch(
+            f"/api/questions/{question['id']}/", fields, content_type="application/json"
+        )
+
+    def test_create_with_defaults(self):
+        response = self._create()
+        self.assertEqual(response.status_code, 201, response.content)
+        data = response.json()
+        self.assertEqual(data["kind"], "mindmap")
+        self.assertEqual(data["mindmap_root"], {"de": "", "en": ""})
+        self.assertEqual(data["mindmap_depth"], 5)
+        self.assertEqual(data["mindmap_max_per_person"], 10)
+        self.assertFalse(data["mindmap_descriptions"])
+        self.assertTrue(data["mindmap_highlight_duplicates"])
+        self.assertEqual(data["mindmap_seed"], [])
+        self.assertEqual(data["options"], [])
+
+    def test_root_label_is_translatable(self):
+        response = self._create(mindmap_root={"de": "Nachhaltigkeit", "en": "Sustainability"})
+        self.assertEqual(response.status_code, 201, response.content)
+        question = Question.objects.get(pk=response.json()["id"])
+        self.assertEqual(question.mindmap_root_de, "Nachhaltigkeit")
+        self.assertEqual(question.mindmap_root_en, "Sustainability")
+        self.assertEqual(
+            response.json()["mindmap_root"], {"de": "Nachhaltigkeit", "en": "Sustainability"}
+        )
+
+    def test_root_label_max_length(self):
+        response = self._create(mindmap_root={"de": "x" * 61, "en": ""})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("mindmap_root", response.json())
+
+    def test_options_rejected(self):
+        response = self._create(options=[{"text": "A"}, {"text": "B"}])
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("options", response.json())
+
+    def test_settings_saved(self):
+        response = self._create(
+            mindmap_depth=3, mindmap_max_per_person=0,
+            mindmap_descriptions=True, mindmap_highlight_duplicates=False,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        question = Question.objects.get(pk=response.json()["id"])
+        self.assertEqual(question.mindmap_depth, 3)
+        self.assertEqual(question.mindmap_max_per_person, 0)
+        self.assertTrue(question.mindmap_descriptions)
+        self.assertFalse(question.mindmap_highlight_duplicates)
+
+    def test_depth_range(self):
+        for bad in (0, 9):
+            response = self._create(mindmap_depth=bad)
+            self.assertEqual(response.status_code, 400, bad)
+            self.assertIn("mindmap_depth", response.json())
+        for ok in (1, 8):
+            self.assertEqual(self._create(mindmap_depth=ok).status_code, 201, ok)
+
+    def test_max_per_person_not_negative(self):
+        response = self._create(mindmap_max_per_person=-1)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("mindmap_max_per_person", response.json())
+
+    def test_seed_is_normalised(self):
+        seed = [
+            {"text": "  Ökologie ", "children": [
+                {"text": "Klima   schutz", "description": " CO2 ", "children": []},
+            ]},
+            {"text": "Soziales", "description": "", "extra": "dropped"},
+        ]
+        response = self._create(mindmap_seed=seed)
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(
+            response.json()["mindmap_seed"],
+            [
+                {"text": "Ökologie", "description": "", "children": [
+                    {"text": "Klima schutz", "description": "CO2", "children": []},
+                ]},
+                {"text": "Soziales", "description": "", "children": []},
+            ],
+        )
+
+    def test_seed_rejects_invalid_structures(self):
+        cases = {
+            "not a list": "Ökologie",
+            "empty term": [{"text": "  "}],
+            "too long": [{"text": "x" * 61}],
+            "description too long": [{"text": "a", "description": "d" * 201}],
+            "duplicate siblings": [{"text": "Klima"}, {"text": " klima "}],
+            "children not a list": [{"text": "a", "children": "b"}],
+            "too many": [{"text": f"t{i}"} for i in range(101)],
+        }
+        for label, seed in cases.items():
+            response = self._create(mindmap_seed=seed)
+            self.assertEqual(response.status_code, 400, label)
+            self.assertIn("mindmap_seed", response.json(), label)
+
+    def test_seed_depth_limited_by_mindmap_depth(self):
+        seed = [{"text": "a", "children": [{"text": "b", "children": [{"text": "c"}]}]}]
+        self.assertEqual(self._create(mindmap_depth=2, mindmap_seed=seed).status_code, 400)
+        self.assertEqual(self._create(mindmap_depth=3, mindmap_seed=seed).status_code, 201)
+
+    def test_same_term_under_different_parents_allowed(self):
+        seed = [
+            {"text": "a", "children": [{"text": "x"}]},
+            {"text": "b", "children": [{"text": "X"}]},
+        ]
+        self.assertEqual(self._create(mindmap_seed=seed).status_code, 201)
+
+    def test_lowering_depth_below_existing_seed_rejected(self):
+        seed = [{"text": "a", "children": [{"text": "b"}]}]
+        created = self._create(mindmap_seed=seed).json()
+        response = self._update(created, mindmap_depth=1)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("mindmap_seed", response.json())
+
+    def test_editor_save_needs_no_options(self):
+        created = self._create().json()
+        response = self._update(
+            created, text={"de": "<p>Neu</p>", "en": ""}, options=[],
+            mindmap_seed=[{"text": "Ast"}],
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()["mindmap_seed"][0]["text"], "Ast")
+
+    def test_only_allowed_in_live_polls(self):
+        for set_type in ("self_paced", "self_check"):
+            qs = QuestionSet.objects.create(room=self.room, title=set_type, type=set_type)
+            response = self._create(question_set=qs)
+            self.assertEqual(response.status_code, 400, set_type)
+            self.assertIn("kind", response.json())
+
+    def _mindmap_question(self, question_set=None):
+        return Question.objects.create(
+            question_set=question_set or self.question_set,
+            kind="mindmap",
+            text_de="<p>Begriffe?</p>", text_en="<p>Terms?</p>",
+            mindmap_root_de="Wurzel", mindmap_root_en="Root",
+            mindmap_depth=3, mindmap_max_per_person=4,
+            mindmap_descriptions=True, mindmap_highlight_duplicates=False,
+            mindmap_seed=[{"text": "a", "description": "d", "children": [
+                {"text": "b", "description": "", "children": []}]}],
+        )
+
+    def _assert_same_mindmap(self, question):
+        self.assertEqual(question.kind, "mindmap")
+        self.assertEqual(question.mindmap_root_de, "Wurzel")
+        self.assertEqual(question.mindmap_root_en, "Root")
+        self.assertEqual(question.mindmap_depth, 3)
+        self.assertEqual(question.mindmap_max_per_person, 4)
+        self.assertTrue(question.mindmap_descriptions)
+        self.assertFalse(question.mindmap_highlight_duplicates)
+        self.assertEqual(
+            question.mindmap_seed,
+            [{"text": "a", "description": "d", "children": [
+                {"text": "b", "description": "", "children": []}]}],
+        )
+        self.assertEqual(question.options.count(), 0)
+
+    def test_duplicate_set_copies_mindmap(self):
+        from .transfer import duplicate_set
+
+        self._mindmap_question()
+        clone = duplicate_set(self.question_set, self.room)
+        self._assert_same_mindmap(clone.questions.get())
+
+    def test_export_import_roundtrip(self):
+        from .transfer import export_set, import_set
+
+        self._mindmap_question()
+        data = export_set(self.question_set)
+        exported = data["questions"][0]
+        self.assertEqual(exported["mindmap_root"], {"de": "Wurzel", "en": "Root"})
+        self.assertEqual(exported["mindmap_depth"], 3)
+        imported = import_set(self.room, data)
+        self._assert_same_mindmap(imported.questions.get())
+
+    def test_import_sanitises_foreign_mindmap(self):
+        from .transfer import import_set
+
+        imported = import_set(self.room, {
+            "format": "abstimmbar-set-v2",
+            "title": {"de": "Fremd", "en": ""},
+            "questions": [{
+                "kind": "mindmap",
+                "text": {"de": "<p>Q</p>", "en": ""},
+                "mindmap_root": {"de": "w" * 80, "en": ""},
+                "mindmap_depth": 42,
+                "mindmap_max_per_person": -3,
+                "mindmap_seed": [
+                    {"text": "x" * 80, "children": [{"text": "too deep?"}]},
+                    {"text": "X" * 80},
+                    "junk",
+                    {"text": ""},
+                ],
+                "options": [{"text": "ignored"}],
+            }],
+        })
+        question = imported.questions.get()
+        self.assertEqual(len(question.mindmap_root_de), 60)
+        self.assertEqual(question.mindmap_depth, 5)
+        self.assertEqual(question.mindmap_max_per_person, 10)
+        self.assertEqual(
+            question.mindmap_seed,
+            [{"text": "x" * 60, "description": "", "children": [
+                {"text": "too deep?", "description": "", "children": []}]}],
+        )
+        self.assertEqual(question.options.count(), 0)
+
+    def test_import_rejects_mindmap_outside_live_poll(self):
+        from .transfer import import_set
+
+        with self.assertRaises(serializers.ValidationError):
+            import_set(self.room, {
+                "format": "abstimmbar-set-v2",
+                "title": {"de": "Quiz", "en": ""},
+                "type": "self_paced",
+                "questions": [{"kind": "mindmap", "text": {"de": "<p>Q</p>", "en": ""}}],
+            })
+
+    def test_move_into_self_paced_set_rejected(self):
+        question = self._mindmap_question()
+        target = QuestionSet.objects.create(room=self.room, title="Quiz", type="self_paced")
+        response = self.client.post(
+            f"/api/questions/{question.pk}/move/", {"question_set": target.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        question.refresh_from_db()
+        self.assertEqual(question.question_set, self.question_set)
+
+    def test_copy_into_self_paced_set_rejected(self):
+        question = self._mindmap_question()
+        target = QuestionSet.objects.create(room=self.room, title="Quiz", type="self_paced")
+        response = self.client.post(
+            f"/api/question-sets/{target.pk}/copy-questions/",
+            {"question_ids": [question.pk]}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(target.questions.count(), 0)
+
+    def test_after_question_not_offered(self):
+        question = self._mindmap_question()
+        response = self.client.post(
+            f"/api/questions/{question.pk}/add-after/", {}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class MindmapSeedHelperTests(SimpleTestCase):
+    def test_text_key_merges_case_and_whitespace(self):
+        from .mindmap import text_key
+
+        self.assertEqual(text_key("  Klima   Schutz "), text_key("klima schutz"))

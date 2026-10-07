@@ -1525,7 +1525,16 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             html={localizedText(question.text)}
           />
 
+          {/* Mindmap (stage 1): the live map is a later step — until then a
+              neutral placeholder instead of an empty option list / bars. */}
+          {question.kind === "mindmap" && phase !== "preview" && (
+            <p className="mt-8 text-lg text-slate-400">
+              {t("The mind map is built on the participants' devices.")}
+            </p>
+          )}
+
           {question.kind !== "word_cloud" && question.kind !== "open_text" &&
+            question.kind !== "mindmap" &&
             question.kind !== "likert" && phase !== "results" && (
             <ol className="mt-8 space-y-3">
               {question.options.map((option, i) => (
@@ -1619,6 +1628,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
           {question.kind !== "word_cloud" && question.kind !== "open_text" &&
             question.kind !== "priorities" && question.kind !== "ordering" &&
+            question.kind !== "mindmap" &&
             !(question.kind === "likert" && state.likert) && phase === "results" && (
             <div className="mt-8 space-y-4">
               {(state.results ?? []).map((option, i) => {

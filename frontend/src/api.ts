@@ -132,7 +132,16 @@ export type QuestionKind =
   | "likert"
   | "open_text"
   | "priorities"
-  | "ordering";
+  | "ordering"
+  | "mindmap";
+
+/** One predefined branch of a mindmap question (plain canonical-language
+ *  text; level 1 = child of the root). */
+export interface MindmapSeedNode {
+  text: string;
+  description: string;
+  children: MindmapSeedNode[];
+}
 
 export interface AnswerOption {
   id?: number;
@@ -189,6 +198,18 @@ export interface Question {
   wordcloud_max_answers: number;
   /** word_cloud: collect several terms in fields and submit together (#88). */
   wordcloud_batch_submit: boolean;
+  /** mindmap only: optional root label ({de,en}); empty = question text. */
+  mindmap_root: LocalizedText;
+  /** mindmap only: levels below the root participants may build (1–8). */
+  mindmap_depth: number;
+  /** mindmap only: terms per participant (0 = unlimited). */
+  mindmap_max_per_person: number;
+  /** mindmap only: participants add a title + optional description. */
+  mindmap_descriptions: boolean;
+  /** mindmap only: emphasise terms named by several people on the beamer. */
+  mindmap_highlight_duplicates: boolean;
+  /** mindmap only: predefined branches (not deletable by participants). */
+  mindmap_seed: MindmapSeedNode[];
   /** Per-question reveal override; "inherit" uses the set default (#28). */
   reveal_answers: "inherit" | RevealAnswers;
   /** Before/after pair (#54): the before-question this one mirrors (null if

@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { Archive, BarChart3, Check, ChevronDown, CircleHelp, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListTree, Play, Settings, Share2, Sparkles, Square, Timer, Trash2, TriangleAlert } from "lucide-react";
+import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, Files, FolderInput, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, Timer, ToggleLeft, Trash2, TriangleAlert, type LucideIcon } from "lucide-react";
 import {
   api,
   results,
@@ -50,6 +50,7 @@ export const KIND_LABEL: Record<QuestionKind, string> = {
   open_text: "Free text",
   priorities: "Priorities",
   ordering: "Ordering",
+  mindmap: "Mind map",
 };
 
 // Kinds whose answers are options (mirror of backend Question.CHOICE_KINDS) —
@@ -400,47 +401,62 @@ const QUESTION_TYPES: {
   template?: "binary";
   label: string;
   description: string;
+  icon: LucideIcon;
 }[] = [
   {
     kind: "single_choice",
+    icon: CircleDot,
     label: "Single Choice",
     description: "One answer selectable; a correct answer can be marked.",
   },
   {
     kind: "multiple_choice",
+    icon: ListChecks,
     label: "Multiple Choice",
     description: "Multiple answers selectable at the same time.",
   },
   {
     kind: "single_choice",
     template: "binary",
+    icon: ToggleLeft,
     label: "Yes/No",
     description: "Two options — pick a Yes/No or True/False template, or type your own.",
   },
   {
     kind: "likert",
+    icon: SlidersHorizontal,
     label: "Likert scale",
     description: "Fixed rating scale (e.g. agreement), optionally with an abstain option.",
   },
   {
     kind: "word_cloud",
+    icon: Cloud,
     label: "Word cloud",
     description: "Short free-form terms, live as a growing word cloud.",
   },
   {
     kind: "open_text",
+    icon: MessageSquareText,
     label: "Free text",
     description: "Free-form text answer (max. 500 characters), shown as a list.",
   },
   {
     kind: "priorities",
+    icon: Scale,
     label: "Priorities",
     description: "Distribute up to 100 points across the options; evaluated as the average per option.",
   },
   {
     kind: "ordering",
+    icon: ArrowDownUp,
     label: "Ordering",
     description: "Participants sort items into the correct order (drag & drop).",
+  },
+  {
+    kind: "mindmap",
+    icon: Network,
+    label: "Mind map",
+    description: "Build a mind map together, live on the beamer.",
   },
 ];
 
@@ -507,13 +523,19 @@ function NewQuestionMenu({
                 setOpen(false);
                 onPick(type.kind, type.template);
               }}
-              className="block w-full px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
+              className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
             >
-              <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
-                {t(type.label)}
-              </span>
-              <span className="block text-xs text-slate-500 dark:text-slate-400">
-                {t(type.description)}
+              <type.icon
+                aria-hidden
+                className="mt-0.5 h-4 w-4 shrink-0 text-brand-600 dark:text-brand-400"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {t(type.label)}
+                </span>
+                <span className="block text-xs text-slate-500 dark:text-slate-400">
+                  {t(type.description)}
+                </span>
               </span>
             </button>
           ))}

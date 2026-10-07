@@ -11,8 +11,10 @@ export type SetType = "live_poll" | "self_paced" | "self_check";
 
 const ALL_KINDS: QuestionKind[] = [
   "single_choice", "multiple_choice", "likert", "word_cloud",
-  "open_text", "priorities", "ordering",
+  "open_text", "priorities", "ordering", "mindmap",
 ];
+// Mindmap is a shared, presenter-driven activity: live polls only.
+const SELF_PACED_KINDS: QuestionKind[] = ALL_KINDS.filter((kind) => kind !== "mindmap");
 
 export interface SetTypeInfo {
   /** English source strings (translated via t()). */
@@ -40,8 +42,8 @@ export const SET_TYPES: Record<SetType, SetTypeInfo> = {
   },
   self_paced: {
     label: "Self-paced quiz",
-    description: "Participants answer at their own pace in class; you start it and see the results. All question types.",
-    allowedKinds: ALL_KINDS,
+    description: "Participants answer at their own pace in class; you start it and see the results. All question types except the mind map.",
+    allowedKinds: SELF_PACED_KINDS,
     runAction: "self_paced",
     icon: GraduationCap,
     accent: {

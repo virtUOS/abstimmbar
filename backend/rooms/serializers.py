@@ -18,7 +18,7 @@ from rest_framework import serializers
 from common.i18n_fields import TranslatedMapMixin
 from common.serializers import TranslationSyncMixin
 
-from . import set_types
+from . import mindmap, set_types
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import generate_default_titles
 from .sanitize import clean_html, clean_media_url
@@ -368,7 +368,7 @@ class AnswerOptionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
 class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.ModelSerializer):
     # text is a {"de","en"} map (#33 MR2); validate_text (HTML sanitizing)
     # keeps running — the mixin invokes it per language.
-    translated_fields = ("text",)
+    translated_fields = ("text", "mindmap_root")
 
     # Stale-translation detection (#91): translation_stale (read) reports
     # which languages of `text` look out of date; synced_fields (write)
@@ -400,6 +400,8 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             "wordcloud_max_answers", "wordcloud_batch_submit",
             "evaluation_categories", "evaluation_chart",
             "model_solution", "participant_feedback",
+            "mindmap_root", "mindmap_depth", "mindmap_max_per_person",
+            "mindmap_descriptions", "mindmap_highlight_duplicates", "mindmap_seed",
             "reveal_answers", "before_question", "after_question", "is_after",
             "created_at", "updated_at",
         ]
@@ -479,10 +481,24 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             attrs["allow_multiple"] = max_answers != 1
             if max_answers == 1:
                 attrs["wordcloud_batch_submit"] = False
-        if kind in Question.TEXT_KINDS and attrs.get("options"):
+        if kind in Question.OPTIONLESS_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}
             )
+        # Mindmap: the predefined branches must fit the (possibly changed)
+        # depth — re-checked whenever either is written.
+        if kind == Question.Kind.MINDMAP and (
+            "mindmap_seed" in attrs or "mindmap_depth" in attrs or self.instance is None
+        ):
+            depth = attrs.get(
+                "mindmap_depth",
+                getattr(self.instance, "mindmap_depth", mindmap.MINDMAP_DEFAULT_DEPTH),
+            )
+            seed = attrs.get("mindmap_seed", getattr(self.instance, "mindmap_seed", []))
+            try:
+                attrs["mindmap_seed"] = mindmap.clean_seed(seed, depth, strict=True)
+            except mindmap.SeedError as exc:
+                raise serializers.ValidationError({"mindmap_seed": str(exc)}) from exc
         # A section must belong to the same set as the question.
         section = attrs.get("section")
         if section is not None:
