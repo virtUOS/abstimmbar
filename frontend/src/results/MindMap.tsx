@@ -17,7 +17,7 @@ import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Maximize2, Minus, Plus, X } from "lucide-react";
 import type { LiveMindmapNode } from "../api";
-import { INK, categoryColor, categoryDeep, categoryHue, categoryTint } from "./palette";
+import { INK } from "./palette";
 import { EASE, useReducedMotion } from "./motion";
 
 // ---------------------------------------------------------------------------
@@ -430,19 +430,61 @@ function boxFor(
   };
 }
 
+/** Mind-map palette: the six category hues of `palette.ts` (same OKLCH
+ * lightness/chroma) plus green and coral — only here, since a mind map has no
+ * right/wrong reading (polls keep avoiding green and red). */
+export const MINDMAP_HUES = [250, 60, 305, 220, 85, 335, 150, 25] as const;
+const fill = (hue: number) => `oklch(0.80 0.095 ${hue})`;
+const tint = (hue: number) => `oklch(0.92 0.04 ${hue})`;
+const deep = (hue: number) => `oklch(0.62 0.11 ${hue})`;
+
+/** Hue index per main branch. `clockwise` lists the branch ids in display
+ * order (right side top → bottom, then left side bottom → top); `stable`
+ * gives each branch's creation rank (id order, incl. hidden branches). Each
+ * branch prefers `stable % n`; if that equals a neighbour's hue (the list
+ * wraps around) it takes the first hue used by neither neighbour. */
+export function branchHues(
+  clockwise: number[],
+  stable: ReadonlyMap<number, number>,
+  n: number = MINDMAP_HUES.length,
+): Map<number, number> {
+  const out = new Map<number, number>();
+  const pref = (id: number) => (stable.get(id) ?? 0) % n;
+  clockwise.forEach((id, i) => {
+    const want = pref(id);
+    if (clockwise.length < 2) {
+      out.set(id, want);
+      return;
+    }
+    const prevId = clockwise[(i - 1 + clockwise.length) % clockwise.length];
+    const nextId = clockwise[(i + 1) % clockwise.length];
+    const prev = out.get(prevId) ?? pref(prevId);
+    const next = out.get(nextId) ?? pref(nextId);
+    let hue = want;
+    if (hue === prev || hue === next) {
+      for (let h = 0; h < n; h++) {
+        if (h !== prev && h !== next) {
+          hue = h;
+          break;
+        }
+      }
+    }
+    out.set(id, hue);
+  });
+  return out;
+}
+
 /** Fill / border / connector per depth: the main branch's hue, lighter
  * outwards. */
-function nodeColors(depth: number, branch: number) {
-  const hue = categoryHue(branch);
-  if (depth <= 1) return { bg: categoryColor(branch), border: "transparent" };
-  if (depth === 2) return { bg: categoryTint(branch), border: categoryColor(branch) };
+function nodeColors(depth: number, hue: number) {
+  if (depth <= 1) return { bg: fill(hue), border: "transparent" };
+  if (depth === 2) return { bg: tint(hue), border: fill(hue) };
   if (depth === 3) return { bg: `oklch(0.96 0.02 ${hue})`, border: `oklch(0.86 0.06 ${hue})` };
   return { bg: "#fff", border: `oklch(0.9 0.04 ${hue})` };
 }
-function edgeStyle(depth: number, branch: number) {
-  const hue = categoryHue(branch);
-  if (depth <= 1) return { stroke: categoryColor(branch), width: 6 };
-  if (depth === 2) return { stroke: categoryColor(branch), width: 4 };
+function edgeStyle(depth: number, hue: number) {
+  if (depth <= 1) return { stroke: fill(hue), width: 6 };
+  if (depth === 2) return { stroke: fill(hue), width: 4 };
   if (depth === 3) return { stroke: `oklch(0.85 0.07 ${hue})`, width: 3 };
   return { stroke: `oklch(0.88 0.05 ${hue})`, width: 2.5 };
 }
@@ -532,12 +574,6 @@ export default function MindMap({
     walk(visible);
     return map;
   }, [visible]);
-  // Colour per main branch by its place in the full tree (incl. hidden
-  // branches), so hiding one doesn't recolour the others.
-  const branchColor = useMemo(
-    () => visible.map((v) => Math.max(0, allNodes.findIndex((a) => a.id === v.id))),
-    [visible, allNodes],
-  );
   // Same term under several parents: a dashed ring marks each of them.
   const repeatedKeys = useMemo(() => {
     const seen = new Map<string, number>();
@@ -578,6 +614,21 @@ export default function MindMap({
     // fontTick: re-measure after web fonts have loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, rootLabel, detailed, highlightDuplicates, family, fontTick]);
+  // Hue per main branch (indexed like `PlacedNode.branch`): stable rank by
+  // id over the full tree (hidden branches keep their rank), neighbours in
+  // clockwise display order never share a hue.
+  const branchHue = useMemo(() => {
+    const stable = new Map(
+      [...allNodes].map((n) => n.id).sort((a, b) => a - b).map((id, i) => [id, i] as const),
+    );
+    const mains = layout.nodes.filter((p) => p.depth === 1);
+    const clockwise = [
+      ...mains.filter((p) => p.side === 1).sort((a, b) => a.y - b.y),
+      ...mains.filter((p) => p.side === -1).sort((a, b) => b.y - a.y),
+    ].map((p) => p.id);
+    const hues = branchHues(clockwise, stable);
+    return visible.map((v) => MINDMAP_HUES[hues.get(v.id) ?? 0]);
+  }, [layout, allNodes, visible]);
   useEffect(() => {
     sidesRef.current = layout.sides;
     if (!memoryKey) return;
@@ -738,8 +789,8 @@ export default function MindMap({
     const n = byId.get(p.id);
     const box = boxes.get(p.id);
     if (!n || !box) return null;
-    const ci = branchColor[p.branch] ?? p.branch;
-    const colors = nodeColors(p.depth, ci);
+    const hue = branchHue[p.branch] ?? MINDMAP_HUES[0];
+    const colors = nodeColors(p.depth, hue);
     const repeated = highlightDuplicates && repeatedKeys.has(n.key ?? n.text.toLowerCase());
     const roundish = box.lines.length === 1 && box.desc.length === 0;
     return (
@@ -754,8 +805,10 @@ export default function MindMap({
         }}
       >
         <div
-          className={`group relative h-full w-full hover:z-10 ${isFresh(p.id) ? "ab-pop" : ""}`}
+          className={`group relative h-full w-full hover:z-10 focus-within:z-10 focus:outline-none ${isFresh(p.id) ? "ab-pop" : ""}`}
           title={n.count > 1 ? `${n.count}×` : undefined}
+          // With moderation the node takes focus (Tab), which reveals its ×.
+          tabIndex={onHide ? 0 : undefined}
           style={{
             background: colors.bg,
             border: `2px solid ${colors.border}`,
@@ -765,7 +818,7 @@ export default function MindMap({
             fontSize: box.font,
             fontWeight: box.weight,
             lineHeight: LINE,
-            outline: repeated ? `2px dashed ${categoryDeep(ci)}` : undefined,
+            outline: repeated ? `2px dashed ${deep(hue)}` : undefined,
             outlineOffset: repeated ? 2 : undefined,
             boxShadow: p.depth === 1 ? "0 2px 6px rgba(15,23,42,0.08)" : undefined,
             transition: move ? `font-size ${move}` : undefined,
@@ -787,7 +840,7 @@ export default function MindMap({
                   fontSize: Math.round(box.font * 0.68),
                   fontWeight: 700,
                   lineHeight: 1.45,
-                  color: categoryDeep(ci),
+                  color: deep(hue),
                 }}
               >
                 {n.count}
@@ -814,7 +867,7 @@ export default function MindMap({
                 e.currentTarget.blur();
                 onHide(n);
               }}
-              className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
+              className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-focus-within:flex group-hover:flex"
               aria-label={t("Hide {{word}}", { word: n.text })}
               title={t("Hide {{word}}", { word: n.text })}
             >
@@ -849,7 +902,7 @@ export default function MindMap({
       >
         <svg className="absolute left-0 top-0 overflow-visible" width={1} height={1} aria-hidden>
           {layout.edges.map((e) => {
-            const st = edgeStyle(e.depth, branchColor[e.branch] ?? e.branch);
+            const st = edgeStyle(e.depth, branchHue[e.branch] ?? MINDMAP_HUES[0]);
             return (
               <path
                 key={e.id}

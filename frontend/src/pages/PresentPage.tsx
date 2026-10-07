@@ -570,6 +570,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // hidden ones to restore.
   const mmHidden = mindmap ? hiddenMindmapNodes(mindmap.nodes) : [];
   const showMmHandle = expert && mmShown && (mindmap?.total ?? 0) > 0;
+  // The hint also goes away by itself once it has been readable for ~20 s.
+  const mmHintVisible = showMmHandle && !mmHintSeen;
+  useEffect(() => {
+    if (!mmHintVisible) return;
+    const id = window.setTimeout(dismissMmHint, 20_000);
+    return () => window.clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mmHintVisible]);
   const hideMindmapNode = (node: number, hidden: boolean) => {
     if (runId == null || activeId == null) return;
     if (hidden && !mmHintSeen) dismissMmHint();
@@ -1015,7 +1023,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       const key = event.key.toLowerCase();
       // Shift+arrows pan the mind map (MindMap's own listener) — they must
       // not also navigate between questions.
-      if (event.shiftKey && key.startsWith("arrow") && activeKind === "mindmap") return;
+      if (event.shiftKey && key.startsWith("arrow") && mmShown) return;
       // Enter/Space on a focused drawer control activate that control
       // natively — they must not also advance the presentation.
       if ((key === "enter" || key === " ") && inWcDrawer(event.target)) return;
@@ -1095,7 +1103,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown],
   );
 
   useEffect(() => {
@@ -1581,6 +1589,27 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
           {/* Mindmap: the shared tree, live while open and on "Ergebnis"
               (compact / detailed from the footer view picker). */}
+          {/* One-time moderation hint as a slim banner in the flow (the map
+              fits itself around it instead of being covered). */}
+          {mmShown && showMmHandle && !mmHintSeen && (
+            <div className="mx-auto mt-2 flex max-w-3xl items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm text-slate-700">
+              <Info className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
+              <p className="flex-1">
+                {t("Tip: × hides a term together with everything below it, the pencil on the right lists hidden terms.")}
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.currentTarget.blur();
+                  dismissMmHint();
+                }}
+                aria-label={t("Dismiss")}
+                className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           {mmShown && mindmap && (
             <div className="mt-3 min-h-0 flex-1">
               <MindMap
@@ -1864,8 +1893,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <div
                   {...{ [WC_DRAWER_ATTR]: "" }}
                   onClick={blurClickedButton}
-                  className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
-                    showModPanel ? "translate-x-0" : "translate-x-full"
+                  className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 transition-transform duration-300 ${
+                    showModPanel ? "translate-x-0 shadow-2xl" : "translate-x-full"
                   }`}
                 >
                   <div className="flex items-center justify-between border-b border-slate-100 p-3">
@@ -1929,24 +1958,6 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
           {showMmHandle && (
             <>
-              {/* Bottom right, beside the zoom controls: a mind map's corners
-                  are its emptiest part. */}
-              {!mmHintSeen && !showModPanel && (
-                <div className="fixed bottom-24 right-24 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
-                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
-                  <p className="flex-1">
-                    {t("Tip: × hides a term together with everything below it, the pencil on the right lists hidden terms.")}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={dismissMmHint}
-                    aria-label={t("Dismiss")}
-                    className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-              )}
               <button
                 type="button"
                 {...{ [WC_DRAWER_ATTR]: "" }}
@@ -1965,8 +1976,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               <div
                 {...{ [WC_DRAWER_ATTR]: "" }}
                 onClick={blurClickedButton}
-                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
-                  showModPanel ? "translate-x-0" : "translate-x-full"
+                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 transition-transform duration-300 ${
+                  showModPanel ? "translate-x-0 shadow-2xl" : "translate-x-full"
                 }`}
               >
                 <div className="flex items-center justify-between border-b border-slate-100 p-3">
@@ -2060,8 +2071,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               <div
                 {...{ [WC_DRAWER_ATTR]: "" }}
                 onClick={blurClickedButton}
-                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 shadow-2xl transition-transform duration-300 ${
-                  showAiPanel ? "translate-x-0" : "translate-x-full"
+                className={`fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-slate-200 bg-white text-slate-800 transition-transform duration-300 ${
+                  showAiPanel ? "translate-x-0 shadow-2xl" : "translate-x-full"
                 }`}
               >
                 <div className="flex items-center justify-between border-b border-slate-100 p-3">
