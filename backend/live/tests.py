@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import json
 import threading
 from unittest.mock import patch
 
@@ -14,7 +15,7 @@ from common.i18n_fields import resolve_translated_text, translated_map
 from common.models import SiteConfig
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
-from . import ai_evaluation, ai_wordcloud, ai_wordcloud_live
+from . import ai_evaluation, ai_freetext_summary, ai_wordcloud, ai_wordcloud_live
 from .models import ParticipantToken, Run, SelfCheckAttempt, Vote
 from .results import freetext_evaluation
 from .state import active_run, build_payloads
@@ -2716,6 +2717,9 @@ class AiLiveWordCloudTests(LiveTestCase):
 
     @override_settings(**AI_ON)
     def test_activate_rejects_non_word_cloud(self):
+        # AI switched on for the choice question, so only the kind check fails.
+        self.question.wordcloud_ai_enabled = True
+        self.question.save(update_fields=["wordcloud_ai_enabled"])
         self.client.force_login(self.owner)
         resp = self.client.post(
             f"/api/runs/{self.run.pk}/wordcloud-ai/",
@@ -4410,6 +4414,8 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
         self.assertIn(self._post({"grouping": "x"}).status_code, (401, 403, 404))
 
     def test_non_wordcloud_question_404(self):
+        self.question.wordcloud_ai_enabled = True
+        self.question.save(update_fields=["wordcloud_ai_enabled"])
         url = f"/api/runs/{self.run.pk}/wordcloud/{self.question.pk}/ai-settings"
         self.assertEqual(self._post({"grouping": "x"}, url).status_code, 404)
 
@@ -4429,12 +4435,14 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
     def test_enable_saves(self):
         resp = self._post({"ai_enabled": True})
         self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertIsInstance(data.pop("ai_seq"), int)
         self.assertEqual(
-            resp.json(),
+            data,
             {
                 "ai_enabled": True, "grouping": "",
                 "merge_variants": True, "merge_synonyms": True,
-                "merge_concepts": False,
+                "merge_concepts": False, "grouping_use_solution": True,
             },
         )
         self.wc.refresh_from_db()
@@ -4626,3 +4634,808 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
         # Presenter-only: participants never see the AI settings.
         participant_q = payloads["participant"].get("question") or {}
         self.assertNotIn("wordcloud_merge_concepts", participant_q)
+
+
+class AiFreetextSummaryTests(LiveTestCase):
+    """AI key statements + grouping for free-text answers (open_text), reusing
+    the live word-cloud AI machinery (cache, activation, throttle)."""
+
+    def setUp(self):
+        super().setUp()
+        self.ot = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            text="<p>Was zeichnet eine anonyme Umfrage aus?</p>", position=8,
+            wordcloud_ai_enabled=True,
+        )
+        self.run = self.open_question(self.ot)
+        self.addCleanup(ai_wordcloud_live._active.clear)
+        self.addCleanup(ai_wordcloud_live._results.clear)
+        self.addCleanup(ai_wordcloud_live._running.clear)
+        self.addCleanup(ai_wordcloud_live._dirty.clear)
+
+    def _cast(self, text):
+        return self.vote(self.join(), text=text)
+
+    WORDS = [
+        {"text": "Keine Namen", "count": 3, "keys": ["keine namen"]},
+        {"text": "Niemand weiß, wer was antwortet", "count": 2,
+         "keys": ["niemand weiß, wer was antwortet", "niemand weiss"]},
+        {"text": "Ehrlichere Antworten", "count": 2, "keys": ["ehrlichere antworten"]},
+        {"text": "x" * 120, "count": 1, "keys": ["x" * 120]},
+    ]
+
+    # --- apply_summary ------------------------------------------------------
+
+    def test_apply_groups_members_by_id_and_recomputes_counts(self):
+        data = {"statements": [
+            {"label": "Keine Identifikation", "cluster": "Anonymität",
+             "members": [1, 2]},
+            {"label": "Ehrlichere Antworten", "cluster": "Qualität",
+             "members": [3]},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        by_text = {s["text"]: s for s in out["merged"]}
+        self.assertEqual(by_text["Keine Identifikation"]["count"], 5)
+        self.assertEqual(
+            by_text["Keine Identifikation"]["variants"],
+            ["Keine Namen", "Niemand weiß, wer was antwortet"],
+        )
+        self.assertEqual(
+            by_text["Keine Identifikation"]["keys"],
+            ["keine namen", "niemand weiß, wer was antwortet", "niemand weiss"],
+        )
+        # Sorted by count, counts always sum to the total.
+        self.assertEqual(out["merged"][0]["text"], "Keine Identifikation")
+        self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
+        clusters = {c["label"]: c for c in out["clusters"]}
+        self.assertEqual(clusters["Anonymität"]["count"], 5)
+        self.assertEqual(clusters["Qualität"]["words"][0]["text"], "Ehrlichere Antworten")
+
+    def test_apply_ignores_bad_ids_and_duplicates(self):
+        data = {"statements": [
+            {"label": "A", "cluster": "T", "members": [1, 1, 99, 0, -1, "x", None]},
+            {"label": "B", "cluster": "T", "members": [1, "2"]},
+            {"label": "Leer", "cluster": "T", "members": [42]},
+            "kaputt",
+            {"label": "Ohne Liste", "members": "1"},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        by_text = {s["text"]: s for s in out["merged"]}
+        self.assertEqual(by_text["A"]["count"], 3)       # id 1 only once
+        self.assertEqual(by_text["B"]["count"], 2)       # id 1 consumed; "2" accepted
+        self.assertNotIn("Leer", by_text)
+        self.assertNotIn("Ohne Liste", by_text)
+        self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
+
+    def test_apply_unreferenced_answers_pooled_without_verbatim_label(self):
+        data = {"statements": [
+            {"label": "Keine Identifikation", "cluster": "Anonymität", "members": [1]},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
+        texts = [s["text"] for s in out["merged"]]
+        self.assertEqual(texts, ["Keine Identifikation", ai_freetext_summary.LEFTOVER_LABEL])
+        leftover = out["merged"][-1]
+        self.assertEqual(leftover["count"], 5)
+        self.assertEqual(
+            leftover["keys"],
+            ["niemand weiß, wer was antwortet", "niemand weiss",
+             "ehrlichere antworten", "x" * 120],
+        )
+        # No answer text ever becomes a label.
+        for word in self.WORDS[1:]:
+            self.assertNotIn(word["text"], texts)
+        clusters = {c["label"]: c for c in out["clusters"]}
+        self.assertEqual(
+            [w["text"] for w in clusters[ai_freetext_summary.OTHER_CLUSTER]["words"]],
+            [ai_freetext_summary.LEFTOVER_LABEL],
+        )
+
+    def test_apply_nothing_referenced_gives_one_leftover(self):
+        out = ai_freetext_summary.apply_summary(self.WORDS, {"statements": []})
+        self.assertEqual(len(out["merged"]), 1)
+        self.assertEqual(out["merged"][0]["text"], ai_freetext_summary.LEFTOVER_LABEL)
+        self.assertEqual(out["merged"][0]["count"], 8)
+
+    def test_apply_leftover_sorts_last(self):
+        data = {"statements": [
+            {"label": "Ehrlicher", "cluster": "Q", "members": [3]},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        # Leftover (6) outnumbers the statement (2) but still comes last.
+        self.assertEqual(out["merged"][-1]["text"], ai_freetext_summary.LEFTOVER_LABEL)
+        self.assertEqual(out["merged"][-1]["count"], 6)
+
+    def test_apply_truncates_label_and_cluster_and_pools_empty_labels(self):
+        data = {"statements": [
+            {"label": "L" * 200, "cluster": "C" * 200, "members": [1]},
+            {"label": "", "cluster": "Q", "members": [3]},
+            {"label": "Mit Label", "cluster": "", "members": [2]},
+        ]}
+        out = ai_freetext_summary.apply_summary(self.WORDS, data)
+        by_text = {s["text"]: s for s in out["merged"]}
+        self.assertIn("L" * ai_freetext_summary.LABEL_MAX, by_text)
+        # Empty label → pooled with the unreferenced answer, never verbatim.
+        self.assertNotIn("Ehrlichere Antworten", by_text)
+        self.assertEqual(by_text[ai_freetext_summary.LEFTOVER_LABEL]["count"], 3)
+        labels = [c["label"] for c in out["clusters"]]
+        self.assertIn("C" * ai_freetext_summary.CLUSTER_MAX, labels)
+        # Empty cluster → "Weitere", which sinks to the end.
+        self.assertEqual(labels[-1], ai_freetext_summary.OTHER_CLUSTER)
+
+    def test_apply_handles_garbage(self):
+        for data in (None, [], "x", {"statements": "x"}):
+            out = ai_freetext_summary.apply_summary(self.WORDS, data)
+            self.assertEqual(sum(s["count"] for s in out["merged"]), 8)
+
+    # --- prompts --------------------------------------------------------------
+
+    def test_system_equivalent_only_vs_similar(self):
+        strict = ai_freetext_summary.summary_system(merge_similar=False)
+        broad = ai_freetext_summary.summary_system(merge_similar=True)
+        self.assertIn(ai_freetext_summary.RULE_EQUIVALENT, strict)
+        self.assertNotIn(ai_freetext_summary.RULE_SIMILAR, strict)
+        self.assertIn(ai_freetext_summary.RULE_SIMILAR, broad)
+        self.assertNotIn(ai_freetext_summary.RULE_EQUIVALENT, broad)
+        for prompt in (strict, broad):
+            self.assertIn("ausschließlich mit JSON", prompt)
+            self.assertIn("höchstens einer", prompt)
+            # Statements first, by the merge rule alone; themes only after.
+            self.assertLess(
+                prompt.index(ai_freetext_summary.STATEMENTS_FIRST),
+                prompt.index(ai_freetext_summary.CLUSTER_ONLY),
+            )
+
+    def test_strict_rule_is_core_message_with_examples(self):
+        strict = ai_freetext_summary.summary_system(merge_similar=False)
+        self.assertIn("Kernaussage", ai_freetext_summary.RULE_EQUIVALENT)
+        for example in ("Folien sind zu voll", "zu schnell", "Praxisbezug"):
+            self.assertIn(example, strict)
+        self.assertNotIn("Im Zweifel NICHT", strict)
+        broad = ai_freetext_summary.summary_system(merge_similar=True)
+        self.assertIn("Aspekt", broad)
+        # Neutral domain: no examples from the test topic (anonymous surveys),
+        # neither in the rules nor in the format example (no answers sent).
+        for text in (strict, broad, ai_freetext_summary.build_summary_prompt([])):
+            for topic_word in ("nonym", "zuordenbar", "Registrierung", "hrlicher",
+                               "Gruppendruck", "unerkannt"):
+                self.assertNotIn(topic_word, text)
+
+    def test_grouping_criterion_only_in_second_step(self):
+        # The statement prompt never sees a criterion (it cannot take one).
+        with self.assertRaises(TypeError):
+            ai_freetext_summary.summary_system("Studierende vs. Lehrende")
+        prompt = ai_freetext_summary.grouping_system("Studierende vs. Lehrende")
+        self.assertIn("Studierende vs. Lehrende", prompt)
+        self.assertIn(ai_freetext_summary.POLES_RULE, prompt)
+        self.assertIn(ai_freetext_summary.OTHER_CLUSTER, prompt)
+        self.assertIn("stehen fest", prompt)
+
+    def test_apply_grouping_keeps_statements_and_reclusters(self):
+        summary = ai_freetext_summary.apply_summary(self.WORDS, {"statements": [
+            {"label": "Keine Identifikation", "cluster": "Anonymität", "members": [1, 2]},
+            {"label": "Ehrlicher", "cluster": "Qualität", "members": [3]},
+        ]})
+        grouping_prompt = ai_freetext_summary.build_grouping_prompt(summary["merged"])
+        self.assertIn('"id": 1', grouping_prompt)
+        self.assertIn("Keine Identifikation", grouping_prompt)
+        out = ai_freetext_summary.apply_grouping(summary, {"clusters": [
+            {"label": "Vorteil für Studierende", "members": [1, 1, 99]},
+            {"label": "Vorteil für Lehrende", "members": [2, 1]},
+            "kaputt",
+        ]})
+        self.assertEqual(out["merged"], summary["merged"])  # statements untouched
+        clusters = {c["label"]: [w["text"] for w in c["words"]] for c in out["clusters"]}
+        self.assertEqual(clusters["Vorteil für Studierende"], ["Keine Identifikation"])
+        self.assertEqual(clusters["Vorteil für Lehrende"], ["Ehrlicher"])
+        # The unassigned leftover statement → "Weitere", last.
+        self.assertEqual(out["clusters"][-1]["label"], ai_freetext_summary.OTHER_CLUSTER)
+        self.assertEqual(sum(c["count"] for c in out["clusters"]), 8)
+        # The pooled leftover always stays in "Weitere", even if assigned.
+        forced = ai_freetext_summary.apply_grouping(summary, {"clusters": [
+            {"label": "G", "members": [1, 2, 3]},
+        ]})
+        self.assertEqual(
+            [w["text"] for w in forced["clusters"][-1]["words"]],
+            [ai_freetext_summary.LEFTOVER_LABEL],
+        )
+
+    def test_summarize_grouping_failure_keeps_step1_auto_themes(self):
+        from basicbar_integrations import ai
+        step1 = {"statements": [{"label": "S", "cluster": "Thema", "members": [1, 2, 3, 4]}]}
+        replies = [step1, ai.AIError("timeout")]
+
+        def fake(system, prompt):
+            reply = replies.pop(0)
+            if isinstance(reply, Exception):
+                raise reply
+            return reply
+
+        out = ai_freetext_summary.summarize(self.WORDS, grouping="nach Rolle", chat_json=fake)
+        self.assertEqual(out["merged"][0]["text"], "S")
+        self.assertEqual(out["clusters"][0]["label"], "Thema")
+
+    def test_summarize_two_calls_only_with_grouping(self):
+        step1 = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        calls = []
+
+        def fake(system, prompt):
+            calls.append(system)
+            return step1 if len(calls) == 1 else {
+                "clusters": [{"label": "G", "members": [1]}]
+            }
+
+        out = ai_freetext_summary.summarize(self.WORDS, chat_json=fake)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(out["clusters"][0]["label"], "T")
+        calls.clear()
+        out2 = ai_freetext_summary.summarize(
+            self.WORDS, grouping="nach Rolle", chat_json=fake
+        )
+        self.assertEqual(len(calls), 2)
+        self.assertNotIn("nach Rolle", calls[0])  # statements never see it
+        self.assertIn("nach Rolle", calls[1])
+        self.assertEqual(out2["merged"], out["merged"])
+        self.assertEqual(out2["clusters"][0]["label"], "G")
+
+    def test_build_prompt_numbers_and_truncates(self):
+        words = [{"text": "a" * 900, "count": 2, "keys": ["k"]},
+                 {"text": "kurz", "count": 1, "keys": ["kurz"]}]
+        prompt = ai_freetext_summary.build_summary_prompt(words)
+        self.assertIn('"id": 1', prompt)
+        self.assertIn('"id": 2', prompt)
+        self.assertIn("a" * (ai_freetext_summary.ANSWER_MAX - 1) + "…", prompt)
+        self.assertNotIn("a" * ai_freetext_summary.ANSWER_MAX, prompt)
+
+    # --- live compute ---------------------------------------------------------
+
+    @override_settings(**AI_ON)
+    def test_compute_open_text_uses_summary_and_moderation(self):
+        from .models import WordCloudModeration
+        self._cast("Keine Namen")
+        self._cast("keine namen")
+        self._cast("Beleidigung")
+        self._cast("Niemand kennt mich")
+        self._cast("Man bleibt unerkannt")
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.ot, hidden=["beleidigung"],
+            merges=[{"keys": ["niemand kennt mich", "man bleibt unerkannt"],
+                     "label": "Unerkannt"}],
+        )
+        self.ot.wordcloud_merge_concepts = True
+        self.ot.wordcloud_grouping = "nach Aspekt"
+        self.ot.save()
+        reply = {"statements": [
+            {"label": "Identität bleibt verborgen", "cluster": "Anonymität",
+             "members": [1, 2]},
+        ]}
+        regroup = {"clusters": [{"label": "Anonymität", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json", side_effect=[reply, regroup]
+        ) as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        self.assertEqual(chat.call_count, 2)
+        system, prompt = chat.call_args_list[0][0]
+        self.assertIn(ai_freetext_summary.RULE_SIMILAR, system)
+        self.assertNotIn("nach Aspekt", system)  # criterion: second call only
+        self.assertIn("nach Aspekt", chat.call_args_list[1][0][0])
+        self.assertNotIn("Beleidigung", prompt)  # hidden → never sent
+        self.assertIn("Unerkannt", prompt)       # moderation merge = one input
+        self.assertNotIn("Man bleibt unerkannt", prompt)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertFalse(result["pending"])
+        self.assertEqual(result["merged"][0]["text"], "Identität bleibt verborgen")
+        self.assertEqual(result["merged"][0]["count"], 4)
+        self.assertEqual(
+            sorted(result["merged"][0]["keys"]),
+            ["keine namen", "man bleibt unerkannt", "niemand kennt mich"],
+        )
+        presenter = build_payloads(self.room)["presenter"]
+        self.assertEqual(
+            presenter["wordcloud_ai"]["clusters"][0]["label"], "Anonymität"
+        )
+
+    @override_settings(**AI_ON)
+    def test_compute_ai_error_yields_empty_result(self):
+        from basicbar_integrations import ai
+        self._cast("Keine Namen")
+        with patch("basicbar_integrations.ai.chat_json", side_effect=ai.AIError("x")):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertIsInstance(result.pop("seq"), int)
+        self.assertEqual(
+            result, {"merged": [], "clusters": [], "pending": False, "error": True},
+        )
+
+    # --- seq: every finished compute is distinguishable -------------------
+
+    @override_settings(**AI_ON)
+    def test_compute_seq_increases_even_for_identical_result_and_error(self):
+        from basicbar_integrations import ai
+        self._cast("Keine Namen")
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        seqs = []
+        for side_effect in ([reply], [reply], ai.AIError("x")):
+            with patch("basicbar_integrations.ai.chat_json", side_effect=side_effect):
+                ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+            seqs.append(ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)["seq"])
+        self.assertLess(seqs[0], seqs[1])
+        self.assertLess(seqs[1], seqs[2])
+
+    @override_settings(**AI_ON)
+    def test_placeholder_seq_is_below_any_mark(self):
+        mark = ai_wordcloud_live.current_seq()
+        with patch("live.ai_wordcloud_live.schedule"):
+            ai_wordcloud_live.set_active(self.run.pk, self.ot.pk, self.room.pk, True)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertTrue(result["pending"])
+        self.assertLessEqual(result["seq"], mark)
+
+    @override_settings(**AI_ON)
+    def test_settings_response_has_ai_seq_mark_below_next_compute(self):
+        self._cast("Keine Namen")
+        self.client.force_login(self.owner)
+        url = f"/api/runs/{self.run.pk}/wordcloud/{self.ot.pk}/ai-settings"
+        with patch("live.views.ai_wordcloud_live.refresh"):
+            resp = self.client.post(
+                url, {"grouping": "nach Aspekt", "regroup": True},
+                content_type="application/json",
+            )
+        mark = resp.json()["ai_seq"]
+        self.assertIsInstance(mark, int)
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch("basicbar_integrations.ai.chat_json", side_effect=[reply, {}]):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        self.assertGreater(
+            ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)["seq"], mark
+        )
+
+    # --- question context in both prompts ----------------------------------
+
+    CONTEXT = {
+        "question": "Erklären Sie kurz, was eine anonyme Umfrage auszeichnet.",
+        "model_solution": "Keine Rückschlüsse auf die antwortende Person.",
+        "hint": "Personenbezug fehlt",
+    }
+
+    def test_context_block_in_both_user_prompts(self):
+        words = [{"text": "Keine Namen", "count": 1, "keys": ["keine namen"]}]
+        step1 = ai_freetext_summary.build_summary_prompt(words, context=self.CONTEXT)
+        step2 = ai_freetext_summary.build_grouping_prompt(
+            [{"text": "S", "count": 1}], context=self.CONTEXT
+        )
+        for prompt in (step1, step2):
+            self.assertIn("Frage: Erklären Sie kurz", prompt)
+            self.assertIn("Musterlösung: Keine Rückschlüsse", prompt)
+            self.assertIn("Bewertungshinweis: Personenbezug fehlt", prompt)
+            # Context before the data.
+            self.assertLess(prompt.index("Frage:"), prompt.index('"id": 1'))
+
+    def test_context_without_model_solution_or_hint(self):
+        ctx = {"question": "Was ist X?", "model_solution": "", "hint": ""}
+        words = [{"text": "a", "count": 1, "keys": ["a"]}]
+        for prompt in (
+            ai_freetext_summary.build_summary_prompt(words, context=ctx),
+            ai_freetext_summary.build_grouping_prompt(
+                [{"text": "S", "count": 1}], context=ctx
+            ),
+        ):
+            self.assertIn("Frage: Was ist X?", prompt)
+            self.assertNotIn("Musterlösung", prompt)
+            self.assertNotIn("Bewertungshinweis", prompt)
+        # No context at all → no block.
+        self.assertNotIn("Frage:", ai_freetext_summary.build_summary_prompt(words))
+
+    def test_grouping_system_has_correctness_rule(self):
+        prompt = ai_freetext_summary.grouping_system("korrekt / falsch / neutral")
+        self.assertIn(ai_freetext_summary.CORRECTNESS_RULE, prompt)
+        self.assertIn("Musterlösung", ai_freetext_summary.CORRECTNESS_RULE)
+
+    def test_question_context_plain_canonical(self):
+        self.ot.text_de = "<p>Was zeichnet eine <b>anonyme</b> Umfrage aus?</p>"
+        self.ot.text_en = "<p>What makes a survey anonymous?</p>"
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.save()
+        with translation.override("en"):
+            ctx = ai_freetext_summary.question_context(self.ot)
+        self.assertEqual(ctx["question"], "Was zeichnet eine anonyme Umfrage aus?")
+        self.assertEqual(ctx["model_solution"], "Keine Rückschlüsse")
+        self.assertEqual(ctx["hint"], "")
+
+    @override_settings(**AI_ON)
+    def test_compute_passes_question_context_to_both_steps(self):
+        self._cast("Keine Namen")
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.evaluation_hint = "Personenbezug"
+        self.ot.wordcloud_grouping = "korrekt / falsch"
+        self.ot.save()
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            side_effect=[reply, {"clusters": [{"label": "korrekt", "members": [1]}]}],
+        ) as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        for call in chat.call_args_list:
+            prompt = call[0][1]
+            self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", prompt)
+            self.assertIn("Musterlösung: Keine Rückschlüsse auf Personen", prompt)
+            self.assertIn("Bewertungshinweis: Personenbezug", prompt)
+            self.assertNotIn("<p>", prompt)
+
+    # --- grouping_use_solution (model solution in the prompts) -----------
+
+    def test_question_context_omits_solution_when_flag_off(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.evaluation_hint = "Personenbezug"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        ctx = ai_freetext_summary.question_context(self.ot)
+        self.assertEqual(ctx["model_solution"], "")
+        # Question text and hint stay.
+        self.assertEqual(ctx["question"], "Was zeichnet eine anonyme Umfrage aus?")
+        self.assertEqual(ctx["hint"], "Personenbezug")
+
+    def test_question_context_includes_solution_by_default(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.save()
+        self.assertTrue(self.ot.wordcloud_grouping_use_solution)
+        ctx = ai_freetext_summary.question_context(self.ot)
+        self.assertEqual(ctx["model_solution"], "Keine Rückschlüsse")
+
+    @override_settings(**AI_ON)
+    def test_compute_without_solution_when_flag_off(self):
+        self._cast("Keine Namen")
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.evaluation_hint = "Personenbezug"
+        self.ot.wordcloud_grouping = "korrekt / falsch"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            side_effect=[reply, {"clusters": [{"label": "korrekt", "members": [1]}]}],
+        ) as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        self.assertEqual(chat.call_count, 2)
+        for call in chat.call_args_list:
+            prompt = call[0][1]
+            self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", prompt)
+            self.assertNotIn("Musterlösung:", prompt)
+            self.assertNotIn("Keine Rückschlüsse", prompt)
+            self.assertIn("Bewertungshinweis: Personenbezug", prompt)
+
+    def _settings(self, body):
+        self.client.force_login(self.owner)
+        return self.client.post(
+            f"/api/runs/{self.run.pk}/wordcloud/{self.ot.pk}/ai-settings",
+            body, content_type="application/json",
+        )
+
+    def test_settings_grouping_use_solution_saved_and_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._settings({"grouping_use_solution": False})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["grouping_use_solution"])
+        self.ot.refresh_from_db()
+        self.assertFalse(self.ot.wordcloud_grouping_use_solution)
+        refresh.assert_called_once_with(self.run.pk, self.ot.pk, self.room.pk)
+
+    def test_settings_unchanged_grouping_use_solution_no_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._settings({"grouping_use_solution": True})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["grouping_use_solution"])
+        refresh.assert_not_called()
+
+    def test_settings_grouping_use_solution_must_be_bool(self):
+        for bad in ("false", "true", 1, 0, None):
+            with patch("live.views.ai_wordcloud_live.refresh") as refresh, \
+                    patch("live.views.broadcast") as bc:
+                resp = self._settings(
+                    {"grouping": "neu", "grouping_use_solution": bad}
+                )
+            self.assertEqual(resp.status_code, 400, bad)
+            refresh.assert_not_called()
+            bc.assert_not_called()
+        self.ot.refresh_from_db()
+        self.assertTrue(self.ot.wordcloud_grouping_use_solution)
+        self.assertEqual(self.ot.wordcloud_grouping, "")
+
+    def test_presenter_payload_has_solution_and_flag_participant_not(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        payloads = build_payloads(self.room)
+        question = payloads["presenter"]["question"]
+        self.assertEqual(question["model_solution"], "Keine Rückschlüsse")
+        self.assertFalse(question["wordcloud_grouping_use_solution"])
+        participant_q = payloads["participant"]["question"]
+        self.assertNotIn("model_solution", participant_q)
+        self.assertNotIn("wordcloud_grouping_use_solution", participant_q)
+        self.assertNotIn("Keine Rückschlüsse", json.dumps(payloads["participant"]))
+
+    def test_participant_results_payload_has_no_model_solution(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.save()
+        self.run.phase = Run.Phase.RESULTS
+        self.run.save()
+        self.question_set.show_results_to_participants = True
+        self.question_set.save()
+        payloads = build_payloads(self.room)
+        self.assertNotIn("Keine Rückschlüsse", json.dumps(payloads["participant"]))
+        self.assertEqual(
+            payloads["presenter"]["question"]["model_solution"], "Keine Rückschlüsse"
+        )
+
+    @override_settings(**AI_ON)
+    def test_compute_success_and_no_answers_flag_no_error(self):
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        chat.assert_not_called()
+        self.assertFalse(ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)["error"])
+        self._cast("Keine Namen")
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch("basicbar_integrations.ai.chat_json", return_value=reply):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertFalse(result["error"])
+        self.assertEqual(result["merged"][0]["text"], "S")
+
+    @override_settings(**AI_ON)
+    def test_compute_grouping_failure_not_an_error(self):
+        from basicbar_integrations import ai
+        self._cast("Keine Namen")
+        self.ot.wordcloud_grouping = "nach Rolle"
+        self.ot.save()
+        reply = {"statements": [{"label": "S", "cluster": "Thema", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json", side_effect=[reply, ai.AIError("x")]
+        ):
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        result = ai_wordcloud_live.get_result(self.run.pk, self.ot.pk)
+        self.assertFalse(result["error"])
+        self.assertEqual(result["clusters"][0]["label"], "Thema")
+
+    def test_vote_schedules_live_summary(self):
+        with patch("live.ai_wordcloud_live.schedule") as sched:
+            self._cast("Keine Namen")
+        sched.assert_called_once_with(self.run.pk, self.ot.pk, self.room.pk)
+
+    # --- endpoints / payload --------------------------------------------------
+
+    @override_settings(**AI_ON)
+    def test_activation_accepts_open_text(self):
+        self.client.force_login(self.owner)
+        with patch("live.ai_wordcloud_live.schedule"):
+            resp = self.client.post(
+                f"/api/runs/{self.run.pk}/wordcloud-ai/",
+                {"question": self.ot.pk, "active": True},
+                content_type="application/json",
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(ai_wordcloud_live.is_active(self.run.pk, self.ot.pk))
+
+    @override_settings(**AI_ON)
+    def test_activation_rejects_open_text_without_ai_enabled(self):
+        self.ot.wordcloud_ai_enabled = False
+        self.ot.save()
+        self.client.force_login(self.owner)
+        resp = self.client.post(
+            f"/api/runs/{self.run.pk}/wordcloud-ai/",
+            {"question": self.ot.pk, "active": True},
+            content_type="application/json",
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    @override_settings(**AI_ON)
+    def test_settings_accept_open_text(self):
+        self.client.force_login(self.owner)
+        url = f"/api/runs/{self.run.pk}/wordcloud/{self.ot.pk}/ai-settings"
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self.client.post(
+                url, {"grouping": "nach Aspekt", "merge_concepts": True},
+                content_type="application/json",
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["grouping"], "nach Aspekt")
+        self.assertTrue(resp.json()["merge_concepts"])
+        refresh.assert_called_once()
+        self.ot.refresh_from_db()
+        self.assertEqual(self.ot.wordcloud_grouping, "nach Aspekt")
+        # Other kinds remain 404.
+        url = f"/api/runs/{self.run.pk}/wordcloud/{self.question.pk}/ai-settings"
+        self.assertEqual(
+            self.client.post(url, {"grouping": "x"},
+                             content_type="application/json").status_code,
+            404,
+        )
+
+    def test_close_eagerly_computes_open_text_summary(self):
+        self.client.force_login(self.owner)
+        url = f"/api/runs/{self.run.pk}/control/"
+        with patch("live.views.ai_wordcloud_live.ensure_result") as ensure:
+            self.client.post(url, {"phase": "closed"}, content_type="application/json")
+        ensure.assert_called_once_with(self.run.pk, self.ot.pk, self.room.pk)
+
+    def test_close_no_eager_summary_without_ai_enabled(self):
+        self.ot.wordcloud_ai_enabled = False
+        self.ot.save()
+        self.client.force_login(self.owner)
+        with patch("live.views.ai_wordcloud_live.ensure_result") as ensure:
+            self.client.post(
+                f"/api/runs/{self.run.pk}/control/", {"phase": "closed"},
+                content_type="application/json",
+            )
+        ensure.assert_not_called()
+
+    def test_presenter_payload_has_summary_participant_not(self):
+        key = (self.run.pk, self.ot.pk)
+        ai_wordcloud_live._results[key] = {
+            "merged": [{"text": "S", "count": 1, "variants": ["a"], "keys": ["a"]}],
+            "clusters": [], "pending": False,
+        }
+        self.run.phase = Run.Phase.RESULTS
+        self.run.save()
+        self.question_set.show_results_to_participants = True
+        self.question_set.save()
+        payloads = build_payloads(self.room)
+        self.assertEqual(payloads["presenter"]["wordcloud_ai"]["merged"][0]["text"], "S")
+        self.assertNotIn("wordcloud_ai", payloads["participant"])
+
+
+class FreetextAiSummaryEndpointTests(LiveTestCase):
+    """One-shot AI key statements (+ grouping) of a free-text question for the
+    Quiz-Block walkthrough: POST /api/runs/<run>/questions/<q>/ai-summary/."""
+
+    def setUp(self):
+        super().setUp()
+        self.ot = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            text="<p>Was zeichnet eine anonyme Umfrage aus?</p>", position=8,
+            wordcloud_ai_enabled=True,
+        )
+        self.run = self.open_question(self.ot)
+        for raw in ["Keine Namen", "keine namen", "Ehrlicher", "Peinlich", "Kein Login"]:
+            self.vote(self.join(), text=raw)
+        self.run.phase = Run.Phase.FINISHED
+        self.run.save()
+        self.url = f"/api/runs/{self.run.pk}/questions/{self.ot.pk}/ai-summary/"
+
+    REPLY = {
+        "statements": [
+            {"label": "Anonymität", "cluster": "Schutz", "members": [1, 4]},
+            {"label": "Ehrlichkeit", "cluster": "Qualität", "members": [2]},
+        ]
+    }
+
+    @override_settings(**AI_ON)
+    def test_returns_statements_in_wordcloud_shape(self):
+        with patch("basicbar_integrations.ai.chat_json", return_value=self.REPLY) as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(set(data), {"merged", "clusters"})
+        self.assertEqual(sum(s["count"] for s in data["merged"]), 5)
+        top = data["merged"][0]
+        self.assertEqual(top["text"], "Anonymität")
+        self.assertEqual(top["count"], 3)  # 2× "Keine Namen" + 1 other
+        self.assertIn("keine namen", top["keys"])
+        # No grouping criterion → a single call (key statements only).
+        self.assertEqual(chat.call_count, 1)
+        self.assertIn(ai_freetext_summary.RULE_EQUIVALENT, chat.call_args_list[0][0][0])
+
+    @override_settings(**AI_ON)
+    def test_uses_merge_flag_and_grouping_of_question(self):
+        self.ot.wordcloud_merge_concepts = True
+        self.ot.wordcloud_grouping = "nach Vorteil für Studierende vs. Lehrende"
+        self.ot.save()
+        replies = [self.REPLY, {"clusters": [{"label": "Studierende", "members": [1, 2]}]}]
+        with patch("basicbar_integrations.ai.chat_json", side_effect=replies) as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(chat.call_count, 2)
+        self.assertIn(ai_freetext_summary.RULE_SIMILAR, chat.call_args_list[0][0][0])
+        self.assertIn("nach Vorteil für Studierende", chat.call_args_list[1][0][0])
+        self.assertEqual(response.json()["clusters"][0]["label"], "Studierende")
+        # Both steps know the question (plain text).
+        for call in chat.call_args_list:
+            self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", call[0][1])
+
+    @override_settings(**AI_ON)
+    def test_passes_model_solution_context(self):
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.save()
+        with patch("basicbar_integrations.ai.chat_json", return_value=self.REPLY) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(self.url)
+        self.assertIn(
+            "Musterlösung: Keine Rückschlüsse auf Personen", chat.call_args_list[0][0][1]
+        )
+
+    @override_settings(**AI_ON)
+    def test_omits_model_solution_when_flag_off(self):
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        with patch("basicbar_integrations.ai.chat_json", return_value=self.REPLY) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(self.url)
+        prompt = chat.call_args_list[0][0][1]
+        self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", prompt)
+        self.assertNotIn("Musterlösung", prompt)
+
+    @override_settings(**AI_ON)
+    def test_respects_moderation(self):
+        from .models import WordCloudModeration
+        WordCloudModeration.objects.create(
+            run=self.run, question=self.ot, hidden=["peinlich"],
+            merges=[{"keys": ["ehrlicher", "kein login"], "label": "Ehrlich"}],
+        )
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"statements": []}
+        ) as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(self.url)
+        self.assertEqual(response.status_code, 200)
+        prompt = chat.call_args[0][1]
+        self.assertNotIn("Peinlich", prompt)
+        self.assertIn("Ehrlich", prompt)
+        self.assertNotIn("Kein Login", prompt)
+        # Unreferenced answers still appear as their own statement.
+        self.assertEqual(sum(s["count"] for s in response.json()["merged"]), 4)
+
+    @override_settings(**AI_ON)
+    def test_model_error_returns_502(self):
+        from basicbar_integrations import ai
+        with patch("basicbar_integrations.ai.chat_json", side_effect=ai.AIError("x")):
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(self.url).status_code, 502)
+
+    @override_settings(**AI_OFF)
+    def test_disabled_returns_503(self):
+        self.client.force_login(self.owner)
+        self.assertEqual(self.client.post(self.url).status_code, 503)
+
+    @override_settings(**AI_ON)
+    def test_requires_owner(self):
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(User.objects.create_user(username="eve"))
+            self.assertEqual(self.client.post(self.url).status_code, 404)
+        chat.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_anonymous_rejected(self):
+        self.assertIn(self.client.post(self.url).status_code, (401, 403))
+
+    @override_settings(**AI_ON)
+    def test_non_open_text_rejected(self):
+        url = f"/api/runs/{self.run.pk}/questions/{self.question.pk}/ai-summary/"
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(url).status_code, 400)
+        chat.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_ai_summary_off_for_question_rejected(self):
+        self.ot.wordcloud_ai_enabled = False
+        self.ot.save()
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(self.owner)
+            self.assertEqual(self.client.post(self.url).status_code, 400)
+        chat.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_no_answers_skips_model(self):
+        empty = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            position=9, wordcloud_ai_enabled=True,
+        )
+        url = f"/api/runs/{self.run.pk}/questions/{empty.pk}/ai-summary/"
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.client.force_login(self.owner)
+            response = self.client.post(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"merged": [], "clusters": []})
+        chat.assert_not_called()

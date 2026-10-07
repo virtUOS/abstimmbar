@@ -177,6 +177,9 @@ export interface Question {
   wordcloud_ai_enabled: boolean;
   /** word_cloud only: optional AI grouping criteria (empty = auto themes). */
   wordcloud_grouping: string;
+  /** open_text only: send the model solution along to the AI key
+   *  statements/grouping (default on). */
+  wordcloud_grouping_use_solution: boolean;
   /** word_cloud only: what the AI "Cleaned up" view merges — spelling
    *  variants/typos, synonyms/word forms, similar concepts. */
   wordcloud_merge_variants: boolean;
@@ -939,6 +942,10 @@ export interface LiveState {
     wordcloud_ai_enabled?: boolean;
     /** The question's saved AI grouping instruction (empty = AI clusters freely). */
     wordcloud_grouping?: string;
+    /** open_text: send the model solution along to the AI grouping. */
+    wordcloud_grouping_use_solution?: boolean;
+    /** open_text, presenter only: the question's model solution (plain). */
+    model_solution?: string;
     /** What the AI "Cleaned up" view merges (saved on the question). */
     wordcloud_merge_variants?: boolean;
     wordcloud_merge_synonyms?: boolean;
@@ -958,10 +965,12 @@ export interface LiveState {
     results?: LiveOption[];
     likert?: LikertSummary;
   };
-  words?: { text: string; count: number }[];
+  /** Moderated terms/answers; `keys` = the casefold moderation keys each
+   *  entry stands for (word cloud and free text). */
+  words?: { text: string; count: number; keys?: string[]; variants?: string[]; merged?: boolean }[];
   evaluation?: FreeTextEvalSummary;
-  /** Live AI word-cloud views (consolidated + grouped), while the presenter
-   *  shows an AI view (#Wortwolke-KI). */
+  /** Live AI views while the presenter shows one: word cloud consolidated +
+   *  grouped (#Wortwolke-KI); free text key statements (`merged`) + grouped. */
   wordcloud_ai?: WordCloudAI;
   /** Presenter-side moderation state (hidden terms, manual merges, #Wortwolke). */
   wordcloud_moderation?: WordCloudModeration;
@@ -995,6 +1004,10 @@ export interface WordCloudAI {
   merged: WordCloudAIWord[];
   clusters: { label: string; count: number; words: WordCloudAIWord[] }[];
   pending: boolean;
+  /** True when the last AI computation failed (live free-text summary). */
+  error?: boolean;
+  /** Increases with every finished computation (also identical / failed). */
+  seq?: number;
 }
 
 /** Priorities question aggregation (#58): per-option average/min/max points
@@ -1062,7 +1075,7 @@ export interface RunResults {
     before_question: number | null;
     options?: LiveOption[];
     likert?: LikertSummary;
-    words?: { text: string; count: number; onsite?: number; recording?: number }[];
+    words?: { text: string; count: number; onsite?: number; recording?: number; keys?: string[] }[];
     evaluation?: FreeTextEvalSummary;
     /** Priorities (#58): per-option avg/min/max/n. */
     priorities?: PriorityStat[];
@@ -1103,6 +1116,13 @@ export const results = {
   optimizeWordCloud: (runId: number, questionId: number) =>
     request<WordCloudOptimization>(
       `/api/runs/${runId}/questions/${questionId}/ai-wordcloud/`,
+      { method: "POST" },
+    ),
+  /** One-shot AI key statements (+ grouping) of a free-text question of a
+   *  finished run (Quiz-Block walkthrough); same shape as the live result. */
+  freeTextSummary: (runId: number, questionId: number) =>
+    request<WordCloudOptimization>(
+      `/api/runs/${runId}/questions/${questionId}/ai-summary/`,
       { method: "POST" },
     ),
   /** Optional AI evaluation of free-text answers (korrekt/unklar/falsch). */
@@ -1218,6 +1238,7 @@ export const live = {
       merge_variants?: boolean;
       merge_synonyms?: boolean;
       merge_concepts?: boolean;
+      grouping_use_solution?: boolean;
       regroup?: boolean;
     },
   ) =>
@@ -1227,6 +1248,9 @@ export const live = {
       merge_variants: boolean;
       merge_synonyms: boolean;
       merge_concepts: boolean;
+      grouping_use_solution: boolean;
+      /** Results with a higher `WordCloudAI.seq` reflect these settings. */
+      ai_seq: number;
     }>(
       `/api/runs/${runId}/wordcloud/${questionId}/ai-settings`,
       { method: "POST", body: JSON.stringify(body) },

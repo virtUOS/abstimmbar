@@ -46,6 +46,10 @@ api_urlpatterns = [
         "runs/<int:run_id>/questions/<int:question_id>/ai-freetext/",
         views.evaluate_freetext,
     ),
+    path(
+        "runs/<int:run_id>/questions/<int:question_id>/ai-summary/",
+        views.freetext_summary,
+    ),
     path("runs/<int:run_id>/", views.delete_run),
 ]
 

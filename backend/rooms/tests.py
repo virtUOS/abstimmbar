@@ -1275,6 +1275,48 @@ class TransferTests(ApiTestCase):
         imported = import_set(target, data)
         self.assertEqual(imported.quiz_time_limit, 300)
 
+    def test_export_import_roundtrip_preserves_model_solution_and_feedback(self):
+        """A free-text question's model solution and participant-feedback
+        switch survive export/import (they were silently dropped before)."""
+        from .transfer import export_set, import_set
+
+        Question.objects.create(
+            question_set=self.question_set,
+            kind=Question.Kind.OPEN_TEXT,
+            text_de="Was zeichnet eine anonyme Umfrage aus?",
+            model_solution="Keine Rückschlüsse auf die antwortende Person.",
+            participant_feedback=True,
+            ai_evaluate=True,
+            position=99,
+        )
+        data = export_set(self.question_set)
+        item = next(q for q in data["questions"] if q["kind"] == Question.Kind.OPEN_TEXT)
+        self.assertEqual(item["model_solution"], "Keine Rückschlüsse auf die antwortende Person.")
+        self.assertTrue(item["participant_feedback"])
+
+        target = Room.objects.create(title="Anderer Raum")
+        target.owners.add(self.owner)
+        imported = import_set(target, data)
+        q = imported.questions.get(kind=Question.Kind.OPEN_TEXT)
+        self.assertEqual(q.model_solution, "Keine Rückschlüsse auf die antwortende Person.")
+        self.assertTrue(q.participant_feedback)
+
+    def test_import_without_model_solution_keys_uses_defaults(self):
+        """Older export files lack the keys → empty solution, feedback off."""
+        from .transfer import import_set
+
+        imported = import_set(
+            self.room,
+            {
+                "format": "abstimmbar-set-v1",
+                "title": "x",
+                "questions": [{"kind": "open_text", "text": {"de": "Frage"}, "options": []}],
+            },
+        )
+        q = imported.questions.get()
+        self.assertEqual(q.model_solution, "")
+        self.assertFalse(q.participant_feedback)
+
     def test_import_rejects_invalid_quiz_time_limit(self):
         """A foreign/legacy file with an implausible ``quiz_time_limit``
         (negative, non-int, or out of range) imports as None rather than
@@ -1957,6 +1999,49 @@ class V21TransferTests(ApiTestCase):
         self.assertFalse(clone.wordcloud_merge_variants)
         self.assertFalse(clone.wordcloud_merge_synonyms)
         self.assertTrue(clone.wordcloud_merge_concepts)
+
+    def test_grouping_use_solution_roundtrip(self):
+        # Serializer, export → import (missing → default on) and duplication.
+        question_set = QuestionSet.objects.create(room=self.room, title_de="FT")
+        created = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": question_set.pk, "kind": "open_text",
+                "text": "<p>Warum?</p>", "options": [],
+                "model_solution": "Darum",
+                "wordcloud_grouping_use_solution": False,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertFalse(created.json()["wordcloud_grouping_use_solution"])
+        source = Question.objects.get(pk=created.json()["id"])
+        self.assertFalse(source.wordcloud_grouping_use_solution)
+
+        export = self.client.get(
+            f"/api/question-sets/{question_set.pk}/export/"
+        ).json()
+        self.assertFalse(export["questions"][0]["wordcloud_grouping_use_solution"])
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", export,
+            content_type="application/json",
+        )
+        imported = QuestionSet.objects.get(pk=response.json()["id"]).questions.get()
+        self.assertFalse(imported.wordcloud_grouping_use_solution)
+
+        export["questions"][0].pop("wordcloud_grouping_use_solution")
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", export,
+            content_type="application/json",
+        )
+        imported = QuestionSet.objects.get(pk=response.json()["id"]).questions.get()
+        self.assertTrue(imported.wordcloud_grouping_use_solution)
+
+        from rooms.transfer import duplicate_question
+        clone = duplicate_question(
+            source, question_set=question_set, section=None, position=9
+        )
+        self.assertFalse(clone.wordcloud_grouping_use_solution)
 
     def test_import_defaults_wordcloud_merge_settings_when_missing(self):
         question_set = QuestionSet.objects.create(room=self.room, title_de="WC")

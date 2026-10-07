@@ -359,6 +359,10 @@ class Question(TimeStampedModel):
     # LLM bildet automatische thematische Cluster; ausgefüllt → es gruppiert nach
     # dieser Vorgabe. Nur wirksam bei aktivem wordcloud_ai_enabled.
     wordcloud_grouping = models.TextField(blank=True)
+    # open_text only: send the model_solution along with the question context
+    # to the AI key statements/grouping (Freitext-KI). Off → only question text
+    # and evaluation hint; the solution never reaches the prompt.
+    wordcloud_grouping_use_solution = models.BooleanField(default=True)
     # What the KI-Sicht „Aufgeräumt" zusammenfasst (Groß-/Kleinschreibung immer):
     # Schreibvarianten/Tippfehler (müde/muede/mühde), Synonyme und Wortformen
     # (einsam/Einsamkeit), ähnliche Konzepte (Gebäude/Haus/Wohnung). Nur

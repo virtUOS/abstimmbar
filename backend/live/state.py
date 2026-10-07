@@ -185,6 +185,13 @@ def build_payloads(room):
         # Presenter-only (not in the participant payload): the AI grouping
         # instruction shown/edited in the word-cloud AI panel.
         presenter["question"]["wordcloud_grouping"] = question.wordcloud_grouping
+        presenter["question"]["wordcloud_grouping_use_solution"] = (
+            question.wordcloud_grouping_use_solution
+        )
+        if question.kind == Question.Kind.OPEN_TEXT:
+            # Presenter-only, never in the participant payload: the AI panel
+            # offers it collapsed („Musterlösung anzeigen").
+            presenter["question"]["model_solution"] = question.model_solution
         for flag in ("variants", "synonyms", "concepts"):
             field = f"wordcloud_merge_{flag}"
             presenter["question"][field] = getattr(question, field)
@@ -198,12 +205,11 @@ def build_payloads(room):
             }
             if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
                 presenter["evaluation"] = freetext_evaluation(run, question)
-            # Live AI word-cloud views (consolidated/grouped), only while the
-            # presenter has switched to an AI view for this question.
-            if question.kind == Question.Kind.WORD_CLOUD:
-                ai_view = ai_wordcloud_live.get_result(run.pk, question.pk)
-                if ai_view is not None:
-                    presenter["wordcloud_ai"] = ai_view
+            # Live AI views (word cloud: consolidated/grouped; free text: key
+            # statements/grouped), once computed (active or kept warm).
+            ai_view = ai_wordcloud_live.get_result(run.pk, question.pk)
+            if ai_view is not None:
+                presenter["wordcloud_ai"] = ai_view
         elif question.kind == Question.Kind.PRIORITIES:
             presenter["priorities"] = priority_stats(run, question)
         elif question.kind == Question.Kind.ORDERING:

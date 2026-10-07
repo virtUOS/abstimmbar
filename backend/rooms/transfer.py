@@ -90,6 +90,7 @@ QUESTION_CONTENT_FIELDS = (
     "wordcloud_live",
     "wordcloud_ai_enabled",
     "wordcloud_grouping",
+    "wordcloud_grouping_use_solution",
     "wordcloud_merge_variants",
     "wordcloud_merge_synonyms",
     "wordcloud_merge_concepts",
@@ -246,6 +247,9 @@ def export_set(question_set):
                 "wordcloud_live": question.wordcloud_live,
                 "wordcloud_ai_enabled": question.wordcloud_ai_enabled,
                 "wordcloud_grouping": question.wordcloud_grouping,
+                "wordcloud_grouping_use_solution": (
+                    question.wordcloud_grouping_use_solution
+                ),
                 "wordcloud_merge_variants": question.wordcloud_merge_variants,
                 "wordcloud_merge_synonyms": question.wordcloud_merge_synonyms,
                 "wordcloud_merge_concepts": question.wordcloud_merge_concepts,
@@ -256,6 +260,8 @@ def export_set(question_set):
                 "evaluation_hint": question.evaluation_hint,
                 "evaluation_categories": question.evaluation_categories,
                 "evaluation_chart": question.evaluation_chart,
+                "model_solution": question.model_solution,
+                "participant_feedback": question.participant_feedback,
                 "section": section_index.get(question.section_id),
                 "options": [
                     {
@@ -388,6 +394,9 @@ def import_set(room, data):
             wordcloud_live=bool(item.get("wordcloud_live", True)),
             wordcloud_ai_enabled=bool(item.get("wordcloud_ai_enabled")),
             wordcloud_grouping=str(item.get("wordcloud_grouping") or "")[:2000],
+            wordcloud_grouping_use_solution=bool(
+                item.get("wordcloud_grouping_use_solution", True)
+            ),
             # Missing (older exports) → the model defaults.
             wordcloud_merge_variants=bool(item.get("wordcloud_merge_variants", True)),
             wordcloud_merge_synonyms=bool(item.get("wordcloud_merge_synonyms", True)),
@@ -398,6 +407,9 @@ def import_set(room, data):
             evaluation_hint=str(item.get("evaluation_hint") or "")[:2000],
             evaluation_categories=_import_categories(item.get("evaluation_categories")),
             evaluation_chart=bool(item.get("evaluation_chart")),
+            # Missing in older exports → empty solution, feedback off.
+            model_solution=str(item.get("model_solution") or "")[:2000],
+            participant_feedback=bool(item.get("participant_feedback")),
             reveal_answers=(
                 item.get("reveal_answers")
                 if item.get("reveal_answers") in Question.RevealAnswers.values

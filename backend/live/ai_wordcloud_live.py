@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
-"""Live AI word-cloud views during a run.
+"""Live AI word-cloud views during a run — and, with the same machinery, the
+AI key statements/grouping of free-text (open_text) answers
+(``ai_freetext_summary``).
 
 While the presenter shows an AI view (consolidated or grouped), the raw terms
 are periodically sent to the LLM, which merges spelling variants/synonyms and
@@ -23,7 +25,7 @@ from concurrent.futures import ThreadPoolExecutor
 from basicbar_integrations import ai
 from django.db import connections
 
-from . import ai_wordcloud
+from . import ai_freetext_summary, ai_wordcloud
 
 MIN_INTERVAL = 4.0  # seconds between LLM recomputes for the same word cloud
 
@@ -33,6 +35,25 @@ _active = set()          # {(run_id, question_id)} currently shown as an AI view
 _results = {}            # (run_id, question_id) -> {merged, clusters, pending, ...}
 _running = set()         # keys with a worker loop in flight
 _dirty = set()           # keys that got new votes while a loop was running
+_last_seq = 0            # last issued result sequence number (see _next_seq)
+
+
+def _next_seq():
+    """A new, strictly increasing result sequence number (caller holds
+    ``_lock``). Millisecond-based so it also keeps increasing across a
+    process restart, which a presenter's earlier mark may predate."""
+    global _last_seq
+    _last_seq = max(_last_seq + 1, int(time.time() * 1000))
+    return _last_seq
+
+
+def current_seq():
+    """The mark a presenter waits to see exceeded after saving AI settings:
+    every compute that starts after this call (and so reads the saved
+    settings) stores a result with a higher ``seq`` — even when its content is
+    identical to the previous result, or the AI call failed."""
+    with _lock:
+        return _last_seq
 
 
 def is_active(run_id, question_id):
@@ -57,7 +78,7 @@ def set_active(run_id, question_id, room_id, on):
             _active.add(key)
             # Show a wait state until the first result lands.
             _results.setdefault(
-                key, {"merged": [], "clusters": [], "pending": True}
+                key, {"merged": [], "clusters": [], "pending": True, "seq": 0}
             )
         schedule(run_id, question_id, room_id)
     else:
@@ -79,7 +100,9 @@ def ensure_result(run_id, question_id, room_id):
         current = _results.get(key)
         if current is not None and not current.get("pending"):
             return  # already computed and warm
-        _results.setdefault(key, {"merged": [], "clusters": [], "pending": True})
+        _results.setdefault(
+            key, {"merged": [], "clusters": [], "pending": True, "seq": 0}
+        )
         if key in _running:
             return
         _running.add(key)
@@ -156,34 +179,54 @@ def _compute(run_id, question_id, room_id):
     from .state import broadcast
 
     key = (run_id, question_id)
+    with _lock:
+        # Taken before anything is read: a result built from settings saved
+        # after a presenter's ``current_seq()`` mark always exceeds it.
+        seq = _next_seq()
     try:
         run = Run.objects.filter(pk=run_id).first()
         question = Question.objects.filter(pk=question_id).first()
         if run is None or question is None:
             return
         words = words_with_counts(run, question, limit=200)
+        # ``error`` distinguishes "the AI call failed" from "no answers yet".
         if not words:
-            result = {"merged": [], "clusters": [], "pending": False}
+            result = {"merged": [], "clusters": [], "pending": False, "error": False}
         else:
             try:
-                data = ai.chat_json(
-                    ai_wordcloud.optimize_system(
-                        question.wordcloud_grouping,
-                        **ai_wordcloud.merge_flags(question),
-                    ),
-                    ai_wordcloud.build_optimize_prompt(words),
-                )
-                optimized = ai_wordcloud.apply_optimization(words, data)
+                if question.kind == Question.Kind.OPEN_TEXT:
+                    # Free text: key statements + grouping (same output shape).
+                    optimized = ai_freetext_summary.summarize(
+                        words,
+                        grouping=question.wordcloud_grouping,
+                        merge_similar=question.wordcloud_merge_concepts,
+                        context=ai_freetext_summary.question_context(question),
+                        chat_json=ai.chat_json,
+                    )
+                else:
+                    data = ai.chat_json(
+                        ai_wordcloud.optimize_system(
+                            question.wordcloud_grouping,
+                            **ai_wordcloud.merge_flags(question),
+                        ),
+                        ai_wordcloud.build_optimize_prompt(words),
+                    )
+                    optimized = ai_wordcloud.apply_optimization(words, data)
                 result = {
                     "merged": optimized["merged"],
                     "clusters": optimized["clusters"],
                     "pending": False,
+                    "error": False,
                 }
             except ai.AIError:
-                result = {"merged": [], "clusters": [], "pending": False}
+                result = {"merged": [], "clusters": [], "pending": False, "error": True}
+        result["seq"] = seq
         with _lock:
             # Always store (kept warm, #75); set_active(off) no longer drops it.
-            _results[key] = result
+            # Never let an older compute overwrite a newer one's result.
+            current = _results.get(key)
+            if current is None or current.get("seq", 0) < seq:
+                _results[key] = result
         room = Room.objects.filter(pk=room_id).first()
         if room is not None:
             broadcast(room, debounce=True)

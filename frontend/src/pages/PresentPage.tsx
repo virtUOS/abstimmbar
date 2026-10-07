@@ -4,10 +4,10 @@
 /** Presentation mode (concept §6.1): a reduced fullscreen view for the
  * beamer. Keyboard-first — S start/stop, E/R results, ←/→ navigate,
  * A reveal correct answers (in "after_close" mode), Esc ends. */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Unlink, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -28,9 +28,33 @@ import VoteRing from "../results/VoteRing";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
-import { INK, evalColor, categoryColor, categoryHue, termColor } from "../results/palette";
+import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+/** Beamer view of a word cloud / free-text question (#Wortwolke-KI). Free text
+ *  reads "consolidated" as key statements; "results" = its AI verdict bars. */
+type WcView = "raw" | "results" | "consolidated" | "grouped";
+
+/** View options of a free-text question (live presenter and the Quiz-Block
+ *  walkthrough share them): Original, Evaluation (AI verdict bars, only when
+ *  evaluated), Key statements + Grouped (only with the AI summary on). */
+function freeTextViewOptions(
+  t: (key: string) => string,
+  hasEval: boolean,
+  ai: boolean,
+): { value: WcView; label: string }[] {
+  return [
+    { value: "raw", label: t("Original") },
+    ...(hasEval ? [{ value: "results" as const, label: t("Evaluation") }] : []),
+    ...(ai
+      ? [
+          { value: "consolidated" as const, label: t("Key statements") },
+          { value: "grouped" as const, label: t("Grouped") },
+        ]
+      : []),
+  ];
+}
 
 function evalLabel(verdict: string) {
   return verdict ? verdict[0].toUpperCase() + verdict.slice(1) : verdict;
@@ -101,7 +125,6 @@ function blurClickedButton(e: { target: EventTarget }) {
 
 export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_paced" }) {
   const { t } = useTranslation();
-  const reduced = useReducedMotion();
   const { setId } = useParams();
   const id = Number(setId);
   const navigate = useNavigate();
@@ -115,6 +138,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [presentResultsAfter, setPresentResultsAfter] = useState(true);
   const [walk, setWalk] = useState<RunResults["questions"] | null>(null);
   const [walkIndex, setWalkIndex] = useState(0);
+  // Walkthrough view of a free-text slide (Original / Evaluation / Key
+  // statements / Grouped) and the one-shot AI summaries, cached per
+  // "run:question" ("error" = the last request failed; absent = not loaded).
+  const [walkViewState, setWalkView] = useState<WcView>("raw");
+  const [walkAi, setWalkAi] = useState<Record<string, WordCloudAI | "error">>({});
+  const walkAiLoading = useRef<Set<string>>(new Set());
   const [runId, setRunId] = useState<number | null>(null);
   // Recording mode (#53): opted in on the set page (checkbox), carried here as
   // ?recording=1; live only (self-paced is already async).
@@ -171,7 +200,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // footer icon or the "q" key; Esc closes it.
   const [showJoin, setShowJoin] = useState(false);
   // Word-cloud view cycle: raw → AI-consolidated → AI-grouped (#Wortwolke-KI).
-  const [wcView, setWcView] = useState<"raw" | "consolidated" | "grouped">("raw");
+  // Free text adds "results" (AI verdict bars) and reads "consolidated" as
+  // key statements. The effective view (`wcView`) is derived below.
+  const [wcViewState, setWcView] = useState<WcView>("raw");
   const [modHintSeen, setModHintSeen] = useState(() => {
     try {
       return localStorage.getItem("abstimmbar_wc_moderation_hint") === "1";
@@ -274,22 +305,51 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // shows the plain cloud only.
   const expert = !whoAi.easy;
   // AI cleanup/grouping views are opt-in per question (#Wortwolke-KI).
+  // Free text shares the word-cloud machinery (moderation, AI summary views).
+  const isTextKind = activeKind === "word_cloud" || activeKind === "open_text";
+  const isOpenText = activeKind === "open_text";
   const aiCloud =
-    expert && activeKind === "word_cloud" && state?.question?.wordcloud_ai_enabled === true;
+    expert && isTextKind && state?.question?.wordcloud_ai_enabled === true;
+  // AI-evaluated free text: the verdict bars are the default beamer view —
+  // verbatim answers appear only once the presenter picks "Original".
+  const hasEval = isOpenText && !!state?.evaluation;
+  const defaultView: WcView = hasEval ? "results" : "raw";
+  // One option list for the footer dropdown, the `A` cycle and the AI panel.
+  const wcViewOptions: { value: WcView; label: string }[] = isOpenText
+    ? freeTextViewOptions(t, hasEval, aiCloud)
+    : [
+        { value: "raw", label: t("Original") },
+        ...(aiCloud
+          ? [
+              { value: "consolidated" as const, label: t("Cleaned up") },
+              { value: "grouped" as const, label: t("Grouped") },
+            ]
+          : []),
+      ];
+  const wcView: WcView = wcViewOptions.some((o) => o.value === wcViewState)
+    ? wcViewState
+    : defaultView;
+  const isAiView = wcView === "consolidated" || wcView === "grouped";
 
-  // Each new question starts on the raw view; so does a cloud whose AI was
-  // just switched off (the AI views would otherwise linger).
-  useEffect(() => {
-    setWcView("raw");
+  // Each new question starts on its default view (raw; "results" for
+  // AI-evaluated free text); a question whose AI was just switched off falls
+  // back to it as well (the AI views would otherwise linger).
+  // Layout effect: corrected before paint, so an AI-evaluated question never
+  // flashes the verbatim chips of a leftover "Original" view for a frame.
+  useLayoutEffect(() => {
+    setWcView(defaultView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeId]);
   useEffect(() => {
-    if (!aiCloud) setWcView("raw");
+    if (!aiCloud)
+      setWcView((v) => (v === "consolidated" || v === "grouped" ? defaultView : v));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aiCloud]);
 
   // Tell the backend to keep the live AI views fresh only while one is shown
   // (capacity); deactivate the previous question when switching away.
   useEffect(() => {
-    const wantAi = aiCloud && wcView !== "raw" && activeId != null;
+    const wantAi = aiCloud && isAiView && activeId != null;
     const target = wantAi ? activeId! : null;
     if (activeAiRef.current === target) return;
     if (activeAiRef.current != null && runId) {
@@ -297,7 +357,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     }
     if (target != null && runId) void live.wordcloudAi(runId, target, true);
     activeAiRef.current = target;
-  }, [wcView, activeId, aiCloud, runId]);
+  }, [isAiView, activeId, aiCloud, runId]);
 
   // Stop the live AI computation when leaving the presentation.
   useEffect(
@@ -378,12 +438,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       ? (state?.words ?? []).length > 0
       : wcView === "consolidated"
         ? (state?.wordcloud_ai?.merged.length ?? 0) > 0
-        : (state?.wordcloud_ai?.clusters ?? []).some((c) => c.words.length > 0);
+        : wcView === "grouped"
+          ? (state?.wordcloud_ai?.clusters ?? []).some((c) => c.words.length > 0)
+          : false; // free-text verdict bars: nothing to moderate there
   const wcHasMod = (mod?.hidden.length ?? 0) > 0 || (mod?.merges.length ?? 0) > 0;
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      if (activeKind !== "word_cloud" || !expert) return;
+      if ((activeKind !== "word_cloud" && activeKind !== "open_text") || !expert) return;
       // Don't hijack native undo while the presenter types in a field.
       if (isTextField(e.target)) return;
       e.preventDefault();
@@ -395,16 +457,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKind, runId, activeId, expert]);
 
+  const wcViewKey = wcViewOptions.map((o) => o.value).join(",");
+  const canCycleView = wcViewOptions.length > 1;
   const cycleWcView = useCallback(() => {
-    setWcView((v) =>
-      v === "raw" ? "consolidated" : v === "consolidated" ? "grouped" : "raw",
-    );
-  }, []);
-  const wcViewOptions: { value: "raw" | "consolidated" | "grouped"; label: string }[] = [
-    { value: "raw", label: t("Original") },
-    { value: "consolidated", label: t("Cleaned up") },
-    { value: "grouped", label: t("Grouped") },
-  ];
+    const values = wcViewKey.split(",") as WcView[];
+    const i = values.indexOf(wcView);
+    setWcView(values[(i + 1) % values.length]);
+  }, [wcViewKey, wcView]);
 
   const phase = state?.phase ?? "lobby";
 
@@ -421,6 +480,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   useEffect(() => {
     setGroupingDraft(serverGrouping);
   }, [activeId, serverGrouping]);
+  // Free text: "Consider the model solution when grouping" — a draft like
+  // the instruction, applied with "Regroup". Only offered with a solution.
+  const serverUseSolution = state?.question?.wordcloud_grouping_use_solution ?? true;
+  const modelSolution = (state?.question?.model_solution ?? "").trim();
+  const [useSolutionDraft, setUseSolutionDraft] = useState(true);
+  useEffect(() => {
+    setUseSolutionDraft(serverUseSolution);
+  }, [activeId, serverUseSolution]);
+  // "Show model solution" disclosure: collapsed every time the panel opens or
+  // the question changes (the beamer may be mirrored); never persisted.
+  const [solutionOpen, setSolutionOpen] = useState(false);
+  useEffect(() => {
+    setSolutionOpen(false);
+  }, [activeId, showAiPanel]);
   // "Cleaned up" merge switches: a local draft (no model call per click),
   // applied with "Merge again".
   const serverMergeVariants = state?.question?.wordcloud_merge_variants ?? true;
@@ -446,42 +519,56 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // The cloud is on screen (same rule as its rendering below); the pencil
   // shows once there is something to moderate. The sparkles share that rule,
   // except that the expert switch may be offered on a visible empty cloud.
+  // Free text shows its answers/views on "Ergebnis" only (as before).
   const wcCloudShown =
-    activeKind === "word_cloud" &&
-    (phase === "results" ||
-      (phase === "open" && state?.question?.wordcloud_live !== false));
-  const showModHandle = expert && wcCloudShown && (wcHasWords || wcHasMod);
+    (activeKind === "word_cloud" &&
+      (phase === "results" ||
+        (phase === "open" && state?.question?.wordcloud_live !== false))) ||
+    (isOpenText && phase === "results");
+  // No pencil over the free-text verdict bars (nothing to moderate there).
+  // Free text: the drawer lists raw keys (verbatim answers), so it is only
+  // offered in "Original" (restoring stays possible there).
+  const showModHandle =
+    expert &&
+    wcCloudShown &&
+    wcView !== "results" &&
+    !(isOpenText && isAiView) &&
+    (wcHasWords || wcHasMod);
   const showAiButton = expert && wcCloudShown && whoAi.ai;
   // Below the pencil when it is shown, otherwise in its place.
   const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
-  // Regroup stays busy until a grouped result arrives *after* the save
-  // response: one whose fingerprint differs from the result current at that
-  // moment, or any finished result after a pending phase (30 s fallback, in
-  // case the AI returns the very same grouping).
-  const aiSig = JSON.stringify(
-    state?.wordcloud_ai ? [state.wordcloud_ai.merged, state.wordcloud_ai.clusters] : null,
-  );
+  // Regroup / merge again stay busy until a finished AI result computed
+  // *after* the save arrives: every compute gets a new, increasing `seq` (also
+  // when its content is identical, also on error), and the save response
+  // returns the mark (`ai_seq`) it has to exceed. 15 s fallback in case no
+  // recompute happens at all.
+  const aiSeq = state?.wordcloud_ai?.seq ?? 0;
   const aiPending = state?.wordcloud_ai?.pending ?? false;
-  const latestAiSig = useRef(aiSig);
-  latestAiSig.current = aiSig;
-  const regroupMark = useRef<string | null>(null);
-  const regroupSawPending = useRef(false);
+  const regroupMark = useRef<number | null>(null);
+  // The result may already be here when the save response arrives.
+  const latestAi = useRef({ seq: aiSeq, pending: aiPending });
+  latestAi.current = { seq: aiSeq, pending: aiPending };
+  const markRecompute = (mark: number) => {
+    if (!latestAi.current.pending && latestAi.current.seq > mark) {
+      regroupMark.current = null;
+      setAiBusy(null);
+    } else {
+      regroupMark.current = mark;
+    }
+  };
   useEffect(() => {
     if (!recomputeBusy || regroupMark.current == null) return;
-    if (aiPending) {
-      regroupSawPending.current = true;
-      return;
-    }
-    if (aiSig !== regroupMark.current || regroupSawPending.current) {
+    if (!aiPending && aiSeq > regroupMark.current) {
       regroupMark.current = null;
       setAiBusy(null);
     }
-  }, [aiSig, aiPending, recomputeBusy]);
+  }, [aiSeq, aiPending, recomputeBusy]);
   useEffect(() => {
     if (!recomputeBusy) return;
-    const timer = window.setTimeout(() => setAiBusy(null), 30000);
+    const timer = window.setTimeout(() => setAiBusy(null), 15000);
     return () => window.clearTimeout(timer);
   }, [recomputeBusy]);
+  const aiPanelTitle = isOpenText ? t("AI summary") : t("AI word cloud");
   const toggleAiPanel = () => {
     setShowModPanel(false);
     setShowAiPanel((s) => !s);
@@ -504,18 +591,19 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     // At most one AI pass: with the AI view already active, `regroup`
     // forces the recompute; from the raw view the activation below computes
     // (after the save, so it uses the new instruction).
-    const viewActive = wcView !== "raw";
+    const viewActive = isAiView;
     setAiBusy("regroup");
     setAiError(null);
     regroupMark.current = null;
     try {
       const res = await live.wordcloudAiSettings(runId, activeId, {
         grouping: groupingDraft,
+        ...(isOpenText && modelSolution ? { grouping_use_solution: useSolutionDraft } : {}),
         regroup: viewActive,
       });
       setGroupingDraft(res.grouping);
-      regroupMark.current = latestAiSig.current;
-      regroupSawPending.current = false;
+      setUseSolutionDraft(res.grouping_use_solution);
+      markRecompute(res.ai_seq);
       // Ensure the grouped view is shown and active (same path as footer / `A`).
       setWcView("grouped");
     } catch (e) {
@@ -544,8 +632,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         synonyms: res.merge_synonyms,
         concepts: res.merge_concepts,
       });
-      regroupMark.current = latestAiSig.current;
-      regroupSawPending.current = false;
+      markRecompute(res.ai_seq);
       setWcView("consolidated");
     } catch (e) {
       regroupMark.current = null;
@@ -820,6 +907,54 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     setWalkIndex((i) => Math.max(0, i - 1));
   }, []);
 
+  // Free-text slides get the live view picker (expert-gated AI views, fed by
+  // an on-demand one-shot summary of the stored votes instead of the live
+  // loop). Other kinds have a single view.
+  const walkItem = walk ? walk[walkIndex] : undefined;
+  const walkIsOpenText = walkItem?.kind === "open_text";
+  const walkHasEval = walkIsOpenText && !!walkItem?.evaluation;
+  const walkAiOn =
+    walkIsOpenText &&
+    expert &&
+    whoAi.ai &&
+    questions.find((q) => q.id === walkItem?.id)?.wordcloud_ai_enabled === true;
+  const walkDefaultView: WcView = walkHasEval ? "results" : "raw";
+  const walkViewOptions = walkIsOpenText ? freeTextViewOptions(t, walkHasEval, walkAiOn) : [];
+  const walkView: WcView = walkViewOptions.some((o) => o.value === walkViewState)
+    ? walkViewState
+    : walkDefaultView;
+  const walkAiKey = runId != null && walkItem ? `${runId}:${walkItem.id}` : "";
+  const walkWantsAi = walkView === "consolidated" || walkView === "grouped";
+  // Before paint (no one-frame flash of verbatim chips on an evaluated slide).
+  useLayoutEffect(() => {
+    setWalkView(walkDefaultView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [walk, walkIndex]);
+  useEffect(() => {
+    if (!walkWantsAi || !walkAiKey || !walkItem || runId == null) return;
+    if (walkAi[walkAiKey] !== undefined || walkAiLoading.current.has(walkAiKey)) return;
+    const key = walkAiKey;
+    walkAiLoading.current.add(key);
+    void results
+      .freeTextSummary(runId, walkItem.id)
+      .then((res) => setWalkAi((m) => ({ ...m, [key]: { ...res, pending: false } })))
+      .catch(() => setWalkAi((m) => ({ ...m, [key]: "error" })))
+      .finally(() => walkAiLoading.current.delete(key));
+  }, [walkWantsAi, walkAiKey, walkItem, runId, walkAi]);
+  const retryWalkAi = () =>
+    setWalkAi((m) => {
+      const next = { ...m };
+      delete next[walkAiKey];
+      return next;
+    });
+  const walkViewKey = walkViewOptions.map((o) => o.value).join(",");
+  const cycleWalkView = useCallback(() => {
+    const values = walkViewKey.split(",") as WcView[];
+    if (values.length < 2) return;
+    const i = values.indexOf(walkView);
+    setWalkView(values[(i + 1) % values.length]);
+  }, [walkViewKey, walkView]);
+
   // Memoized so the keydown effect (which lists it as a dependency) doesn't
   // re-register the window listener on every render — including the live
   // path's frequent SSE-driven re-renders (#75). Declared before onKey, which
@@ -852,6 +987,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         if (key === "escape") leavePresentation();
         else if (advance || key === "arrowright") walkAdvance();
         else if (key === "arrowleft") walkBack();
+        else if (key === "a") cycleWalkView();
         return;
       }
       // On the closing slide (#32) any advance/Esc leaves to management.
@@ -906,8 +1042,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         if (phase === "results" && revealed) showResults();
         else if (phase === "results") showQuestion();
         else showResults();
-      } else if (key === "a" && aiCloud) {
-        // Word clouds have no correct answer — "a" cycles the AI views.
+      } else if (key === "a" && canCycleView) {
+        // Word clouds / free text have no correct answer — "a" cycles the views.
         cycleWcView();
       } else if (key === "a" && canReveal && phase === "results") {
         if (revealed) showResults();
@@ -916,7 +1052,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, aiCloud, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, leavePresentation],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation],
   );
 
   useEffect(() => {
@@ -1020,12 +1156,31 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         logo={beamerLogo}
         footer={
           <footer className="flex items-center justify-between border-t border-slate-200 px-6 py-3 text-sm text-slate-500">
-            <span>
-              {t("Question {{current}}/{{total}}", {
-                current: walkIndex + 1,
-                total: walk.length,
-              })}
-            </span>
+            <div className="flex items-center gap-3">
+              <span>
+                {t("Question {{current}}/{{total}}", {
+                  current: walkIndex + 1,
+                  total: walk.length,
+                })}
+              </span>
+              {walkViewOptions.length > 1 && (
+                <label className={`${btn} gap-2`}>
+                  {t("View")}
+                  <select
+                    value={walkView}
+                    onChange={(event) => setWalkView(event.target.value as WcView)}
+                    className="bg-transparent font-medium text-slate-700 focus:outline-none dark:text-slate-200"
+                  >
+                    {walkViewOptions.map((view) => (
+                      <option key={view.value} value={view.value}>
+                        {view.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Kbd>A</Kbd>
+                </label>
+              )}
+            </div>
             <div className="flex gap-2">
               <button className={`${btn} text-red-700`} onClick={leavePresentation}>
                 {t("Back to overview")} <Kbd>Esc</Kbd>
@@ -1050,7 +1205,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
             html={localizedText(item.text)}
           />
-          <WalkthroughResultBody item={item} />
+          <WalkthroughResultBody
+            item={item}
+            view={walkView}
+            ai={walkAi[walkAiKey]}
+            onRetryAi={retryWalkAi}
+          />
         </div>
       </Shell>
     );
@@ -1260,9 +1420,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           onShowQuestion={showQuestion}
           onShowResults={showResults}
           onShowSolution={showSolution}
-          views={aiCloud ? wcViewOptions : undefined}
+          views={canCycleView ? wcViewOptions : undefined}
           viewValue={wcView}
-          onSelectView={(v) => setWcView(v as "raw" | "consolidated" | "grouped")}
+          onSelectView={(v) => setWcView(v as WcView)}
           joinShown={showJoin}
           onToggleJoin={() => setShowJoin((v) => !v)}
           onFinish={() => void finish()}
@@ -1498,7 +1658,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             </div>
           )}
 
-          {question.kind === "open_text" && phase === "results" && state.evaluation && (
+          {question.kind === "open_text" && phase === "results" && wcView === "results" && state.evaluation && (
             <div className="mt-8">
               {state.evaluation.pending > 0 && (
                 <p className="mb-4 text-lg text-slate-500">
@@ -1529,22 +1689,22 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               </div>
             </div>
           )}
-          {question.kind === "open_text" && phase === "results" && !state.evaluation && (
-            <ul className="mt-8 flex max-h-96 flex-wrap gap-3 overflow-auto">
-              {(state.words ?? []).map((entry, i) => (
-                <li
-                  key={entry.text}
-                  className="ab-chip-in rounded-full px-4 py-2 text-xl"
-                  style={{ background: termColor(entry.text), color: INK, animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms` }}
-                >
-                  {entry.text}
-                  {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
-                </li>
-              ))}
-              {(state.words ?? []).length === 0 && (
-                <p className="text-slate-400">{t("No answers yet …")}</p>
-              )}
-            </ul>
+          {/* Free-text "Original": the verbatim answers as chips (the only
+              view that shows answer texts on the beamer); expert mode can
+              merge (drag onto another) and hide (×) them. */}
+          {question.kind === "open_text" && phase === "results" && wcView === "raw" && (
+            <AnswerChips
+              words={state.words ?? []}
+              onModerate={expert ? onModerateWord : undefined}
+            />
+          )}
+          {question.kind === "open_text" && phase === "results" && isAiView && (
+            <FreeTextAiView
+              view={wcView as "consolidated" | "grouped"}
+              ai={state.wordcloud_ai}
+              mod={mod}
+              onModerate={expert ? onModerateWord : undefined}
+            />
           )}
 
           {/* Word cloud kept off the beamer while open when the presenter
@@ -1580,7 +1740,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 />
               )
             ) : (
-              <WordCloudAiView view={wcView} ai={state.wordcloud_ai} mod={mod} onModerate={onModerateWord} />
+              <WordCloudAiView
+                view={wcView as "consolidated" | "grouped"}
+                ai={state.wordcloud_ai}
+                mod={mod}
+                onModerate={onModerateWord}
+              />
             ))}
 
           {showModHandle && (
@@ -1589,9 +1754,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
                     <p className="flex-1">
-                      {t(
-                        "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.",
-                      )}
+                      {isOpenText
+                        ? t(
+                            "Tip: drag one answer onto another to merge them, × hides an answer, the pencil on the right opens editing.",
+                          )
+                        : t(
+                            "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.",
+                          )}
                     </p>
                     <button
                       type="button"
@@ -1713,8 +1882,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   e.currentTarget.blur();
                   toggleAiPanel();
                 }}
-                aria-label={t("AI word cloud")}
-                title={t("AI word cloud")}
+                aria-label={aiPanelTitle}
+                title={aiPanelTitle}
                 style={{ top: aiHandleTop }}
                 className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
                   showAiPanel ? "pointer-events-none opacity-0" : "opacity-100"
@@ -1733,7 +1902,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <div className="flex items-center justify-between border-b border-slate-100 p-3">
                   <span className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600">
                     <Sparkles className="h-4 w-4" aria-hidden />
-                    {t("AI word cloud")}
+                    {aiPanelTitle}
                   </span>
                   <button
                     type="button"
@@ -1767,17 +1936,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                             }`}
                           />
                         </span>
-                        <span className="text-left">{t("Use AI for this word cloud")}</span>
+                        <span className="text-left">
+                          {isOpenText ? t("Use AI summary") : t("Use AI for this word cloud")}
+                        </span>
                       </button>
                       <p className="mt-1 pl-[2.875rem] text-xs text-slate-400">{t("Saved on the question.")}</p>
                     </div>
                   )}
-                  {aiCloud && (
+                  {canCycleView && (
                     <>
                       <div
                         role="radiogroup"
-                        aria-label={t("AI word cloud")}
-                        className="grid grid-cols-3 rounded-full border border-slate-200 p-0.5 text-xs"
+                        aria-label={aiPanelTitle}
+                        className="grid rounded-full border border-slate-200 p-0.5 text-xs"
+                        style={{ gridTemplateColumns: `repeat(${wcViewOptions.length}, minmax(0, 1fr))` }}
                       >
                         {wcViewOptions.map((o) => (
                           <button
@@ -1796,7 +1968,33 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                           </button>
                         ))}
                       </div>
-                      {wcView === "consolidated" && (
+                      {wcView === "consolidated" && isOpenText && (
+                        <div>
+                          <label className="flex items-start gap-2 text-sm text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={mergeDraft.concepts}
+                              disabled={aiBusy !== null}
+                              onChange={(e) => {
+                                const checked = e.target.checked;
+                                setMergeDraft((d) => ({ ...d, concepts: checked }));
+                              }}
+                              className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                            />
+                            {t("Also merge similar statements")}
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => void mergeAgain()}
+                            disabled={aiBusy !== null}
+                            className="mt-2 inline-flex items-center gap-2 rounded-lg bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+                          >
+                            {aiBusy === "merge" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+                            {t("Summarize again")}
+                          </button>
+                        </div>
+                      )}
+                      {wcView === "consolidated" && !isOpenText && (
                         <fieldset>
                           <legend className="mb-1 block text-sm font-medium text-slate-700">
                             {t("“Cleaned up” merges:")}
@@ -1851,6 +2049,42 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                             )}
                             className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
                           />
+                          {isOpenText && modelSolution && (
+                            <div className="mt-2">
+                              <label className="flex items-start gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={useSolutionDraft}
+                                  disabled={aiBusy !== null}
+                                  onChange={(e) => setUseSolutionDraft(e.target.checked)}
+                                  className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                                />
+                                {t("Consider the model solution when grouping")}
+                              </label>
+                              <button
+                                type="button"
+                                aria-expanded={solutionOpen}
+                                aria-controls="wc-model-solution"
+                                onClick={() => setSolutionOpen((o) => !o)}
+                                className="mt-1.5 inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-800"
+                              >
+                                {solutionOpen ? (
+                                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                                )}
+                                {t("Show model solution")}
+                              </button>
+                              {solutionOpen && (
+                                <p
+                                  id="wc-model-solution"
+                                  className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-2 text-sm text-slate-700"
+                                >
+                                  {modelSolution}
+                                </p>
+                              )}
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={() => void regroup()}
@@ -1892,9 +2126,21 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
  * rendering above kind-for-kind but fed from stored results instead of
  * `state`, and with correct answers always revealed (no reveal-level gate —
  * self-paced has no live audience to hide them from once the quiz is over). */
-function WalkthroughResultBody({ item }: { item: RunResults["questions"][number] }) {
+function WalkthroughResultBody({
+  item,
+  view = "raw",
+  ai,
+  onRetryAi,
+}: {
+  item: RunResults["questions"][number];
+  /** Free-text view (the other kinds have only one). */
+  view?: WcView;
+  /** One-shot AI summary for the key-statement/grouped views (undefined =
+   *  loading, "error" = failed). */
+  ai?: WordCloudAI | "error";
+  onRetryAi?: () => void;
+}) {
   const { t } = useTranslation();
-  const reduced = useReducedMotion();
   const total = item.votes ?? 0;
 
   if (item.kind === "likert" && item.likert) {
@@ -1915,7 +2161,27 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
     return <OrderingResult ordering={item.ordering} animate />;
   }
 
-  if (item.kind === "open_text" && item.evaluation) {
+  if (item.kind === "open_text" && (view === "consolidated" || view === "grouped")) {
+    if (ai === "error") {
+      return (
+        <div className="mt-10 text-center text-slate-500">
+          <p className="text-xl">{t("The AI summary is currently unavailable.")}</p>
+          {onRetryAi && (
+            <button
+              type="button"
+              onClick={onRetryAi}
+              className="mt-4 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+            >
+              {t("Try again")}
+            </button>
+          )}
+        </div>
+      );
+    }
+    return <FreeTextAiView view={view} ai={ai} />;
+  }
+
+  if (item.kind === "open_text" && item.evaluation && view === "results") {
     const evaluation = item.evaluation;
     const evalTotal = evaluation.groups.reduce((s, g) => s + g.count, 0);
     return (
@@ -1947,23 +2213,7 @@ function WalkthroughResultBody({ item }: { item: RunResults["questions"][number]
   }
 
   if (item.kind === "open_text") {
-    return (
-      <ul className="mt-8 flex max-h-96 flex-wrap gap-3 overflow-auto">
-        {(item.words ?? []).map((entry, i) => (
-          <li
-            key={entry.text}
-            className="ab-chip-in rounded-full px-4 py-2 text-xl"
-            style={{ background: termColor(entry.text), color: INK, animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms` }}
-          >
-            {entry.text}
-            {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
-          </li>
-        ))}
-        {(item.words ?? []).length === 0 && (
-          <p className="text-slate-400">{t("No answers yet …")}</p>
-        )}
-      </ul>
-    );
+    return <AnswerChips words={item.words ?? []} />;
   }
 
   if (item.kind === "word_cloud") {
@@ -2524,8 +2774,10 @@ function ModerationPanel({
                 type="button"
                 className="ml-2 shrink-0 text-brand-700 hover:underline"
                 onClick={() => onRestore(h.key)}
+                title={t("Show this entry on the beamer again")}
+                aria-label={t("Show {{word}} on the beamer again", { word: h.key })}
               >
-                {t("Restore")}
+                {t("Show again")}
               </button>
             </div>
           ))}
@@ -2540,6 +2792,8 @@ function ModerationPanel({
                 <input
                   key={m.label}
                   defaultValue={m.label}
+                  title={t("Rename this merge (shown on the beamer)")}
+                  aria-label={t("Rename this merge (shown on the beamer)")}
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value !== m.label)
                       onRename(m.keys, e.target.value.trim());
@@ -2548,10 +2802,12 @@ function ModerationPanel({
                 />
                 <button
                   type="button"
-                  className="shrink-0 text-brand-700 hover:underline"
+                  className="shrink-0 rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
                   onClick={() => onSplit(m.keys)}
+                  title={t("Undo this merge — show the terms separately again")}
+                  aria-label={t("Undo this merge — show the terms separately again")}
                 >
-                  {t("Split")}
+                  <Unlink className="h-5 w-5" aria-hidden />
                 </button>
               </div>
               <p className="mt-0.5 truncate text-xs text-slate-400">{m.keys.join(", ")}</p>
@@ -2633,6 +2889,363 @@ function WordCloudAiView({
     return <p className="mt-8 text-center text-slate-400">{t("No terms yet …")}</p>;
   }
   return <GroupedWordClouds clusters={ai.clusters} onModerate={onModerate} />;
+}
+
+type ModerateFn = (op: "hide" | "merge", keys: string[], label?: string) => void;
+type ChipItem = { text: string; count: number; keys?: string[] };
+/** Marks a draggable free-text chip/statement with its `wordId` (drop lookup). */
+const CHIP_ATTR = "data-chip-id";
+
+/** Pointer-based drag-to-merge for free-text chips and statements (like
+ * WordCloud's `startDrag`, no lib): press a chip, drop it onto another to
+ * merge them under the target's text. While dragging, `shown` is a frozen
+ * snapshot of `data` so the drop target doesn't move as votes arrive; a drag
+ * that barely moves counts as a click (the × handles hide instead). */
+function useChipDrag<D>(
+  data: D,
+  find: (d: D, id: string) => ChipItem | undefined,
+  onModerate?: ModerateFn,
+) {
+  const [drag, setDrag] = useState<{ id: string; text: string; x: number; y: number } | null>(null);
+  const frozen = useRef<D | null>(null);
+  const shown = drag && frozen.current != null ? frozen.current : data;
+  const startDrag = (e: React.PointerEvent, item: ChipItem) => {
+    if (!onModerate || !item.keys?.length || e.button !== 0) return;
+    e.preventDefault(); // no text selection while dragging
+    const id = wordId(item);
+    const keys = item.keys;
+    const snapshot = data;
+    frozen.current = snapshot;
+    const sx = e.clientX;
+    const sy = e.clientY;
+    let moved = false;
+    setDrag({ id, text: item.text, x: sx, y: sy });
+    const move = (ev: PointerEvent) => {
+      if (Math.abs(ev.clientX - sx) + Math.abs(ev.clientY - sy) > 6) moved = true;
+      setDrag((d) => (d ? { ...d, x: ev.clientX, y: ev.clientY } : d));
+    };
+    const up = (ev: PointerEvent) => {
+      document.removeEventListener("pointermove", move);
+      document.removeEventListener("pointerup", up);
+      setDrag(null);
+      frozen.current = null;
+      if (!moved) return;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest(`[${CHIP_ATTR}]`);
+      const targetId = el?.getAttribute(CHIP_ATTR);
+      if (!targetId || targetId === id) return;
+      const target = find(snapshot, targetId);
+      if (!target?.keys?.length) return;
+      onModerate("merge", [...keys, ...target.keys], target.text);
+    };
+    document.addEventListener("pointermove", move);
+    document.addEventListener("pointerup", up);
+  };
+  // Props for a chip element: drag source + drop target marker.
+  const chipProps = (item: ChipItem) => {
+    const can = !!onModerate && !!item.keys?.length;
+    return {
+      [CHIP_ATTR]: wordId(item),
+      onPointerDown: can ? (e: React.PointerEvent) => startDrag(e, item) : undefined,
+      style: {
+        opacity: drag?.id === wordId(item) ? 0.3 : undefined,
+        touchAction: can ? ("none" as const) : undefined,
+        userSelect: "none" as const,
+        WebkitUserSelect: "none" as const,
+      },
+      className: can ? "cursor-grab" : "",
+    };
+  };
+  return { shown, drag, chipProps };
+}
+
+/** The chip being dragged, following the cursor. */
+function ChipGhost({ drag }: { drag: { text: string; x: number; y: number } | null }) {
+  if (!drag) return null;
+  return (
+    <span
+      className="pointer-events-none fixed z-50 max-w-md truncate rounded-full bg-white px-4 py-2 text-xl font-semibold shadow-xl ring-1 ring-slate-200"
+      style={{ left: drag.x, top: drag.y, transform: "translate(-50%, -50%) scale(1.05)", color: INK }}
+    >
+      {drag.text}
+    </span>
+  );
+}
+
+/** Small × in a chip's corner (hover), hiding the chip's keys. */
+function HideButton({ label, onHide }: { label: string; onHide: () => void }) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onHide();
+      }}
+      className="absolute -right-1.5 -top-1.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
+      aria-label={t("Hide {{word}}", { word: label })}
+    >
+      <X className="h-3.5 w-3.5" strokeWidth={2.5} />
+    </button>
+  );
+}
+
+const findChip = (items: ChipItem[], id: string) => items.find((w) => wordId(w) === id);
+
+/** Free-text "Original" view: the (moderated) answers as chips. With
+ * `onModerate` (expert mode) a chip dropped onto another merges both under
+ * the target's text, × hides it — same semantics as the word cloud. */
+function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: ModerateFn }) {
+  const { t } = useTranslation();
+  const reduced = useReducedMotion();
+  const { shown, drag, chipProps } = useChipDrag(words, findChip, onModerate);
+  return (
+    <>
+      <ul className="mt-6 flex max-h-96 flex-wrap gap-3 overflow-auto p-2">
+        {shown.map((entry, i) => {
+          const can = !!onModerate && !!entry.keys?.length;
+          const cp = chipProps(entry);
+          return (
+            <li
+              key={wordId(entry)}
+              {...cp}
+              className={`ab-chip-in group relative rounded-full px-4 py-2 text-xl ${cp.className}`}
+              style={{
+                ...cp.style,
+                background: termColor(entry.text),
+                color: INK,
+                animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms`,
+              }}
+            >
+              {entry.text}
+              {entry.count > 1 && <span className="ml-2 text-sm opacity-70">×{entry.count}</span>}
+              {can && (
+                <HideButton label={entry.text} onHide={() => onModerate!("hide", entry.keys ?? [])} />
+              )}
+            </li>
+          );
+        })}
+        {shown.length === 0 && <p className="text-slate-400">{t("No answers yet …")}</p>}
+      </ul>
+      <ChipGhost drag={drag} />
+    </>
+  );
+}
+
+/** Optimistic moderation of a free-text AI result (key statements) while it is
+ * being recomputed. Unlike `applyModToAi` it never shows a merge's label: a
+ * merge made in "Original" is labelled with a verbatim answer, which must not
+ * reach the beamer in these views. Fully hidden statements drop out; several
+ * statements hit by one merge (stale result) fold into the largest one's
+ * label with summed count and the union of keys. */
+function applyModToFreeText(words: AiWord[], mod?: WordCloudModeration): AiWord[] {
+  if (!mod) return words;
+  const hidden = new Set(mod.hidden.map((h) => h.key));
+  let out = words.filter((w) => !w.keys?.length || !w.keys.every((k) => hidden.has(k)));
+  for (const m of mod.merges) {
+    const group = new Set(m.keys);
+    const hit = out.filter((w) => w.keys?.some((k) => group.has(k)));
+    if (hit.length < 2) continue;
+    const largest = hit.reduce((a, w) => (w.count > a.count ? w : a), hit[0]);
+    const merged: AiWord = {
+      text: largest.text,
+      count: hit.reduce((a, w) => a + w.count, 0),
+      keys: [...new Set(hit.flatMap((w) => w.keys ?? []))],
+    };
+    const first = out.indexOf(hit[0]);
+    out = out.filter((w) => !hit.includes(w));
+    out.splice(Math.min(first, out.length), 0, merged);
+  }
+  return out;
+}
+
+/** Scale a block down (never up) so it fits above the bottom chrome of the
+ * beamer (LiveStats pill, footer) instead of scrolling. `ref` goes on the
+ * block, `outerStyle` on its wrapper (keeps the layout height in step). */
+function useFitScale(deps: unknown[], clearance = 96) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const [fit, setFit] = useState({ scale: 1, height: 0 });
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const h = el.offsetHeight; // unaffected by the transform
+      const wrapper = el.parentElement ?? el;
+      const bottom = el.closest("main")?.getBoundingClientRect().bottom ?? window.innerHeight;
+      const avail = bottom - wrapper.getBoundingClientRect().top - clearance;
+      const scale = h > 0 ? Math.max(0.55, Math.min(1, avail / h)) : 1;
+      setFit((f) => (Math.abs(f.scale - scale) < 0.01 && f.height === h ? f : { scale, height: h }));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+  const scaled = fit.scale < 1 && fit.height > 0;
+  return {
+    ref,
+    outerStyle: scaled ? { height: fit.height * fit.scale } : undefined,
+    innerStyle: {
+      transform: `translateX(-50%)${scaled ? ` scale(${fit.scale})` : ""}`,
+      transformOrigin: "top center",
+    },
+  };
+}
+
+/** Break out of the 4xl question column: statements need the beamer width
+ *  (horizontal centring via `useFitScale`'s inline transform). */
+const WIDE = "relative left-1/2 w-[min(80rem,calc(100vw-5rem))]";
+/** Max key statements on the beamer (the rest is counted as "+N more"). */
+const STATEMENTS_MAX = 12;
+const CLUSTER_STATEMENTS_MAX = 4;
+
+/** Free-text AI views (#Freitext-KI): "consolidated" = key statements (one row
+ * per statement, count badge, most frequent first), "grouped" = statements
+ * under their cluster headings. Only AI labels + counts — never the answers'
+ * verbatim texts (`variants` stay unrendered). Moderation (hide / merge by
+ * drag) acts on the statements' answer `keys`, like the AI word clouds. */
+function FreeTextAiView({
+  view,
+  ai: aiRaw,
+  mod,
+  onModerate,
+}: {
+  view: "consolidated" | "grouped";
+  ai?: WordCloudAI;
+  mod?: WordCloudModeration;
+  onModerate?: ModerateFn;
+}) {
+  const { t } = useTranslation();
+  const reduced = useReducedMotion();
+  const ai = useMemo(
+    () =>
+      aiRaw && {
+        ...aiRaw,
+        merged: applyModToFreeText(aiRaw.merged, mod),
+        clusters: aiRaw.clusters.map((c) => ({ ...c, words: applyModToFreeText(c.words, mod) })),
+      },
+    [aiRaw, mod],
+  );
+  const findInAi = (d: typeof ai, id: string) =>
+    d && [...d.merged, ...d.clusters.flatMap((c) => c.words)].find((w) => wordId(w) === id);
+  const { shown, drag, chipProps } = useChipDrag(ai, findInAi, onModerate);
+  const fit = useFitScale([view, shown]);
+  if (!shown || shown.pending) return <AiWait />;
+  const empty = (
+    <p className="mt-8 text-center text-slate-400">
+      {shown.error ? t("The AI summary is currently unavailable.") : t("No answers yet …")}
+    </p>
+  );
+  // A failed recompute that still has an older result keeps showing it.
+  const errorNote = shown.error ? (
+    <p className="mt-3 text-center text-sm text-slate-400">
+      {t("The AI summary is currently unavailable.")}
+    </p>
+  ) : null;
+
+  const row = (w: AiWord, color: string, i: number, big: boolean) => {
+    const can = !!onModerate && !!w.keys?.length;
+    const cp = chipProps(w);
+    return (
+      <li
+        key={wordId(w)}
+        {...cp}
+        className={`ab-chip-in group relative flex items-center rounded-2xl border border-slate-200 bg-white shadow-sm ${big ? "gap-4 py-2.5 pl-5 pr-3" : "gap-2 py-1.5 pl-3 pr-2 shadow-none"} ${cp.className}`}
+        style={{
+          ...cp.style,
+          borderLeft: `${big ? 10 : 5}px solid ${color}`,
+          animationDelay: reduced ? undefined : `${Math.min(i, 12) * 60}ms`,
+        }}
+      >
+        <span
+          className={`flex-1 font-semibold leading-snug text-slate-800 ${big ? "text-2xl" : "text-base"}`}
+        >
+          {w.text}
+        </span>
+        <span
+          className={`shrink-0 rounded-full px-3 py-0.5 text-center font-bold tabular-nums ${big ? "min-w-[3.5rem] text-xl" : "min-w-[2.25rem] text-sm"}`}
+          style={{ background: color, color: INK }}
+        >
+          {w.count}
+        </span>
+        {can && <HideButton label={w.text} onHide={() => onModerate!("hide", w.keys ?? [])} />}
+      </li>
+    );
+  };
+
+  if (view === "consolidated") {
+    const sorted = [...shown.merged].sort((a, b) => b.count - a.count);
+    if (sorted.length === 0) return empty;
+    const top = sorted.slice(0, STATEMENTS_MAX);
+    return (
+      <div className="mt-8" style={fit.outerStyle}>
+      <div ref={fit.ref} className={WIDE} style={fit.innerStyle}>
+        <ol className={`grid gap-3 ${top.length > 6 ? "lg:grid-cols-2" : ""}`}>
+          {top.map((w, i) => row(w, termColor(w.text), i, true))}
+        </ol>
+        {sorted.length > top.length && (
+          <p className="mt-4 text-center text-sm text-slate-400">
+            {t("+{{count}} more statements", { count: sorted.length - top.length })}
+          </p>
+        )}
+        {errorNote}
+      </div>
+      <ChipGhost drag={drag} />
+      </div>
+    );
+  }
+
+  const visible = shown.clusters.filter((c) => c.words.length > 0);
+  if (visible.length === 0) return empty;
+  return (
+    <div className="mt-6" style={fit.outerStyle}>
+      <div
+        ref={fit.ref}
+        className={`grid items-start gap-4 ${WIDE}`}
+        // Auto-fit columns, at most four (min 15rem each).
+        style={{
+          ...fit.innerStyle,
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(max(15rem, calc((100% - 3rem) / 4)), 1fr))",
+        }}
+      >
+        {visible.map((cluster, ci) => {
+          const words = [...cluster.words].sort((a, b) => b.count - a.count);
+          const top = words.slice(0, CLUSTER_STATEMENTS_MAX);
+          // Header count from the (moderated) statements actually shown.
+          const count = words.reduce((a, w) => a + w.count, 0);
+          return (
+            <section
+              key={cluster.label}
+              className="rounded-xl border border-slate-200 bg-slate-50/60 p-3"
+              style={{ borderTop: `5px solid ${categoryColor(ci)}` }}
+            >
+              <h3
+                className="mb-2 flex items-baseline gap-2 text-xl font-bold leading-tight"
+                style={{ color: categoryDeep(ci) }}
+              >
+                <span className="min-w-0 break-words">{cluster.label}</span>
+                <span className="shrink-0 text-base font-semibold text-slate-400">· {count}</span>
+              </h3>
+              <ul className="space-y-1.5">{top.map((w, i) => row(w, categoryColor(ci), i, false))}</ul>
+              {words.length > top.length && (
+                <p className="mt-1.5 text-sm text-slate-400">
+                  {t("+{{count}} more statements", { count: words.length - top.length })}
+                </p>
+              )}
+            </section>
+          );
+        })}
+      </div>
+      {errorNote}
+      <ChipGhost drag={drag} />
+    </div>
+  );
 }
 
 /** One unified cloud (not side-by-side cards): words coloured by category hue
