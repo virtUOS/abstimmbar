@@ -200,6 +200,45 @@ def build_tree(run, question, *, presenter):
     }
 
 
+def preview_tree(question):
+    """Participant-form tree of the predefined branches without a run — for
+    the editor preview (#74). Nothing is stored: ids are negative and local."""
+    seed = clean_seed(question.mindmap_seed, question.mindmap_depth, strict=False)
+    next_id = 0
+
+    def walk(entries):
+        nonlocal next_id
+        result = []
+        for entry in entries:
+            next_id -= 1
+            result.append({
+                "id": next_id,
+                "text": entry["text"],
+                "key": text_key(entry["text"]),
+                "count": 0,
+                "descriptions": (
+                    [entry["description"]]
+                    if question.mindmap_descriptions and entry["description"]
+                    else []
+                ),
+                "seeded": True,
+                "children": walk(entry["children"]),
+            })
+        return result
+
+    nodes = walk(seed)
+    return {
+        "root": {"label": root_label(question)},
+        "depth": question.mindmap_depth,
+        "max_per_person": question.mindmap_max_per_person,
+        "descriptions": question.mindmap_descriptions,
+        "highlight_duplicates": question.mindmap_highlight_duplicates,
+        "max_nodes": MINDMAP_MAX_NODES,
+        "total": -next_id,
+        "nodes": nodes,
+    }
+
+
 def contributor_count(run, question):
     """Distinct participants who contributed (the "votes" of a mind map)."""
     return (

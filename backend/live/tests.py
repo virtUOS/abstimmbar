@@ -3883,6 +3883,31 @@ class QuestionPreviewTests(LiveTestCase):
         self.assertIn("frame-ancestors", resp.headers.get("Content-Security-Policy", ""))
         self.assertNotIn("X-Frame-Options", resp.headers)
 
+    def test_preview_mindmap_carries_seed_tree(self):
+        # The editor preview has no run: the predefined branches are shown as
+        # a local tree (negative ids, nothing stored).
+        self.client.force_login(self.owner)
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.MINDMAP,
+            text_de="<p>Energie</p>", position=1, mindmap_depth=3,
+            mindmap_seed=[{"text": "Wind", "description": "",
+                           "children": [{"text": "Offshore", "description": ""}]}],
+        )
+        resp = self.client.get(f"/question-preview/{q.pk}/")
+        self.assertEqual(resp.status_code, 200)
+        state = json.loads(
+            resp.content.decode().split('id="preview-state" type="application/json">')[1]
+            .split("</script>")[0]
+        )
+        tree = state["mindmap"]
+        self.assertEqual(tree["depth"], 3)
+        self.assertEqual(tree["total"], 2)
+        wind = tree["nodes"][0]
+        self.assertEqual(wind["text"], "Wind")
+        self.assertLess(wind["id"], 0)
+        self.assertEqual(wind["children"][0]["text"], "Offshore")
+        self.assertFalse(MindmapNode.objects.exists())
+
 
 class ConcurrentStartRunTests(TransactionTestCase):
     """#66: two presenters opening the same set within milliseconds both
@@ -5690,6 +5715,18 @@ class MindmapAddTests(MindmapTestCase):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_recording_questions_skip_mindmap(self):
+        # Recording viewers can't contribute after the fact, so the mind map
+        # question is not listed at all (the other questions stay).
+        run = self.open_mindmap()
+        run.enable_recording()
+        payload = self.client.get(
+            f"/api/live/recording/{run.recording_token}/"
+        ).json()
+        ids = [q["id"] for q in payload["questions"]]
+        self.assertNotIn(self.mq.pk, ids)
+        self.assertIn(self.question.pk, ids)
 
 
 class MindmapRemoveTests(MindmapTestCase):

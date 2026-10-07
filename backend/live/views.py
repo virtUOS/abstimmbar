@@ -172,6 +172,8 @@ def question_preview(request, question_id):
         "set_title": translated_map(question.question_set, "title"),
         "question": question_payload(question, shuffle_seed=0),
     }
+    if question.kind == Question.Kind.MINDMAP:
+        preview_state["mindmap"] = mindmap.preview_tree(question)
     response = render(
         request,
         "live/participant.html",
@@ -886,7 +888,12 @@ def recording_questions(request, token):
     reload/resume shows results for answered questions.
     """
     run = _recording_run(token)
-    questions = list(run.question_set.questions.prefetch_related("options"))
+    # Mind maps are built live only — a recording viewer can't contribute
+    # after the fact, so they are not listed at all.
+    questions = list(
+        run.question_set.questions.exclude(kind=Question.Kind.MINDMAP)
+        .prefetch_related("options")
+    )
     feedback = run.question_set.reveal_answers != "never"
 
     answered = {}
