@@ -1698,8 +1698,8 @@ def mindmap_hide(request, run_id, question_id):
     hidden = request.data.get("hidden")
     if not isinstance(hidden, bool):
         return Response({"detail": "hidden must be true or false."}, status=400)
-    node = request.data.get("node")
-    if not mindmap.set_hidden(run, question, node, hidden):
+    node = mindmap._parse_id(request.data.get("node"))
+    if node is None or not mindmap.set_hidden(run, question, node, hidden):
         raise Http404
     broadcast(room)
     # Echo for the beamer's undo stack (inverse = the same call with !hidden).
@@ -1748,7 +1748,8 @@ def _strict_str(data, field, *, required=True):
 
 def _mindmap_moderate(request, run_id, question_id, action, status=200):
     """Shared shell: ownership, strict-type and MindmapError mapping, then a
-    broadcast after the change."""
+    broadcast after the change. ``action`` returns the body, or
+    ``(body, status)`` to override ``status``."""
     run, room, question = _mindmap_moderation(request, run_id, question_id)
     if not isinstance(request.data, dict):
         return Response({"detail": "Invalid request."}, status=400)
@@ -1758,6 +1759,8 @@ def _mindmap_moderate(request, run_id, question_id, action, status=200):
         return Response({"detail": str(error)}, status=400)
     except mindmap.MindmapError as error:
         return Response(error.body(), status=error.status)
+    if isinstance(body, tuple):
+        body, status = body
     broadcast(room)
     return Response(body, status=status)
 
@@ -1766,14 +1769,16 @@ def _mindmap_moderate(request, run_id, question_id, action, status=200):
 @permission_classes([IsAuthenticated])
 def mindmap_teacher_add(request, run_id, question_id):
     """Presenter adds a term: ``{parent: id|null, text, description?}`` →
-    201 ``{node_id, merged}`` (merged = the term already existed there)."""
+    201 ``{node_id, merged: false}`` (new) or 200 ``{node_id, merged: true}``
+    (the term already existed there, visible); 409 ``{detail, conflict,
+    hidden: true}`` when it exists but is hidden."""
 
     def action(run, question, data):
         parent = _strict_id(data, "parent", nullable=True)
         text = _strict_str(data, "text")
         description = _strict_str(data, "description", required=False)
         node, merged = mindmap.teacher_add(run, question, parent, text, description)
-        return {"node_id": node.pk, "merged": merged}
+        return {"node_id": node.pk, "merged": merged}, 200 if merged else 201
 
     return _mindmap_moderate(request, run_id, question_id, action, status=201)
 

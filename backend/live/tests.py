@@ -6434,7 +6434,7 @@ class MindmapTeacherAddTests(MindmapModerationTestCase):
     def test_add_same_name_returns_existing_node(self):
         existing = self.contribute("Wind")
         response = self.owner_mod("add", parent=None, text="WIND")
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"node_id": existing, "merged": True})
         node = MindmapNode.objects.get(pk=existing)
         self.assertFalse(node.teacher)
@@ -6893,3 +6893,94 @@ class MindmapModerationConcurrencyTests(TransactionTestCase):
         self.assertEqual(codes, [200, 404])
         self.assertFalse(MindmapNode.objects.filter(pk=self.source.pk).exists())
         self.assertEqual(MindmapContribution.objects.count(), 3)
+
+
+class MindmapModerationFixRoundTests(MindmapModerationTestCase):
+    """Final-review fixes of the moderation backend."""
+
+    def test_merge_refused_when_nested_same_name_differs_in_hidden(self):
+        for hidden_side in ("source", "target"):
+            MindmapNode.objects.all().delete()
+            source = self.contribute("S")
+            target = self.contribute("T")
+            rs = self.contribute("Rotor", parent=source)
+            rt = self.contribute("Rotor", parent=target)
+            MindmapNode.objects.filter(pk=rs if hidden_side == "source" else rt).update(
+                hidden=True
+            )
+            before = self.shape()
+            response = self.owner_mod("merge", source=source, target=target)
+            self.assertEqual(response.status_code, 409, hidden_side)
+            self.assertIn("hidden", response.json()["detail"])
+            self.assertEqual(self.shape(), before)
+
+    def test_merge_refused_for_deeper_nested_hidden_mismatch(self):
+        source = self.contribute("S")
+        target = self.contribute("T")
+        bs = self.contribute("Blatt", parent=self.contribute("Rotor", parent=source))
+        self.contribute("Blatt", parent=self.contribute("Rotor", parent=target))
+        MindmapNode.objects.filter(pk=bs).update(hidden=True)
+        self.assertEqual(self.owner_mod("merge", source=source, target=target).status_code, 409)
+
+    def test_merge_allowed_when_nested_pair_both_hidden(self):
+        source = self.contribute("S")
+        target = self.contribute("T")
+        rs = self.contribute("Rotor", parent=source)
+        rt = self.contribute("Rotor", parent=target)
+        MindmapNode.objects.filter(pk__in=[rs, rt]).update(hidden=True)
+        self.assertEqual(self.owner_mod("merge", source=source, target=target).status_code, 200)
+
+    def test_rename_clash_refused_when_nested_hidden_differs(self):
+        for hidden_side in ("source", "target"):
+            MindmapNode.objects.all().delete()
+            a = self.contribute("Wnd")
+            b = self.contribute("Wind")
+            ra = self.contribute("Rotor", parent=a)
+            rb = self.contribute("Rotor", parent=b)
+            MindmapNode.objects.filter(pk=ra if hidden_side == "source" else rb).update(
+                hidden=True
+            )
+            response = self.owner_mod("rename", node=a, text="Wind")
+            self.assertEqual(response.status_code, 409, hidden_side)
+            self.assertEqual(MindmapNode.objects.get(pk=a).text, "Wnd")
+
+    def test_expired_undo_is_409(self):
+        source = self.contribute("A")
+        target = self.contribute("B")
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        later = timezone.now() + timezone.timedelta(hours=25)
+        with patch("django.core.signing.time.time", return_value=later.timestamp()):
+            response = self.owner_mod("unmerge", undo=undo)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("expired", response.json()["detail"])
+        self.assertFalse(MindmapNode.objects.filter(pk=source).exists())
+
+    def test_unmerge_after_move_creating_cycle_is_409(self):
+        p = self.contribute("P")
+        source = self.contribute("S", parent=p)
+        target = self.contribute("T")
+        child = self.contribute("C", parent=source)
+        undo = self.owner_mod("merge", source=source, target=target).json()["undo"]
+        # P now hangs below C (which came over from S): restoring S below P
+        # and C below S would close a cycle P → C → S → P.
+        self.assertEqual(self.owner_mod("move", node=p, parent=child).status_code, 200)
+        before = self.shape()
+        response = self.owner_mod("unmerge", undo=undo)
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("changed", response.json()["detail"])
+        self.assertEqual(self.shape(), before)
+        self.assertFalse(MindmapNode.objects.filter(pk=source).exists())
+
+    def test_add_matching_hidden_node_reports_hidden(self):
+        node = self.contribute("Spam")
+        MindmapNode.objects.filter(pk=node).update(hidden=True)
+        response = self.owner_mod("add", parent=None, text="spam")
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertEqual((body["conflict"], body["hidden"]), (node, True))
+        self.assertIn("detail", body)
+
+    def test_hide_echoes_integer_node_id(self):
+        node = self.contribute("A")
+        response = self.owner_mod("hide", node=str(node), hidden=True)
+        self.assertEqual(response.json()["node"], node)

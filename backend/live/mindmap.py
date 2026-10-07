@@ -437,14 +437,23 @@ def set_hidden(run, question, node, hidden):
 #
 # All writes run under the run lock and validate everything before the first
 # side effect. Merges and renames hand back an opaque, signed ``undo`` string
-# (``django.core.signing``: tamper-proof, bound to run + question) that
-# ``restore`` replays exactly — or refuses with 409 when the map changed in a
-# way that makes exact restoration impossible. The blob holds node data,
-# contribution ids and timestamps but never participant tokens: a duplicate
-# contribution dropped by a merge is recorded via its "twin" (the target's
-# contribution of the same participant), whose token is reused on restore.
+# (``django.core.signing``: tamper-proof, bound to run + question, valid for
+# UNDO_MAX_AGE) that ``restore`` replays exactly — or refuses with 409 when the
+# map changed in a way that makes exact restoration impossible.
+#
+# The blob is SIGNED, NOT ENCRYPTED: its content is readable by whoever holds
+# it — only the run's owner, who receives it from these owner-only endpoints.
+# It holds node data, contribution ids and timestamps but never participant
+# tokens. A duplicate contribution dropped by a merge is recorded via its
+# "twin" (the target's contribution of the same participant), whose token is
+# reused on restore. Restoring a participant's contribution needs *some*
+# reference to that participant; the twin id is the weakest one available: it
+# only says "the same (unknown) person contributed both terms" — which the
+# owner already sees from the merged count (distinct contributors) — and
+# contribution ids appear in no other payload.
 
 UNDO_SALT = "live.mindmap.undo"
+UNDO_MAX_AGE = 24 * 60 * 60  # seconds
 _MAX_LEVELS = 64
 
 
@@ -529,6 +538,11 @@ def teacher_add(run, question, parent_id, text, description=""):
             run=run, question=question, parent_id=parent_id, text_key=key
         ).first()
         if node is not None:
+            if tree[node.pk][1]:
+                raise MindmapError(
+                    "This term already exists there but is hidden.",
+                    409, conflict=node.pk, hidden=True,
+                )
             return node, True
         if len(tree) >= MINDMAP_MAX_NODES:
             raise MindmapError("The mind map is full.", 409)
@@ -646,6 +660,33 @@ def _merge(source, target):
     return undo
 
 
+def _check_nested_hidden(source_id, target_id):
+    """Same-named children merge recursively; a pair whose hidden state
+    differs would re-expose moderated content (or hide live content), so the
+    whole merge is refused."""
+    pairs = [(source_id, target_id)]
+    while pairs:
+        source, target = pairs.pop()
+        twins = dict(
+            MindmapNode.objects.filter(parent_id=target).values_list("text_key", "id")
+        )
+        hidden = dict(
+            MindmapNode.objects.filter(parent_id=target).values_list("id", "hidden")
+        )
+        for key, child, child_hidden in MindmapNode.objects.filter(
+            parent_id=source
+        ).values_list("text_key", "id", "hidden"):
+            twin = twins.get(key)
+            if twin is None:
+                continue
+            if hidden[twin] != child_hidden:
+                raise MindmapError(
+                    "A sub-term with the same name is hidden — please show it first.",
+                    409,
+                )
+            pairs.append((child, twin))
+
+
 def _check_merge(tree, question, source_id, target_id):
     _node_or_404(tree, source_id)
     _node_or_404(tree, target_id)
@@ -657,6 +698,7 @@ def _check_merge(tree, question, source_id, target_id):
         raise MindmapError("This branch is hidden.", 409)
     if _level(tree, target_id) + _height(tree, source_id) - 1 > question.mindmap_depth:
         raise MindmapError("Maximum depth reached.", 409)
+    _check_nested_hidden(source_id, target_id)
 
 
 def merge_nodes(run, question, source_id, target_id):
@@ -759,7 +801,9 @@ def _unsign(run, question, blob):
     if not isinstance(blob, str):
         raise MindmapError("Invalid undo data.")
     try:
-        data = signing.loads(blob, salt=UNDO_SALT)
+        data = signing.loads(blob, salt=UNDO_SALT, max_age=UNDO_MAX_AGE)
+    except signing.SignatureExpired as error:
+        raise MindmapError("This undo step has expired.", 409) from error
     except signing.BadSignature as error:
         raise MindmapError("Invalid undo data.") from error
     if (
@@ -855,9 +899,24 @@ def _restore_rename(run, question, undo):
     node.save(update_fields=["text", "text_key", "seed_i18n"])
 
 
+def _check_restored_tree(tree, depth):
+    """After a restore: no cycle (a later move may have put an original
+    parent below a re-parented child) and every node within the depth."""
+    for node_id in tree:
+        current, level = node_id, 0
+        while current is not None:
+            level += 1
+            if level > depth or current not in tree:
+                raise MindmapError(_CHANGED, 409)
+            current = tree[current][0]
+
+
 def restore(run, question, blob):
     """Undo a merge or rename from its signed ``undo`` string — all or
-    nothing (409 + rollback when the map changed in between)."""
+    nothing (409 + rollback when the map changed in between).
+
+    Intentionally bypasses the per-person quota and the total node cap: it
+    puts back exactly what was there before the merge/rename."""
     data = _unsign(run, question, blob)
     try:
         with transaction.atomic():
@@ -866,9 +925,8 @@ def restore(run, question, blob):
                 _restore_merge(run, question, data["merge"])
             else:
                 _restore_rename(run, question, data)
-            tree = _load_tree(run, question)
-            if any(_level(tree, nid) > question.mindmap_depth for nid in tree):
-                raise MindmapError(_CHANGED, 409)
+            # level > depth also catches cycles (their walk never ends).
+            _check_restored_tree(_load_tree(run, question), question.mindmap_depth)
     except IntegrityError as error:
         raise MindmapError(_CHANGED, 409) from error
 
