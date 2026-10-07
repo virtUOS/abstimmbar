@@ -999,6 +999,8 @@ export interface WordCloudAI {
   pending: boolean;
   /** True when the last AI computation failed (live free-text summary). */
   error?: boolean;
+  /** Increases with every finished computation (also identical / failed). */
+  seq?: number;
 }
 
 /** Priorities question aggregation (#58): per-option average/min/max points
@@ -1238,6 +1240,8 @@ export const live = {
       merge_variants: boolean;
       merge_synonyms: boolean;
       merge_concepts: boolean;
+      /** Results with a higher `WordCloudAI.seq` reflect these settings. */
+      ai_seq: number;
     }>(
       `/api/runs/${runId}/wordcloud/${questionId}/ai-settings`,
       { method: "POST", body: JSON.stringify(body) },

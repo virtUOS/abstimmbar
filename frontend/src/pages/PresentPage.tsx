@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Users, Vote, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Unlink, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -523,32 +523,35 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const showAiButton = expert && wcCloudShown && whoAi.ai;
   // Below the pencil when it is shown, otherwise in its place.
   const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
-  // Regroup stays busy until a grouped result arrives *after* the save
-  // response: one whose fingerprint differs from the result current at that
-  // moment, or any finished result after a pending phase (30 s fallback, in
-  // case the AI returns the very same grouping).
-  const aiSig = JSON.stringify(
-    state?.wordcloud_ai ? [state.wordcloud_ai.merged, state.wordcloud_ai.clusters] : null,
-  );
+  // Regroup / merge again stay busy until a finished AI result computed
+  // *after* the save arrives: every compute gets a new, increasing `seq` (also
+  // when its content is identical, also on error), and the save response
+  // returns the mark (`ai_seq`) it has to exceed. 15 s fallback in case no
+  // recompute happens at all.
+  const aiSeq = state?.wordcloud_ai?.seq ?? 0;
   const aiPending = state?.wordcloud_ai?.pending ?? false;
-  const latestAiSig = useRef(aiSig);
-  latestAiSig.current = aiSig;
-  const regroupMark = useRef<string | null>(null);
-  const regroupSawPending = useRef(false);
+  const regroupMark = useRef<number | null>(null);
+  // The result may already be here when the save response arrives.
+  const latestAi = useRef({ seq: aiSeq, pending: aiPending });
+  latestAi.current = { seq: aiSeq, pending: aiPending };
+  const markRecompute = (mark: number) => {
+    if (!latestAi.current.pending && latestAi.current.seq > mark) {
+      regroupMark.current = null;
+      setAiBusy(null);
+    } else {
+      regroupMark.current = mark;
+    }
+  };
   useEffect(() => {
     if (!recomputeBusy || regroupMark.current == null) return;
-    if (aiPending) {
-      regroupSawPending.current = true;
-      return;
-    }
-    if (aiSig !== regroupMark.current || regroupSawPending.current) {
+    if (!aiPending && aiSeq > regroupMark.current) {
       regroupMark.current = null;
       setAiBusy(null);
     }
-  }, [aiSig, aiPending, recomputeBusy]);
+  }, [aiSeq, aiPending, recomputeBusy]);
   useEffect(() => {
     if (!recomputeBusy) return;
-    const timer = window.setTimeout(() => setAiBusy(null), 30000);
+    const timer = window.setTimeout(() => setAiBusy(null), 15000);
     return () => window.clearTimeout(timer);
   }, [recomputeBusy]);
   const aiPanelTitle = isOpenText ? t("AI summary") : t("AI word cloud");
@@ -584,8 +587,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         regroup: viewActive,
       });
       setGroupingDraft(res.grouping);
-      regroupMark.current = latestAiSig.current;
-      regroupSawPending.current = false;
+      markRecompute(res.ai_seq);
       // Ensure the grouped view is shown and active (same path as footer / `A`).
       setWcView("grouped");
     } catch (e) {
@@ -614,8 +616,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         synonyms: res.merge_synonyms,
         concepts: res.merge_concepts,
       });
-      regroupMark.current = latestAiSig.current;
-      regroupSawPending.current = false;
+      markRecompute(res.ai_seq);
       setWcView("consolidated");
     } catch (e) {
       regroupMark.current = null;
@@ -2721,6 +2722,8 @@ function ModerationPanel({
                 type="button"
                 className="ml-2 shrink-0 text-brand-700 hover:underline"
                 onClick={() => onRestore(h.key)}
+                title={t("Show this entry on the beamer again")}
+                aria-label={t("Show {{word}} on the beamer again", { word: h.key })}
               >
                 {t("Restore")}
               </button>
@@ -2737,6 +2740,8 @@ function ModerationPanel({
                 <input
                   key={m.label}
                   defaultValue={m.label}
+                  title={t("Rename this merge (shown on the beamer)")}
+                  aria-label={t("Rename this merge (shown on the beamer)")}
                   onBlur={(e) => {
                     if (e.target.value.trim() && e.target.value !== m.label)
                       onRename(m.keys, e.target.value.trim());
@@ -2745,10 +2750,12 @@ function ModerationPanel({
                 />
                 <button
                   type="button"
-                  className="shrink-0 text-brand-700 hover:underline"
+                  className="shrink-0 rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"
                   onClick={() => onSplit(m.keys)}
+                  title={t("Undo this merge — show the terms separately again")}
+                  aria-label={t("Undo this merge — show the terms separately again")}
                 >
-                  {t("Split")}
+                  <Unlink className="h-5 w-5" aria-hidden />
                 </button>
               </div>
               <p className="mt-0.5 truncate text-xs text-slate-400">{m.keys.join(", ")}</p>
