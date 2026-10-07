@@ -3906,7 +3906,28 @@ class QuestionPreviewTests(LiveTestCase):
         self.assertEqual(wind["text"], "Wind")
         self.assertLess(wind["id"], 0)
         self.assertEqual(wind["children"][0]["text"], "Offshore")
+        self.assertEqual(wind["text_i18n"], {"de": "Wind", "en": ""})
         self.assertFalse(MindmapNode.objects.exists())
+
+    def test_preview_mindmap_seed_is_bilingual(self):
+        self.client.force_login(self.owner)
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.MINDMAP,
+            text_de="<p>Energie</p>", position=1, mindmap_descriptions=True,
+            mindmap_seed=[{"text": {"de": "Sonne", "en": "Sun"},
+                           "description": {"de": "Licht", "en": "Light"},
+                           "children": []}],
+        )
+        resp = self.client.get(f"/question-preview/{q.pk}/")
+        state = json.loads(
+            resp.content.decode().split('id="preview-state" type="application/json">')[1]
+            .split("</script>")[0]
+        )
+        node = state["mindmap"]["nodes"][0]
+        self.assertEqual(node["text"], "Sonne")
+        self.assertEqual(node["text_i18n"], {"de": "Sonne", "en": "Sun"})
+        self.assertEqual(node["descriptions"], ["Licht"])
+        self.assertEqual(node["description_i18n"], {"de": "Licht", "en": "Light"})
 
 
 class ConcurrentStartRunTests(TransactionTestCase):
@@ -6017,6 +6038,87 @@ class MindmapSeedTests(MindmapTestCase):
         offshore = MindmapNode.objects.get(text="Offshore")
         response = self.add(self.join(), "Turbine", parent=offshore.pk)
         self.assertEqual(response.status_code, 400)
+
+
+class MindmapSeedI18nTests(MindmapTestCase):
+    SEED = [
+        {"text": {"de": "Wind", "en": "Wind power"},
+         "description": {"de": "Rotoren", "en": "Rotors"}, "children": [
+            {"text": {"de": "Meer", "en": "Offshore"},
+             "description": {"de": "", "en": ""}, "children": []},
+        ]},
+        {"text": "Sonne", "description": "", "children": []},  # legacy string
+    ]
+
+    def test_seeded_nodes_carry_both_languages(self):
+        self.open_mindmap(mindmap_seed=self.SEED, mindmap_descriptions=True)
+        for role in ("participant", "presenter"):
+            nodes = self.tree(role)["nodes"]
+            wind, sonne = nodes
+            # ``text`` stays the canonical string (merge key, CSV, legacy
+            # clients); the maps are added for seeded nodes.
+            self.assertEqual(wind["text"], "Wind", role)
+            self.assertEqual(wind["text_i18n"], {"de": "Wind", "en": "Wind power"}, role)
+            self.assertEqual(wind["descriptions"], ["Rotoren"], role)
+            self.assertEqual(
+                wind["description_i18n"], {"de": "Rotoren", "en": "Rotors"}, role
+            )
+            self.assertEqual(
+                wind["children"][0]["text_i18n"], {"de": "Meer", "en": "Offshore"}, role
+            )
+            self.assertNotIn("description_i18n", wind["children"][0], role)
+            self.assertEqual(sonne["text_i18n"], {"de": "Sonne", "en": ""}, role)
+        node = MindmapNode.objects.get(text="Wind")
+        self.assertEqual(node.text_key, "wind")
+        self.assertEqual(node.description, "Rotoren")
+        self.assertEqual(
+            node.seed_i18n,
+            {"text": {"de": "Wind", "en": "Wind power"},
+             "description": {"de": "Rotoren", "en": "Rotors"}},
+        )
+
+    def test_participant_nodes_have_no_maps(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        self.add(self.join(), "Wasser")
+        water = self.tree()["nodes"][-1]
+        self.assertEqual(water["text"], "Wasser")
+        self.assertNotIn("text_i18n", water)
+        self.assertNotIn("description_i18n", water)
+
+    def test_description_map_only_when_descriptions_on(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        wind = self.tree()["nodes"][0]
+        self.assertEqual(wind["descriptions"], [])
+        self.assertNotIn("description_i18n", wind)
+
+    def test_merge_only_on_canonical_term(self):
+        self.open_mindmap(mindmap_seed=self.SEED)
+        wind = self.tree()["nodes"][0]["id"]
+        token = self.join()
+        self.assertEqual(self.add(token, "wind").json()["node_id"], wind)
+        other = self.add(token, "Wind power").json()["node_id"]
+        self.assertNotEqual(other, wind)
+
+    def test_results_and_csv_use_canonical(self):
+        run = self.open_mindmap(mindmap_seed=self.SEED)
+        wind = self.tree()["nodes"][0]["id"]
+        self.add(self.join(), "Wind")
+        self.add(self.join(), "Turbine", parent=wind)
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        self.client.force_login(self.owner)
+        results = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results/"
+        ).json()["results"]
+        item = next(q for q in results[0]["questions"] if q["kind"] == "mindmap")
+        node = item["mindmap"]["nodes"][0]
+        self.assertEqual(node["text"], "Wind")
+        self.assertEqual(node["text_i18n"], {"de": "Wind", "en": "Wind power"})
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8")
+        self.assertIn(";Wind > Meer;;0;", body)
+        self.assertNotIn("Wind power", body)
 
 
 class MindmapResultsTests(MindmapTestCase):

@@ -4,12 +4,16 @@
 """Authoring rules of the mindmap question kind (stage 1).
 
 A mindmap question carries optional *predefined branches* (``mindmap_seed``):
-a nested list ``[{"text", "description", "children": [...]}]`` of plain
-canonical-language terms below the root. Levels count from the root's
+a nested list ``[{"text", "description", "children": [...]}]`` below the root
+whose ``text``/``description`` are bilingual ``{de, en}`` maps (content-i18n;
+a plain string is still accepted on input and means the canonical language
+``CONTENT_DEFAULT_LANGUAGE``). Every branch needs a canonical-language term;
+the canonical term is what the live side merges on. Levels count from the root's
 children (level 1) down to ``mindmap_depth`` — the same rule the live side
-applies to participant contributions. Sibling terms are deduplicated the way
-participants' terms merge (``text_key``), so materialising the seed per run
-never collides with the live uniqueness constraint.
+applies to participant contributions. Sibling terms are deduplicated (on the
+canonical term) the way participants' terms merge (``text_key``), so
+materialising the seed per run never collides with the live uniqueness
+constraint.
 """
 
 import unicodedata
@@ -22,6 +26,27 @@ MINDMAP_MAX_PER_PERSON_LIMIT = 300
 MINDMAP_TEXT_MAX = 60
 MINDMAP_DESCRIPTION_MAX = 200
 MINDMAP_SEED_MAX_NODES = 100
+
+
+def seed_langs():
+    """(canonical language, all content languages) — canonical first."""
+    from django.conf import settings
+
+    canonical = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+    langs = [code for code, _ in settings.LANGUAGES]
+    return canonical, (canonical, *(lang for lang in langs if lang != canonical))
+
+
+def seed_map(value):
+    """A seed ``text``/``description`` value — a ``{lang: text}`` map or a
+    legacy plain string (= canonical language) — as a full normalised map."""
+    canonical, langs = seed_langs()
+    if isinstance(value, dict):
+        return {lang: normalize_text(value.get(lang)) for lang in langs}
+    result = dict.fromkeys(langs, "")
+    if isinstance(value, str):
+        result[canonical] = normalize_text(value)
+    return result
 
 
 class SeedError(ValueError):
@@ -55,10 +80,13 @@ def text_key(value):
 def clean_seed(value, max_level, *, strict=True):
     """Return the normalised seed tree.
 
-    ``strict`` (editor API) raises SeedError on the first problem; lenient
-    mode (imports of foreign files) drops/truncates instead: invalid nodes and
-    duplicate siblings are skipped, over-long text is cut, levels beyond
-    ``max_level`` and nodes beyond the overall cap are dropped.
+    ``text``/``description`` come back as full ``{lang: text}`` maps (plain
+    strings are taken as the canonical language). ``strict`` (editor API)
+    raises SeedError on the first problem; lenient mode (imports of foreign
+    files) drops/truncates instead: invalid nodes and duplicate siblings are
+    skipped, over-long text is cut (per language), a missing canonical term is
+    taken from the first filled translation, levels beyond ``max_level`` and
+    nodes beyond the overall cap are dropped.
     """
     if value in (None, ""):
         return []
@@ -68,6 +96,16 @@ def clean_seed(value, max_level, *, strict=True):
         return []
     count = 0
 
+    canonical, langs = seed_langs()
+
+    def fit(values, limit, message):
+        for lang in langs:
+            if len(values[lang]) > limit:
+                if strict:
+                    raise SeedError(message)
+                values[lang] = values[lang][:limit].strip()
+        return values
+
     def walk(nodes, level):
         nonlocal count
         result, seen = [], set()
@@ -76,34 +114,41 @@ def clean_seed(value, max_level, *, strict=True):
                 if strict:
                     raise SeedError("Invalid branch.")
                 continue
-            text = normalize_text(raw.get("text"))
-            description = normalize_text(raw.get("description"))
+            text = seed_map(raw.get("text"))
+            description = seed_map(raw.get("description"))
             children = raw.get("children") or []
-            if not text:
-                if strict:
-                    raise SeedError("Every branch needs a term.")
-                continue
-            if len(text) > MINDMAP_TEXT_MAX:
+            if not text[canonical]:
                 if strict:
                     raise SeedError(
-                        f"A term may have at most {MINDMAP_TEXT_MAX} characters."
+                        "Every branch needs a term in the default language."
+                        if any(text.values())
+                        else "Every branch needs a term."
                     )
-                text = text[:MINDMAP_TEXT_MAX].strip()
-            if len(description) > MINDMAP_DESCRIPTION_MAX:
-                if strict:
-                    raise SeedError(
-                        "A description may have at most "
-                        f"{MINDMAP_DESCRIPTION_MAX} characters."
-                    )
-                description = description[:MINDMAP_DESCRIPTION_MAX].strip()
+                # Lenient (foreign imports, e.g. from an instance with another
+                # canonical language): keep the term, promoting the first
+                # filled translation to the canonical language.
+                fallback = next((text[lang] for lang in langs if text[lang]), "")
+                if not fallback:
+                    continue
+                text[canonical] = fallback
+            text = fit(
+                text, MINDMAP_TEXT_MAX,
+                f"A term may have at most {MINDMAP_TEXT_MAX} characters.",
+            )
+            description = fit(
+                description, MINDMAP_DESCRIPTION_MAX,
+                f"A description may have at most {MINDMAP_DESCRIPTION_MAX} characters.",
+            )
             if not isinstance(children, list):
                 if strict:
                     raise SeedError("Invalid branch.")
                 children = []
-            key = text_key(text)
+            key = text_key(text[canonical])
             if key in seen:
                 if strict:
-                    raise SeedError(f"“{text}” appears twice at the same place.")
+                    raise SeedError(
+                        f"“{text[canonical]}” appears twice at the same place."
+                    )
                 continue
             if level > max_level:
                 if strict:

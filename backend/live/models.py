@@ -281,6 +281,11 @@ class MindmapNode(models.Model):
     # descriptions live on their contributions.
     description = models.CharField(max_length=200, blank=True, default="")
     seeded = models.BooleanField(default=False)
+    # Seeded nodes only: the predefined branch's bilingual content,
+    # ``{"text": {de, en}, "description": {de, en}}`` (content-i18n). ``text``/
+    # ``text_key``/``description`` above stay the canonical language, so
+    # participants' terms merge with a seeded node on the canonical term.
+    seed_i18n = models.JSONField(default=dict, blank=True)
     hidden = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

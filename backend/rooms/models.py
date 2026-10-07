@@ -409,8 +409,9 @@ class Question(TimeStampedModel):
     mindmap_descriptions = models.BooleanField(default=False)
     # Beamer emphasises terms named by several people.
     mindmap_highlight_duplicates = models.BooleanField(default=True)
-    # Predefined branches: nested [{"text", "description", "children"}] in
-    # plain canonical-language text (rooms/mindmap.py clean_seed). Materialised
+    # Predefined branches: nested [{"text", "description", "children"}] with
+    # bilingual {de, en} text/description maps; the canonical term is required
+    # and is the merge key (rooms/mindmap.py clean_seed). Materialised
     # per run as seeded nodes participants cannot delete.
     mindmap_seed = models.JSONField(default=list, blank=True)
 

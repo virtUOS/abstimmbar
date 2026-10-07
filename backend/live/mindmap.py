@@ -27,6 +27,7 @@ from rooms.mindmap import (
     MINDMAP_TEXT_MAX,
     clean_seed,
     normalize_text,
+    seed_langs,
     text_key,
 )
 
@@ -111,22 +112,28 @@ def ensure_seed(run, question):
         if MindmapNode.objects.filter(run=run, question=question, seeded=True).exists():
             return
 
+        canonical, _ = seed_langs()
+
         def walk(entries, parent):
             for entry in entries:
-                key = text_key(entry["text"])
+                text = entry["text"][canonical]
+                description = entry["description"][canonical]
+                i18n = {"text": entry["text"], "description": entry["description"]}
+                key = text_key(text)
                 node = MindmapNode.objects.filter(
                     run=run, question=question, parent=parent, text_key=key
                 ).first()
                 if node is None:
                     node = MindmapNode.objects.create(
                         run=run, question=question, parent=parent,
-                        text=entry["text"], text_key=key,
-                        description=entry["description"], seeded=True,
+                        text=text, text_key=key, description=description,
+                        seeded=True, seed_i18n=i18n,
                     )
                 else:
                     node.seeded = True
-                    node.description = node.description or entry["description"]
-                    node.save(update_fields=["seeded", "description"])
+                    node.description = node.description or description
+                    node.seed_i18n = i18n
+                    node.save(update_fields=["seeded", "description", "seed_i18n"])
                 walk(entry["children"], node)
 
         walk(seed, None)
@@ -143,7 +150,10 @@ def build_tree(run, question, *, presenter):
     rows = list(
         MindmapNode.objects.filter(run=run, question=question)
         .order_by("created_at", "pk")
-        .values("id", "parent_id", "text", "text_key", "description", "seeded", "hidden")
+        .values(
+            "id", "parent_id", "text", "text_key", "description", "seeded",
+            "seed_i18n", "hidden",
+        )
     )
     ids = [row["id"] for row in rows]
     counts = {}
@@ -198,6 +208,8 @@ def build_tree(run, question, *, presenter):
                 "descriptions": unique_descriptions(row["id"]),
                 "seeded": row["seeded"],
             }
+            if row["seeded"]:
+                _add_seed_i18n(node, row["seed_i18n"], row["description"])
             if presenter:
                 # Presenter only: merge key (duplicate highlighting on the
                 # beamer) and moderation state. Kept out of the participant
@@ -221,10 +233,25 @@ def build_tree(run, question, *, presenter):
     }
 
 
+def _add_seed_i18n(node, i18n, description):
+    """Seeded nodes: add the bilingual ``text_i18n`` map and — when the first
+    shown description is the seed's — ``description_i18n`` (resolved
+    client-side; ``text``/``descriptions`` stay canonical). Nodes seeded
+    before bilingual seeds fall back to the canonical text."""
+    canonical, langs = seed_langs()
+    i18n = i18n or {}
+    text = i18n.get("text") or {canonical: node["text"]}
+    node["text_i18n"] = {lang: text.get(lang, "") for lang in langs}
+    if description and node["descriptions"][:1] == [description]:
+        desc = i18n.get("description") or {canonical: description}
+        node["description_i18n"] = {lang: desc.get(lang, "") for lang in langs}
+
+
 def preview_tree(question):
     """Participant-form tree of the predefined branches without a run — for
     the editor preview (#74). Nothing is stored: ids are negative and local."""
     seed = clean_seed(question.mindmap_seed, question.mindmap_depth, strict=False)
+    canonical, _ = seed_langs()
     next_id = 0
 
     def walk(entries):
@@ -232,18 +259,19 @@ def preview_tree(question):
         result = []
         for entry in entries:
             next_id -= 1
-            result.append({
+            description = entry["description"][canonical]
+            node = {
                 "id": next_id,
-                "text": entry["text"],
+                "text": entry["text"][canonical],
                 "count": 0,
                 "descriptions": (
-                    [entry["description"]]
-                    if question.mindmap_descriptions and entry["description"]
-                    else []
+                    [description] if question.mindmap_descriptions and description else []
                 ),
                 "seeded": True,
-                "children": walk(entry["children"]),
-            })
+            }
+            _add_seed_i18n(node, entry, description)
+            node["children"] = walk(entry["children"])
+            result.append(node)
         return result
 
     nodes = walk(seed)

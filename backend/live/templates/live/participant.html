@@ -2505,7 +2505,9 @@ survives the live updates.
   // Update one node's row in place (only what changed is touched).
   function mmUpdate(el, node, level, isRoot) {
     const open = mmCanContribute();
-    const termText = isRoot ? locText(state.mindmap.root.label) : node.text;
+    // Seeded terms carry both languages (text_i18n); `text` is canonical.
+    const termText = isRoot ? locText(state.mindmap.root.label)
+      : ((node.text_i18n && locText(node.text_i18n)) || node.text);
     if (el.label.textContent !== termText) el.label.textContent = termText;
     const kids = isRoot ? state.mindmap.nodes : (node.children || []);
     const collapsed = !isRoot && kids.length > 0 && mmCollapsedSet.has(node.id);
@@ -2538,7 +2540,10 @@ survives the live updates.
     el.del.setAttribute("aria-disabled", String(blocked));
     el.del.title = blocked ? I18N.mmHasChildren : I18N.mmRemoveOwn;
     el.del.setAttribute("aria-label", blocked ? I18N.mmRemoveOwn + " — " + I18N.mmHasChildren : I18N.mmRemoveOwn);
-    const descriptions = isRoot ? [] : (node.descriptions || []);
+    let descriptions = isRoot ? [] : (node.descriptions || []);
+    if (node && node.description_i18n && descriptions.length) {
+      descriptions = [locText(node.description_i18n) || descriptions[0], ...descriptions.slice(1)];
+    }
     const descKey = descriptions.join("\n");
     if (el.descKey !== descKey) {
       el.descKey = descKey;
