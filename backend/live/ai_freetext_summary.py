@@ -162,12 +162,18 @@ def question_context(question):
     """The question's own context for both prompts: its text as plain text in
     the content-canonical language (#33 — this also runs on a worker thread,
     whose active language is not the canonical one), plus the plain
-    ``model_solution`` and ``evaluation_hint`` (empty when unset)."""
+    ``model_solution`` and ``evaluation_hint`` (empty when unset). The model
+    solution is only included while ``wordcloud_grouping_use_solution`` is on
+    (the presenter's/editor's „Musterlösung beim Gruppieren berücksichtigen“);
+    question text and hint are always sent."""
     with translation.override(settings.MODELTRANSLATION_DEFAULT_LANGUAGE):
         text = resolve_translated_text(translated_map(question, "text"))
     return {
         "question": _plain(text),
-        "model_solution": _plain(question.model_solution),
+        "model_solution": (
+            _plain(question.model_solution)
+            if question.wordcloud_grouping_use_solution else ""
+        ),
         "hint": _plain(question.evaluation_hint),
     }
 

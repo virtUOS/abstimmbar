@@ -1958,6 +1958,49 @@ class V21TransferTests(ApiTestCase):
         self.assertFalse(clone.wordcloud_merge_synonyms)
         self.assertTrue(clone.wordcloud_merge_concepts)
 
+    def test_grouping_use_solution_roundtrip(self):
+        # Serializer, export → import (missing → default on) and duplication.
+        question_set = QuestionSet.objects.create(room=self.room, title_de="FT")
+        created = self.client.post(
+            "/api/questions/",
+            {
+                "question_set": question_set.pk, "kind": "open_text",
+                "text": "<p>Warum?</p>", "options": [],
+                "model_solution": "Darum",
+                "wordcloud_grouping_use_solution": False,
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertFalse(created.json()["wordcloud_grouping_use_solution"])
+        source = Question.objects.get(pk=created.json()["id"])
+        self.assertFalse(source.wordcloud_grouping_use_solution)
+
+        export = self.client.get(
+            f"/api/question-sets/{question_set.pk}/export/"
+        ).json()
+        self.assertFalse(export["questions"][0]["wordcloud_grouping_use_solution"])
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", export,
+            content_type="application/json",
+        )
+        imported = QuestionSet.objects.get(pk=response.json()["id"]).questions.get()
+        self.assertFalse(imported.wordcloud_grouping_use_solution)
+
+        export["questions"][0].pop("wordcloud_grouping_use_solution")
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", export,
+            content_type="application/json",
+        )
+        imported = QuestionSet.objects.get(pk=response.json()["id"]).questions.get()
+        self.assertTrue(imported.wordcloud_grouping_use_solution)
+
+        from rooms.transfer import duplicate_question
+        clone = duplicate_question(
+            source, question_set=question_set, section=None, position=9
+        )
+        self.assertFalse(clone.wordcloud_grouping_use_solution)
+
     def test_import_defaults_wordcloud_merge_settings_when_missing(self):
         question_set = QuestionSet.objects.create(room=self.room, title_de="WC")
         Question.objects.create(

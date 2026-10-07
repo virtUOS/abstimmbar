@@ -185,6 +185,13 @@ def build_payloads(room):
         # Presenter-only (not in the participant payload): the AI grouping
         # instruction shown/edited in the word-cloud AI panel.
         presenter["question"]["wordcloud_grouping"] = question.wordcloud_grouping
+        presenter["question"]["wordcloud_grouping_use_solution"] = (
+            question.wordcloud_grouping_use_solution
+        )
+        if question.kind == Question.Kind.OPEN_TEXT:
+            # Presenter-only, never in the participant payload: the AI panel
+            # offers it collapsed („Musterlösung anzeigen").
+            presenter["question"]["model_solution"] = question.model_solution
         for flag in ("variants", "synonyms", "concepts"):
             field = f"wordcloud_merge_{flag}"
             presenter["question"][field] = getattr(question, field)

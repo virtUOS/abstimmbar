@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import json
 import threading
 from unittest.mock import patch
 
@@ -4441,7 +4442,7 @@ class WordCloudAiSettingsApiTests(LiveTestCase):
             {
                 "ai_enabled": True, "grouping": "",
                 "merge_variants": True, "merge_synonyms": True,
-                "merge_concepts": False,
+                "merge_concepts": False, "grouping_use_solution": True,
             },
         )
         self.wc.refresh_from_db()
@@ -5061,6 +5062,111 @@ class AiFreetextSummaryTests(LiveTestCase):
             self.assertIn("Bewertungshinweis: Personenbezug", prompt)
             self.assertNotIn("<p>", prompt)
 
+    # --- grouping_use_solution (model solution in the prompts) -----------
+
+    def test_question_context_omits_solution_when_flag_off(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.evaluation_hint = "Personenbezug"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        ctx = ai_freetext_summary.question_context(self.ot)
+        self.assertEqual(ctx["model_solution"], "")
+        # Question text and hint stay.
+        self.assertEqual(ctx["question"], "Was zeichnet eine anonyme Umfrage aus?")
+        self.assertEqual(ctx["hint"], "Personenbezug")
+
+    def test_question_context_includes_solution_by_default(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.save()
+        self.assertTrue(self.ot.wordcloud_grouping_use_solution)
+        ctx = ai_freetext_summary.question_context(self.ot)
+        self.assertEqual(ctx["model_solution"], "Keine Rückschlüsse")
+
+    @override_settings(**AI_ON)
+    def test_compute_without_solution_when_flag_off(self):
+        self._cast("Keine Namen")
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.evaluation_hint = "Personenbezug"
+        self.ot.wordcloud_grouping = "korrekt / falsch"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        reply = {"statements": [{"label": "S", "cluster": "T", "members": [1]}]}
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            side_effect=[reply, {"clusters": [{"label": "korrekt", "members": [1]}]}],
+        ) as chat:
+            ai_wordcloud_live._compute(self.run.pk, self.ot.pk, self.room.pk)
+        self.assertEqual(chat.call_count, 2)
+        for call in chat.call_args_list:
+            prompt = call[0][1]
+            self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", prompt)
+            self.assertNotIn("Musterlösung:", prompt)
+            self.assertNotIn("Keine Rückschlüsse", prompt)
+            self.assertIn("Bewertungshinweis: Personenbezug", prompt)
+
+    def _settings(self, body):
+        self.client.force_login(self.owner)
+        return self.client.post(
+            f"/api/runs/{self.run.pk}/wordcloud/{self.ot.pk}/ai-settings",
+            body, content_type="application/json",
+        )
+
+    def test_settings_grouping_use_solution_saved_and_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._settings({"grouping_use_solution": False})
+        self.assertEqual(resp.status_code, 200)
+        self.assertFalse(resp.json()["grouping_use_solution"])
+        self.ot.refresh_from_db()
+        self.assertFalse(self.ot.wordcloud_grouping_use_solution)
+        refresh.assert_called_once_with(self.run.pk, self.ot.pk, self.room.pk)
+
+    def test_settings_unchanged_grouping_use_solution_no_refresh(self):
+        with patch("live.views.ai_wordcloud_live.refresh") as refresh:
+            resp = self._settings({"grouping_use_solution": True})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.json()["grouping_use_solution"])
+        refresh.assert_not_called()
+
+    def test_settings_grouping_use_solution_must_be_bool(self):
+        for bad in ("false", "true", 1, 0, None):
+            with patch("live.views.ai_wordcloud_live.refresh") as refresh, \
+                    patch("live.views.broadcast") as bc:
+                resp = self._settings(
+                    {"grouping": "neu", "grouping_use_solution": bad}
+                )
+            self.assertEqual(resp.status_code, 400, bad)
+            refresh.assert_not_called()
+            bc.assert_not_called()
+        self.ot.refresh_from_db()
+        self.assertTrue(self.ot.wordcloud_grouping_use_solution)
+        self.assertEqual(self.ot.wordcloud_grouping, "")
+
+    def test_presenter_payload_has_solution_and_flag_participant_not(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        payloads = build_payloads(self.room)
+        question = payloads["presenter"]["question"]
+        self.assertEqual(question["model_solution"], "Keine Rückschlüsse")
+        self.assertFalse(question["wordcloud_grouping_use_solution"])
+        participant_q = payloads["participant"]["question"]
+        self.assertNotIn("model_solution", participant_q)
+        self.assertNotIn("wordcloud_grouping_use_solution", participant_q)
+        self.assertNotIn("Keine Rückschlüsse", json.dumps(payloads["participant"]))
+
+    def test_participant_results_payload_has_no_model_solution(self):
+        self.ot.model_solution = "Keine Rückschlüsse"
+        self.ot.save()
+        self.run.phase = Run.Phase.RESULTS
+        self.run.save()
+        self.question_set.show_results_to_participants = True
+        self.question_set.save()
+        payloads = build_payloads(self.room)
+        self.assertNotIn("Keine Rückschlüsse", json.dumps(payloads["participant"]))
+        self.assertEqual(
+            payloads["presenter"]["question"]["model_solution"], "Keine Rückschlüsse"
+        )
+
     @override_settings(**AI_ON)
     def test_compute_success_and_no_answers_flag_no_error(self):
         with patch("basicbar_integrations.ai.chat_json") as chat:
@@ -5247,6 +5353,18 @@ class FreetextAiSummaryEndpointTests(LiveTestCase):
         self.assertIn(
             "Musterlösung: Keine Rückschlüsse auf Personen", chat.call_args_list[0][0][1]
         )
+
+    @override_settings(**AI_ON)
+    def test_omits_model_solution_when_flag_off(self):
+        self.ot.model_solution = "Keine Rückschlüsse auf Personen"
+        self.ot.wordcloud_grouping_use_solution = False
+        self.ot.save()
+        with patch("basicbar_integrations.ai.chat_json", return_value=self.REPLY) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(self.url)
+        prompt = chat.call_args_list[0][0][1]
+        self.assertIn("Frage: Was zeichnet eine anonyme Umfrage aus?", prompt)
+        self.assertNotIn("Musterlösung", prompt)
 
     @override_settings(**AI_ON)
     def test_respects_moderation(self):

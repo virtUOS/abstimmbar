@@ -1624,6 +1624,9 @@ def freetext_summary(request, run_id, question_id):
 WORDCLOUD_GROUPING_MAX = 1000
 # Body keys of the ai-settings endpoint; the Question field is wordcloud_<key>.
 MERGE_FLAG_KEYS = ("merge_variants", "merge_synonyms", "merge_concepts")
+# Further boolean body keys (Question field wordcloud_<key>) that change the
+# AI result: free text — send the model solution with the question context.
+AI_FLAG_KEYS = (*MERGE_FLAG_KEYS, "grouping_use_solution")
 
 
 @api_view(["POST"])
@@ -1635,7 +1638,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
     views on/off, change the grouping instruction and/or what the
     consolidated view merges. Body: {"ai_enabled"?: bool, "grouping"?: str,
     "merge_variants"?: bool, "merge_synonyms"?: bool, "merge_concepts"?:
-    bool, "regroup"?: bool}. Saved on the question; a changed instruction or
+    bool, "grouping_use_solution"?: bool, "regroup"?: bool}. Saved on the question; a changed instruction or
     merge flag (or ``regroup: true``) recomputes a shown/warm AI result."""
     run = get_object_or_404(
         Run.objects.select_related("question_set__room"), pk=run_id
@@ -1669,7 +1672,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
                 status=400,
             )
     merge_updates = {}
-    for key in MERGE_FLAG_KEYS:
+    for key in AI_FLAG_KEYS:
         if key in data:
             value = data.get(key)
             if not isinstance(value, bool):
@@ -1712,7 +1715,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
         "grouping": question.wordcloud_grouping,
         "ai_seq": ai_seq,
     }
-    for key in MERGE_FLAG_KEYS:
+    for key in AI_FLAG_KEYS:
         response[key] = getattr(question, f"wordcloud_{key}")
     return Response(response)
 
