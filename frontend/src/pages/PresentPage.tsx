@@ -7,7 +7,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
-import { ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Unlink, Users, Vote, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Unlink, Users, Vote, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -480,6 +480,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   useEffect(() => {
     setGroupingDraft(serverGrouping);
   }, [activeId, serverGrouping]);
+  // Free text: "Consider the model solution when grouping" — a draft like
+  // the instruction, applied with "Regroup". Only offered with a solution.
+  const serverUseSolution = state?.question?.wordcloud_grouping_use_solution ?? true;
+  const modelSolution = (state?.question?.model_solution ?? "").trim();
+  const [useSolutionDraft, setUseSolutionDraft] = useState(true);
+  useEffect(() => {
+    setUseSolutionDraft(serverUseSolution);
+  }, [activeId, serverUseSolution]);
+  // "Show model solution" disclosure: collapsed every time the panel opens or
+  // the question changes (the beamer may be mirrored); never persisted.
+  const [solutionOpen, setSolutionOpen] = useState(false);
+  useEffect(() => {
+    setSolutionOpen(false);
+  }, [activeId, showAiPanel]);
   // "Cleaned up" merge switches: a local draft (no model call per click),
   // applied with "Merge again".
   const serverMergeVariants = state?.question?.wordcloud_merge_variants ?? true;
@@ -584,9 +598,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     try {
       const res = await live.wordcloudAiSettings(runId, activeId, {
         grouping: groupingDraft,
+        ...(isOpenText && modelSolution ? { grouping_use_solution: useSolutionDraft } : {}),
         regroup: viewActive,
       });
       setGroupingDraft(res.grouping);
+      setUseSolutionDraft(res.grouping_use_solution);
       markRecompute(res.ai_seq);
       // Ensure the grouped view is shown and active (same path as footer / `A`).
       setWcView("grouped");
@@ -2033,6 +2049,42 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                             )}
                             className="w-full rounded-lg border border-slate-300 bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-500 focus:outline-none"
                           />
+                          {isOpenText && modelSolution && (
+                            <div className="mt-2">
+                              <label className="flex items-start gap-2 text-sm text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  checked={useSolutionDraft}
+                                  disabled={aiBusy !== null}
+                                  onChange={(e) => setUseSolutionDraft(e.target.checked)}
+                                  className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                                />
+                                {t("Consider the model solution when grouping")}
+                              </label>
+                              <button
+                                type="button"
+                                aria-expanded={solutionOpen}
+                                aria-controls="wc-model-solution"
+                                onClick={() => setSolutionOpen((o) => !o)}
+                                className="mt-1.5 inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-800"
+                              >
+                                {solutionOpen ? (
+                                  <ChevronDown className="h-3.5 w-3.5" aria-hidden />
+                                ) : (
+                                  <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+                                )}
+                                {t("Show model solution")}
+                              </button>
+                              {solutionOpen && (
+                                <p
+                                  id="wc-model-solution"
+                                  className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-2 text-sm text-slate-700"
+                                >
+                                  {modelSolution}
+                                </p>
+                              )}
+                            </div>
+                          )}
                           <button
                             type="button"
                             onClick={() => void regroup()}
@@ -2725,7 +2777,7 @@ function ModerationPanel({
                 title={t("Show this entry on the beamer again")}
                 aria-label={t("Show {{word}} on the beamer again", { word: h.key })}
               >
-                {t("Restore")}
+                {t("Show again")}
               </button>
             </div>
           ))}

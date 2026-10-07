@@ -227,6 +227,8 @@ export default function QuestionPage() {
   const [wordcloudLive, setWordcloudLive] = useState(true);
   const [wordcloudAiEnabled, setWordcloudAiEnabled] = useState(false);
   const [wordcloudGrouping, setWordcloudGrouping] = useState("");
+  // Free text: send the model solution along to the AI grouping (default on).
+  const [groupingUseSolution, setGroupingUseSolution] = useState(true);
   // What the AI "Cleaned up" view merges (defaults mirror the backend).
   const [wordcloudMergeVariants, setWordcloudMergeVariants] = useState(true);
   const [wordcloudMergeSynonyms, setWordcloudMergeSynonyms] = useState(true);
@@ -310,6 +312,7 @@ export default function QuestionPage() {
       setWordcloudLive(data.wordcloud_live);
       setWordcloudAiEnabled(data.wordcloud_ai_enabled);
       setWordcloudGrouping(data.wordcloud_grouping);
+      setGroupingUseSolution(data.wordcloud_grouping_use_solution ?? true);
       setWordcloudMergeVariants(data.wordcloud_merge_variants ?? true);
       setWordcloudMergeSynonyms(data.wordcloud_merge_synonyms ?? true);
       setWordcloudMergeConcepts(data.wordcloud_merge_concepts ?? false);
@@ -512,6 +515,7 @@ export default function QuestionPage() {
         // these fields; other kinds reset them.
         wordcloud_ai_enabled: textKind && wordcloudAiEnabled,
         wordcloud_grouping: textKind ? wordcloudGrouping : "",
+        wordcloud_grouping_use_solution: groupingUseSolution,
         wordcloud_merge_variants: wordcloudMergeVariants,
         wordcloud_merge_synonyms: wordcloudMergeSynonyms,
         wordcloud_merge_concepts: wordcloudMergeConcepts,
@@ -731,7 +735,7 @@ export default function QuestionPage() {
       aiEvaluate, evaluationHint, evalCategories, evalScale, evalChart,
       modelSolution, participantFeedback,
       wordcloudMaxAnswers, wordcloudBatchSubmit, wordcloudLive,
-      wordcloudAiEnabled, wordcloudGrouping,
+      wordcloudAiEnabled, wordcloudGrouping, groupingUseSolution,
       wordcloudMergeVariants, wordcloudMergeSynonyms, wordcloudMergeConcepts,
     });
   }
@@ -1656,6 +1660,17 @@ export default function QuestionPage() {
                     {t("Controls the “Grouped” view; the key statements stay the same.")}
                   </span>
                 </label>
+                {modelSolution.trim() && (
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={groupingUseSolution}
+                      onChange={(event) => setGroupingUseSolution(event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    />
+                    {t("Consider the model solution when grouping")}
+                  </label>
+                )}
               </div>
             )}
           </AiAssistPanel>

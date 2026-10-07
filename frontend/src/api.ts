@@ -177,6 +177,9 @@ export interface Question {
   wordcloud_ai_enabled: boolean;
   /** word_cloud only: optional AI grouping criteria (empty = auto themes). */
   wordcloud_grouping: string;
+  /** open_text only: send the model solution along to the AI key
+   *  statements/grouping (default on). */
+  wordcloud_grouping_use_solution: boolean;
   /** word_cloud only: what the AI "Cleaned up" view merges — spelling
    *  variants/typos, synonyms/word forms, similar concepts. */
   wordcloud_merge_variants: boolean;
@@ -939,6 +942,10 @@ export interface LiveState {
     wordcloud_ai_enabled?: boolean;
     /** The question's saved AI grouping instruction (empty = AI clusters freely). */
     wordcloud_grouping?: string;
+    /** open_text: send the model solution along to the AI grouping. */
+    wordcloud_grouping_use_solution?: boolean;
+    /** open_text, presenter only: the question's model solution (plain). */
+    model_solution?: string;
     /** What the AI "Cleaned up" view merges (saved on the question). */
     wordcloud_merge_variants?: boolean;
     wordcloud_merge_synonyms?: boolean;
@@ -1231,6 +1238,7 @@ export const live = {
       merge_variants?: boolean;
       merge_synonyms?: boolean;
       merge_concepts?: boolean;
+      grouping_use_solution?: boolean;
       regroup?: boolean;
     },
   ) =>
@@ -1240,6 +1248,7 @@ export const live = {
       merge_variants: boolean;
       merge_synonyms: boolean;
       merge_concepts: boolean;
+      grouping_use_solution: boolean;
       /** Results with a higher `WordCloudAI.seq` reflect these settings. */
       ai_seq: number;
     }>(
