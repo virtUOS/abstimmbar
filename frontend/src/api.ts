@@ -1054,6 +1054,8 @@ export interface MindmapRating {
   /** Distinct participants with at least one rating (visible nodes). */
   raters: number;
   scores?: Record<string, MindmapScore>;
+  /** Results only: a hidden rating is still running — no scores/ranking yet. */
+  rating_in_progress?: boolean;
 }
 
 export interface LiveMindmap {
@@ -1313,13 +1315,13 @@ export const live = {
       `/api/runs/${runId}/mindmap/${questionId}/hide`,
       { method: "POST", body: JSON.stringify({ node, hidden }) },
     ),
-  /** Presenter switches the mindmap stage (collect / rate). Does not open
-   *  the vote — call `control(…, {phase: "open"})` afterwards. */
-  mindmapStage: (runId: number, questionId: number, stage: "collect" | "rate") =>
-    request<{ stage: "collect" | "rate" }>(`/api/runs/${runId}/mindmap/${questionId}/stage`, {
-      method: "POST",
-      body: JSON.stringify({ stage }),
-    }),
+  /** Presenter switches the mindmap stage (collect / rate); `open` also
+   *  opens the vote in the same request (one broadcast, no flash). */
+  mindmapStage: (runId: number, questionId: number, stage: "collect" | "rate", open = false) =>
+    request<{ stage: "collect" | "rate"; phase: string }>(
+      `/api/runs/${runId}/mindmap/${questionId}/stage`,
+      { method: "POST", body: JSON.stringify({ stage, open }) },
+    ),
   /** Presenter adds a term (`parent` null = main branch). `merged`: the term
    *  already existed there — nothing was added. */
   mindmapAdd: (

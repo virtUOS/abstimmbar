@@ -254,6 +254,9 @@ export default function QuestionPage() {
   const [mindmapRatingBudget, setMindmapRatingBudget] = useState(5);
   const [mindmapRatingMulti, setMindmapRatingMulti] = useState(true);
   const [mindmapRatingLive, setMindmapRatingLive] = useState(false);
+  // Server refusal for the rating mode (locked while a running session has
+  // ratings), shown at the field.
+  const [ratingModeError, setRatingModeError] = useState("");
   const [saving, setSaving] = useState(false);
   // #74: switch between editing and an interactive participant preview (iframe).
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -607,7 +610,16 @@ export default function QuestionPage() {
       if (!stay) navigate(`/sets/${setId}`);
       return true;
     } catch (err) {
-      setError(String(err));
+      let modeError = "";
+      try {
+        const body = JSON.parse((err as Error).message);
+        const msg = body?.mindmap_rating_mode;
+        modeError = Array.isArray(msg) ? String(msg[0] ?? "") : typeof msg === "string" ? msg : "";
+      } catch {
+        /* not a JSON body */
+      }
+      setRatingModeError(modeError ? t(modeError) : "");
+      setError(modeError ? t(modeError) : String(err));
       return false;
     } finally {
       setSaving(false);
@@ -1509,13 +1521,21 @@ export default function QuestionPage() {
                 className="max-w-md"
                 ariaLabel={t("Rating phase")}
                 value={mindmapRatingMode === "" ? "off" : mindmapRatingMode}
-                onChange={(v) => setMindmapRatingMode(v === "off" ? "" : v)}
+                onChange={(v) => {
+                  setMindmapRatingMode(v === "off" ? "" : v);
+                  setRatingModeError("");
+                }}
                 options={[
                   { value: "off", label: t("Off") },
                   { value: "points", label: t("Points") },
                   { value: "updown", label: t("Plus/minus") },
                 ]}
               />
+              {ratingModeError && (
+                <p className="text-sm text-red-600 dark:text-red-400" data-testid="rating-mode-error">
+                  {ratingModeError}
+                </p>
+              )}
               {mindmapRatingMode !== "" && (
                 <>
                   <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">

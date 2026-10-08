@@ -796,12 +796,18 @@ function MindmapOutline({
                 : t("Plus/minus · rated by {{n}}", { n: rating.raters })}
             </span>
           </div>
-          <MindmapRanking
-            entries={ranking}
-            mode={rating.mode}
-            size="compact"
-            hues={mindmapBranchHues(nodes)}
-          />
+          {rating.rating_in_progress ? (
+            <p className="text-sm text-slate-500 dark:text-slate-400" data-testid="mm-rating-in-progress">
+              {t("Rating still in progress — results appear once they are revealed.")}
+            </p>
+          ) : (
+            <MindmapRanking
+              entries={ranking}
+              mode={rating.mode}
+              size="compact"
+              hues={mindmapBranchHues(nodes)}
+            />
+          )}
         </div>
       )}
     </div>

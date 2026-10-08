@@ -990,5 +990,8 @@
   "Participants have rated this term.": "Teilnehmende haben diesen Begriff bereits bewertet.",
   "This question has no rating phase.": "Diese Frage hat keine Bewertungsphase.",
   "Rating closed": "Bewertung beendet",
-  "mm_rating_reveal_hint": "Lösen Sie die Ergebnisse mit <1>E</1> auf"
+  "mm_rating_reveal_hint": "Lösen Sie die Ergebnisse mit <1>E</1> auf",
+  "Rating still in progress — results appear once they are revealed.": "Bewertung läuft noch – Ergebnisse erscheinen nach dem Auflösen.",
+  "Not possible while rating is in progress.": "Während der Bewertung nicht möglich.",
+  "The rating mode cannot be changed while a running session already has ratings.": "Die Bewertungsart kann nicht geändert werden, solange eine laufende Durchführung schon Bewertungen hat."
 }

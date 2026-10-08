@@ -635,15 +635,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       })),
   });
   const hideMindmapNode = (node: number, hidden: boolean) => mmMod.hide(node, hidden);
-  // "Start rating" / "Keep collecting": switch the stage, then (re)open the
-  // vote — the stage endpoint leaves the run phase alone.
+  // "Start rating" / "Keep collecting": switch the stage and (re)open the
+  // vote in one request (no intermediate state on the beamer).
   const [mmStageBusy, setMmStageBusy] = useState(false);
   const setMindmapStage = async (stage: "collect" | "rate") => {
     if (runId == null || activeId == null || mmStageBusy) return;
     setMmStageBusy(true);
     try {
-      await live.mindmapStage(runId, activeId, stage);
-      if (phase !== "open") await live.control(runId, { phase: "open" });
+      await live.mindmapStage(runId, activeId, stage, true);
     } catch (err) {
       setMmToast((p) => ({ text: t(requestDetail(err)), n: (p?.n ?? 0) + 1 }));
     } finally {
@@ -2556,7 +2555,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 {t("Vote not started yet")}
               </span>
             )}
-            {phase === "closed" && (
+            {/* A closed rating has its own "Rating closed" line above the map. */}
+            {phase === "closed" && !(mmShown && mmRate) && (
               <p className="text-xl">{t("Voting closed")}</p>
             )}
           </div>
