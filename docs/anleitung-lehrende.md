@@ -235,8 +235,13 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
 - Das QR-Symbol blendet QR-Code und Zugangscode jederzeit wieder ein.
 - **Mindmap:** Die Mindmap wächst live mit den Beiträgen. Mit Mausrad und Ziehen
   zoomen und verschieben Sie sie; die Ansicht lässt sich zwischen **kompakt** und
-  **ausführlich** (mit Beschreibungen) umschalten. Im Experten-Modus blenden Sie
-  einen Begriff samt Teilbaum aus.
+  **ausführlich** (mit Beschreibungen) umschalten. Im Experten-Modus moderieren
+  Sie die Mindmap direkt auf dem Beamer: Mit **+** an einem Begriff fügen Sie auf
+  Zuruf einen Unterbegriff hinzu; ziehen Sie einen Begriff **auf** einen anderen,
+  werden beide zusammengeführt (die Unterbegriffe wandern mit), ziehen Sie ihn
+  auf die Zone **„hier anhängen“** daneben, wird er samt Teilbaum dorthin
+  verschoben. Ein Doppelklick benennt einen Begriff um, × blendet ihn samt
+  Teilbaum aus. Mit Strg/Cmd+Z machen Sie den letzten Schritt rückgängig.
 - **Wortwolken bearbeiten (Experten-Modus):** Ziehen Sie einen Begriff auf
   einen anderen, um beide zusammenzuführen; mit × blenden Sie einen Begriff aus.
   Der Stift am rechten Rand öffnet die Liste zum Wiederherstellen, Trennen und

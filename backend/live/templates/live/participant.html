@@ -2832,7 +2832,7 @@ survives the live updates.
     };
     if (PREVIEW) {
       mmMineSet.delete(id);
-      drop(hit.node.count <= 1 && !hit.node.seeded);
+      drop(hit.node.count <= 1 && !hit.node.seeded && !hit.node.teacher);
       renderMindmap();
       return;
     }
