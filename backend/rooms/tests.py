@@ -4948,6 +4948,105 @@ class MindmapAuthoringTests(ApiTestCase):
         self.assertEqual(response.status_code, 400)
 
 
+class MindmapRatingSettingsTests(ApiTestCase):
+    """Mindmap rating phase (Task 1): the four authoring settings."""
+
+    def setUp(self):
+        super().setUp()
+        self.question_set = QuestionSet.objects.create(room=self.room, title_de="Live")
+
+    def _create(self, **overrides):
+        payload = {
+            "question_set": self.question_set.pk,
+            "kind": "mindmap",
+            "text": {"de": "<p>Q?</p>", "en": ""},
+            "options": [],
+        }
+        payload.update(overrides)
+        return self.client.post("/api/questions/", payload, content_type="application/json")
+
+    def test_defaults(self):
+        data = self._create().json()
+        self.assertEqual(data["mindmap_rating_mode"], "")
+        self.assertEqual(data["mindmap_rating_budget"], 5)
+        self.assertTrue(data["mindmap_rating_multi"])
+        self.assertFalse(data["mindmap_rating_live"])
+
+    def test_settings_saved(self):
+        response = self._create(
+            mindmap_rating_mode="updown", mindmap_rating_budget=12,
+            mindmap_rating_multi=False, mindmap_rating_live=True,
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        question = Question.objects.get(pk=response.json()["id"])
+        self.assertEqual(question.mindmap_rating_mode, "updown")
+        self.assertEqual(question.mindmap_rating_budget, 12)
+        self.assertFalse(question.mindmap_rating_multi)
+        self.assertTrue(question.mindmap_rating_live)
+
+    def test_mode_choices(self):
+        for ok in ("", "points", "updown"):
+            self.assertEqual(self._create(mindmap_rating_mode=ok).status_code, 201, ok)
+        response = self._create(mindmap_rating_mode="stars")
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("mindmap_rating_mode", response.json())
+
+    def test_budget_range(self):
+        for bad in (0, 51, -1):
+            response = self._create(mindmap_rating_budget=bad)
+            self.assertEqual(response.status_code, 400, bad)
+            self.assertIn("mindmap_rating_budget", response.json())
+        for ok in (1, 50):
+            self.assertEqual(self._create(mindmap_rating_budget=ok).status_code, 201, ok)
+
+    def _rated_question(self):
+        return Question.objects.create(
+            question_set=self.question_set, kind="mindmap", text_de="<p>Q</p>",
+            mindmap_rating_mode="points", mindmap_rating_budget=7,
+            mindmap_rating_multi=False, mindmap_rating_live=True,
+        )
+
+    def _assert_rating(self, question):
+        self.assertEqual(question.mindmap_rating_mode, "points")
+        self.assertEqual(question.mindmap_rating_budget, 7)
+        self.assertFalse(question.mindmap_rating_multi)
+        self.assertTrue(question.mindmap_rating_live)
+
+    def test_duplicate_copies_rating_settings(self):
+        from .transfer import duplicate_set
+
+        self._rated_question()
+        clone = duplicate_set(self.question_set, self.room)
+        self._assert_rating(clone.questions.get())
+
+    def test_export_import_roundtrip(self):
+        from .transfer import export_set, import_set
+
+        self._rated_question()
+        data = export_set(self.question_set)
+        self.assertEqual(data["questions"][0]["mindmap_rating_mode"], "points")
+        self._assert_rating(import_set(self.room, data).questions.get())
+
+    def test_import_sanitises_foreign_rating_settings(self):
+        from .transfer import import_set
+
+        imported = import_set(self.room, {
+            "format": "abstimmbar-set-v2",
+            "title": {"de": "Fremd", "en": ""},
+            "questions": [{
+                "kind": "mindmap",
+                "text": {"de": "<p>Q</p>", "en": ""},
+                "mindmap_rating_mode": "stars",
+                "mindmap_rating_budget": 999,
+            }],
+        })
+        question = imported.questions.get()
+        self.assertEqual(question.mindmap_rating_mode, "")
+        self.assertEqual(question.mindmap_rating_budget, 5)
+        self.assertTrue(question.mindmap_rating_multi)
+        self.assertFalse(question.mindmap_rating_live)
+
+
 class MindmapSeedHelperTests(SimpleTestCase):
     def test_normalisation_nfkc_and_control_characters(self):
         from .mindmap import normalize_text, text_key

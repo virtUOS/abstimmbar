@@ -328,3 +328,52 @@ class MindmapContribution(models.Model):
                 fields=["node", "token"], name="one_mindmap_contribution_per_token"
             )
         ]
+
+
+class MindmapPhase(models.Model):
+    """The stage of a mind-map question within one run (rating phase).
+
+    A separate row per run + question keeps the run's phase machine
+    (``Run.phase``) untouched: the stage is orthogonal to it — "collect"
+    (participants add terms) or "rate" (participants rate the entries; no new
+    terms). No row = "collect". Only meaningful while the question has a
+    rating mode (``Question.mindmap_rating_mode``); with the mode off the
+    question behaves as "collect" whatever is stored here.
+    """
+
+    class Stage(models.TextChoices):
+        COLLECT = "collect", "Collecting terms"
+        RATE = "rate", "Rating the entries"
+
+    run = models.ForeignKey(Run, on_delete=models.CASCADE, related_name="mindmap_phases")
+    question = models.ForeignKey(
+        "rooms.Question", on_delete=models.CASCADE, related_name="+"
+    )
+    stage = models.CharField(max_length=10, choices=Stage.choices, default=Stage.COLLECT)
+    # Last time the rating stage was (re)started.
+    rating_started_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["run", "question"], name="one_mindmap_phase_per_run_question"
+            )
+        ]
+
+
+class MindmapRating(models.Model):
+    """One participant's rating of one mind-map entry (anonymous: only the
+    opaque token, for the budget and "my ratings"). ``points`` mode: ``value``
+    = number of points (>= 1); ``updown`` mode: +1 or -1. A rating at 0 is no
+    row. Deleted with its node; kept (but not counted) while it is hidden."""
+
+    node = models.ForeignKey(MindmapNode, on_delete=models.CASCADE, related_name="ratings")
+    token = models.ForeignKey(
+        ParticipantToken, on_delete=models.CASCADE, related_name="mindmap_ratings"
+    )
+    value = models.SmallIntegerField()
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(fields=["node", "token"], name="one_mindmap_rating_per_token")
+        ]

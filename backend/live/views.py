@@ -42,6 +42,7 @@ from . import (
     ai_report,
     ai_wordcloud,
     ai_wordcloud_live,
+    mindmap_rating,
 )
 from .ai_freetext import clean_categories
 from .hub import hub, sse_frame
@@ -815,6 +816,60 @@ def mindmap_mine(request, code):
     if question is None:
         return Response({"detail": "Unknown question."}, status=404)
     return Response({"nodes": mindmap.own_node_ids(run, question, token)})
+
+
+@api_view(["POST"])
+def mindmap_rate(request, code):
+    """Rating phase: one rating step on an entry. ``{token, question, node,
+    delta: 1|-1}`` (points) or ``{…, value: 1|-1|0}`` (plus/minus) →
+    200 ``{node, value, remaining}``. Needs the open phase AND the rating
+    stage; the root (``node: null``) and hidden entries cannot be rated."""
+    context = _mindmap_context(request, code)
+    if isinstance(context, Response):
+        return context
+    room, token, run, question = context
+    data = request.data
+    try:
+        node = _strict_id(data, "node")
+        if question.mindmap_rating_mode == "points":
+            delta = data.get("delta")
+            if isinstance(delta, bool) or not isinstance(delta, int) or delta not in (1, -1):
+                raise _BadField("delta must be 1 or -1.")
+            kwargs = {"delta": delta}
+        else:
+            value = data.get("value")
+            if isinstance(value, bool) or not isinstance(value, int) or value not in (1, -1, 0):
+                raise _BadField("value must be 1, -1 or 0.")
+            kwargs = {"value": value}
+        value, remaining = mindmap_rating.rate(run, question, token, node, **kwargs)
+    except _BadField as error:
+        return Response({"detail": str(error)}, status=400)
+    except mindmap.MindmapError as error:
+        return Response(error.body(), status=error.status)
+    broadcast(room, debounce=mindmap.BROADCAST_DEBOUNCE)
+    return Response({"node": node, "value": value, "remaining": remaining})
+
+
+@api_view(["POST"])
+def mindmap_my_ratings(request, code):
+    """The CALLER's ratings in the active run: ``{token, question}`` →
+    ``{ratings: {"<node id>": value}, remaining}`` (visible entries only)."""
+    room = _room_by_code(code)
+    token = ParticipantToken.objects.filter(
+        room=room, key=request.data.get("token", "")
+    ).first()
+    if token is None:
+        return Response({"detail": "Unknown participant token."}, status=403)
+    run = active_run(room)
+    if run is None:
+        return Response({"ratings": {}, "remaining": 0})
+    question = Question.objects.filter(
+        question_set=run.question_set, kind=Question.Kind.MINDMAP,
+        pk=mindmap._parse_id(request.data.get("question")),
+    ).first()
+    if question is None:
+        return Response({"detail": "Unknown question."}, status=404)
+    return Response(mindmap_rating.my_ratings(run, question, token))
 
 
 # --- recording mode (#53): async viewer voting ------------------------------
@@ -1767,6 +1822,22 @@ def _mindmap_moderate(request, run_id, question_id, action, status=200):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+def mindmap_stage(request, run_id, question_id):
+    """Presenter: ``{stage: "collect"|"rate"}`` → 200 ``{stage}``. "rate"
+    needs a rating mode on the question (409 otherwise); 409 for a finished
+    run. Independent of the run phase (open/close the vote separately)."""
+
+    def action(run, question, data):
+        stage = data.get("stage")
+        if not isinstance(stage, str):
+            raise _BadField("stage must be \"collect\" or \"rate\".")
+        return {"stage": mindmap_rating.set_stage(run, question, stage)}
+
+    return _mindmap_moderate(request, run_id, question_id, action)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
 def mindmap_teacher_add(request, run_id, question_id):
     """Presenter adds a term: ``{parent: id|null, text, description?}`` →
     201 ``{node_id, merged: false}`` (new) or 200 ``{node_id, merged: true}``
@@ -2186,10 +2257,19 @@ def results_csv(request, set_id):
         runs = runs.filter(pk=run_id)
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
-    writer.writerow(
-        ["durchfuehrung", "gestartet", "frage_nr", "frage", "antwort", "richtig",
-         "stimmen", "vor_ort", "aufzeichnung", "prozent"]
-    )
+    header = ["durchfuehrung", "gestartet", "frage_nr", "frage", "antwort", "richtig",
+              "stimmen", "vor_ort", "aufzeichnung", "prozent", "bewertung"]
+    writer.writerow(header)
+    raw_writerow = writer.writerow
+
+    class _PaddedWriter:
+        # Every row gets the full column count ("bewertung" only filled for
+        # mind maps with a rating phase).
+        @staticmethod
+        def writerow(row):
+            return raw_writerow(list(row) + [""] * (len(header) - len(row)))
+
+    writer = _PaddedWriter()
     for run in runs:
         started = run.first_opened_at or run.created_at
         for question in run.question_set.questions.prefetch_related("options"):
@@ -2200,10 +2280,19 @@ def results_csv(request, set_id):
                     question.position + 1, _plain(question_text)]
             if question.kind == Question.Kind.MINDMAP:
                 # One row per visible node: its path from the root's branch
-                # ("Wind > Rotor") and its count in "stimmen".
+                # ("Wind > Rotor") and its count in "stimmen"; with a rating
+                # phase its score in "bewertung".
                 tree = mindmap.build_tree(run, question, presenter=False)
-                for path, count in mindmap.csv_rows(tree):
-                    writer.writerow(base + [csv_safe(path), "", count, "", "", ""])
+                scores = (
+                    mindmap_rating.aggregate(run, question)[0]
+                    if question.mindmap_rating_mode
+                    else {}
+                )
+                for path, count, node_id in mindmap.csv_rows(tree):
+                    writer.writerow(
+                        base + [csv_safe(path), "", count, "", "", "",
+                                csv_safe(mindmap_rating.csv_cell(question, scores, node_id))]
+                    )
             elif question.kind in Question.TEXT_KINDS:
                 for word in words_with_counts(run, question, limit=100000):
                     writer.writerow(

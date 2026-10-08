@@ -109,6 +109,10 @@ QUESTION_CONTENT_FIELDS = (
     "mindmap_descriptions",
     "mindmap_highlight_duplicates",
     "mindmap_seed",
+    "mindmap_rating_mode",
+    "mindmap_rating_budget",
+    "mindmap_rating_multi",
+    "mindmap_rating_live",
 )
 # Translatable Question fields copied column by column (never the bare
 # accessor): the question text and the mindmap root label.
@@ -282,6 +286,10 @@ def export_set(question_set):
                 "mindmap_descriptions": question.mindmap_descriptions,
                 "mindmap_highlight_duplicates": question.mindmap_highlight_duplicates,
                 "mindmap_seed": question.mindmap_seed,
+                "mindmap_rating_mode": question.mindmap_rating_mode,
+                "mindmap_rating_budget": question.mindmap_rating_budget,
+                "mindmap_rating_multi": question.mindmap_rating_multi,
+                "mindmap_rating_live": question.mindmap_rating_live,
                 "section": section_index.get(question.section_id),
                 "options": [
                     {
@@ -433,6 +441,14 @@ def import_set(room, data):
             mindmap_seed=mindmap.clean_seed(
                 item.get("mindmap_seed"), mm_depth, strict=False
             ),
+            mindmap_rating_mode=mindmap.clamp_rating_mode(
+                item.get("mindmap_rating_mode")
+            ),
+            mindmap_rating_budget=mindmap.clamp_rating_budget(
+                item.get("mindmap_rating_budget")
+            ),
+            mindmap_rating_multi=bool(item.get("mindmap_rating_multi", True)),
+            mindmap_rating_live=bool(item.get("mindmap_rating_live", False)),
             shuffle_options=bool(item.get("shuffle_options")),
             binary_choice=bool(item.get("binary_choice")),
             time_limit=time_limit,

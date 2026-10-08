@@ -26,6 +26,17 @@ MINDMAP_MAX_PER_PERSON_LIMIT = 300
 MINDMAP_TEXT_MAX = 60
 MINDMAP_DESCRIPTION_MAX = 200
 MINDMAP_SEED_MAX_NODES = 100
+# Rating phase (live.mindmap_rating).
+RATING_POINTS = "points"
+RATING_UPDOWN = "updown"
+RATING_MODE_CHOICES = (
+    ("", "Off"),
+    (RATING_POINTS, "Points"),
+    (RATING_UPDOWN, "Plus/minus"),
+)
+RATING_MIN_BUDGET = 1
+RATING_MAX_BUDGET = 50
+RATING_DEFAULT_BUDGET = 5
 
 
 def seed_langs():
@@ -192,3 +203,17 @@ def clamp_max_per_person(value):
     ):
         return value
     return MINDMAP_DEFAULT_MAX_PER_PERSON
+
+
+def clamp_rating_mode(value):
+    """Rating mode from foreign input: a known mode, else off."""
+    return value if value in (RATING_POINTS, RATING_UPDOWN) else ""
+
+
+def clamp_rating_budget(value):
+    """Rating budget from foreign input: an int in 1–50, else the default."""
+    if isinstance(value, int) and not isinstance(value, bool) and (
+        RATING_MIN_BUDGET <= value <= RATING_MAX_BUDGET
+    ):
+        return value
+    return RATING_DEFAULT_BUDGET
