@@ -12,6 +12,7 @@ import {
   results,
   type FreeTextEvaluation,
   type LiveMindmapNode,
+  type MindmapRating,
   type Question,
   type QuestionSet,
   type RunResults,
@@ -24,9 +25,19 @@ import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
 import { mindmapNodeDescriptions, mindmapNodeText } from "../results/MindMap";
+import MindmapRanking, { rankMindmap } from "../results/MindmapRanking";
 import PriorityBar from "../results/PriorityBar";
 import ResultBar from "../results/ResultBar";
-import { INK, evalColor, termColor } from "../results/palette";
+import {
+  CORRECT,
+  CORRECT_STRONG,
+  INK,
+  MINUS,
+  MINUS_INK,
+  NEUTRAL_TILE,
+  evalColor,
+  termColor,
+} from "../results/palette";
 
 function aiErrorText(err: unknown): string {
   try {
@@ -659,6 +670,7 @@ export default function ResultsPage() {
                             <MindmapOutline
                               nodes={question.mindmap?.nodes ?? []}
                               root={localizedText(question.mindmap?.root.label) || stripHtml(localizedText(question.text))}
+                              rating={question.mindmap?.rating}
                             />
                           )}
                           {question.words && question.kind === "word_cloud" && (
@@ -695,10 +707,57 @@ export default function ResultsPage() {
 type ResultQuestion = RunResults["questions"][number];
 
 /** Mindmap result (visible nodes only): root, then the terms as an indented
- * outline with count pills (> 1) and muted descriptions. */
-function MindmapOutline({ nodes, root }: { nodes: LiveMindmapNode[]; root: string }) {
+ * outline with count pills (> 1) and muted descriptions. With a rating
+ * phase: each rated term's score in the outline, and the ranking below. */
+function MindmapOutline({
+  nodes,
+  root,
+  rating,
+}: {
+  nodes: LiveMindmapNode[];
+  root: string;
+  rating?: MindmapRating;
+}) {
   const { t } = useTranslation();
   if (nodes.length === 0) return <span className="text-slate-400">{t("No answers yet.")}</span>;
+  const scoreEl = (id: number) => {
+    const score = rating?.scores?.[String(id)];
+    if (!score) return null;
+    if ("points" in score)
+      return (
+        <span
+          className="ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold tabular-nums text-white dark:ring-1 dark:ring-slate-500"
+          style={{ background: INK }}
+          title={t("{{count}} points", { count: score.points })}
+        >
+          ● {score.points}
+        </span>
+      );
+    const sign = score.balance > 0 ? "+" : score.balance < 0 ? "−" : "±";
+    return (
+      <span
+        className="ml-2 text-[11px] font-semibold tabular-nums"
+        title={t("{{up}} plus, {{down}} minus, balance {{balance}}", {
+          up: score.up,
+          down: score.down,
+          balance: score.balance,
+        })}
+      >
+        <span style={{ color: CORRECT_STRONG }}>+{score.up}</span>{" "}
+        <span style={{ color: MINUS_INK }}>−{score.down}</span>{" "}
+        <span
+          className="rounded-full px-1.5 py-0.5 text-[10px]"
+          style={{
+            color: INK,
+            background: score.balance > 0 ? CORRECT : score.balance < 0 ? MINUS : NEUTRAL_TILE,
+          }}
+        >
+          {sign}
+          {Math.abs(score.balance)}
+        </span>
+      </span>
+    );
+  };
   const render = (list: LiveMindmapNode[], level: number) => (
     <ul className={level ? "ml-4 border-l border-slate-200 pl-3 dark:border-slate-700" : "space-y-1"}>
       {list.map((n) => (
@@ -709,6 +768,7 @@ function MindmapOutline({ nodes, root }: { nodes: LiveMindmapNode[]; root: strin
               {n.count}
             </span>
           )}
+          {scoreEl(n.id)}
           {n.descriptions.length > 0 && (
             <div className="text-xs text-slate-500 dark:text-slate-400">
               {mindmapNodeDescriptions(n).join(" · ")}
@@ -719,10 +779,26 @@ function MindmapOutline({ nodes, root }: { nodes: LiveMindmapNode[]; root: strin
       ))}
     </ul>
   );
+  const ranking = rating ? rankMindmap(nodes, rating.scores) : [];
   return (
     <div>
       <div className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-50">{root}</div>
       {render(nodes, 0)}
+      {rating && (
+        <div className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700">
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <span className="text-sm font-semibold text-slate-900 dark:text-slate-50">
+              {t("Ranking")}
+            </span>
+            <span className="text-xs text-slate-500 dark:text-slate-400">
+              {rating.mode === "points"
+                ? t("Points · rated by {{n}}", { n: rating.raters })
+                : t("Plus/minus · rated by {{n}}", { n: rating.raters })}
+            </span>
+          </div>
+          <MindmapRanking entries={ranking} mode={rating.mode} size="compact" />
+        </div>
+      )}
     </div>
   );
 }

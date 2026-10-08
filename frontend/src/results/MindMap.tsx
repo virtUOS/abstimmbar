@@ -28,8 +28,8 @@ import type {
 import { useTranslation } from "react-i18next";
 import { ChevronRight, CornerDownRight, Maximize2, Minus, Plus, X, ZoomIn } from "lucide-react";
 import { localizedText } from "@basicbar/ui";
-import type { LiveMindmapNode } from "../api";
-import { INK } from "./palette";
+import type { LiveMindmapNode, MindmapRating } from "../api";
+import { CORRECT, CORRECT_STRONG, INK, MINUS, MINUS_INK, NEUTRAL_TILE } from "./palette";
 import { EASE, useReducedMotion } from "./motion";
 
 // ---------------------------------------------------------------------------
@@ -441,6 +441,22 @@ const LINE = 1.22;
 const DESC_LINE = 1.28;
 const BADGE_GAP = 8;
 
+/** Rating badges of a node (rating phase, when scores are shown). */
+type RateBadge = { text: string; tone: "points" | "up" | "down" | "balance"; sign?: number };
+interface RateLook {
+  /** Emphasis 0–1 relative to the best-rated entry (points: points;
+   *  plus/minus: a positive balance). */
+  r: number;
+  badges: RateBadge[];
+}
+const RATE_GAP = 4;
+function rateBadgeWidth(b: RateBadge, font: number, family: string): number {
+  const w = Math.ceil(textWidth(b.text, font, 700, family));
+  if (b.tone === "points") return w + Math.round(font * 0.5) + 4 + 14; // dot + gap + padding
+  if (b.tone === "balance") return w + 14;
+  return w + 2; // plain coloured text
+}
+
 interface NodeBox extends BoxSize {
   lines: string[];
   font: number;
@@ -450,6 +466,8 @@ interface NodeBox extends BoxSize {
   desc: string[];
   descFont: number;
   badge: number; // badge width (0 = none)
+  rate: (RateBadge & { w: number })[];
+  rateFont: number;
 }
 
 function boxFor(
@@ -460,13 +478,20 @@ function boxFor(
   emphasise: boolean,
   detailed: boolean,
   family: string,
+  rateLook?: RateLook,
 ): NodeBox {
   const look = LOOKS[Math.min(depth, LOOKS.length - 1)];
   // Duplicate emphasis: bigger and bolder the more people named the term.
-  const boost = emphasise && count > 1 ? Math.min(count - 1, 5) : 0;
-  const font = Math.round(look.font * (1 + 0.08 * boost));
-  const weight = Math.min(800, look.weight + (boost > 0 ? 150 : 0));
-  const title = wrapText(text, font, weight, family, look.maxW, 3);
+  // With ratings shown, the score takes over the emphasis.
+  const boost = !rateLook && emphasise && count > 1 ? Math.min(count - 1, 5) : 0;
+  const rr = rateLook?.r ?? 0;
+  const font = Math.round(look.font * (1 + 0.08 * boost) * (1 + 0.4 * rr));
+  const weight = Math.min(
+    800,
+    look.weight + (boost > 0 ? 150 : 0) + (rr >= 0.5 ? 150 : rr > 0 ? 75 : 0),
+  );
+  // A rated term grows: so does its line width, so it wraps as before.
+  const title = wrapText(text, font, weight, family, look.maxW * (1 + 0.4 * rr), 3);
   const badgeFont = Math.round(font * 0.68);
   const badge =
     count > 1 ? Math.ceil(textWidth(String(count), badgeFont, 700, family)) + 14 : 0;
@@ -486,7 +511,12 @@ function boxFor(
     }
     descW = Math.max(0, ...desc.map((l) => textWidth(l, descFont, 400, family)));
   }
-  const titleW = title.width + (badge ? BADGE_GAP + badge : 0);
+  const rateFont = Math.max(13, Math.round(look.font * 0.7));
+  const rate = (rateLook?.badges ?? []).map((b) => ({ ...b, w: rateBadgeWidth(b, rateFont, family) }));
+  const rateW = rate.length
+    ? BADGE_GAP + rate.reduce((sum, b) => sum + b.w, 0) + (rate.length - 1) * RATE_GAP
+    : 0;
+  const titleW = title.width + (badge ? BADGE_GAP + badge : 0) + rateW;
   const w = Math.ceil(Math.max(titleW, descW) + 2 * look.padX + 2);
   const h = Math.ceil(
     title.lines.length * font * LINE +
@@ -504,6 +534,8 @@ function boxFor(
     desc,
     descFont,
     badge,
+    rate,
+    rateFont,
   };
 }
 
@@ -613,6 +645,8 @@ export default function MindMap({
   zoomHandleTop,
   keyboard = true,
   memoryKey,
+  rating,
+  lockedNote,
 }: {
   rootLabel: string;
   /** Presenter-form tree (hidden nodes are skipped with their subtree). */
@@ -641,6 +675,12 @@ export default function MindMap({
   keyboard?: boolean;
   /** Identifies the map (run + question) so the branch sides are kept. */
   memoryKey?: string;
+  /** Rating phase: with `scores`, each rated term shows its score and is
+   *  emphasised by it (points: size/weight/intensity; plus/minus: green /
+   *  rosé accent by the balance's sign). The root never carries a score. */
+  rating?: MindmapRating;
+  /** Why add/merge/move/rename are switched off right now (tooltip). */
+  lockedNote?: string;
 }) {
   const { t, i18n } = useTranslation();
   // Seeded terms resolve to the UI language (mindmapNodeText): re-measure on
@@ -715,6 +755,40 @@ export default function MindMap({
   }, [allNodes]);
   const moderating = !!(onMerge || onMove);
 
+  // --- rating scores (only when the payload carries them) ---
+  const scores = rating?.scores;
+  const rateMode = rating?.mode;
+  const rateLooks = useMemo(() => {
+    const out = new Map<number, RateLook>();
+    if (!scores || !rateMode) return out;
+    const entries = Object.entries(scores).map(([k, v]) => [Number(k), v] as const);
+    if (rateMode === "points") {
+      const max = Math.max(1, ...entries.map(([, v]) => ("points" in v ? v.points : 0)));
+      for (const [id, v] of entries) {
+        if (!("points" in v) || v.points <= 0) continue;
+        out.set(id, { r: v.points / max, badges: [{ text: String(v.points), tone: "points" }] });
+      }
+    } else {
+      const maxPos = Math.max(1, ...entries.map(([, v]) => ("balance" in v ? v.balance : 0)));
+      for (const [id, v] of entries) {
+        if (!("balance" in v)) continue;
+        const sign = v.balance > 0 ? "+" : v.balance < 0 ? "−" : "±";
+        out.set(id, {
+          r: Math.max(0, v.balance) / maxPos,
+          badges: [
+            { text: `+${v.up}`, tone: "up" },
+            { text: `−${v.down}`, tone: "down" },
+            { text: `${sign}${Math.abs(v.balance)}`, tone: "balance", sign: Math.sign(v.balance) },
+          ],
+        });
+      }
+    }
+    return out;
+  }, [scores, rateMode]);
+  // An empty score map (nothing rated yet) changes nothing on the map.
+  const showScores = rateLooks.size > 0;
+  const scoresKey = useMemo(() => JSON.stringify(scores ?? null), [scores]);
+
   const sidesRef = useRef<Map<number, Side>>(
     (memoryKey && sideMemory.get(memoryKey)) || new Map(),
   );
@@ -734,6 +808,7 @@ export default function MindMap({
           highlightDuplicates,
           detailed,
           family,
+          rateLooks.get(n.id),
         );
         boxes.set(n.id, box);
         return box;
@@ -743,7 +818,7 @@ export default function MindMap({
     return { layout, boxes, rootBox };
     // fontTick: re-measure after web fonts have loaded.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, rootLabel, detailed, highlightDuplicates, family, fontTick, uiLang]);
+  }, [visible, rootLabel, detailed, highlightDuplicates, family, fontTick, uiLang, scoresKey]);
   // Hue per main branch (indexed like `PlacedNode.branch`): stable rank by
   // id over the full tree (hidden branches keep their rank), neighbours in
   // clockwise display order never share a hue.
@@ -1150,9 +1225,34 @@ export default function MindMap({
     const box = boxes.get(p.id);
     if (!n || !box) return null;
     const hue = branchHue[p.branch] ?? MINDMAP_HUES[0];
-    const colors = nodeColors(p.depth, hue);
-    const repeated = highlightDuplicates && repeatedKeys.has(n.key ?? n.text.toLowerCase());
+    const colors = { ...nodeColors(p.depth, hue) };
+    const rl = rateLooks.get(p.id);
+    // Rated terms: points deepen the fill with the score; plus/minus frames
+    // the term green or rosé by the balance's sign. Unrated terms recede.
+    let shadow: string | undefined = p.depth === 1 ? "0 2px 6px rgba(15,23,42,0.08)" : undefined;
+    if (showScores && rl) {
+      if (rateMode === "points" && rl.r > 0) {
+        if (p.depth > 1)
+          colors.bg = `color-mix(in oklch, ${fill(hue)} ${Math.round(35 + 65 * rl.r)}%, ${colors.bg})`;
+        colors.border = deep(hue);
+        shadow = `0 ${Math.round(2 + 6 * rl.r)}px ${Math.round(6 + 14 * rl.r)}px rgba(15,23,42,${(0.08 + 0.14 * rl.r).toFixed(2)})`;
+      } else if (rateMode === "updown") {
+        const sign = rl.badges.find((b) => b.tone === "balance")?.sign ?? 0;
+        if (sign !== 0) colors.border = sign > 0 ? CORRECT_STRONG : MINUS_INK;
+      }
+    }
+    const recede = showScores && !rl && !nodeDrag;
+    const repeated =
+      highlightDuplicates && !showScores && repeatedKeys.has(n.key ?? n.text.toLowerCase());
     const roundish = box.lines.length === 1 && box.desc.length === 0;
+    const scoreTitle = rl
+      ? rateMode === "points"
+        ? t("{{count}} points", { count: Number(rl.badges[0].text) })
+        : rl.badges.map((b) => b.text).join(" ")
+      : "";
+    const nodeTitle =
+      [n.count > 1 ? `${n.count}×` : "", scoreTitle, lockedNote ?? ""].filter(Boolean).join(" · ") ||
+      undefined;
     const target =
       nodeDrag?.target?.kind === "merge" && nodeDrag.target.id === p.id ? nodeDrag.target : null;
     const ring = target
@@ -1170,7 +1270,7 @@ export default function MindMap({
           height: box.h,
           transform: `translate(${p.x - box.w / 2}px, ${p.y - box.h / 2}px)`,
           transition: move ? `transform ${move}, width ${move}, height ${move}, opacity 150ms` : undefined,
-          opacity: dimmed.has(p.id) ? 0.3 : 1,
+          opacity: dimmed.has(p.id) ? 0.3 : recede ? 0.55 : 1,
           cursor: moderating ? (nodeDrag ? "grabbing" : "grab") : undefined,
         }}
         onDoubleClick={
@@ -1184,7 +1284,7 @@ export default function MindMap({
       >
         <div
           className={`group relative h-full w-full hover:z-10 focus-within:z-10 focus:outline-none ${isFresh(p.id) ? "ab-pop" : ""}`}
-          title={n.count > 1 ? `${n.count}×` : undefined}
+          title={nodeTitle}
           // With moderation the node takes focus (Tab), which reveals its ×.
           tabIndex={onHide || onAdd ? 0 : undefined}
           style={{
@@ -1198,14 +1298,17 @@ export default function MindMap({
             lineHeight: LINE,
             outline: ring,
             outlineOffset: ring ? 2 : undefined,
-            boxShadow: p.depth === 1 ? "0 2px 6px rgba(15,23,42,0.08)" : undefined,
+            boxShadow: shadow,
             // Moved terms take on their new branch's colour smoothly.
             transition: move
-              ? `font-size ${move}, background-color ${move}, border-color ${move}`
+              ? `font-size ${move}, background-color ${move}, border-color ${move}, box-shadow ${move}`
               : undefined,
           }}
         >
-          <div className="flex items-center" style={{ gap: box.badge ? BADGE_GAP : 0 }}>
+          <div
+            className="flex items-center"
+            style={{ gap: box.badge || box.rate.length ? BADGE_GAP : 0 }}
+          >
             <div className="min-w-0 flex-1">
               {box.lines.map((line, i) => (
                 <div key={i} className="whitespace-nowrap">
@@ -1225,6 +1328,17 @@ export default function MindMap({
                 }}
               >
                 {n.count}
+              </span>
+            )}
+            {box.rate.length > 0 && (
+              <span
+                className="inline-flex shrink-0 items-center tabular-nums"
+                style={{ gap: RATE_GAP, fontSize: box.rateFont, fontWeight: 700, lineHeight: 1.45 }}
+                data-mm-score=""
+              >
+                {box.rate.map((b) => (
+                  <RateBadgeEl key={b.tone} badge={b} font={box.rateFont} />
+                ))}
               </span>
             )}
           </div>
@@ -1566,6 +1680,7 @@ export default function MindMap({
         <div
           className="group absolute left-0 top-0 flex flex-col items-center justify-center rounded-2xl text-center text-white shadow-lg focus:outline-none"
           tabIndex={onAdd ? 0 : undefined}
+          title={lockedNote}
           style={{
             width: rootBox.w,
             height: rootBox.h,
@@ -1643,6 +1758,47 @@ export default function MindMap({
         </div>
       )}
     </div>
+  );
+}
+
+/** One rating badge on a term: points as a dark dot-voting pill, plus/minus
+ *  as green / rosé counts and a balance pill tinted by its sign. */
+function RateBadgeEl({ badge, font }: { badge: RateBadge & { w: number }; font: number }) {
+  if (badge.tone === "points")
+    return (
+      <span
+        className="inline-flex items-center justify-center rounded-full text-white"
+        style={{ minWidth: badge.w, gap: 4, background: INK }}
+      >
+        <span
+          aria-hidden
+          className="inline-block rounded-full"
+          style={{ width: Math.round(font * 0.5), height: Math.round(font * 0.5), background: CORRECT }}
+        />
+        {badge.text}
+      </span>
+    );
+  if (badge.tone === "balance")
+    return (
+      <span
+        className="inline-flex items-center justify-center rounded-full"
+        style={{
+          minWidth: badge.w,
+          color: INK,
+          background:
+            (badge.sign ?? 0) > 0 ? CORRECT : (badge.sign ?? 0) < 0 ? MINUS : NEUTRAL_TILE,
+        }}
+      >
+        {badge.text}
+      </span>
+    );
+  return (
+    <span
+      className="inline-block text-center"
+      style={{ minWidth: badge.w, color: badge.tone === "up" ? CORRECT_STRONG : MINUS_INK }}
+    >
+      {badge.text}
+    </span>
   );
 }
 

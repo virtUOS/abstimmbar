@@ -20,5 +20,15 @@
   "question_one": "question",
   "question_other": "questions",
   "Copy {{count}} questions_one": "Copy {{count}} question",
-  "Copy {{count}} questions_other": "Copy {{count}} questions"
+  "Copy {{count}} questions_other": "Copy {{count}} questions",
+  "Participants distribute {{count}} points among the terms._one": "Participants distribute {{count}} point among the terms.",
+  "Participants distribute {{count}} points among the terms._other": "Participants distribute {{count}} points among the terms.",
+  "Participants rate up to {{count}} terms with 👍 or 👎._one": "Participants rate up to {{count}} term with 👍 or 👎.",
+  "Participants rate up to {{count}} terms with 👍 or 👎._other": "Participants rate up to {{count}} terms with 👍 or 👎.",
+  "Rate the terms on your device with 👍 / 👎: up to {{count}} ratings per person_one": "Rate the terms on your device with 👍 / 👎: up to {{count}} rating per person",
+  "Rate the terms on your device with 👍 / 👎: up to {{count}} ratings per person_other": "Rate the terms on your device with 👍 / 👎: up to {{count}} ratings per person",
+  "Rate the terms on your device: {{count}} points per person_one": "Rate the terms on your device: {{count}} point per person",
+  "Rate the terms on your device: {{count}} points per person_other": "Rate the terms on your device: {{count}} points per person",
+  "{{count}} points_one": "{{count}} point",
+  "{{count}} points_other": "{{count}} points"
 }

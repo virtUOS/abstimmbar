@@ -30,7 +30,8 @@ import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
 import MindMap, { hiddenMindmapNodes } from "../results/MindMap";
-import { useMindmapModeration } from "../results/mindmapModeration";
+import MindmapRanking, { rankMindmap } from "../results/MindmapRanking";
+import { requestDetail, useMindmapModeration } from "../results/mindmapModeration";
 import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -38,8 +39,8 @@ const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 /** Beamer view of a word cloud / free-text question (#Wortwolke-KI). Free text
  *  reads "consolidated" as key statements; "results" = its AI verdict bars. */
 /** Mindmaps reuse the view mechanism: "raw" = compact, "detailed" = with
- *  descriptions. */
-type WcView = "raw" | "results" | "consolidated" | "grouped" | "detailed";
+ *  descriptions, "ranking" = the rated entries as bars (rating phase). */
+type WcView = "raw" | "results" | "consolidated" | "grouped" | "detailed" | "ranking";
 
 /** View options of a free-text question (live presenter and the Quiz-Block
  *  walkthrough share them): Original, Evaluation (AI verdict bars, only when
@@ -345,6 +346,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           ...(state?.mindmap?.descriptions
             ? [{ value: "detailed" as const, label: t("Detailed") }]
             : []),
+          // Only once the scores are on screen (live rating or revealed).
+          ...(Object.keys(state?.mindmap?.rating?.scores ?? {}).length > 0
+            ? [{ value: "ranking" as const, label: t("Ranking") }]
+            : []),
         ]
       : [
         { value: "raw", label: t("Original") },
@@ -569,13 +574,24 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // "Frage" (closed/preview) only the question text is shown.
   const mindmap = activeKind === "mindmap" ? state?.mindmap : undefined;
   const mmShown = !!mindmap && (phase === "open" || phase === "results");
+  // Rating phase (optional, per question): while rating only hiding is
+  // possible on the beamer — add/merge/move/rename would change what people
+  // are rating under their hands. Back in "collect" everything returns.
+  const mmRating = mindmap?.rating;
+  const mmRate = mmRating?.stage === "rate";
+  const mmRateRef = useRef(mmRate);
+  mmRateRef.current = mmRate;
+  const mmRanking = useMemo(
+    () => (mindmap && mmRating?.scores ? rankMindmap(mindmap.nodes, mmRating.scores) : []),
+    [mindmap, mmRating?.scores],
+  );
   // Expert mode: × hides a term with its subtree; the pencil drawer lists the
   // hidden ones to restore.
   const mmHidden = mindmap ? hiddenMindmapNodes(mindmap.nodes) : [];
   const showMmHandle = expert && mmShown && (mindmap?.total ?? 0) > 0;
   // The hint also goes away by itself once it has been readable for ~20 s.
   // ("+" works on an empty map too, so it doesn't wait for terms.)
-  const mmHintVisible = expert && mmShown && !mmHintSeen;
+  const mmHintVisible = expert && mmShown && !mmHintSeen && !mmRate;
   useEffect(() => {
     if (!mmHintVisible) return;
     const id = window.setTimeout(dismissMmHint, 20_000);
@@ -608,6 +624,21 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       })),
   });
   const hideMindmapNode = (node: number, hidden: boolean) => mmMod.hide(node, hidden);
+  // "Start rating" / "Keep collecting": switch the stage, then (re)open the
+  // vote — the stage endpoint leaves the run phase alone.
+  const [mmStageBusy, setMmStageBusy] = useState(false);
+  const setMindmapStage = async (stage: "collect" | "rate") => {
+    if (runId == null || activeId == null || mmStageBusy) return;
+    setMmStageBusy(true);
+    try {
+      await live.mindmapStage(runId, activeId, stage);
+      if (phase !== "open") await live.control(runId, { phase: "open" });
+    } catch (err) {
+      setMmToast((p) => ({ text: t(requestDetail(err)), n: (p?.n ?? 0) + 1 }));
+    } finally {
+      setMmStageBusy(false);
+    }
+  };
   const mmModRef = useRef(mmMod);
   mmModRef.current = mmMod;
   useEffect(() => {
@@ -617,8 +648,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       // Don't hijack native undo while the presenter types in a field.
       if (isTextField(e.target)) return;
       e.preventDefault();
-      if (e.shiftKey) mmModRef.current.redo();
-      else mmModRef.current.undo();
+      if (e.shiftKey) mmModRef.current.redo(mmRateRef.current);
+      else mmModRef.current.undo(mmRateRef.current);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1500,12 +1531,59 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           </>
         ) : null
       }
-      stats={<LiveStats participants={state.participants ?? 0} votes={state.votes ?? 0} />}
+      stats={
+        // Rating phase: the counter shows how many have rated so far.
+        mmRate && mmRating ? (
+          <LiveStats
+            participants={state.participants ?? 0}
+            votes={mmRating.raters}
+            votesLabel={t("Participants who have rated")}
+          />
+        ) : (
+          <LiveStats participants={state.participants ?? 0} votes={state.votes ?? 0} />
+        )
+      }
       footer={
         <Footer
           phase={phase}
           participants={state.participants ?? 0}
           index={indexRef.current}
+          extra={
+            activeKind === "mindmap" && mmRating && phase !== "lobby" ? (
+              mmRate ? (
+                <button
+                  type="button"
+                  className={FOOTER_BTN}
+                  disabled={mmStageBusy}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    void setMindmapStage("collect");
+                  }}
+                  title={t("Back to collecting: participants add terms again; the ratings are kept.")}
+                >
+                  {t("Keep collecting")}
+                </button>
+              ) : phase === "results" || phase === "closed" ? (
+                <button
+                  type="button"
+                  data-testid="mm-start-rating"
+                  className={`${FOOTER_BTN} border-brand-300 bg-brand-50 text-brand-800 hover:bg-brand-100`}
+                  disabled={mmStageBusy}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    void setMindmapStage("rate");
+                  }}
+                  title={
+                    mmRating.mode === "points"
+                      ? t("Participants distribute {{count}} points among the terms.", { count: mmRating.budget })
+                      : t("Participants rate up to {{count}} terms with 👍 or 👎.", { count: mmRating.budget })
+                  }
+                >
+                  {t("Start rating")}
+                </button>
+              ) : null
+            ) : undefined
+          }
           count={questions.length}
           onPrev={goPrev}
           onNext={advanceNext}
@@ -1674,7 +1752,35 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               </button>
             </div>
           )}
-          {mmShown && mindmap && (
+          {/* Rating phase: what participants do now, the budget, and whether
+              the scores stay hidden until "Ergebnis". */}
+          {mmShown && mmRating && mmRate && phase === "open" && (
+            <p
+              style={mmClear(56)}
+              className="mx-auto mt-1 text-center text-base leading-relaxed text-slate-600"
+              data-testid="mm-rating-banner"
+            >
+              <span className="mr-2 inline-block rounded-full bg-brand-100 px-2.5 py-0.5 text-sm font-semibold text-brand-800">
+                {t("Rating")}
+              </span>
+              {mmRating.mode === "points"
+                ? t("Rate the terms on your device: {{count}} points per person", {
+                    count: mmRating.budget,
+                  })
+                : t("Rate the terms on your device with 👍 / 👎: up to {{count}} ratings per person", {
+                    count: mmRating.budget,
+                  })}
+              {!mmRating.scores && (
+                <span className="text-slate-400"> · {t("results follow at the end")}</span>
+              )}
+            </p>
+          )}
+          {mmShown && mindmap && wcView === "ranking" && mmRating?.scores && (
+            <div className="mx-auto mt-6 w-full max-w-4xl" data-testid="mm-ranking">
+              <MindmapRanking entries={mmRanking} mode={mmRating.mode} limit={8} animate />
+            </div>
+          )}
+          {mmShown && mindmap && wcView !== "ranking" && (
             <div className="-mx-8 -mb-6 mt-3 min-h-0 flex-1">
               <MindMap
                 rootLabel={localizedText(mindmap.root.label)}
@@ -1682,14 +1788,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 detailed={wcView === "detailed"}
                 highlightDuplicates={mindmap.highlight_duplicates}
                 onHide={expert ? (n) => hideMindmapNode(n.id, true) : undefined}
-                onAdd={expert ? mmMod.add : undefined}
-                onMerge={expert ? mmMod.merge : undefined}
-                onMove={expert ? mmMod.move : undefined}
-                onRename={expert ? mmMod.rename : undefined}
+                onAdd={expert && !mmRate ? mmMod.add : undefined}
+                onMerge={expert && !mmRate ? mmMod.merge : undefined}
+                onMove={expert && !mmRate ? mmMod.move : undefined}
+                onRename={expert && !mmRate ? mmMod.rename : undefined}
                 maxDepth={mindmap.depth}
                 withDescriptions={mindmap.descriptions}
                 zoomHandleTop={mmZoomTop}
                 memoryKey={`${runId}:${question.id}`}
+                rating={mmRating}
+                lockedNote={
+                  expert && mmRate
+                    ? t("During the rating, terms can only be hidden — adding, merging, moving and renaming return with “Keep collecting”.")
+                    : undefined
+                }
               />
             </div>
           )}
@@ -2090,7 +2202,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   <div className="flex items-center gap-1">
                     <button
                       type="button"
-                      onClick={mmMod.undo}
+                      onClick={() => mmMod.undo(mmRate)}
                       disabled={!mmMod.canUndo}
                       title={t("Undo")}
                       aria-label={t("Undo")}
@@ -2100,7 +2212,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     </button>
                     <button
                       type="button"
-                      onClick={mmMod.redo}
+                      onClick={() => mmMod.redo(mmRate)}
                       disabled={!mmMod.canRedo}
                       title={t("Redo")}
                       aria-label={t("Redo")}
@@ -2677,7 +2789,16 @@ function Shell({
  * beamer view (#35): connected clients and votes cast for the current
  * question, with a small ring for the answered share. Sits just above the
  * footer action bar so the two never overlap. */
-function LiveStats({ participants, votes }: { participants: number; votes: number }) {
+function LiveStats({
+  participants,
+  votes,
+  votesLabel,
+}: {
+  participants: number;
+  votes: number;
+  /** Tooltip of the votes count (default: votes for the current question). */
+  votesLabel?: string;
+}) {
   const { t } = useTranslation();
   return (
     <div
@@ -2689,7 +2810,7 @@ function LiveStats({ participants, votes }: { participants: number; votes: numbe
       <span className="flex items-center gap-1.5 tabular-nums" title={t("Connected participants")}>
         <Users aria-hidden className="h-4 w-4" /> {participants}
       </span>
-      <span className="flex items-center gap-1.5 tabular-nums" title={t("Votes for the current question")}>
+      <span className="flex items-center gap-1.5 tabular-nums" title={votesLabel ?? t("Votes for the current question")}>
         <Vote aria-hidden className="h-4 w-4" /> {votes}
       </span>
     </div>
@@ -3683,6 +3804,9 @@ function GroupedWordClouds({
   );
 }
 
+const FOOTER_BTN =
+  "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50";
+
 function Footer(props: {
   phase: string;
   participants: number;
@@ -3704,10 +3828,11 @@ function Footer(props: {
   onCloseWindow?: () => void;
   joinShown?: boolean;
   onToggleJoin?: () => void;
+  /** Question-specific actions left of Start/Stop (mind-map rating). */
+  extra?: React.ReactNode;
 }) {
   const { t } = useTranslation();
-  const btn =
-    "inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50";
+  const btn = FOOTER_BTN;
   const isSection = props.variant === "section";
   return (
     <footer
@@ -3803,6 +3928,7 @@ function Footer(props: {
        * on the left of this group so they never shift as it appears. */}
       <div className="flex gap-2">
         {/* Starting/results only make sense on a question, not a section. */}
+        {!isSection && props.extra}
         {!isSection && props.onToggle && (
           <button data-tour="present.toggle" className={btn} onClick={props.onToggle}>
             {props.phase === "open" ? t("Stop") : t("Start", { context: "action" })}{" "}

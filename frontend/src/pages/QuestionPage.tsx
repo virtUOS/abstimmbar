@@ -9,6 +9,7 @@ import {
   API_BASE_URL,
   api,
   type AnswerOption,
+  type MindmapRatingMode,
   type Question,
   type QuestionSet,
   type RevealAnswers,
@@ -248,6 +249,11 @@ export default function QuestionPage() {
   const [mindmapDescriptions, setMindmapDescriptions] = useState(false);
   const [mindmapHighlight, setMindmapHighlight] = useState(true);
   const [mindmapSeed, setMindmapSeed] = useState<EditableSeedNode[]>([]);
+  // Optional rating phase after collecting ("" = off).
+  const [mindmapRatingMode, setMindmapRatingMode] = useState<MindmapRatingMode>("");
+  const [mindmapRatingBudget, setMindmapRatingBudget] = useState(5);
+  const [mindmapRatingMulti, setMindmapRatingMulti] = useState(true);
+  const [mindmapRatingLive, setMindmapRatingLive] = useState(false);
   const [saving, setSaving] = useState(false);
   // #74: switch between editing and an interactive participant preview (iframe).
   const [tab, setTab] = useState<"edit" | "preview">("edit");
@@ -337,6 +343,10 @@ export default function QuestionPage() {
       setMindmapDescriptions(data.mindmap_descriptions ?? false);
       setMindmapHighlight(data.mindmap_highlight_duplicates ?? true);
       setMindmapSeed(toEditableSeed(data.mindmap_seed));
+      setMindmapRatingMode(data.mindmap_rating_mode ?? "");
+      setMindmapRatingBudget(data.mindmap_rating_budget ?? 5);
+      setMindmapRatingMulti(data.mindmap_rating_multi ?? true);
+      setMindmapRatingLive(data.mindmap_rating_live ?? false);
       setTimeLimit(data.time_limit ? String(data.time_limit) : "");
       // Options keep the full {de, en} map so each can be edited bilingually
       // (#33 MR2 Task 9).
@@ -551,6 +561,10 @@ export default function QuestionPage() {
               mindmap_descriptions: mindmapDescriptions,
               mindmap_highlight_duplicates: mindmapHighlight,
               mindmap_seed: fromEditableSeed(mindmapSeed),
+              mindmap_rating_mode: mindmapRatingMode,
+              mindmap_rating_budget: mindmapRatingBudget,
+              mindmap_rating_multi: mindmapRatingMulti,
+              mindmap_rating_live: mindmapRatingLive,
             }
           : {}),
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
@@ -781,6 +795,7 @@ export default function QuestionPage() {
       wordcloudMergeVariants, wordcloudMergeSynonyms, wordcloudMergeConcepts,
       mindmapRoot, mindmapDepth, mindmapMaxPerPerson, mindmapDescriptions,
       mindmapHighlight, mindmapSeed: fromEditableSeed(mindmapSeed),
+      mindmapRatingMode, mindmapRatingBudget, mindmapRatingMulti, mindmapRatingLive,
     });
   }
 
@@ -1477,6 +1492,69 @@ export default function QuestionPage() {
                 <p className="mt-2 text-sm text-red-600 dark:text-red-400">
                   {t(mindmapProblem.key, mindmapProblem.values)}
                 </p>
+              )}
+            </div>
+            <div className="grid gap-3 border-t border-slate-200 pt-4 dark:border-slate-700">
+              <div>
+                <span className="block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {t("Rating phase")}
+                </span>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  {t(
+                    "Optional: after collecting, you start a rating on the beamer and participants rate the terms. The scores stay hidden until you show the results.",
+                  )}
+                </p>
+              </div>
+              <SegmentedControl
+                className="max-w-md"
+                ariaLabel={t("Rating phase")}
+                value={mindmapRatingMode === "" ? "off" : mindmapRatingMode}
+                onChange={(v) => setMindmapRatingMode(v === "off" ? "" : v)}
+                options={[
+                  { value: "off", label: t("Off") },
+                  { value: "points", label: t("Points") },
+                  { value: "updown", label: t("Plus/minus") },
+                ]}
+              />
+              {mindmapRatingMode !== "" && (
+                <>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
+                    {mindmapRatingMode === "points" ? t("Points per person") : t("Ratings per person")}
+                    <input
+                      type="number"
+                      min={1}
+                      max={50}
+                      value={String(mindmapRatingBudget)}
+                      onChange={(event) =>
+                        setMindmapRatingBudget(
+                          Math.min(50, Math.max(1, Number(event.target.value) || 1)),
+                        )
+                      }
+                      className="w-16 rounded-lg border border-slate-300 dark:border-slate-700 bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                    />
+                    <InfoHint
+                      text={
+                        mindmapRatingMode === "points"
+                          ? t("Each participant distributes this many points among the terms (1–50).")
+                          : t("Each participant may rate this many terms with 👍 or 👎 (1–50).")
+                      }
+                    />
+                  </label>
+                  <div className="grid gap-2">
+                    {mindmapRatingMode === "points" && (
+                      <ToggleSwitch
+                        checked={mindmapRatingMulti}
+                        onChange={setMindmapRatingMulti}
+                        label={t("Allow several points per term")}
+                      />
+                    )}
+                    <ToggleSwitch
+                      checked={mindmapRatingLive}
+                      onChange={setMindmapRatingLive}
+                      label={t("Show ratings during the rating")}
+                    />
+                  </div>
+                </>
               )}
             </div>
           </div>
