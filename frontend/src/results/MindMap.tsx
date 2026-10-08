@@ -26,7 +26,7 @@ import type {
   PointerEvent as ReactPointerEvent,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { CornerDownRight, Maximize2, Minus, Plus, X } from "lucide-react";
+import { ChevronRight, CornerDownRight, Maximize2, Minus, Plus, X, ZoomIn } from "lucide-react";
 import { localizedText } from "@basicbar/ui";
 import type { LiveMindmapNode } from "../api";
 import { INK } from "./palette";
@@ -271,6 +271,57 @@ export function fitTransform(
     return size / 2 + Math.max(-limit, Math.min(limit, o));
   };
   return { s, x: rootAt(b.minX, b.maxX, vw), y: rootAt(b.minY, b.maxY, vh) };
+}
+
+export interface Obstacle {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** Like `fitTransform`, but keeps the map clear of overlays on top of the
+ * canvas (QR boxes, logo, counters, edge handles — rects relative to the
+ * viewport). Each overlay becomes an inset on one side: the nearer
+ * horizontal or the nearer vertical edge; all combinations are tried and
+ * the one with the largest scale wins (few overlays, so this is cheap).
+ * Panning may still move content underneath them. */
+export function fitAround(
+  b: MindLayout["bounds"],
+  vw: number,
+  vh: number,
+  obstacles: Obstacle[],
+  opts: { pad?: number; maxScale?: number; maxOffset?: number } = {},
+): { s: number; x: number; y: number } {
+  const list = obstacles
+    .filter((o) => o.x < vw && o.x + o.w > 0 && o.y < vh && o.y + o.h > 0)
+    .slice(0, 8);
+  let best = fitTransform(b, vw, vh, opts);
+  if (list.length === 0) return best;
+  best = { s: -1, x: 0, y: 0 };
+  const choices = list.map((o) => {
+    const left = o.x + o.w;
+    const right = vw - o.x;
+    const top = o.y + o.h;
+    const bottom = vh - o.y;
+    return [
+      left < right ? { side: "l" as const, v: left } : { side: "r" as const, v: right },
+      top < bottom ? { side: "t" as const, v: top } : { side: "b" as const, v: bottom },
+    ];
+  });
+  for (let mask = 0; mask < 1 << list.length; mask++) {
+    const ins = { l: 0, r: 0, t: 0, b: 0 };
+    choices.forEach((c, i) => {
+      const pick = c[(mask >> i) & 1];
+      ins[pick.side] = Math.max(ins[pick.side], pick.v);
+    });
+    const iw = vw - ins.l - ins.r;
+    const ih = vh - ins.t - ins.b;
+    if (iw < 80 || ih < 80) continue;
+    const f = fitTransform(b, iw, ih, opts);
+    if (f.s > best.s) best = { s: f.s, x: ins.l + f.x, y: ins.t + f.y };
+  }
+  return best.s > 0 ? best : fitTransform(b, vw, vh, opts);
 }
 
 /** Display term of a node: seeded nodes carry both languages (`text_i18n`),
@@ -559,6 +610,7 @@ export default function MindMap({
   onRename,
   maxDepth = 8,
   withDescriptions = false,
+  zoomHandleTop,
   keyboard = true,
   memoryKey,
 }: {
@@ -582,6 +634,9 @@ export default function MindMap({
   maxDepth?: number;
   /** The "+" form asks for a description too. */
   withDescriptions?: boolean;
+  /** Beamer: the zoom controls become a collapsible right-edge handle at
+   *  this viewport y (px); otherwise they sit bottom right in the map. */
+  zoomHandleTop?: number;
   /** Zoom/pan keys (+ / − / 0 / F, Shift+arrows) on the window. */
   keyboard?: boolean;
   /** Identifies the map (run + question) so the branch sides are kept. */
@@ -747,16 +802,47 @@ export default function MindMap({
   }, []);
 
   const [view, setView] = useState({ s: 1, x: 0, y: 0, smooth: false });
+  const [zoomOpen, setZoomOpen] = useState(false);
   const manual = useRef(false);
   const fitted = useRef(false);
   const { minX, maxX, minY, maxY } = layout.bounds;
+  // Fixed overlays marked `data-beamer-inset` (QR corners, logo, counter,
+  // edge handles) that cover the canvas: the auto-fit keeps clear of them.
+  // They come and go independently of this component, so they are re-read
+  // periodically (a handful of rects — cheap).
+  const [obstacles, setObstacles] = useState<Obstacle[]>([]);
+  useEffect(() => {
+    let last = "";
+    const read = () => {
+      const el = containerRef.current;
+      if (!el) return;
+      const c = el.getBoundingClientRect();
+      const list = [...document.querySelectorAll<HTMLElement>("[data-beamer-inset]")]
+        .map((o) => o.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => ({
+          x: Math.round(r.left - c.left),
+          y: Math.round(r.top - c.top),
+          w: Math.round(r.width),
+          h: Math.round(r.height),
+        }));
+      const key = JSON.stringify(list);
+      if (key !== last) {
+        last = key;
+        setObstacles(list);
+      }
+    };
+    read();
+    const id = window.setInterval(read, 800);
+    return () => window.clearInterval(id);
+  }, []);
   const fitView = useMemo(
     () =>
-      fitTransform({ minX, maxX, minY, maxY }, viewport.w, viewport.h, {
+      fitAround({ minX, maxX, minY, maxY }, viewport.w, viewport.h, obstacles, {
         pad: FIT_PAD,
         maxScale: MAX_FIT,
       }),
-    [minX, maxX, minY, maxY, viewport.w, viewport.h],
+    [minX, maxX, minY, maxY, viewport.w, viewport.h, obstacles],
   );
   useLayoutEffect(() => {
     if (viewport.w === 0 || manual.current) return;
@@ -806,7 +892,15 @@ export default function MindMap({
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-      zoomAtRef.current(Math.exp(-delta * 0.0015), e.clientX - rect.left, e.clientY - rect.top);
+      // Trackpad pinch arrives as wheel + ctrlKey with small deltas: a much
+      // higher gain; mouse wheels keep the gentle one. Clamped per event so a
+      // burst can't jump.
+      const factor = Math.exp(-delta * (e.ctrlKey ? 0.012 : 0.0015));
+      zoomAtRef.current(
+        Math.min(1.35, Math.max(1 / 1.35, factor)),
+        e.clientX - rect.left,
+        e.clientY - rect.top,
+      );
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
@@ -1388,6 +1482,46 @@ export default function MindMap({
 
   const ctl =
     "flex h-9 w-9 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900";
+  const zoomButtons = (
+    <>
+      <button
+        type="button"
+        className={ctl}
+        onClick={(e) => {
+          e.currentTarget.blur();
+          zoomCentre(1 / 1.25);
+        }}
+        aria-label={t("Zoom out (−)")}
+        title={t("Zoom out (−)")}
+      >
+        <Minus className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        className={ctl}
+        onClick={(e) => {
+          e.currentTarget.blur();
+          zoomCentre(1.25);
+        }}
+        aria-label={t("Zoom in (+)")}
+        title={t("Zoom in (+)")}
+      >
+        <Plus className="h-5 w-5" />
+      </button>
+      <button
+        type="button"
+        className={ctl}
+        onClick={(e) => {
+          e.currentTarget.blur();
+          fit();
+        }}
+        aria-label={t("Fit to screen (0)")}
+        title={t("Fit to screen (0)")}
+      >
+        <Maximize2 className="h-5 w-5" />
+      </button>
+    </>
+  );
   return (
     <div
       ref={containerRef}
@@ -1477,45 +1611,37 @@ export default function MindMap({
           {t("No terms yet …")}
         </p>
       )}
-      {/* Zoom controls (bottom right; the presenter's keys stay untouched). */}
-      <div className="absolute bottom-2 right-2 flex flex-col rounded-xl border border-slate-200 bg-white/90 p-0.5 shadow-sm backdrop-blur">
-        <button
-          type="button"
-          className={ctl}
-          onClick={(e) => {
-            e.currentTarget.blur();
-            zoomCentre(1.25);
-          }}
-          aria-label={t("Zoom in (+)")}
-          title={t("Zoom in (+)")}
+      {zoomHandleTop === undefined ? (
+        // Zoom controls (bottom right; the presenter's keys stay untouched).
+        <div className="absolute bottom-2 right-2 flex flex-col-reverse rounded-xl border border-slate-200 bg-white/90 p-0.5 shadow-sm backdrop-blur">
+          {zoomButtons}
+        </div>
+      ) : (
+        // Beamer: a right-edge handle like the moderation pencil; collapsed
+        // it shows one icon, expanded it opens to the left (− + fit), so it
+        // never grows into the handles above or below it.
+        <div
+          data-beamer-inset=""
+          className="fixed right-0 z-30 flex items-center rounded-l-xl border border-r-0 border-slate-200 bg-white/95 text-slate-500 shadow-md"
+          style={{ top: zoomHandleTop }}
+          onPointerDown={(e) => e.stopPropagation()}
         >
-          <Plus className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          className={ctl}
-          onClick={(e) => {
-            e.currentTarget.blur();
-            zoomCentre(1 / 1.25);
-          }}
-          aria-label={t("Zoom out (−)")}
-          title={t("Zoom out (−)")}
-        >
-          <Minus className="h-5 w-5" />
-        </button>
-        <button
-          type="button"
-          className={ctl}
-          onClick={(e) => {
-            e.currentTarget.blur();
-            fit();
-          }}
-          aria-label={t("Fit to screen (0)")}
-          title={t("Fit to screen (0)")}
-        >
-          <Maximize2 className="h-5 w-5" />
-        </button>
-      </div>
+          {zoomOpen && <div className="flex items-center pl-1">{zoomButtons}</div>}
+          <button
+            type="button"
+            className="p-3 hover:text-slate-800"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              setZoomOpen((o) => !o);
+            }}
+            aria-expanded={zoomOpen}
+            aria-label={zoomOpen ? t("Hide zoom controls") : t("Zoom")}
+            title={zoomOpen ? t("Hide zoom controls") : t("Zoom")}
+          >
+            {zoomOpen ? <ChevronRight className="h-5 w-5" /> : <ZoomIn className="h-5 w-5" />}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

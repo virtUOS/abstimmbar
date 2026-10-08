@@ -5,6 +5,7 @@
  * beamer. Keyboard-first — S start/stop, E/R results, ←/→ navigate,
  * A reveal correct answers (in "after_close" mode), Esc ends. */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Trans, useTranslation } from "react-i18next";
 import { ChevronDown, ChevronLeft, ChevronRight, Info, Loader2, Pencil, QrCode, Redo2, Sparkles, Timer, Undo2, Unlink, Users, Vote, X } from "lucide-react";
@@ -623,7 +624,20 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     return () => window.removeEventListener("keydown", onKey);
   }, [expert, mmShown]);
   // Below the pencil when it is shown, otherwise in its place.
-  const aiHandleTop = showModHandle ? "calc(62% + 3.5rem)" : "62%";
+  // Right-edge handle column: pencil, then sparkles (word clouds) or the
+  // zoom handle (mind map), placed clear of the logo / right QR corner.
+  const handleColumnTop = useHandleColumn(
+    (showModHandle || showMmHandle ? 1 : 0) + (showAiButton || mmShown ? 1 : 0),
+  );
+  const aiHandleTop = handleColumnTop + (showModHandle ? HANDLE_STEP : 0);
+  const mmZoomTop = handleColumnTop + (showMmHandle ? HANDLE_STEP : 0);
+  // Full-width mind map: its title and hint stay centred but clear of the
+  // QR boxes top-left (same margin on both sides). `rem` = the usual cap.
+  const topLeftRight = useTopLeftExtent(mmShown);
+  const mmClear = (rem: number): CSSProperties => {
+    const side = Math.max(0, topLeftRight + 16 - 32); // 32 = main's px-8
+    return { maxWidth: side ? `min(${rem}rem, calc(100% - ${2 * side}px))` : `${rem}rem` };
+  };
   // Regroup / merge again stay busy until a finished AI result computed
   // *after* the save arrives: every compute gets a new, increasing `seq` (also
   // when its content is identical, also on error), and the save response
@@ -1466,7 +1480,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   return (
     <Shell
       logo={beamerLogo}
-      reserveTopLeft={cornerBoxes}
+      // The mind map uses the full width (it is pannable and fits itself
+      // around the QR boxes) — no left column for it.
+      reserveTopLeft={mmShown ? 0 : cornerBoxes}
       overlay={
         phase !== "lobby" ? (
           <>
@@ -1610,6 +1626,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         >
           {phase === "open" && remaining !== null && (
             <div
+              data-beamer-inset=""
               className={`fixed left-6 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${
                 cornerBoxes === 2 ? "top-[18.5rem]" : cornerBoxes === 1 ? "top-40" : "top-4"
               } ${countdownColor(remaining)}`}
@@ -1617,21 +1634,29 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               <Timer aria-hidden className="h-9 w-9" /> {countdownLabel(remaining)}
             </div>
           )}
-          <RichText
-            className={
-              mmShown
-                ? "mx-auto line-clamp-2 max-w-4xl text-center text-lg font-semibold leading-snug md:text-xl [&_img]:hidden"
-                : "text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
-            }
-            html={localizedText(question.text)}
-          />
+          {mmShown ? (
+            // Centred on the full width, kept clear of top-left QR boxes.
+            <div className="mx-auto w-full" style={mmClear(56)}>
+              <RichText
+                className="line-clamp-2 text-center text-lg font-semibold leading-snug md:text-xl [&_img]:hidden"
+                html={localizedText(question.text)}
+              />
+            </div>
+          ) : (
+            <RichText
+              className="text-xl font-semibold leading-snug sm:text-2xl md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ul]:list-disc [&_ul]:pl-8"
+              html={localizedText(question.text)}
+            />
+          )}
 
           {/* Mindmap: the shared tree, live while open and on "Ergebnis"
               (compact / detailed from the footer view picker). */}
           {/* One-time moderation hint as a slim banner in the flow (the map
               fits itself around it instead of being covered). */}
           {mmHintVisible && (
-            <div className="mx-auto mt-2 flex max-w-3xl items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm text-slate-700">
+            <div
+              style={mmClear(48)}
+              className="mx-auto mt-2 flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-1.5 text-sm text-slate-700">
               <Info className="h-4 w-4 shrink-0 text-brand-600" aria-hidden />
               <p className="flex-1">
                 {t("Tip: + adds a term. Drag a term onto another to merge them, or onto “Attach here” beside it to move it there; double-click renames, × hides (the pencil on the right lists hidden terms). Ctrl+Z undoes.")}
@@ -1650,7 +1675,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             </div>
           )}
           {mmShown && mindmap && (
-            <div className="mt-3 min-h-0 flex-1">
+            <div className="-mx-8 -mb-6 mt-3 min-h-0 flex-1">
               <MindMap
                 rootLabel={localizedText(mindmap.root.label)}
                 nodes={mindmap.nodes}
@@ -1663,6 +1688,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 onRename={expert ? mmMod.rename : undefined}
                 maxDepth={mindmap.depth}
                 withDescriptions={mindmap.descriptions}
+                zoomHandleTop={mmZoomTop}
                 memoryKey={`${runId}:${question.id}`}
               />
             </div>
@@ -1928,7 +1954,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   }}
                   aria-label={t("Moderate")}
                   title={t("Moderate")}
-                  className={`fixed right-0 top-[62%] z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
+                  data-beamer-inset=""
+                  style={{ top: handleColumnTop }}
+                  className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
                     showModPanel ? "pointer-events-none opacity-0" : "opacity-100"
                   }`}
                 >
@@ -2043,7 +2071,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 }}
                 aria-label={t("Moderate")}
                 title={t("Moderate")}
-                className={`fixed right-0 top-[62%] z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
+                data-beamer-inset=""
+                  style={{ top: handleColumnTop }}
+                  className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
                   showModPanel ? "pointer-events-none opacity-0" : "opacity-100"
                 }`}
               >
@@ -2159,6 +2189,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 aria-label={aiPanelTitle}
                 title={aiPanelTitle}
                 style={{ top: aiHandleTop }}
+                data-beamer-inset=""
                 className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
                   showAiPanel ? "pointer-events-none opacity-0" : "opacity-100"
                 }`}
@@ -2525,6 +2556,75 @@ function WalkthroughResultBody({
   );
 }
 
+/** Right-edge handle column (moderation pencil, AI sparkles, mindmap zoom):
+ * slot geometry and where the column starts. It prefers 62 % of the height
+ * but keeps clear of what sits at the right edge — the logo, a join QR box
+ * configured top-right/bottom-right (both marked `data-edge-right`) — and of
+ * the footer. Re-measured on resize and periodically (the boxes load
+ * images). */
+const HANDLE_SIZE = 46;
+const HANDLE_STEP = 56;
+function useHandleColumn(slots: number): number {
+  const [top, setTop] = useState(() =>
+    typeof window === "undefined" ? 400 : Math.round(window.innerHeight * 0.62),
+  );
+  useEffect(() => {
+    const measure = () => {
+      const vh = window.innerHeight;
+      let lo = 16;
+      let hi = vh - 16;
+      const footer = document.querySelector("footer");
+      if (footer) hi = Math.min(hi, footer.getBoundingClientRect().top - 12);
+      document.querySelectorAll<HTMLElement>("[data-edge-right]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        if (r.top + r.height / 2 < vh / 2) lo = Math.max(lo, r.bottom + 12);
+        else hi = Math.min(hi, r.top - 12);
+      });
+      const height = Math.max(1, slots) * HANDLE_STEP - (HANDLE_STEP - HANDLE_SIZE);
+      // Not enough room: top-aligned below the upper obstacle.
+      setTop(Math.round(Math.max(lo, Math.min(vh * 0.62, hi - height))));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const id = window.setInterval(measure, 1000);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.clearInterval(id);
+    };
+  }, [slots]);
+  return top;
+}
+
+/** Right edge of the QR boxes stacked top-left (`data-top-left`), in px
+ * from the viewport's left; 0 when there are none. The full-width mind map
+ * keeps its title/hint clear of them symmetrically (so it stays centred). */
+function useTopLeftExtent(active: boolean): number {
+  const [right, setRight] = useState(0);
+  useEffect(() => {
+    if (!active) {
+      setRight(0);
+      return;
+    }
+    const measure = () => {
+      let max = 0;
+      document.querySelectorAll<HTMLElement>("[data-top-left]").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0) max = Math.max(max, r.right);
+      });
+      setRight(Math.round(max));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const id = window.setInterval(measure, 1000);
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.clearInterval(id);
+    };
+  }, [active]);
+  return right;
+}
+
 function Shell({
   children,
   footer,
@@ -2550,6 +2650,8 @@ function Shell({
           src={logo}
           alt=""
           aria-hidden
+          data-edge-right=""
+          data-beamer-inset=""
           className="absolute right-6 top-5 z-10 h-10 w-auto max-w-[200px] object-contain"
         />
       )}
@@ -2581,6 +2683,7 @@ function LiveStats({ participants, votes }: { participants: number; votes: numbe
     <div
       className="fixed left-6 bottom-20 z-20 flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-sm text-slate-500 shadow-sm backdrop-blur"
       aria-live="polite"
+      data-beamer-inset=""
     >
       <VoteRing votes={votes} participants={participants} />
       <span className="flex items-center gap-1.5 tabular-nums" title={t("Connected participants")}>
@@ -2630,6 +2733,8 @@ function RecordingCorner({
   const position = joinInTopLeft(room) ? "left-6 top-40" : "left-6 top-5";
   return (
     <div
+      data-beamer-inset=""
+      data-top-left=""
       className={`absolute z-20 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur ${position}`}
     >
       <img
@@ -2658,6 +2763,9 @@ function JoinCorner({ room }: { room: LiveState["room"] }) {
     // Hidden on small windows (the counter/footer leave no room and the QR is
     // still reachable via the footer QR button + room code); shown from md up.
     <div
+      data-beamer-inset=""
+      {...(rawCorner.endsWith("right") ? { "data-edge-right": "" } : {})}
+      {...(rawCorner === "top-left" ? { "data-top-left": "" } : {})}
       className={`absolute z-20 hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur md:flex ${position}`}
     >
       {room.show_qr && (

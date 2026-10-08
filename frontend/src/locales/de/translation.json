@@ -944,6 +944,8 @@
   "Participants have added this term too.": "Teilnehmende haben diesen Begriff ebenfalls genannt.",
   "Nothing hidden yet. × on a term hides it together with everything below it.": "Noch nichts ausgeblendet. × an einem Begriff blendet ihn samt allem darunter aus.",
   "+{{count}} below": "+{{count}} darunter",
+  "Zoom": "Zoomen",
+  "Hide zoom controls": "Zoom-Steuerung einklappen",
   "Zoom in (+)": "Vergrößern (+)",
   "Zoom out (−)": "Verkleinern (−)",
   "Fit to screen (0)": "An Bildschirm anpassen (0)",
