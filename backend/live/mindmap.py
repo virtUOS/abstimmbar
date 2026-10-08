@@ -110,6 +110,15 @@ def is_rating(run, question):
 
 
 RATING_IN_PROGRESS = "Rating in progress — no new terms."
+MODERATION_WHILE_RATING = "Not possible while rating is in progress."
+
+
+def _refuse_while_rating(run, question):
+    """Presenter restructuring (add/delete/merge/move/rename/undo) would
+    shift entries under the raters' fingers — refused during the rating
+    stage (hide/unhide stay allowed). Call under the run lock."""
+    if is_rating(run, question):
+        raise MindmapError(MODERATION_WHILE_RATING, 409)
 
 
 def root_label(question):
@@ -565,6 +574,7 @@ def teacher_add(run, question, parent_id, text, description=""):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         tree = _load_tree(run, question)
         if parent_id is not None:
             _node_or_404(tree, parent_id, "Unknown parent.")
@@ -596,6 +606,7 @@ def teacher_delete(run, question, node_id):
     nothing hangs below and nobody has joined."""
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         node = MindmapNode.objects.filter(pk=node_id, run=run, question=question).first()
         if node is None:
             raise MindmapError("Unknown term.", 404)
@@ -785,6 +796,7 @@ def merge_nodes(run, question, source_id, target_id):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         _check_merge(_load_tree(run, question), question, source_id, target_id)
         source = MindmapNode.objects.get(pk=source_id)
         target = MindmapNode.objects.get(pk=target_id)
@@ -797,6 +809,7 @@ def move_node(run, question, node_id, parent_id):
     branch). Returns the plain undo ``{node, parent}`` (the old parent)."""
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         tree = _load_tree(run, question)
         _node_or_404(tree, node_id)
         old_parent = tree[node_id][0]
@@ -838,6 +851,7 @@ def rename_node(run, question, node_id, text):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         tree = _load_tree(run, question)
         _node_or_404(tree, node_id)
         node = MindmapNode.objects.get(pk=node_id)
@@ -1016,6 +1030,7 @@ def restore(run, question, blob):
     try:
         with transaction.atomic():
             _lock_run(run)
+            _refuse_while_rating(run, question)
             if data["op"] == "merge":
                 _restore_merge(run, question, data["merge"])
             else:

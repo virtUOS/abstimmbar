@@ -5047,6 +5047,45 @@ class MindmapRatingSettingsTests(ApiTestCase):
         self.assertFalse(question.mindmap_rating_live)
 
 
+    def _with_rating(self, phase):
+        from live.models import MindmapRating
+
+        question = self._rated_question()
+        run = Run.objects.create(question_set=self.question_set, phase=phase,
+                                 active_question=question)
+        node = MindmapNode.objects.create(run=run, question=question, text="A", text_key="a")
+        MindmapRating.objects.create(
+            node=node, token=ParticipantToken.objects.create(room=self.room), value=1
+        )
+        return question
+
+    def test_mode_locked_while_active_run_has_ratings(self):
+        question = self._with_rating(Run.Phase.OPEN)
+        response = self.client.patch(
+            f"/api/questions/{question.pk}/", {"mindmap_rating_mode": "updown"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("mindmap_rating_mode", response.json())
+        question.refresh_from_db()
+        self.assertEqual(question.mindmap_rating_mode, "points")
+        # Unchanged mode and other settings stay editable.
+        response = self.client.patch(
+            f"/api/questions/{question.pk}/",
+            {"mindmap_rating_mode": "points", "mindmap_rating_budget": 9},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def test_mode_editable_when_ratings_only_in_finished_runs(self):
+        question = self._with_rating(Run.Phase.FINISHED)
+        response = self.client.patch(
+            f"/api/questions/{question.pk}/", {"mindmap_rating_mode": ""},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+
 class MindmapSeedHelperTests(SimpleTestCase):
     def test_normalisation_nfkc_and_control_characters(self):
         from .mindmap import normalize_text, text_key

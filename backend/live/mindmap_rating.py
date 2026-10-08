@@ -52,9 +52,12 @@ def stage_of(run, question):
     return MindmapPhase.Stage.RATE if is_rating(run, question) else MindmapPhase.Stage.COLLECT
 
 
-def set_stage(run, question, stage):
+def set_stage(run, question, stage, *, open_vote=False):
     """Presenter: switch the question's stage in this run. Ratings are kept
-    when going back to collecting (and count again on the next rating)."""
+    when going back to collecting (and count again on the next rating).
+    ``open_vote`` also makes the question active and opens the vote (like the
+    control endpoint's phase "open", timer reset included) in the same
+    transaction, so a single broadcast carries both changes."""
     if stage not in STAGES:
         raise MindmapError("stage must be \"collect\" or \"rate\".")
     if not run.is_active:
@@ -70,7 +73,21 @@ def set_stage(run, question, stage):
             phase.rating_started_at = timezone.now()
             fields.append("rating_started_at")
         phase.save(update_fields=fields)
+        if open_vote:
+            open_question(run, question)
     return stage
+
+
+def open_question(run, question):
+    """Make ``question`` active and open the vote — the same state change as
+    ``control_run`` with phase "open"."""
+    run.active_question = question
+    run.phase = Run.Phase.OPEN
+    run.opened_at = timezone.now()
+    if run.first_opened_at is None:
+        run.first_opened_at = run.opened_at
+    run.answers_revealed = False
+    run.save()
 
 
 def _visible_ids(run, question):
@@ -241,19 +258,35 @@ def ranking(question, tree, scores):
     return result
 
 
+def scores_hidden(run, question):
+    """True while the scores are still secret: the run is active, the
+    question is being rated with the live display off, and the beamer has not
+    revealed them (results phase). The management results/CSV must not leak
+    them in the meantime."""
+    return (
+        run.is_active
+        and not question.mindmap_rating_live
+        and run.phase != Run.Phase.RESULTS
+        and is_rating(run, question)
+    )
+
+
 def results(run, question, tree):
-    """``mindmap.rating`` of the management results (always revealed), or
-    None without a rating mode: settings + ``raters``, ``scores``, ``ranking``.
-    ``tree`` is the participant-form (visible) tree."""
+    """``mindmap.rating`` of the management results, or None without a
+    rating mode: settings + ``raters``, ``scores``, ``ranking``. While the
+    scores are still secret (``scores_hidden``) ``scores``/``ranking`` are
+    left out and ``rating_in_progress: true`` is set instead. ``tree`` is the
+    participant-form (visible) tree."""
     if not question.mindmap_rating_mode:
         return None
     scores, raters = aggregate(run, question)
-    return {
-        **_settings(question),
-        "raters": raters,
-        "scores": scores,
-        "ranking": ranking(question, tree, scores),
-    }
+    data = {**_settings(question), "raters": raters}
+    if scores_hidden(run, question):
+        data["rating_in_progress"] = True
+    else:
+        data["scores"] = scores
+        data["ranking"] = ranking(question, tree, scores)
+    return data
 
 
 def csv_cell(question, scores, node_id):

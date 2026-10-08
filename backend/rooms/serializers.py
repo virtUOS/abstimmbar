@@ -489,6 +489,24 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}
             )
+        # Mindmap rating phase: switching the mode (points ↔ plus/minus/off)
+        # would reinterpret ratings already given in a running session.
+        if (
+            self.instance is not None
+            and "mindmap_rating_mode" in attrs
+            and attrs["mindmap_rating_mode"] != self.instance.mindmap_rating_mode
+        ):
+            from live.models import MindmapRating, Run
+
+            if MindmapRating.objects.filter(node__question=self.instance).exclude(
+                node__run__phase=Run.Phase.FINISHED
+            ).exists():
+                raise serializers.ValidationError({
+                    "mindmap_rating_mode": (
+                        "The rating mode cannot be changed while a running "
+                        "session already has ratings."
+                    )
+                })
         # Mindmap: the predefined branches must fit the (possibly changed)
         # depth — re-checked whenever either is written.
         if kind == Question.Kind.MINDMAP and (

@@ -1823,15 +1823,22 @@ def _mindmap_moderate(request, run_id, question_id, action, status=200):
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def mindmap_stage(request, run_id, question_id):
-    """Presenter: ``{stage: "collect"|"rate"}`` → 200 ``{stage}``. "rate"
-    needs a rating mode on the question (409 otherwise); 409 for a finished
-    run. Independent of the run phase (open/close the vote separately)."""
+    """Presenter: ``{stage: "collect"|"rate", open?: bool}`` → 200
+    ``{stage, phase}``. "rate" needs a rating mode on the question (409
+    otherwise); 409 for a finished run. Without ``open`` the run phase stays
+    as it is; ``open: true`` also makes the question active and opens the
+    vote (timer reset) in the same request — one broadcast, no intermediate
+    state on the beamer."""
 
     def action(run, question, data):
         stage = data.get("stage")
         if not isinstance(stage, str):
             raise _BadField("stage must be \"collect\" or \"rate\".")
-        return {"stage": mindmap_rating.set_stage(run, question, stage)}
+        open_vote = data.get("open", False)
+        if not isinstance(open_vote, bool):
+            raise _BadField("open must be true or false.")
+        stage = mindmap_rating.set_stage(run, question, stage, open_vote=open_vote)
+        return {"stage": stage, "phase": run.phase}
 
     return _mindmap_moderate(request, run_id, question_id, action)
 
@@ -2283,15 +2290,21 @@ def results_csv(request, set_id):
                 # ("Wind > Rotor") and its count in "stimmen"; with a rating
                 # phase its score in "bewertung".
                 tree = mindmap.build_tree(run, question, presenter=False)
+                # Scores still secret (rating in progress, not revealed):
+                # the column stays empty.
+                hidden = mindmap_rating.scores_hidden(run, question)
                 scores = (
                     mindmap_rating.aggregate(run, question)[0]
-                    if question.mindmap_rating_mode
+                    if question.mindmap_rating_mode and not hidden
                     else {}
                 )
                 for path, count, node_id in mindmap.csv_rows(tree):
+                    cell = (
+                        "" if hidden
+                        else mindmap_rating.csv_cell(question, scores, node_id)
+                    )
                     writer.writerow(
-                        base + [csv_safe(path), "", count, "", "", "",
-                                csv_safe(mindmap_rating.csv_cell(question, scores, node_id))]
+                        base + [csv_safe(path), "", count, "", "", "", csv_safe(cell)]
                     )
             elif question.kind in Question.TEXT_KINDS:
                 for word in words_with_counts(run, question, limit=100000):
