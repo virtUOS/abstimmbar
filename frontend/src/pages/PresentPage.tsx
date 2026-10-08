@@ -29,7 +29,7 @@ import VoteRing from "../results/VoteRing";
 import PriorityBar from "../results/PriorityBar";
 import OrderingResult from "../results/OrderingResult";
 import { useReducedMotion } from "../results/motion";
-import MindMap, { hiddenMindmapNodes } from "../results/MindMap";
+import MindMap, { hiddenMindmapNodes, mindmapBranchHues } from "../results/MindMap";
 import MindmapRanking, { rankMindmap } from "../results/MindmapRanking";
 import { requestDetail, useMindmapModeration } from "../results/mindmapModeration";
 import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
@@ -573,17 +573,28 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // Mindmap: the map grows live while open and stays on "Ergebnis"; on
   // "Frage" (closed/preview) only the question text is shown.
   const mindmap = activeKind === "mindmap" ? state?.mindmap : undefined;
-  const mmShown = !!mindmap && (phase === "open" || phase === "results");
   // Rating phase (optional, per question): while rating only hiding is
   // possible on the beamer — add/merge/move/rename would change what people
   // are rating under their hands. Back in "collect" everything returns.
   const mmRating = mindmap?.rating;
   const mmRate = mmRating?.stage === "rate";
+  // Stopping a rating with hidden scores only closes the vote (the map stays,
+  // without scores); "Ergebnis" / E reveals. Collecting (and a live-shown
+  // rating) still goes straight to the results.
+  const mmStopCloses = activeKind === "mindmap" && mmRate && !mmRating?.live;
+  const mmShown =
+    !!mindmap && (phase === "open" || phase === "results" || (phase === "closed" && mmRate));
   const mmRateRef = useRef(mmRate);
   mmRateRef.current = mmRate;
   const mmRanking = useMemo(
     () => (mindmap && mmRating?.scores ? rankMindmap(mindmap.nodes, mmRating.scores) : []),
     [mindmap, mmRating?.scores],
+  );
+  // Ranking bars take their term's main-branch colour from the map.
+  const mmHues = useMemo(
+    () => (mindmap ? mindmapBranchHues(mindmap.nodes, `${runId}:${activeId}`) : undefined),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [mindmap, runId, activeId, wcViewState],
   );
   // Expert mode: × hides a term with its subtree; the pencil drawer lists the
   // hidden ones to restore.
@@ -1163,7 +1174,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         if (phase === "open")
           // Word clouds and mindmaps freeze onto the results view (they stay
           // visible), matching the Stop button; other kinds just close.
-          activeKind === "word_cloud" || activeKind === "mindmap"
+          (activeKind === "word_cloud" || activeKind === "mindmap") && !mmStopCloses
             ? void showResults()
             : void live.control(runId, { phase: "closed" });
         else if (phase === "preview" || phase === "closed" || phase === "results")
@@ -1187,7 +1198,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void finish();
       }
     },
-    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown],
+    [runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, canCycleView, cycleWcView, startFromLobby, showQuestion, showResults, showSolution, canReveal, revealed, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown, mmStopCloses],
   );
 
   useEffect(() => {
@@ -1592,7 +1603,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               ? // Word clouds jump straight to results on close so the cloud
                 // stays on screen (and #30's deferred cloud appears); "Frage"
                 // then hides it. Other kinds close first, reveal on demand.
-                activeKind === "word_cloud" || activeKind === "mindmap"
+                (activeKind === "word_cloud" || activeKind === "mindmap") && !mmStopCloses
                 ? void showResults()
                 : void live.control(runId!, { phase: "closed" })
               : phase === "lobby"
@@ -1775,9 +1786,26 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               )}
             </p>
           )}
+          {/* Rating stopped but not yet revealed. */}
+          {mmShown && mmRating && mmRate && phase === "closed" && (
+            <p
+              style={mmClear(56)}
+              className="mx-auto mt-1 text-center text-base leading-relaxed text-slate-600"
+              data-testid="mm-rating-closed"
+            >
+              <span className="mr-2 inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-sm font-semibold text-slate-700">
+                {t("Rating closed")}
+              </span>
+              {mmRating.scores ? null : (
+                <Trans i18nKey="mm_rating_reveal_hint">
+                  Reveal the results with <Kbd>E</Kbd>
+                </Trans>
+              )}
+            </p>
+          )}
           {mmShown && mindmap && wcView === "ranking" && mmRating?.scores && (
             <div className="mx-auto mt-6 w-full max-w-4xl" data-testid="mm-ranking">
-              <MindmapRanking entries={mmRanking} mode={mmRating.mode} limit={8} animate />
+              <MindmapRanking entries={mmRanking} mode={mmRating.mode} limit={8} animate hues={mmHues} />
             </div>
           )}
           {mmShown && mindmap && wcView !== "ranking" && (

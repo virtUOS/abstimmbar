@@ -583,6 +583,31 @@ export function branchHues(
   return out;
 }
 
+/** Hue (degrees) per main branch as last drawn by a `MindMap` with that
+ * `memoryKey` (small LRU, like the branch sides). */
+const hueMemory = new Map<string, Map<number, number>>();
+
+/** Hue (degrees) of each visible main branch, as the map colours it: what
+ * the map with `memoryKey` last drew, otherwise the same rule without the
+ * display order (stable rank by id, neighbours in tree order differ) — e.g.
+ * on the results page, where no map is drawn. */
+export function mindmapBranchHues(
+  nodes: LiveMindmapNode[],
+  memoryKey?: string,
+): Map<number, number> {
+  const remembered = memoryKey ? hueMemory.get(memoryKey) : undefined;
+  const stable = new Map(
+    nodes.map((n) => n.id).sort((a, b) => a - b).map((id, i) => [id, i] as const),
+  );
+  const ids = nodes.filter((n) => !n.hidden).map((n) => n.id);
+  const fallback = branchHues(ids, stable);
+  return new Map(
+    ids.map((id) => [id, remembered?.get(id) ?? MINDMAP_HUES[fallback.get(id) ?? 0]] as const),
+  );
+}
+/** Fill colour of a main branch with hue `hue` (degrees). */
+export const mindmapBranchFill = (hue: number) => fill(hue);
+
 /** Fill / border / connector per depth: the main branch's hue, lighter
  * outwards. */
 function nodeColors(depth: number, hue: number) {
@@ -834,6 +859,12 @@ export default function MindMap({
     const hues = branchHues(clockwise, stable);
     return visible.map((v) => MINDMAP_HUES[hues.get(v.id) ?? 0]);
   }, [layout, allNodes, visible]);
+  useEffect(() => {
+    if (!memoryKey) return;
+    hueMemory.delete(memoryKey);
+    hueMemory.set(memoryKey, new Map(visible.map((v, i) => [v.id, branchHue[i]] as const)));
+    if (hueMemory.size > 20) hueMemory.delete(hueMemory.keys().next().value!);
+  }, [branchHue, visible, memoryKey]);
   useEffect(() => {
     sidesRef.current = layout.sides;
     if (!memoryKey) return;

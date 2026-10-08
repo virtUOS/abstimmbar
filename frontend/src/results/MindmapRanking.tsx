@@ -10,7 +10,7 @@
 import { useTranslation } from "react-i18next";
 import type { LiveMindmapNode, MindmapRating, MindmapScore } from "../api";
 import ResultBar from "./ResultBar";
-import { mindmapNodeText, visibleMindmap } from "./MindMap";
+import { mindmapBranchFill, mindmapNodeText, visibleMindmap } from "./MindMap";
 import {
   CORRECT as UP,
   CORRECT_STRONG as UP_INK,
@@ -29,6 +29,8 @@ export interface RankedEntry {
   path: string[];
   count: number;
   score: MindmapScore;
+  /** Id of the main branch the entry belongs to (itself for a main branch). */
+  branch: number;
 }
 
 /** Points, or the balance of a plus/minus score. */
@@ -43,14 +45,15 @@ export function rankMindmap(
 ): RankedEntry[] {
   if (!scores) return [];
   const out: RankedEntry[] = [];
-  const walk = (list: LiveMindmapNode[], path: string[]) =>
+  const walk = (list: LiveMindmapNode[], path: string[], branch: number | null) =>
     list.forEach((n) => {
       const text = mindmapNodeText(n);
+      const b = branch ?? n.id;
       const score = scores[String(n.id)];
-      if (score) out.push({ id: n.id, text, path, count: n.count, score });
-      walk(n.children, [...path, text]);
+      if (score) out.push({ id: n.id, text, path, count: n.count, score, branch: b });
+      walk(n.children, [...path, text], b);
     });
-  walk(visibleMindmap(nodes), []);
+  walk(visibleMindmap(nodes), [], null);
   const key = (e: RankedEntry) => [...e.path, e.text].join(" > ");
   return out.sort(
     (a, b) =>
@@ -66,6 +69,7 @@ export default function MindmapRanking({
   size = "present",
   limit,
   animate = false,
+  hues,
 }: {
   entries: RankedEntry[];
   mode: MindmapRating["mode"];
@@ -73,7 +77,14 @@ export default function MindmapRanking({
   /** Show only the best `limit` entries. */
   limit?: number;
   animate?: boolean;
+  /** Hue per main branch (`mindmapBranchHues`): each bar takes its term's
+   *  branch colour from the map; without it, palette colours by rank. */
+  hues?: Map<number, number>;
 }) {
+  const colorOf = (e: RankedEntry, i: number) => {
+    const hue = hues?.get(e.branch);
+    return hue !== undefined ? mindmapBranchFill(hue) : categoryColor(i);
+  };
   const { t } = useTranslation();
   const present = size === "present";
   const shown = limit ? entries.slice(0, limit) : entries;
@@ -108,7 +119,7 @@ export default function MindmapRanking({
             label={label(e)}
             count={scoreValue(e.score)}
             pct={total ? Math.round((scoreValue(e.score) / total) * 100) : 0}
-            color={categoryColor(i)}
+            color={colorOf(e, i)}
             size={size}
             animate={animate}
           />
@@ -137,7 +148,7 @@ export default function MindmapRanking({
               <span
                 aria-hidden
                 className={`inline-flex shrink-0 items-center justify-center rounded-md font-bold ${present ? "h-7 w-7 text-sm" : "h-5 w-5 text-[11px]"}`}
-                style={{ background: categoryColor(i), color: INK }}
+                style={{ background: colorOf(e, i), color: INK }}
               >
                 {i + 1}
               </span>

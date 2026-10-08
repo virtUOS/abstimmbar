@@ -988,5 +988,7 @@
   "{{count}} points_other": "{{count}} Punkte",
   "{{up}} plus, {{down}} minus, balance {{balance}}": "{{up}} × Plus, {{down}} × Minus, Saldo {{balance}}",
   "Participants have rated this term.": "Teilnehmende haben diesen Begriff bereits bewertet.",
-  "This question has no rating phase.": "Diese Frage hat keine Bewertungsphase."
+  "This question has no rating phase.": "Diese Frage hat keine Bewertungsphase.",
+  "Rating closed": "Bewertung beendet",
+  "mm_rating_reveal_hint": "Lösen Sie die Ergebnisse mit <1>E</1> auf"
 }

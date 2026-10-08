@@ -24,7 +24,7 @@ import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
-import { mindmapNodeDescriptions, mindmapNodeText } from "../results/MindMap";
+import { mindmapBranchHues, mindmapNodeDescriptions, mindmapNodeText } from "../results/MindMap";
 import MindmapRanking, { rankMindmap } from "../results/MindmapRanking";
 import PriorityBar from "../results/PriorityBar";
 import ResultBar from "../results/ResultBar";
@@ -796,7 +796,12 @@ function MindmapOutline({
                 : t("Plus/minus · rated by {{n}}", { n: rating.raters })}
             </span>
           </div>
-          <MindmapRanking entries={ranking} mode={rating.mode} size="compact" />
+          <MindmapRanking
+            entries={ranking}
+            mode={rating.mode}
+            size="compact"
+            hues={mindmapBranchHues(nodes)}
+          />
         </div>
       )}
     </div>

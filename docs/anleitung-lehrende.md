@@ -249,13 +249,14 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
   Gerät – entweder mit **Punkten** (ein Budget pro Person, auf Wunsch mehrere
   Punkte pro Begriff) oder mit **👍/👎** (bis zu einer festgelegten Zahl von
   Bewertungen). Neue Begriffe kommen in dieser Phase nicht hinzu; der Zähler
-  links unten zeigt, wie viele bereits bewertet haben. Die Ergebnisse bleiben
-  verborgen, bis Sie mit **Ergebnis** (E) auflösen – es sei denn, Sie haben
-  „Bewertungen während der Bewertung anzeigen“ eingeschaltet. Dann zeigt die
-  Mindmap die Punkte bzw. Plus/Minus an jedem Begriff, gut bewertete Begriffe
-  treten hervor, und die Ansicht **Rangliste** listet die Spitzenreiter als
-  Balken. Während der Bewertung können Sie Begriffe nur aus- und wieder
-  einblenden; mit **Weiter sammeln** kehren Sie zum Sammeln zurück (die
+  links unten zeigt, wie viele bereits bewertet haben. **Stoppen** (S) beendet
+  die Bewertung; die Ergebnisse bleiben verborgen, bis Sie mit **Ergebnis** (E)
+  auflösen – es sei denn, Sie haben „Bewertungen während der Bewertung
+  anzeigen“ eingeschaltet (dann führt Stoppen direkt zum Ergebnis). Sobald
+  Ergebnisse sichtbar sind, zeigt die Mindmap die Punkte bzw. Plus/Minus an
+  jedem Begriff, gut bewertete Begriffe treten hervor, und die Ansicht
+  **Rangliste** listet die Spitzenreiter als Balken in der Farbe ihres Asts.
+  Während der Bewertung können Sie Begriffe nur aus- und wieder einblenden; mit **Weiter sammeln** kehren Sie zum Sammeln zurück (die
   Bewertungen bleiben erhalten). Auf der Ergebnisseite erscheinen die
   Bewertungen am Begriffsbaum, als Rangliste und im CSV-Export.
 - **Wortwolken bearbeiten (Experten-Modus):** Ziehen Sie einen Begriff auf
