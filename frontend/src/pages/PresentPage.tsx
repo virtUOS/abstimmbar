@@ -1571,7 +1571,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   }}
                   title={t("Back to collecting: participants add terms again; the ratings are kept.")}
                 >
-                  {t("Keep collecting")}
+                  {t("Back to collecting")}
                 </button>
               ) : phase === "results" || phase === "closed" ? (
                 <button
@@ -1826,7 +1826,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 rating={mmRating}
                 lockedNote={
                   expert && mmRate
-                    ? t("During the rating, terms can only be hidden — adding, merging, moving and renaming return with “Keep collecting”.")
+                    ? t("During the rating, terms can only be hidden — adding, merging, moving and renaming return with “Back to collecting”.")
                     : undefined
                 }
               />

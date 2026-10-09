@@ -29,7 +29,7 @@ import { useTranslation } from "react-i18next";
 import { ChevronRight, CornerDownRight, Maximize2, Minus, Plus, X, ZoomIn } from "lucide-react";
 import { localizedText } from "@basicbar/ui";
 import type { LiveMindmapNode, MindmapRating } from "../api";
-import { CORRECT, CORRECT_STRONG, INK, MINUS, MINUS_INK, NEUTRAL_TILE } from "./palette";
+import { CORRECT, CORRECT_STRONG, CORRECT_TINT, INK, MINUS, MINUS_INK, MINUS_TINT, NEUTRAL_TILE } from "./palette";
 import { EASE, useReducedMotion } from "./motion";
 
 // ---------------------------------------------------------------------------
@@ -448,8 +448,14 @@ interface RateLook {
    *  plus/minus: a positive balance). */
   r: number;
   badges: RateBadge[];
+  /** Fill bar inside the pill, as fractions of its width: points fill from
+   *  the left (`up`); plus/minus fill green from the left and rosé from the
+   *  right, both relative to the most-rated entry. */
+  bar: { up: number; down: number };
 }
 const RATE_GAP = 4;
+/** How much the best-rated term grows (font and line width). */
+const RATE_GROW = 0.7;
 function rateBadgeWidth(b: RateBadge, font: number, family: string): number {
   const w = Math.ceil(textWidth(b.text, font, 700, family));
   if (b.tone === "points") return w + Math.round(font * 0.5) + 4 + 14; // dot + gap + padding
@@ -485,13 +491,13 @@ function boxFor(
   // With ratings shown, the score takes over the emphasis.
   const boost = !rateLook && emphasise && count > 1 ? Math.min(count - 1, 5) : 0;
   const rr = rateLook?.r ?? 0;
-  const font = Math.round(look.font * (1 + 0.08 * boost) * (1 + 0.4 * rr));
+  const font = Math.round(look.font * (1 + 0.08 * boost) * (1 + RATE_GROW * rr));
   const weight = Math.min(
     800,
     look.weight + (boost > 0 ? 150 : 0) + (rr >= 0.5 ? 150 : rr > 0 ? 75 : 0),
   );
   // A rated term grows: so does its line width, so it wraps as before.
-  const title = wrapText(text, font, weight, family, look.maxW * (1 + 0.4 * rr), 3);
+  const title = wrapText(text, font, weight, family, look.maxW * (1 + RATE_GROW * rr), 3);
   const badgeFont = Math.round(font * 0.68);
   const badge =
     count > 1 ? Math.ceil(textWidth(String(count), badgeFont, 700, family)) + 14 : 0;
@@ -791,10 +797,15 @@ export default function MindMap({
       const max = Math.max(1, ...entries.map(([, v]) => ("points" in v ? v.points : 0)));
       for (const [id, v] of entries) {
         if (!("points" in v) || v.points <= 0) continue;
-        out.set(id, { r: v.points / max, badges: [{ text: String(v.points), tone: "points" }] });
+        out.set(id, {
+          r: v.points / max,
+          badges: [{ text: String(v.points), tone: "points" }],
+          bar: { up: v.points / max, down: 0 },
+        });
       }
     } else {
       const maxPos = Math.max(1, ...entries.map(([, v]) => ("balance" in v ? v.balance : 0)));
+      const maxTotal = Math.max(1, ...entries.map(([, v]) => ("up" in v ? v.up + v.down : 0)));
       for (const [id, v] of entries) {
         if (!("balance" in v)) continue;
         const sign = v.balance > 0 ? "+" : v.balance < 0 ? "−" : "±";
@@ -805,6 +816,7 @@ export default function MindMap({
             { text: `−${v.down}`, tone: "down" },
             { text: `${sign}${Math.abs(v.balance)}`, tone: "balance", sign: Math.sign(v.balance) },
           ],
+          bar: { up: v.up / maxTotal, down: v.down / maxTotal },
         });
       }
     }
@@ -1262,12 +1274,13 @@ export default function MindMap({
     // the term green or rosé by the balance's sign. Unrated terms recede.
     let shadow: string | undefined = p.depth === 1 ? "0 2px 6px rgba(15,23,42,0.08)" : undefined;
     if (showScores && rl) {
+      // The fill bar carries the score: the pill itself turns pale.
+      colors.bg = `oklch(0.975 0.012 ${hue})`;
       if (rateMode === "points" && rl.r > 0) {
-        if (p.depth > 1)
-          colors.bg = `color-mix(in oklch, ${fill(hue)} ${Math.round(35 + 65 * rl.r)}%, ${colors.bg})`;
         colors.border = deep(hue);
         shadow = `0 ${Math.round(2 + 6 * rl.r)}px ${Math.round(6 + 14 * rl.r)}px rgba(15,23,42,${(0.08 + 0.14 * rl.r).toFixed(2)})`;
       } else if (rateMode === "updown") {
+        colors.border = fill(hue);
         const sign = rl.badges.find((b) => b.tone === "balance")?.sign ?? 0;
         if (sign !== 0) colors.border = sign > 0 ? CORRECT_STRONG : MINUS_INK;
       }
@@ -1336,8 +1349,36 @@ export default function MindMap({
               : undefined,
           }}
         >
+          {showScores && rl && (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 overflow-hidden"
+              style={{ borderRadius: roundish ? 9999 : 12 }}
+            >
+              {rl.bar.up > 0 && (
+                <div
+                  className="absolute inset-y-0 left-0"
+                  style={{
+                    width: `${(rl.bar.up * 100).toFixed(1)}%`,
+                    background: rateMode === "points" ? fill(hue) : CORRECT_TINT,
+                    transition: move ? `width ${move}` : undefined,
+                  }}
+                />
+              )}
+              {rl.bar.down > 0 && (
+                <div
+                  className="absolute inset-y-0 right-0"
+                  style={{
+                    width: `${(rl.bar.down * 100).toFixed(1)}%`,
+                    background: MINUS_TINT,
+                    transition: move ? `width ${move}` : undefined,
+                  }}
+                />
+              )}
+            </div>
+          )}
           <div
-            className="flex items-center"
+            className="relative flex items-center"
             style={{ gap: box.badge || box.rate.length ? BADGE_GAP : 0 }}
           >
             <div className="min-w-0 flex-1">
@@ -1375,7 +1416,7 @@ export default function MindMap({
           </div>
           {box.desc.length > 0 && (
             <div
-              className="text-slate-600"
+              className="relative text-slate-600"
               style={{ marginTop: 4, fontSize: box.descFont, fontWeight: 400, lineHeight: DESC_LINE }}
             >
               {box.desc.map((line, i) => (

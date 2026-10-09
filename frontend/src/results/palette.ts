@@ -40,6 +40,7 @@ export const INK = "oklch(0.28 0.02 220)";
  *  white) and its text colour; "plus" uses CORRECT / CORRECT_STRONG. */
 export const MINUS = "oklch(0.80 0.08 20)";
 export const MINUS_INK = "oklch(0.52 0.13 20)";
+export const MINUS_TINT = "oklch(0.90 0.05 20)";
 
 /** Likert (L1): rosé ↔ green in pastel, neutral grey in the middle. `rank`
  * is the distance from the centre (0 = innermost); extremes are darkest. */
