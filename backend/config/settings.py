@@ -167,6 +167,12 @@ MEDIA_ROOT = BASE_DIR / "media"
 IMAGE_MAX_EDGE = int(os.environ.get("IMAGE_MAX_EDGE", "1600"))
 IMAGE_WEBP_QUALITY = int(os.environ.get("IMAGE_WEBP_QUALITY", "80"))
 
+# App-specific cookie names: browsers share cookies per host regardless of
+# port, so other tools on the same host (e.g. several -bar tools on localhost
+# in development) would overwrite "sessionid"/"csrftoken" and log each other out.
+SESSION_COOKIE_NAME = "abstimmbar_sessionid"
+CSRF_COOKIE_NAME = "abstimmbar_csrftoken"
+
 # Behind a TLS-terminating reverse proxy in production: trust its forwarded
 # host/scheme so absolute URLs use https, and require secure cookies.
 if not DEBUG:

@@ -15,7 +15,7 @@ export const test = base.extend<RoomCleanupFixtures>({
     await use((roomId) => roomIds.push(roomId));
 
     const cookies = await page.context().cookies();
-    const csrfToken = cookies.find((c) => c.name === 'csrftoken')?.value;
+    const csrfToken = cookies.find((c) => c.name === 'abstimmbar_csrftoken')?.value;
     for (const id of roomIds) {
       const response = await page.request.delete(`${API_BASE_URL}/api/rooms/${id}/`, {
         headers: csrfToken ? { 'X-CSRFToken': csrfToken } : undefined,

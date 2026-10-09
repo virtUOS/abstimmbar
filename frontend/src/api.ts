@@ -503,12 +503,12 @@ interface Paginated<T> {
 
 /** CSRF token. `whoami` returns an authoritative token in its body (see the
  * backend note); we prefer it because reading the cookie from JS is
- * unreliable cross-origin in dev. Falls back to the cookie. */
+ * unreliable cross-origin in dev. Falls back to the (app-specific) cookie. */
 let serverCsrfToken = "";
 
 function csrfToken(): string {
   if (serverCsrfToken) return serverCsrfToken;
-  return document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/)?.[1] ?? "";
+  return document.cookie.match(/(?:^|;\s*)abstimmbar_csrftoken=([^;]*)/)?.[1] ?? "";
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {

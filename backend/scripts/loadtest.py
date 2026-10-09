@@ -63,7 +63,7 @@ def setup_fixture():
 async def presenter_login(session, base):
     async with session.get(f"{base}/admin/login/") as response:
         await response.read()
-    csrf = session.cookie_jar.filter_cookies(base)["csrftoken"].value
+    csrf = session.cookie_jar.filter_cookies(base)["abstimmbar_csrftoken"].value
     async with session.post(
         f"{base}/admin/login/",
         data={"username": USERNAME, "password": PASSWORD, "csrfmiddlewaretoken": csrf},
@@ -74,7 +74,7 @@ async def presenter_login(session, base):
 
 
 async def presenter_post(session, base, path, payload):
-    csrf = session.cookie_jar.filter_cookies(base)["csrftoken"].value
+    csrf = session.cookie_jar.filter_cookies(base)["abstimmbar_csrftoken"].value
     async with session.post(
         f"{base}{path}",
         json=payload,
