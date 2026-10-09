@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 
 import jwt
 from basicbar_lti.models import LtiPlatform
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from jwcrypto import jwk
@@ -384,6 +385,16 @@ class LtiFrameAncestorsTests(TestCase):
 
     def _participant_html(self):
         return self.client.get(f"/p/{self.room.code}/")
+
+    def test_cookie_names_and_csrf_meta(self):
+        self.assertEqual(settings.SESSION_COOKIE_NAME, "abstimmbar_sessionid")
+        self.assertEqual(settings.CSRF_COOKIE_NAME, "abstimmbar_csrftoken")
+        resp = self._participant_html()
+        token = resp.cookies["abstimmbar_csrftoken"].value
+        self.assertContains(resp, 'name="csrf-token"')
+        # The rendered (masked) token is valid for the cookie secret.
+        self.assertRegex(resp.content.decode(), r'name="csrf-token" content="[A-Za-z0-9]{64}"')
+        self.assertTrue(token)
 
     def test_no_platform_only_self(self):
         resp = self._participant_html()

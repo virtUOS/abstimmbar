@@ -29,6 +29,9 @@ class WhoamiTests(TestCase):
         # An authoritative CSRF token is returned so the SPA can send unsafe
         # requests reliably (esp. cross-origin in dev).
         self.assertTrue(payload["csrf_token"])
+        # App-specific cookie names (basicbar#22): no shared "csrftoken".
+        self.assertIn("abstimmbar_csrftoken", response.cookies)
+        self.assertNotIn("csrftoken", response.cookies)
         # Content-i18n config (#33 MR2): the canonical authoring language and
         # whether machine-translation drafts are available.
         self.assertEqual(

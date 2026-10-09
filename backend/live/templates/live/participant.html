@@ -510,7 +510,8 @@ survives the live updates.
     saveHistory();
   }
 
-  const csrf = () => document.cookie.match(/(?:^|;\s*)csrftoken=([^;]*)/)?.[1] ?? "";
+  // Token is rendered server-side (cookie name is app-specific, not hard-coded).
+  const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content ?? "";
   // The "already voted" marker is scoped to the run: a fresh Durchführung
   // (re-run / archive restart) reopens the same questions and must let the
   // participant vote again (server allows it — one vote per run/question).
