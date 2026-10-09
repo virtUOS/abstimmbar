@@ -190,6 +190,22 @@ survives the live updates.
   .mm-new > .mm-row{animation:mm-pop .4s ease-out}
   @keyframes mm-pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   @media (prefers-reduced-motion: reduce){.mm-new > .mm-row{animation:none}.mm-toggle svg{transition:none}}
+  /* Rating phase: own points / thumbs per entry, totals when shown. */
+  .mm-rate{flex:none;display:inline-flex;align-items:center;gap:4px}
+  .mm-rbtn{width:auto;min-width:40px;height:40px;padding:0 8px;font-size:15px;font-weight:700;color:var(--brand-strong)}
+  .mm-rbtn[aria-disabled="true"]{opacity:.4;cursor:help}
+  .mm-rcount{background:var(--brand-strong);border-color:var(--brand-strong);color:var(--surface)}
+  .mm-thumb{font-size:18px;font-weight:400;filter:grayscale(1);opacity:.7}
+  .mm-thumb[aria-pressed="true"]{filter:none;opacity:1;border-width:2px}
+  .mm-thumb.mm-up[aria-pressed="true"]{border-color:var(--brand-strong);background:var(--brand-soft)}
+  .mm-thumb.mm-down[aria-pressed="true"]{border-color:var(--danger);background:var(--danger-soft)}
+  .mm-mine-r{flex:none;font-size:13px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--brand-soft);color:var(--brand-strong)}
+  .mm-mine-r.mm-mine-pts{min-width:26px;text-align:center;background:var(--brand-strong);color:var(--surface)}
+  .mm-total{flex:none;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink-soft);white-space:nowrap}
+  .mm-rateinfo{font-size:13px}
+  .mm-bump{animation:mm-bump .25s ease-out}
+  @keyframes mm-bump{50%{transform:scale(1.15)}}
+  @media (prefers-reduced-motion: reduce){.mm-bump{animation:none}}
   /* Result bars (#results refresh): grow from 0 once on render. */
   .rbar { height: 100%; border-radius: 10px; width: 0;
           transition: width .6s cubic-bezier(.2,.8,.2,1); }
@@ -421,6 +437,27 @@ survives the live updates.
     mmCollapse: "{% trans 'Collapse “{term}”' %}",
     mmExpand: "{% trans 'Expand “{term}”' %}",
     mmCount: "{% trans 'added {n} times' %}",
+    // Mind map rating phase.
+    mmRateIntroPoints: "{% trans 'Give your points to the entries you find most important.' %}",
+    mmRateIntroUpdown: "{% trans 'Rate the entries: thumbs up or thumbs down.' %}",
+    mmPointsLeftOne: "{% trans '1 point left' %}",
+    mmPointsLeftMany: "{% trans '{n} points left' %}",
+    mmPointsNone: "{% trans 'No points left' %}",
+    mmRatingsLeftOne: "{% trans '1 rating left' %}",
+    mmRatingsLeftMany: "{% trans '{n} ratings left' %}",
+    mmRatingsNone: "{% trans 'No ratings left' %}",
+    mmGivePoint: "{% trans 'Give a point' %}",
+    mmTakePoint: "{% trans 'Take back a point' %}",
+    mmYourPoints: "{% trans 'Your points: {n}' %}",
+    mmOnePoint: "{% trans 'Only one point per entry.' %}",
+    mmLike: "{% trans 'Like' %}",
+    mmDislike: "{% trans 'Dislike' %}",
+    mmUndoRating: "{% trans 'Take back your rating' %}",
+    mmTotal: "{% trans 'Total {n}' %}",
+    mmTotalUpdown: "{% trans 'Total: {up} likes, {down} dislikes' %}",
+    mmRatingNotStarted: "{% trans 'The rating has not started yet.' %}",
+    mmRatingRunning: "{% trans 'The rating is in progress — terms cannot be added or removed now.' %}",
+    mmAlreadyRated: "{% trans 'This term has already been rated and cannot be removed.' %}",
     noQuestions: "{% trans 'There are no questions to answer here.' %}",
   };
   // Authored content (question/option text, set title, results labels) now
@@ -2391,6 +2428,16 @@ survives the live updates.
   let mmQuestionHtml = null;
   let mmPreviewId = -1000;     // editor preview: local ids for simulated adds
   const mmMineFetched = new Set();
+  // Rating phase: own ratings (node id → value) come only from the server
+  // (my-ratings, re-fetched when the stage switches to "rate", on reload and
+  // when the visible entries change — merges/hides move or refund ratings)
+  // and from each rate response. No optimistic counting.
+  let mmRatings = new Map();
+  let mmRateRemaining = null;  // null until the server told us
+  let mmRateStage = null;      // last seen stage for mmKey
+  let mmRateIds = null;        // visible node ids at the last my-ratings fetch
+  let mmRateFetchSeq = 0;
+  let mmRateFetchTimer = null;
   const MM_ICONS = {
     plus: '<path d="M5 12h14"/><path d="M12 5v14"/>',
     x: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
@@ -2421,7 +2468,46 @@ survives the live updates.
   }
   const mmIsMindmap = () => !!(state && state.question && state.question.kind === "mindmap" &&
     state.mindmap && ["open", "closed", "results"].includes(state.phase));
-  const mmCanContribute = () => state.phase === "open" && !mmExpired;
+  const mmRating = () => (state.mindmap && state.mindmap.rating) || null;
+  const mmRatingStage = () => (mmRating() && mmRating().stage === "rate");
+  const mmCanContribute = () => state.phase === "open" && !mmExpired && !mmRatingStage();
+  const mmCanRate = () => state.phase === "open" && !mmExpired && mmRatingStage();
+  // Editor preview has no server (and nothing is hidden there): budget − spent.
+  function mmLocalRemaining() {
+    const r = mmRating();
+    let spent = 0;
+    for (const v of mmRatings.values()) spent += r.mode === "points" ? Math.abs(v) : (v ? 1 : 0);
+    return Math.max(0, r.budget - spent);
+  }
+  function mmRateLeft() {
+    if (PREVIEW) return mmLocalRemaining();
+    return mmRateRemaining == null ? mmRating().budget : mmRateRemaining;
+  }
+  async function mmFetchRatings() {
+    if (PREVIEW || !token || !mmKey) return;
+    const key = mmKey, seq = ++mmRateFetchSeq;
+    let data = null;
+    try {
+      const response = await post(`/api/live/rooms/${CODE}/mindmap/my-ratings/`,
+        { token, question: Number(key.split(":")[1]) });
+      if (response.ok) data = await response.json();
+    } catch { /* keep what we have */ }
+    if (!data || typeof data.ratings !== "object" || mmKey !== key || seq !== mmRateFetchSeq) return;
+    mmRatings = new Map(Object.entries(data.ratings || {}).map(([k, v]) => [Number(k), Number(v)]));
+    mmRateRemaining = typeof data.remaining === "number" ? data.remaining : null;
+    if (mmIsMindmap()) renderMindmap();
+  }
+  // Many participants see the same change at once — spread the re-fetches.
+  function mmVisibleIds(nodes) {
+    const out = [];
+    const walk = (list) => { for (const n of list) { out.push(n.id); walk(n.children || []); } };
+    walk(nodes);
+    return out.sort((a, b) => a - b).join(",");
+  }
+  function mmScheduleRatings(soon) {
+    window.clearTimeout(mmRateFetchTimer);
+    mmRateFetchTimer = window.setTimeout(() => void mmFetchRatings(), soon ? 0 : 200 + Math.random() * 1300);
+  }
   function mmRemaining() {
     const max = state.mindmap.max_per_person;
     return max ? Math.max(0, max - mmMineSet.size) : Infinity;
@@ -2487,13 +2573,31 @@ survives the live updates.
     del.type = "button"; del.className = "mm-btn mm-del";
     del.innerHTML = mmIcon("x", 18);
     del.addEventListener("click", () => void mmRemove(id));
-    row.append(text, pill, add, del);
+    // Rating controls (never on the root): points → own count (tap = take one
+    // back) + "+1"; plus/minus → two pressed-state thumbs.
+    const rate = document.createElement("span"); rate.className = "mm-rate"; rate.hidden = true;
+    const rbtn = (cls, label, onClick) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "mm-btn mm-rbtn " + cls;
+      b.textContent = label;
+      b.addEventListener("click", onClick);
+      return b;
+    };
+    const rCount = rbtn("mm-rcount", "", () => void mmRate(id, "minus"));
+    const rPlus = rbtn("mm-rplus", "+1", () => void mmRate(id, "plus"));
+    const rUp = rbtn("mm-thumb mm-up", "👍", () => void mmRate(id, "up"));
+    const rDown = rbtn("mm-thumb mm-down", "👎", () => void mmRate(id, "down"));
+    rate.append(rCount, rPlus, rUp, rDown);
+    const mineR = document.createElement("span"); mineR.className = "mm-mine-r"; mineR.hidden = true;
+    const total = document.createElement("span"); total.className = "mm-total"; total.hidden = true;
+    row.append(text, pill, total, mineR, rate, add, del);
     const desc = document.createElement("div"); desc.className = "mm-desc";
     const note = document.createElement("p"); note.className = "mm-note"; note.hidden = true;
     note.setAttribute("aria-live", "polite");
     const kids = document.createElement("ul"); kids.className = "mm-list mm-kids";
     li.append(row, desc, note, kids);
-    const el = { li, toggle, spacer, label, more, pill, add, del, desc, note, kids, descKey: null, noteTimer: null };
+    const el = { li, toggle, spacer, label, more, pill, add, del, desc, note, kids, descKey: null, noteTimer: null,
+      rate, rCount, rPlus, rUp, rDown, mineR, total, rValue: null };
     mmEls.set(id, el);
     return el;
   }
@@ -2540,6 +2644,7 @@ survives the live updates.
     el.del.setAttribute("aria-disabled", String(blocked));
     el.del.title = blocked ? I18N.mmHasChildren : I18N.mmRemoveOwn;
     el.del.setAttribute("aria-label", blocked ? I18N.mmRemoveOwn + " — " + I18N.mmHasChildren : I18N.mmRemoveOwn);
+    if (!isRoot) mmUpdateRating(el, node, termText);
     let descriptions = isRoot ? [] : (node.descriptions || []);
     if (node && node.description_i18n && descriptions.length) {
       descriptions = [locText(node.description_i18n) || descriptions[0], ...descriptions.slice(1)];
@@ -2552,6 +2657,124 @@ survives the live updates.
       }));
     }
     el.desc.hidden = descriptions.length === 0;
+  }
+
+  // The rating part of one row: live controls while rating, the own rating
+  // read-only otherwise, and the totals whenever the server sends them.
+  function mmUpdateRating(el, node, termText) {
+    const r = mmRating();
+    const value = (r && mmRatings.get(node.id)) || 0;
+    const rating = !!r && mmCanRate();
+    const points = !!r && r.mode === "points";
+    el.rate.hidden = !rating;
+    el.li.classList.toggle("mm-rated", !!r && value !== 0);
+    if (rating) {
+      const left = mmRateLeft();
+      el.rCount.hidden = !points || value <= 0;
+      el.rPlus.hidden = !points;
+      el.rUp.hidden = el.rDown.hidden = points;
+      if (points) {
+        el.rCount.textContent = String(value);
+        const take = I18N.mmTakePoint + " (" + I18N.mmYourPoints.replace("{n}", String(value)) + ")";
+        el.rCount.setAttribute("aria-label", take + " — " + termText);
+        el.rCount.title = take;
+        const why = !r.multi && value >= 1 ? I18N.mmOnePoint : (left <= 0 ? I18N.mmPointsNone : "");
+        el.rPlus.setAttribute("aria-disabled", String(!!why));
+        el.rPlus.title = why || I18N.mmGivePoint;
+        el.rPlus.setAttribute("aria-label", I18N.mmGivePoint + " — " + termText + (why ? " — " + why : ""));
+      } else {
+        for (const [b, v, label] of [[el.rUp, 1, I18N.mmLike], [el.rDown, -1, I18N.mmDislike]]) {
+          const pressed = value === v;
+          const blocked = !pressed && value === 0 && left <= 0;
+          b.setAttribute("aria-pressed", String(pressed));
+          b.setAttribute("aria-disabled", String(blocked));
+          const hint = pressed ? I18N.mmUndoRating : (blocked ? I18N.mmRatingsNone : "");
+          b.title = hint ? label + " — " + hint : label;
+          b.setAttribute("aria-label", label + " — " + termText + (hint ? " — " + hint : ""));
+        }
+      }
+      if (el.rValue !== null && el.rValue !== value) {
+        const target = points ? (value > 0 ? el.rCount : el.rPlus) : (value === 1 ? el.rUp : (value === -1 ? el.rDown : null));
+        if (target) {
+          target.classList.remove("mm-bump"); void target.offsetWidth; target.classList.add("mm-bump");
+          target.addEventListener("animationend", () => target.classList.remove("mm-bump"), { once: true });
+        }
+      }
+    }
+    el.rValue = rating ? value : null;
+    // Read-only own rating (closed / results / back to collecting).
+    el.mineR.hidden = rating || !r || value === 0;
+    if (!el.mineR.hidden) {
+      el.mineR.textContent = points ? String(value) : (value > 0 ? "👍" : "👎");
+      el.mineR.classList.toggle("mm-mine-pts", points);
+      const t = points ? I18N.mmYourPoints.replace("{n}", String(value)) : (value > 0 ? I18N.mmLike : I18N.mmDislike);
+      el.mineR.title = t; el.mineR.setAttribute("aria-label", t);
+    }
+    const tot = r && r.totals ? r.totals[String(node.id)] : null;
+    el.total.hidden = !tot;
+    if (tot) {
+      let text, label;
+      if (points) {
+        text = "Σ " + (tot.points || 0);
+        label = I18N.mmTotal.replace("{n}", String(tot.points || 0));
+      } else {
+        text = "+" + (tot.up || 0) + " / −" + (tot.down || 0);
+        label = I18N.mmTotalUpdown.replace("{up}", String(tot.up || 0)).replace("{down}", String(tot.down || 0));
+      }
+      el.total.textContent = text; el.total.title = label; el.total.setAttribute("aria-label", label);
+    }
+  }
+
+  async function mmRate(id, action) {
+    const r = mmRating();
+    const el = mmEls.get(id);
+    if (!r || !el || !mmNodes.has(id) || !mmCanRate() || mmBusy) return;
+    const value = mmRatings.get(id) || 0;
+    const left = mmRateLeft();
+    let body;
+    if (action === "plus") {
+      if (!r.multi && value >= 1) { mmNote(id, I18N.mmOnePoint); return; }
+      if (left <= 0) { mmNote(id, I18N.mmPointsNone); return; }
+      body = { delta: 1 };
+    } else if (action === "minus") {
+      if (value <= 0) return;
+      body = { delta: -1 };
+    } else {
+      const want = action === "up" ? 1 : -1;
+      if (value === want) body = { value: 0 };
+      else if (value === 0 && left <= 0) { mmNote(id, I18N.mmRatingsNone); return; }
+      else body = { value: want };
+    }
+    if (PREVIEW) {
+      for (const e of mmEls.values()) e.note.hidden = true;
+      const next = "delta" in body ? value + body.delta : body.value;
+      if (next) mmRatings.set(id, next); else mmRatings.delete(id);
+      renderMindmap();
+      return;
+    }
+    const key = mmKey;
+    mmBusy = true;
+    try {
+      let response, data = {};
+      try {
+        response = await post(`/api/live/rooms/${CODE}/mindmap/rate/`,
+          { token, question: state.question.id, node: id, ...body });
+        data = await response.json().catch(() => ({}));
+      } catch { mmNote(id, I18N.mmFailed); return; }
+      if (mmKey !== key || !mmIsMindmap()) return;
+      if (response.ok && typeof data.value === "number") {
+        mmRateFetchSeq++; // a late my-ratings answer must not undo this
+        for (const e of mmEls.values()) { window.clearTimeout(e.noteTimer); e.note.hidden = true; } // stale hints
+        if (data.value) mmRatings.set(id, data.value); else mmRatings.delete(id);
+        if (typeof data.remaining === "number") mmRateRemaining = data.remaining;
+        renderMindmap();
+      } else {
+        mmNote(id, mmErrorText(data.detail));
+        mmScheduleRatings(true); // resync with the server's view
+      }
+    } finally {
+      mmBusy = false;
+    }
   }
 
   // Reconcile `ul` with `nodes`: drop vanished children first (so nothing that
@@ -2589,8 +2812,29 @@ survives the live updates.
       mmExpired = false;
       mmMineSet = new Set(PREVIEW ? [] : (mmLoad(MM_MINE_KEY)[key] || []).map(Number));
       mmCollapsedSet = new Set(PREVIEW ? [] : (mmLoad(MM_COLLAPSED_KEY)[key] || []).map(Number));
+      mmRatings = new Map();
+      mmRateRemaining = null;
+      mmRateStage = null;
+      mmRateIds = null;
+      mmRateFetchSeq++;
+      window.clearTimeout(mmRateFetchTimer);
       tree.replaceChildren();
     }
+    // Own ratings: fetched when rating starts (or on reload while it runs /
+    // in the results), and again when the visible entries change while
+    // rating (a merge moves ratings, hiding refunds them).
+    const rating = mmRating();
+    const stage = rating ? rating.stage : null;
+    if (!PREVIEW && token && rating) {
+      const ids = mmVisibleIds(mm.nodes || []);
+      if (stage !== mmRateStage) {
+        if (stage === "rate" || mmRateStage === null) { mmRateIds = ids; mmScheduleRatings(true); }
+      } else if (stage === "rate" && ids !== mmRateIds) {
+        mmRateIds = ids;
+        mmScheduleRatings(false);
+      }
+    }
+    mmRateStage = stage;
     if (!PREVIEW && token && !mmMineFetched.has(key)) {
       mmMineFetched.add(key);
       void mmFetchMine(key, q.id);
@@ -2609,7 +2853,15 @@ survives the live updates.
     intro.textContent = I18N.mmIntro;
     status.hidden = false;
     status.style.color = "";
-    if (!open) {
+    if (mmCanRate()) {
+      const points = rating.mode === "points";
+      const left = mmRateLeft();
+      intro.hidden = false;
+      intro.textContent = points ? I18N.mmRateIntroPoints : I18N.mmRateIntroUpdown;
+      status.textContent = left <= 0 ? (points ? I18N.mmPointsNone : I18N.mmRatingsNone)
+        : left === 1 ? (points ? I18N.mmPointsLeftOne : I18N.mmRatingsLeftOne)
+        : (points ? I18N.mmPointsLeftMany : I18N.mmRatingsLeftMany).replace("{n}", String(left));
+    } else if (!open) {
       status.textContent = mmExpired ? I18N.timeUp : I18N.mmClosed;
       status.style.color = "var(--ink-soft)";
     } else if (remaining === Infinity) {
@@ -2737,6 +2989,13 @@ survives the live updates.
       case "Terms hang below this one.": return I18N.mmHasChildren;
       case "Time is up.": return I18N.timeUp;
       case "Voting is closed.": case "Question is not open.": return I18N.mmClosed;
+      case "No points left.": return I18N.mmPointsNone;
+      case "No ratings left.": return I18N.mmRatingsNone;
+      case "Only one point per entry.": return I18N.mmOnePoint;
+      case "Rating has not started.": return I18N.mmRatingNotStarted;
+      case "Rating in progress — no new terms.":
+      case "Rating in progress — terms cannot be withdrawn.": return I18N.mmRatingRunning;
+      case "This term has already been rated.": return I18N.mmAlreadyRated;
       default: return I18N.mmFailed;
     }
   }

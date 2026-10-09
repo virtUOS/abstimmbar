@@ -212,6 +212,15 @@ export interface Question {
   mindmap_highlight_duplicates: boolean;
   /** mindmap only: predefined branches (not deletable by participants). */
   mindmap_seed: MindmapSeedNode[];
+  /** mindmap only: optional rating phase after collecting ("" = off). */
+  mindmap_rating_mode: MindmapRatingMode;
+  /** mindmap only: points (points) or ratings (updown) per person (1–50). */
+  mindmap_rating_budget: number;
+  /** mindmap only, points: several points on one entry allowed. */
+  mindmap_rating_multi: boolean;
+  /** mindmap only: scores are shown live while rating (default: hidden
+   *  until the results). */
+  mindmap_rating_live: boolean;
   /** Per-question reveal override; "inherit" uses the set default (#28). */
   reveal_answers: "inherit" | RevealAnswers;
   /** Before/after pair (#54): the before-question this one mirrors (null if
@@ -1025,6 +1034,30 @@ export interface LiveMindmapNode {
   children: LiveMindmapNode[];
 }
 
+export type MindmapRatingMode = "" | "points" | "updown";
+
+/** Aggregated rating of one node (only rated visible nodes are keys). */
+export type MindmapScore =
+  | { points: number }
+  | { up: number; down: number; balance: number };
+
+/** Rating phase of a mindmap question (present only with a rating mode).
+ *  Presenter: `scores` only while rating with `live` on, or in the results
+ *  phase (reveal). Results: always with `scores` (+ `ranking`). */
+export interface MindmapRating {
+  mode: "points" | "updown";
+  budget: number;
+  multi: boolean;
+  live: boolean;
+  /** Absent in results. */
+  stage?: "collect" | "rate";
+  /** Distinct participants with at least one rating (visible nodes). */
+  raters: number;
+  scores?: Record<string, MindmapScore>;
+  /** Results only: a hidden rating is still running — no scores/ranking yet. */
+  rating_in_progress?: boolean;
+}
+
 export interface LiveMindmap {
   root: { label: LocalizedText };
   depth: number;
@@ -1034,6 +1067,7 @@ export interface LiveMindmap {
   max_nodes: number;
   total: number;
   nodes: LiveMindmapNode[];
+  rating?: MindmapRating;
 }
 
 export interface WordCloudWord {
@@ -1280,6 +1314,13 @@ export const live = {
     request<{ status: string; node: number; hidden: boolean }>(
       `/api/runs/${runId}/mindmap/${questionId}/hide`,
       { method: "POST", body: JSON.stringify({ node, hidden }) },
+    ),
+  /** Presenter switches the mindmap stage (collect / rate); `open` also
+   *  opens the vote in the same request (one broadcast, no flash). */
+  mindmapStage: (runId: number, questionId: number, stage: "collect" | "rate", open = false) =>
+    request<{ stage: "collect" | "rate"; phase: string }>(
+      `/api/runs/${runId}/mindmap/${questionId}/stage`,
+      { method: "POST", body: JSON.stringify({ stage, open }) },
     ),
   /** Presenter adds a term (`parent` null = main branch). `merged`: the term
    *  already existed there — nothing was added. */

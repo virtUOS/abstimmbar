@@ -414,6 +414,24 @@ class Question(TimeStampedModel):
     # and is the merge key (rooms/mindmap.py clean_seed). Materialised
     # per run as seeded nodes participants cannot delete.
     mindmap_seed = models.JSONField(default=list, blank=True)
+    # Optional rating phase after collecting (live.mindmap_rating): "" = off,
+    # "points" = dot voting, "updown" = at most one plus OR minus per entry.
+    mindmap_rating_mode = models.CharField(
+        max_length=10, choices=mm.RATING_MODE_CHOICES, blank=True, default=""
+    )
+    # Points (points) / ratings (updown) each participant may spend.
+    mindmap_rating_budget = models.PositiveSmallIntegerField(
+        default=mm.RATING_DEFAULT_BUDGET,
+        validators=[
+            MinValueValidator(mm.RATING_MIN_BUDGET),
+            MaxValueValidator(mm.RATING_MAX_BUDGET),
+        ],
+    )
+    # Points only: several points on one entry (False = at most one each).
+    mindmap_rating_multi = models.BooleanField(default=True)
+    # Show the scores while rating (beamer + participant totals); off = the
+    # scores stay hidden until the results phase (reveal).
+    mindmap_rating_live = models.BooleanField(default=False)
 
     class RevealAnswers(models.TextChoices):
         # Per-question override of when correct answers are highlighted (#28).

@@ -18,6 +18,9 @@ api_urlpatterns = [
     path("live/rooms/<str:code>/mindmap/add/", views.mindmap_add),
     path("live/rooms/<str:code>/mindmap/remove/", views.mindmap_remove),
     path("live/rooms/<str:code>/mindmap/mine/", views.mindmap_mine),
+    # Mind map rating phase: token-scoped.
+    path("live/rooms/<str:code>/mindmap/rate/", views.mindmap_rate),
+    path("live/rooms/<str:code>/mindmap/my-ratings/", views.mindmap_my_ratings),
     # Recording mode (#53): async viewer voting, keyed by the run's token.
     path("live/recording/<str:token>/", views.recording_questions),
     path("live/recording/<str:token>/vote/", views.recording_vote),
@@ -41,6 +44,10 @@ api_urlpatterns = [
     path(
         "runs/<int:run_id>/mindmap/<int:question_id>/hide",
         views.mindmap_hide,
+    ),
+    path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/stage",
+        views.mindmap_stage,
     ),
     path(
         "runs/<int:run_id>/mindmap/<int:question_id>/add",

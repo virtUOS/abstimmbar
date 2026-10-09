@@ -33,7 +33,14 @@ from rooms.mindmap import (
     text_key,
 )
 
-from .models import MindmapContribution, MindmapNode, Run, Vote
+from .models import (
+    MindmapContribution,
+    MindmapNode,
+    MindmapPhase,
+    MindmapRating,
+    Run,
+    Vote,
+)
 
 MINDMAP_MAX_NODES = 300
 MINDMAP_MAX_DESCRIPTIONS = 3
@@ -62,8 +69,10 @@ def answered_runs_q(run_ref="pk"):
     as EXISTS subqueries (no multiplying JOINs, no ``.distinct()`` needed).
     ``run_ref`` is the outer reference to the run id (e.g. ``"runs"`` when
     filtering/annotating question sets)."""
-    return Q(Exists(Vote.objects.filter(run=OuterRef(run_ref)))) | Q(
-        Exists(MindmapContribution.objects.filter(node__run=OuterRef(run_ref)))
+    return (
+        Q(Exists(Vote.objects.filter(run=OuterRef(run_ref))))
+        | Q(Exists(MindmapContribution.objects.filter(node__run=OuterRef(run_ref))))
+        | Q(Exists(MindmapRating.objects.filter(node__run=OuterRef(run_ref))))
     )
 
 
@@ -72,8 +81,13 @@ def run_has_contributions(run):
 
 
 def run_has_answers(run):
-    """A run "has results": votes or mind-map contributions."""
-    return run.votes.exists() or run_has_contributions(run)
+    """A run "has results": votes, mind-map contributions or ratings (a
+    predefined/presenter-added entry can be rated without contributions)."""
+    return (
+        run.votes.exists()
+        or run_has_contributions(run)
+        or MindmapRating.objects.filter(node__run=run).exists()
+    )
 
 
 def contribution_total(run):
@@ -84,6 +98,27 @@ def _lock_run(run):
     # FOR NO KEY UPDATE: serialises mind-map writes per run without blocking
     # inserts of rows that reference the run (votes, nodes) via FK checks.
     Run.objects.select_for_update(no_key=True).filter(pk=run.pk).first()
+
+
+def is_rating(run, question):
+    """True while the question is in its rating stage in this run (see
+    ``live.mindmap_rating``): a rating mode is set and the stored stage is
+    "rate". Participants then rate entries and cannot add or withdraw terms."""
+    return bool(question.mindmap_rating_mode) and MindmapPhase.objects.filter(
+        run=run, question=question, stage=MindmapPhase.Stage.RATE
+    ).exists()
+
+
+RATING_IN_PROGRESS = "Rating in progress — no new terms."
+MODERATION_WHILE_RATING = "Not possible while rating is in progress."
+
+
+def _refuse_while_rating(run, question):
+    """Presenter restructuring (add/delete/merge/move/rename/undo) would
+    shift entries under the raters' fingers — refused during the rating
+    stage (hide/unhide stay allowed). Call under the run lock."""
+    if is_rating(run, question):
+        raise MindmapError(MODERATION_WHILE_RATING, 409)
 
 
 def root_label(question):
@@ -348,6 +383,8 @@ def add_term(run, question, token, parent, text, description=""):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        if is_rating(run, question):
+            raise MindmapError(RATING_IN_PROGRESS, 409)
         tree = {
             node_id: (pid, hidden)
             for node_id, pid, hidden in MindmapNode.objects.filter(
@@ -401,6 +438,8 @@ def remove_term(run, question, token, node):
     node_id = _parse_id(node)
     with transaction.atomic():
         _lock_run(run)
+        if is_rating(run, question):
+            raise MindmapError("Rating in progress — terms cannot be withdrawn.", 409)
         node = (
             MindmapNode.objects.filter(pk=node_id, run=run, question=question).first()
             if node_id is not None
@@ -413,8 +452,16 @@ def remove_term(run, question, token, node):
             raise MindmapError("Not your term.", 403)
         if node.children.exists():
             raise MindmapError("Terms hang below this one.", 409)
+        last = (
+            not (node.seeded or node.teacher)
+            and not node.contributions.exclude(pk=contribution.pk).exists()
+        )
+        if last and node.ratings.exists():
+            # Withdrawing would delete the entry together with other
+            # participants' ratings.
+            raise MindmapError("This term has already been rated.", 409)
         contribution.delete()
-        if not (node.seeded or node.teacher) and not node.contributions.exists():
+        if last:
             node.delete()
             return True
     return False
@@ -527,6 +574,7 @@ def teacher_add(run, question, parent_id, text, description=""):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         tree = _load_tree(run, question)
         if parent_id is not None:
             _node_or_404(tree, parent_id, "Unknown parent.")
@@ -558,6 +606,7 @@ def teacher_delete(run, question, node_id):
     nothing hangs below and nobody has joined."""
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         node = MindmapNode.objects.filter(pk=node_id, run=run, question=question).first()
         if node is None:
             raise MindmapError("Unknown term.", 404)
@@ -567,6 +616,8 @@ def teacher_delete(run, question, node_id):
             raise MindmapError("Terms hang below this one.", 409)
         if node.contributions.exists():
             raise MindmapError("Participants have added this term too.", 409)
+        if node.ratings.exists():
+            raise MindmapError("Participants have rated this term.", 409)
         node.delete()
 
 
@@ -591,10 +642,20 @@ def _snapshot(node):
     }
 
 
-def _merge(source, target):
+def _combine_ratings(question, target_value, source_value):
+    """A participant rated both merged entries: points add up (capped at one
+    when only one point per entry is allowed); plus/minus keeps the target's."""
+    if question.mindmap_rating_mode == "points":
+        combined = target_value + source_value
+        return combined if question.mindmap_rating_multi else min(combined, 1)
+    return target_value
+
+
+def _merge(source, target, question):
     """Merge ``source`` into ``target`` (validated by the caller, under the
     lock) and return the undo record. Same-named children merge recursively;
-    contributions move over, one per participant."""
+    contributions move over, one per participant; ratings move over too
+    (combined per participant, ``_combine_ratings``)."""
     undo = {
         "source": _snapshot(source),
         "target": {
@@ -608,12 +669,17 @@ def _merge(source, target):
         "dropped": [],
         "children": [],
         "nested": [],
+        # Ratings (rating phase): moved ids, and per participant who rated
+        # both entries the source value plus the target rating before/after
+        # combining (``twin`` = the target's rating id; no token).
+        "rating_moved": [],
+        "rating_dropped": [],
     }
     twins = {child.text_key: child for child in target.children.all()}
     for child in source.children.order_by("created_at", "pk"):
         twin = twins.get(child.text_key)
         if twin is not None:
-            undo["nested"].append(_merge(child, twin))
+            undo["nested"].append(_merge(child, twin, question))
         else:
             undo["children"].append(child.pk)
     if undo["children"]:
@@ -636,6 +702,30 @@ def _merge(source, target):
         MindmapContribution.objects.filter(pk__in=undo["moved"]).update(node=target)
     if dropped_ids:
         MindmapContribution.objects.filter(pk__in=dropped_ids).delete()
+
+    target_ratings = {
+        token_id: (rating_id, value)
+        for rating_id, token_id, value in target.ratings.values_list("id", "token_id", "value")
+    }
+    dropped_ratings = []
+    for rating in source.ratings.order_by("pk"):
+        twin = target_ratings.get(rating.token_id)
+        if twin is None:
+            undo["rating_moved"].append(rating.pk)
+            continue
+        twin_id, twin_value = twin
+        combined = _combine_ratings(question, twin_value, rating.value)
+        dropped_ratings.append(rating.pk)
+        undo["rating_dropped"].append(
+            {"twin": twin_id, "value": rating.value,
+             "twin_value": twin_value, "combined": combined}
+        )
+        if combined != twin_value:
+            MindmapRating.objects.filter(pk=twin_id).update(value=combined)
+    if undo["rating_moved"]:
+        MindmapRating.objects.filter(pk__in=undo["rating_moved"]).update(node=target)
+    if dropped_ratings:
+        MindmapRating.objects.filter(pk__in=dropped_ratings).delete()
 
     # The merged node inherits the source's protection (and, if it has none,
     # its predefined description) — keeps ensure_seed from re-creating a
@@ -706,10 +796,11 @@ def merge_nodes(run, question, source_id, target_id):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         _check_merge(_load_tree(run, question), question, source_id, target_id)
         source = MindmapNode.objects.get(pk=source_id)
         target = MindmapNode.objects.get(pk=target_id)
-        undo = _merge(source, target)
+        undo = _merge(source, target, question)
     return _sign(run, question, {"op": "merge", "merge": undo})
 
 
@@ -718,6 +809,7 @@ def move_node(run, question, node_id, parent_id):
     branch). Returns the plain undo ``{node, parent}`` (the old parent)."""
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         tree = _load_tree(run, question)
         _node_or_404(tree, node_id)
         old_parent = tree[node_id][0]
@@ -759,6 +851,7 @@ def rename_node(run, question, node_id, text):
     ensure_seed(run, question)
     with transaction.atomic():
         _lock_run(run)
+        _refuse_while_rating(run, question)
         tree = _load_tree(run, question)
         _node_or_404(tree, node_id)
         node = MindmapNode.objects.get(pk=node_id)
@@ -771,7 +864,7 @@ def rename_node(run, question, node_id, text):
         )
         if clash is not None:
             _check_merge(tree, question, node_id, clash.pk)
-            undo = _merge(node, clash)
+            undo = _merge(node, clash, question)
             return clash.pk, True, _sign(run, question, {"op": "merge", "merge": undo})
         undo = {
             "op": "rename",
@@ -874,6 +967,22 @@ def _restore_merge(run, question, undo):
             created_at=parse_datetime(dropped["created_at"])
         )
 
+    # Ratings (blobs signed before the rating phase existed carry none).
+    rating_moved = undo.get("rating_moved", [])
+    if rating_moved and MindmapRating.objects.filter(
+        pk__in=rating_moved, node=target
+    ).update(node=node) != len(rating_moved):
+        raise MindmapError(_CHANGED, 409)
+    for dropped in undo.get("rating_dropped", []):
+        twin = MindmapRating.objects.filter(pk=dropped["twin"], node=target).first()
+        if twin is None or twin.value != dropped["combined"]:
+            # The participant changed the combined rating since: restoring
+            # would overwrite it.
+            raise MindmapError(_CHANGED, 409)
+        MindmapRating.objects.create(node=node, token_id=twin.token_id, value=dropped["value"])
+        if twin.value != dropped["twin_value"]:
+            MindmapRating.objects.filter(pk=twin.pk).update(value=dropped["twin_value"])
+
     flags = undo["target"]
     MindmapNode.objects.filter(pk=target.pk).update(
         seeded=flags["seeded"], teacher=flags["teacher"],
@@ -921,6 +1030,7 @@ def restore(run, question, blob):
     try:
         with transaction.atomic():
             _lock_run(run)
+            _refuse_while_rating(run, question)
             if data["op"] == "merge":
                 _restore_merge(run, question, data["merge"])
             else:
@@ -932,13 +1042,14 @@ def restore(run, question, blob):
 
 
 def csv_rows(tree):
-    """``(path, count)`` per visible node, depth-first ("Wind > Rotor")."""
+    """``(path, count, node id)`` per visible node, depth-first
+    ("Wind > Rotor")."""
     rows = []
 
     def walk(nodes, prefix):
         for node in nodes:
             path = f"{prefix} > {node['text']}" if prefix else node["text"]
-            rows.append((path, node["count"]))
+            rows.append((path, node["count"], node["id"]))
             walk(node["children"], path)
 
     walk(tree["nodes"], "")

@@ -36,6 +36,11 @@ export const WRONG = "oklch(0.88 0.045 20)";
 export const WRONG_TINT = "oklch(0.94 0.02 20)";
 export const NEUTRAL_TILE = "oklch(0.93 0.006 220)";
 export const INK = "oklch(0.28 0.02 220)";
+/** Mind-map rating "minus" (rosé, a touch deeper than WRONG so it reads on
+ *  white) and its text colour; "plus" uses CORRECT / CORRECT_STRONG. */
+export const MINUS = "oklch(0.80 0.08 20)";
+export const MINUS_INK = "oklch(0.52 0.13 20)";
+export const MINUS_TINT = "oklch(0.90 0.05 20)";
 
 /** Likert (L1): rosé ↔ green in pastel, neutral grey in the middle. `rank`
  * is the distance from the centre (0 = innermost); extremes are darkest. */

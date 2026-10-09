@@ -15,7 +15,7 @@ from django.db.models import Count
 from common.i18n_fields import translated_map
 from rooms.models import Question
 
-from . import ai_wordcloud_live, mindmap
+from . import ai_wordcloud_live, mindmap, mindmap_rating
 from .hub import hub
 from .models import Run, WordCloudModeration
 from .results import (
@@ -148,6 +148,9 @@ def build_payloads(room):
         # outside "open"); hidden nodes are left out entirely.
         participant["question"] = question_payload(question, shuffle_seed=run.pk)
         participant["mindmap"] = mindmap.build_tree(run, question, presenter=False)
+        rating = mindmap_rating.payload(run, question, presenter=False)
+        if rating is not None:
+            participant["mindmap"]["rating"] = rating
     # Results on participant devices (v2, per-set option): only while the
     # beamer shows results, correct flags only once revealed.
     if (
@@ -212,6 +215,9 @@ def build_payloads(room):
         if is_mindmap:
             # Every node incl. hidden ones (flagged) for the restore drawer.
             presenter["mindmap"] = mindmap.build_tree(run, question, presenter=True)
+            rating = mindmap_rating.payload(run, question, presenter=True)
+            if rating is not None:
+                presenter["mindmap"]["rating"] = rating
             # "votes" of a mind map = distinct contributing participants.
             presenter["votes"] = mindmap.contributor_count(run, question)
         elif question.kind in Question.TEXT_KINDS:

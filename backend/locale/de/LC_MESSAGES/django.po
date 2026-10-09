@@ -480,3 +480,83 @@ msgstr "{n}-mal eingetragen"
 #: live/templates/live/participant.html
 msgid "There are no questions to answer here."
 msgstr "Hier gibt es keine Fragen zu beantworten."
+
+#: live/templates/live/participant.html
+msgid "Give your points to the entries you find most important."
+msgstr "Vergeben Sie Ihre Punkte an die Einträge, die Ihnen am wichtigsten sind."
+
+#: live/templates/live/participant.html
+msgid "Rate the entries: thumbs up or thumbs down."
+msgstr "Bewerten Sie die Einträge: Daumen hoch oder Daumen runter."
+
+#: live/templates/live/participant.html
+msgid "1 point left"
+msgstr "Noch 1 Punkt"
+
+#: live/templates/live/participant.html
+msgid "{n} points left"
+msgstr "Noch {n} Punkte"
+
+#: live/templates/live/participant.html
+msgid "No points left"
+msgstr "Keine Punkte mehr übrig"
+
+#: live/templates/live/participant.html
+msgid "1 rating left"
+msgstr "Noch 1 Bewertung"
+
+#: live/templates/live/participant.html
+msgid "{n} ratings left"
+msgstr "Noch {n} Bewertungen"
+
+#: live/templates/live/participant.html
+msgid "No ratings left"
+msgstr "Keine Bewertungen mehr übrig"
+
+#: live/templates/live/participant.html
+msgid "Give a point"
+msgstr "Punkt vergeben"
+
+#: live/templates/live/participant.html
+msgid "Take back a point"
+msgstr "Einen Punkt zurücknehmen"
+
+#: live/templates/live/participant.html
+msgid "Your points: {n}"
+msgstr "Ihre Punkte: {n}"
+
+#: live/templates/live/participant.html
+msgid "Only one point per entry."
+msgstr "Nur ein Punkt pro Eintrag."
+
+#: live/templates/live/participant.html
+msgid "Like"
+msgstr "Gefällt mir"
+
+#: live/templates/live/participant.html
+msgid "Dislike"
+msgstr "Gefällt mir nicht"
+
+#: live/templates/live/participant.html
+msgid "Take back your rating"
+msgstr "Bewertung zurücknehmen"
+
+#: live/templates/live/participant.html
+msgid "Total {n}"
+msgstr "Insgesamt {n}"
+
+#: live/templates/live/participant.html
+msgid "Total: {up} likes, {down} dislikes"
+msgstr "Insgesamt: {up}-mal „Gefällt mir“, {down}-mal „Gefällt mir nicht“"
+
+#: live/templates/live/participant.html
+msgid "The rating has not started yet."
+msgstr "Die Bewertung hat noch nicht begonnen."
+
+#: live/templates/live/participant.html
+msgid "The rating is in progress — terms cannot be added or removed now."
+msgstr "Die Bewertung läuft – Begriffe können jetzt nicht hinzugefügt oder entfernt werden."
+
+#: live/templates/live/participant.html
+msgid "This term has already been rated and cannot be removed."
+msgstr "Dieser Begriff wurde bereits bewertet und kann nicht mehr entfernt werden."

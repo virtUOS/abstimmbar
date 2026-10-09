@@ -6984,3 +6984,660 @@ class MindmapModerationFixRoundTests(MindmapModerationTestCase):
         node = self.contribute("A")
         response = self.owner_mod("hide", node=str(node), hidden=True)
         self.assertEqual(response.json()["node"], node)
+
+
+# --- Mindmap rating phase ------------------------------------------------------
+
+
+class MindmapRatingTestCase(MindmapModerationTestCase):
+    """Rating phase: points (dot voting) or plus/minus within a budget."""
+
+    def setUp(self):
+        super().setUp()
+        self.mq.mindmap_rating_mode = "points"
+        self.mq.mindmap_rating_budget = 3
+        self.mq.save()
+
+    def configure(self, **fields):
+        for key, value in fields.items():
+            setattr(self.mq, key, value)
+        self.mq.save()
+
+    def stage(self, stage, run=None):
+        return self.owner_mod("stage", run=run, stage=stage)
+
+    def rate(self, token, node, question=None, **body):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/mindmap/rate/",
+            {"token": token, "question": question or self.mq.pk, "node": node, **body},
+            content_type="application/json",
+        )
+
+    def my_ratings(self, token, question=None):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/mindmap/my-ratings/",
+            {"token": token, "question": question or self.mq.pk},
+            content_type="application/json",
+        )
+
+    def start_rating(self):
+        response = self.stage("rate")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.client.logout()
+
+    def set_phase(self, phase):
+        self.run.phase = phase
+        self.run.save()
+
+    def rating_payload(self, role):
+        return build_payloads(self.room)[role]["mindmap"].get("rating")
+
+    def ratings(self):
+        """{(node text, token key, value)} — exact-restore checks."""
+        from .models import MindmapRating
+
+        return {
+            (r.node.text, r.token.key, r.value)
+            for r in MindmapRating.objects.select_related("node", "token")
+        }
+
+
+class MindmapStageTests(MindmapRatingTestCase):
+    def test_owner_switches_stage(self):
+        response = self.stage("rate")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"stage": "rate", "phase": "open"})
+        self.assertEqual(self.rating_payload("presenter")["stage"], "rate")
+        self.assertEqual(self.rating_payload("participant")["stage"], "rate")
+        response = self.stage("collect")
+        self.assertEqual(response.json(), {"stage": "collect", "phase": "open"})
+        self.assertEqual(self.rating_payload("presenter")["stage"], "collect")
+
+    def test_default_stage_is_collect(self):
+        self.assertEqual(self.rating_payload("presenter")["stage"], "collect")
+
+    def test_non_owner_404_and_anonymous_refused(self):
+        self.client.force_login(User.objects.create_user(username="eve"))
+        self.assertEqual(self.mod("stage", stage="rate").status_code, 404)
+        self.client.logout()
+        self.assertIn(self.mod("stage", stage="rate").status_code, (401, 403))
+        self.assertEqual(self.rating_payload("presenter")["stage"], "collect")
+
+    def test_non_mindmap_question_404(self):
+        self.client.force_login(self.owner)
+        response = self.client.post(
+            f"/api/runs/{self.run.pk}/mindmap/{self.question.pk}/stage",
+            {"stage": "rate"}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_invalid_stage_400(self):
+        for bad in ("vote", "", None, 1):
+            self.assertEqual(self.stage(bad).status_code, 400, bad)
+
+    def test_rate_needs_a_rating_mode(self):
+        self.configure(mindmap_rating_mode="")
+        response = self.stage("rate")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(self.stage("collect").status_code, 200)
+
+    def test_finished_run_refused(self):
+        self.set_phase(Run.Phase.FINISHED)
+        self.assertEqual(self.stage("rate").status_code, 409)
+
+    def test_broadcasts(self):
+        self.client.force_login(self.owner)
+        with patch("live.views.broadcast") as bc:
+            self.mod("stage", stage="rate")
+        bc.assert_called_once()
+
+    def test_add_and_remove_refused_while_rating(self):
+        token = self.join()
+        node = self.contribute("Wind", token=token)
+        self.start_rating()
+        response = self.add(token, "Solar")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "Rating in progress — no new terms.")
+        self.assertEqual(self.remove(token, node).status_code, 409)
+        self.assertTrue(MindmapNode.objects.filter(pk=node).exists())
+        self.stage("collect")
+        self.assertEqual(self.add(token, "Solar").status_code, 201)
+
+    def test_rating_mode_turned_off_means_collect(self):
+        self.start_rating()
+        self.configure(mindmap_rating_mode="")
+        self.assertEqual(self.add(self.join(), "Solar").status_code, 201)
+        self.assertNotIn("rating", build_payloads(self.room)["presenter"]["mindmap"])
+
+
+class MindmapRatePointsTests(MindmapRatingTestCase):
+    def setUp(self):
+        super().setUp()
+        self.token = self.join()
+        self.wind = self.contribute("Wind", token=self.token)
+        self.solar = self.contribute("Solar")
+        self.start_rating()
+
+    def test_points_add_up_within_budget(self):
+        response = self.rate(self.token, self.wind, delta=1)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"node": self.wind, "value": 1, "remaining": 2})
+        self.assertEqual(self.rate(self.token, self.wind, delta=1).json()["value"], 2)
+        self.assertEqual(self.rate(self.token, self.solar, delta=1).json()["remaining"], 0)
+        response = self.rate(self.token, self.solar, delta=1)
+        self.assertEqual(response.status_code, 409)
+        # Taking one back frees a point; at 0 the row is gone.
+        self.assertEqual(
+            self.rate(self.token, self.solar, delta=-1).json(),
+            {"node": self.solar, "value": 0, "remaining": 1},
+        )
+        from .models import MindmapRating
+
+        self.assertFalse(MindmapRating.objects.filter(node_id=self.solar).exists())
+
+    def test_minus_at_zero_refused(self):
+        response = self.rate(self.token, self.wind, delta=-1)
+        self.assertEqual(response.status_code, 409)
+
+    def test_single_point_per_entry(self):
+        self.configure(mindmap_rating_multi=False)
+        self.assertEqual(self.rate(self.token, self.wind, delta=1).status_code, 200)
+        self.assertEqual(self.rate(self.token, self.wind, delta=1).status_code, 409)
+        self.assertEqual(self.rate(self.token, self.solar, delta=1).status_code, 200)
+
+    def test_strict_types(self):
+        for body in ({"delta": "1"}, {"delta": True}, {"delta": 2}, {"delta": 0},
+                     {"delta": 1.0},
+                     {"value": 1}, {}):
+            self.assertEqual(self.rate(self.token, self.wind, **body).status_code, 400, body)
+        self.assertEqual(self.rate(self.token, str(self.wind), delta=1).status_code, 400)
+        self.assertEqual(self.rate(self.token, None, delta=1).status_code, 400)
+
+    def test_unknown_and_foreign_nodes(self):
+        self.assertEqual(self.rate(self.token, 999999, delta=1).status_code, 404)
+        other_run = Run.objects.create(
+            question_set=QuestionSet.objects.create(room=self.room, title="Andere"),
+            phase=Run.Phase.FINISHED,
+        )
+        foreign = MindmapNode.objects.create(
+            run=other_run, question=self.mq, text="X", text_key="x"
+        )
+        self.assertEqual(self.rate(self.token, foreign.pk, delta=1).status_code, 404)
+
+    def test_hidden_node_and_hidden_branch_refused(self):
+        self.stage("collect")
+        rotor = self.contribute("Rotor", parent=self.wind)
+        self.start_rating()
+        MindmapNode.objects.filter(pk=self.wind).update(hidden=True)
+        self.assertEqual(self.rate(self.token, self.wind, delta=1).status_code, 404)
+        self.assertEqual(self.rate(self.token, rotor, delta=1).status_code, 404)
+
+    def test_needs_rating_stage_and_open_phase(self):
+        self.stage("collect")
+        self.assertEqual(self.rate(self.token, self.wind, delta=1).status_code, 409)
+        self.start_rating()
+        self.set_phase(Run.Phase.CLOSED)
+        self.assertEqual(self.rate(self.token, self.wind, delta=1).status_code, 409)
+
+    def test_unknown_token_and_wrong_question(self):
+        self.assertEqual(self.rate("nope", self.wind, delta=1).status_code, 403)
+        response = self.rate(self.token, self.wind, question=self.question.pk, delta=1)
+        self.assertEqual(response.status_code, 409)
+
+    def test_broadcasts(self):
+        with patch("live.views.broadcast") as bc:
+            self.rate(self.token, self.wind, delta=1)
+        bc.assert_called_once()
+
+
+class MindmapRateUpDownTests(MindmapRatingTestCase):
+    def setUp(self):
+        super().setUp()
+        self.configure(mindmap_rating_mode="updown", mindmap_rating_budget=2)
+        self.token = self.join()
+        self.a = self.contribute("A", token=self.token)
+        self.b = self.contribute("B")
+        self.c = self.contribute("C")
+        self.start_rating()
+
+    def test_toggle_and_budget(self):
+        self.assertEqual(
+            self.rate(self.token, self.a, value=1).json(),
+            {"node": self.a, "value": 1, "remaining": 1},
+        )
+        # Switching plus → minus costs nothing extra.
+        self.assertEqual(
+            self.rate(self.token, self.a, value=-1).json(),
+            {"node": self.a, "value": -1, "remaining": 1},
+        )
+        self.assertEqual(self.rate(self.token, self.b, value=1).json()["remaining"], 0)
+        self.assertEqual(self.rate(self.token, self.c, value=-1).status_code, 409)
+        # Removing (value 0) frees one.
+        self.assertEqual(
+            self.rate(self.token, self.a, value=0).json(),
+            {"node": self.a, "value": 0, "remaining": 1},
+        )
+        self.assertEqual(self.rate(self.token, self.c, value=-1).status_code, 200)
+
+    def test_value_zero_without_rating_is_ok(self):
+        self.assertEqual(
+            self.rate(self.token, self.a, value=0).json(),
+            {"node": self.a, "value": 0, "remaining": 2},
+        )
+
+    def test_strict_types(self):
+        for body in ({"value": 2}, {"value": "1"}, {"value": True}, {"delta": 1},
+                     {"value": 1.0},
+                     {"value": None}):
+            self.assertEqual(self.rate(self.token, self.a, **body).status_code, 400, body)
+
+
+class MindmapMyRatingsTests(MindmapRatingTestCase):
+    def test_own_ratings_only(self):
+        t1, t2 = self.join(), self.join()
+        wind = self.contribute("Wind", token=t1)
+        solar = self.contribute("Solar", token=t2)
+        self.start_rating()
+        self.rate(t1, wind, delta=1)
+        self.rate(t1, wind, delta=1)
+        self.rate(t2, solar, delta=1)
+        response = self.my_ratings(t1)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ratings": {str(wind): 2}, "remaining": 1})
+        self.assertEqual(
+            self.my_ratings(t2).json(), {"ratings": {str(solar): 1}, "remaining": 2}
+        )
+
+    def test_unknown_token_and_question(self):
+        self.assertEqual(self.my_ratings("nope").status_code, 403)
+        self.assertEqual(self.my_ratings(self.join(), question=999999).status_code, 404)
+
+    def test_fresh_participant(self):
+        self.assertEqual(
+            self.my_ratings(self.join()).json(), {"ratings": {}, "remaining": 3}
+        )
+
+
+class MindmapRatingHiddenTests(MindmapRatingTestCase):
+    def test_hidden_ratings_excluded_and_refunded(self):
+        token = self.join()
+        wind = self.contribute("Wind", token=token)
+        solar = self.contribute("Solar")
+        self.configure(mindmap_rating_live=True)
+        self.start_rating()
+        self.rate(token, wind, delta=1)
+        self.rate(token, wind, delta=1)
+        self.rate(token, solar, delta=1)
+        self.owner_mod("hide", node=wind, hidden=True)
+        self.client.logout()
+        rating = self.rating_payload("presenter")
+        self.assertEqual(rating["scores"], {str(solar): {"points": 1}})
+        self.assertEqual(rating["raters"], 1)
+        # Hidden ratings stay stored but give the points back.
+        self.assertEqual(
+            self.my_ratings(token).json(), {"ratings": {str(solar): 1}, "remaining": 2}
+        )
+        self.owner_mod("hide", node=wind, hidden=False)
+        self.assertEqual(self.rating_payload("presenter")["scores"][str(wind)], {"points": 2})
+
+
+class MindmapRatingMergeTests(MindmapRatingTestCase):
+    def build(self):
+        self.t1, self.t2, self.t3 = self.join(), self.join(), self.join()
+        self.source = self.contribute("Windrad", token=self.t1)
+        self.target = self.contribute("Windkraft", token=self.t2)
+        self.configure(mindmap_rating_budget=10)
+        self.start_rating()
+        self.rate(self.t1, self.source, delta=1)  # t1: source only → moves
+        for _ in range(2):
+            self.rate(self.t2, self.source, delta=1)  # t2: both → combined
+        self.rate(self.t2, self.target, delta=1)
+        self.rate(self.t3, self.target, delta=1)  # t3: target only
+        self.stage("collect")  # moderation is refused while rating
+
+    def target_ratings(self):
+        from .models import MindmapRating
+
+        return dict(
+            MindmapRating.objects.filter(node_id=self.target).values_list(
+                "token__key", "value"
+            )
+        )
+
+    def test_points_add_up(self):
+        self.build()
+        self.assertEqual(
+            self.owner_mod("merge", source=self.source, target=self.target).status_code, 200
+        )
+        self.assertEqual(
+            self.target_ratings(), {self.t1: 1, self.t2: 3, self.t3: 1}
+        )
+
+    def test_single_point_rule_caps_at_one(self):
+        self.build()
+        self.configure(mindmap_rating_multi=False)
+        self.owner_mod("merge", source=self.source, target=self.target)
+        self.assertEqual(self.target_ratings(), {self.t1: 1, self.t2: 1, self.t3: 1})
+
+    def test_updown_keeps_target_vote(self):
+        self.t1, self.t2 = self.join(), self.join()
+        self.source = self.contribute("Windrad", token=self.t1)
+        self.target = self.contribute("Windkraft", token=self.t2)
+        self.configure(mindmap_rating_mode="updown")
+        self.start_rating()
+        self.rate(self.t1, self.source, value=-1)
+        self.rate(self.t2, self.source, value=-1)
+        self.rate(self.t2, self.target, value=1)
+        self.stage("collect")
+        self.owner_mod("merge", source=self.source, target=self.target)
+        self.assertEqual(self.target_ratings(), {self.t1: -1, self.t2: 1})
+
+    def test_unmerge_restores_ratings_exactly(self):
+        self.build()
+        before = self.ratings()
+        undo = self.owner_mod("merge", source=self.source, target=self.target).json()["undo"]
+        for token in (self.t1, self.t2, self.t3):
+            self.assertNotIn(token, undo)
+        self.assertNotEqual(self.ratings(), before)
+        response = self.owner_mod("unmerge", undo=undo)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.ratings(), before)
+
+    def test_unmerge_refused_when_combined_rating_changed(self):
+        self.build()
+        undo = self.owner_mod("merge", source=self.source, target=self.target).json()["undo"]
+        self.start_rating()
+        self.assertEqual(self.rate(self.t2, self.target, delta=-1).status_code, 200)
+        self.stage("collect")
+        response = self.owner_mod("unmerge", undo=undo)
+        self.assertEqual(response.status_code, 409)
+
+    def test_rename_merge_moves_ratings(self):
+        self.build()
+        response = self.owner_mod("rename", node=self.source, text="windkraft")
+        self.assertTrue(response.json()["merged"])
+        self.assertEqual(self.target_ratings()[self.t2], 3)
+
+
+class MindmapRatingProtectionTests(MindmapRatingTestCase):
+    def test_teacher_delete_refused_when_rated(self):
+        node = self.owner_mod("add", parent=None, text="Wind").json()["node_id"]
+        self.start_rating()
+        self.rate(self.join(), node, delta=1)
+        self.stage("collect")
+        response = self.owner_mod("delete", node=node)
+        self.assertEqual(response.status_code, 409)
+
+    def test_withdraw_refused_when_rated(self):
+        token = self.join()
+        node = self.contribute("Wind", token=token)
+        self.start_rating()
+        self.rate(self.join(), node, delta=1)
+        self.stage("collect")
+        self.client.logout()
+        self.assertEqual(self.remove(token, node).status_code, 409)
+        self.assertTrue(MindmapNode.objects.filter(pk=node).exists())
+
+
+class MindmapRatingPayloadTests(MindmapRatingTestCase):
+    def rated(self, **settings):
+        self.configure(**settings)
+        self.t1, self.t2 = self.join(), self.join()
+        self.wind = self.contribute("Wind", token=self.t1)
+        self.solar = self.contribute("Solar", token=self.t2)
+        self.start_rating()
+        self.rate(self.t1, self.wind, **({"value": 1} if settings.get(
+            "mindmap_rating_mode") == "updown" else {"delta": 1}))
+        self.rate(self.t2, self.wind, **({"value": -1} if settings.get(
+            "mindmap_rating_mode") == "updown" else {"delta": 1}))
+
+    def test_no_rating_key_without_mode(self):
+        self.configure(mindmap_rating_mode="")
+        payloads = build_payloads(self.room)
+        self.assertNotIn("rating", payloads["presenter"]["mindmap"])
+        self.assertNotIn("rating", payloads["participant"]["mindmap"])
+
+    def test_hidden_until_reveal(self):
+        self.rated()
+        presenter = self.rating_payload("presenter")
+        self.assertEqual(
+            presenter,
+            {"mode": "points", "budget": 3, "multi": True, "live": False,
+             "stage": "rate", "raters": 2},
+        )
+        participant = self.rating_payload("participant")
+        self.assertEqual(
+            participant,
+            {"mode": "points", "budget": 3, "multi": True, "live": False, "stage": "rate"},
+        )
+        self.set_phase(Run.Phase.CLOSED)
+        self.assertNotIn("scores", self.rating_payload("presenter"))
+        # Reveal: the results phase shows the scores.
+        self.set_phase(Run.Phase.RESULTS)
+        self.assertEqual(
+            self.rating_payload("presenter")["scores"], {str(self.wind): {"points": 2}}
+        )
+        self.assertEqual(
+            self.rating_payload("participant")["totals"], {str(self.wind): {"points": 2}}
+        )
+
+    def test_results_hidden_from_participants_when_set_says_so(self):
+        self.rated()
+        self.question_set.show_results_to_participants = False
+        self.question_set.save()
+        self.set_phase(Run.Phase.RESULTS)
+        self.assertNotIn("totals", self.rating_payload("participant"))
+        self.assertIn("scores", self.rating_payload("presenter"))
+
+    def test_live_display(self):
+        self.rated(mindmap_rating_live=True)
+        self.assertEqual(
+            self.rating_payload("presenter")["scores"], {str(self.wind): {"points": 2}}
+        )
+        self.assertEqual(
+            self.rating_payload("participant")["totals"], {str(self.wind): {"points": 2}}
+        )
+
+    def test_live_display_only_while_rating(self):
+        self.rated(mindmap_rating_live=True)
+        self.stage("collect")
+        self.assertNotIn("scores", self.rating_payload("presenter"))
+        self.assertNotIn("totals", self.rating_payload("participant"))
+
+    def test_updown_scores(self):
+        self.rated(mindmap_rating_mode="updown", mindmap_rating_live=True)
+        self.assertEqual(
+            self.rating_payload("presenter")["scores"],
+            {str(self.wind): {"up": 1, "down": 1, "balance": 0}},
+        )
+
+    def test_no_tokens_in_payloads(self):
+        self.rated(mindmap_rating_live=True)
+        dumped = json.dumps(build_payloads(self.room))
+        for token in (self.t1, self.t2):
+            self.assertNotIn(token, dumped)
+
+
+class MindmapRatingResultsTests(MindmapRatingTestCase):
+    def build(self, mode="points"):
+        self.configure(mindmap_rating_mode=mode, mindmap_rating_budget=5)
+        self.t1, self.t2 = self.join(), self.join()
+        self.wind = self.contribute("Wind", token=self.t1)
+        self.rotor = self.contribute("Rotor", parent=self.wind, token=self.t2)
+        self.solar = self.contribute("Solar", token=self.t2)
+        self.contribute("Solar", token=self.t1)
+        self.spam = self.contribute("=Spam")
+        self.start_rating()
+        if mode == "points":
+            for _ in range(3):
+                self.rate(self.t1, self.rotor, delta=1)
+            self.rate(self.t1, self.solar, delta=1)
+            self.rate(self.t2, self.wind, delta=1)
+            self.rate(self.t2, self.spam, delta=1)
+        else:
+            self.rate(self.t1, self.rotor, value=1)
+            self.rate(self.t2, self.rotor, value=1)
+            self.rate(self.t1, self.solar, value=-1)
+            self.rate(self.t2, self.wind, value=1)
+        self.set_phase(Run.Phase.FINISHED)
+
+    def item(self):
+        self.client.force_login(self.owner)
+        results = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results/"
+        ).json()["results"]
+        return next(q for q in results[0]["questions"] if q["kind"] == "mindmap")
+
+    def test_run_results_scores_and_ranking(self):
+        self.build()
+        MindmapNode.objects.filter(pk=self.spam).update(hidden=True)
+        rating = self.item()["mindmap"]["rating"]
+        self.assertEqual(rating["mode"], "points")
+        self.assertEqual(rating["raters"], 2)
+        self.assertEqual(
+            rating["scores"],
+            {str(self.rotor): {"points": 3}, str(self.solar): {"points": 1},
+             str(self.wind): {"points": 1}},
+        )
+        # Ties (Solar, Wind: 1 point) are broken by the count of contributions.
+        self.assertEqual(
+            [(r["id"], r["path"], r["points"]) for r in rating["ranking"]],
+            [(self.rotor, "Wind > Rotor", 3), (self.solar, "Solar", 1),
+             (self.wind, "Wind", 1)],
+        )
+
+    def test_updown_ranking_by_balance(self):
+        self.build("updown")
+        ranking = self.item()["mindmap"]["rating"]["ranking"]
+        self.assertEqual(
+            [(r["id"], r["up"], r["down"], r["balance"]) for r in ranking],
+            [(self.rotor, 2, 0, 2), (self.wind, 1, 0, 1), (self.solar, 0, 1, -1)],
+        )
+
+    def test_csv_rating_column(self):
+        self.build()
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8-sig")
+        lines = body.splitlines()
+        self.assertTrue(lines[0].endswith(";prozent;bewertung"))
+        self.assertIn(";Wind > Rotor;;1;;;;3", body)
+        self.assertIn(";Solar;;2;;;;1", body)
+        # Formula-injection guard for participant text stays in place.
+        self.assertIn(";'=Spam;;1;;;;1", body)
+        # Every row has the same number of columns.
+        self.assertEqual({line.count(";") for line in lines}, {lines[0].count(";")})
+
+    def test_csv_updown_format(self):
+        self.build("updown")
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8-sig")
+        self.assertIn(";Wind > Rotor;;1;;;;'+2/−0 (2)", body)
+        self.assertIn(";Solar;;2;;;;'+0/−1 (-1)", body)
+
+
+class MindmapRatingFixRoundTests(MindmapRatingTestCase):
+    def rated(self, **settings):
+        self.configure(**settings)
+        self.t1 = self.join()
+        self.wind = self.contribute("Wind", token=self.t1)
+        self.start_rating()
+        self.assertEqual(self.rate(self.t1, self.wind, delta=1).status_code, 200)
+
+    def results_rating(self):
+        self.client.force_login(self.owner)
+        results = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results/"
+        ).json()["results"]
+        item = next(q for q in results[0]["questions"] if q["kind"] == "mindmap")
+        return item["mindmap"]["rating"]
+
+    def csv(self):
+        self.client.force_login(self.owner)
+        return self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8-sig")
+
+    def test_results_hide_scores_while_rating_hidden(self):
+        self.rated()
+        rating = self.results_rating()
+        self.assertTrue(rating["rating_in_progress"])
+        self.assertNotIn("scores", rating)
+        self.assertNotIn("ranking", rating)
+        self.assertEqual(rating["raters"], 1)
+        self.assertIn(";Wind;;1;;;;\r\n", self.csv())
+        # Reveal (results phase) or a finished run: scores again.
+        self.set_phase(Run.Phase.RESULTS)
+        rating = self.results_rating()
+        self.assertNotIn("rating_in_progress", rating)
+        self.assertEqual(rating["scores"], {str(self.wind): {"points": 1}})
+        self.assertIn(";Wind;;1;;;;1", self.csv())
+
+    def test_results_show_scores_while_rating_live(self):
+        self.rated(mindmap_rating_live=True)
+        rating = self.results_rating()
+        self.assertNotIn("rating_in_progress", rating)
+        self.assertIn("scores", rating)
+
+    def test_moderation_refused_while_rating(self):
+        a = self.contribute("A")
+        b = self.contribute("B")
+        undo = self.owner_mod("rename", node=b, text="Bee").json()["undo"]
+        teacher = self.owner_mod("add", parent=None, text="T").json()["node_id"]
+        self.start_rating()
+        for op, body in (
+            ("merge", {"source": a, "target": b}),
+            ("move", {"node": a, "parent": b}),
+            ("rename", {"node": a, "text": "X"}),
+            ("add", {"parent": None, "text": "Neu"}),
+            ("delete", {"node": teacher}),
+            ("unmerge", {"undo": undo}),
+        ):
+            response = self.owner_mod(op, **body)
+            self.assertEqual(response.status_code, 409, op)
+            self.assertEqual(
+                response.json()["detail"], "Not possible while rating is in progress.", op
+            )
+        self.assertEqual(self.owner_mod("hide", node=a, hidden=True).status_code, 200)
+        self.assertEqual(self.owner_mod("hide", node=a, hidden=False).status_code, 200)
+        self.stage("collect")
+        self.assertEqual(self.owner_mod("rename", node=a, text="X").status_code, 200)
+
+    def test_stage_with_open_opens_the_vote(self):
+        self.set_phase(Run.Phase.CLOSED)
+        self.run.answers_revealed = True
+        self.run.opened_at = timezone.now() - timezone.timedelta(minutes=5)
+        self.run.save()
+        self.client.force_login(self.owner)
+        with patch("live.views.broadcast") as bc:
+            response = self.mod("stage", stage="rate", open=True)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json(), {"stage": "rate", "phase": "open"})
+        bc.assert_called_once()
+        self.run.refresh_from_db()
+        self.assertEqual(self.run.phase, Run.Phase.OPEN)
+        self.assertEqual(self.run.active_question, self.mq)
+        self.assertFalse(self.run.answers_revealed)
+        self.assertGreater(self.run.opened_at, timezone.now() - timezone.timedelta(seconds=5))
+        payload = build_payloads(self.room)
+        self.assertEqual(payload["presenter"]["phase"], "open")
+        self.assertEqual(payload["presenter"]["mindmap"]["rating"]["stage"], "rate")
+
+    def test_stage_open_must_be_bool_and_refusal_does_not_open(self):
+        self.set_phase(Run.Phase.CLOSED)
+        self.assertEqual(self.stage_open("rate", "yes").status_code, 400)
+        self.configure(mindmap_rating_mode="")
+        self.assertEqual(self.stage_open("rate", True).status_code, 409)
+        self.run.refresh_from_db()
+        self.assertEqual(self.run.phase, Run.Phase.CLOSED)
+
+    def test_stage_without_open_keeps_phase(self):
+        self.set_phase(Run.Phase.CLOSED)
+        response = self.stage("rate")
+        self.assertEqual(response.json(), {"stage": "rate", "phase": "closed"})
+
+    def stage_open(self, stage, value):
+        return self.owner_mod("stage", stage=stage, open=value)

@@ -182,8 +182,17 @@ export function useMindmapModeration(
     });
   };
 
-  const undo = () =>
+  /** During the rating phase only hiding may be undone/redone (`onlyHide`):
+   *  any other entry on top stays put and an info explains why. */
+  const blocked = (e: Entry | undefined, onlyHide: boolean) => {
+    if (!onlyHide || !e || e.kind === "hide") return false;
+    cbs.current.onInfo?.("During the rating, only hiding and showing terms can be undone.");
+    return true;
+  };
+
+  const undo = (onlyHide = false) =>
     enqueue(async (rid, qid, stacks) => {
+      if (blocked(stacks.undo[stacks.undo.length - 1], onlyHide)) return;
       const e = stacks.undo.pop();
       if (!e) return;
       // A failed undo (the map changed in between) is dropped: its detail
@@ -192,8 +201,9 @@ export function useMindmapModeration(
       stacks.redo.push(e);
     });
 
-  const redo = () =>
+  const redo = (onlyHide = false) =>
     enqueue(async (rid, qid, stacks) => {
+      if (blocked(stacks.redo[stacks.redo.length - 1], onlyHide)) return;
       const e = stacks.redo.pop();
       if (!e) return;
       const done = await perform(rid, qid, e, stacks);

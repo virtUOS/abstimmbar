@@ -137,7 +137,8 @@ Folgende Fragetypen stehen zur Verfügung:
 - **Mindmap** — Teilnehmende bauen gemeinsam einen Begriffsbaum auf; gleiche
   Begriffe werden mit Anzahl zusammengefasst. Einstellbar sind die Tiefe, die
   Anzahl der Begriffe pro Person, Titel + Beschreibung sowie vorgegebene Äste.
-  Nur in Live-Umfragen möglich.
+  Optional folgt eine **Bewertungsphase** (Punkte oder Plus/Minus, siehe
+  unten). Nur in Live-Umfragen möglich.
 - **Prioritäten** — Ihre Teilnehmenden verteilen bis zu **100 Punkte** auf die
   Antworten: je wichtiger, desto mehr Punkte. Die Auswertung zeigt je Antwort
   den Durchschnitt (mit Minimum und Maximum), absteigend sortiert — so sehen
@@ -242,6 +243,26 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
   auf die Zone **„hier anhängen“** daneben, wird er samt Teilbaum dorthin
   verschoben. Ein Doppelklick benennt einen Begriff um, × blendet ihn samt
   Teilbaum aus. Mit Strg/Cmd+Z machen Sie den letzten Schritt rückgängig.
+- **Mindmap-Bewertung:** Haben Sie im Editor eine **Bewertungsphase**
+  eingestellt, stoppen Sie zunächst das Sammeln und klicken dann unten auf
+  **Bewertung starten**. Ihre Teilnehmenden bewerten die Begriffe nun auf ihrem
+  Gerät – entweder mit **Punkten** (ein Budget pro Person, auf Wunsch mehrere
+  Punkte pro Begriff) oder mit **👍/👎** (bis zu einer festgelegten Zahl von
+  Bewertungen). Neue Begriffe kommen in dieser Phase nicht hinzu; der Zähler
+  links unten zeigt, wie viele bereits bewertet haben. **Stoppen** (S) beendet
+  die Bewertung; die Ergebnisse bleiben verborgen, bis Sie mit **Ergebnis** (E)
+  auflösen – es sei denn, Sie haben „Bewertungen während der Bewertung
+  anzeigen“ eingeschaltet (dann führt Stoppen direkt zum Ergebnis). Sobald
+  Ergebnisse sichtbar sind, zeigt die Mindmap die Punkte bzw. Plus/Minus an
+  jedem Begriff: Jeder Begriff füllt sich wie ein Balken – bei Punkten im
+  Verhältnis zum Spitzenreiter, bei Plus/Minus grün von links (Zustimmung)
+  und rosé von rechts (Ablehnung) –, gut bewertete Begriffe werden größer,
+  und die Ansicht
+  **Rangliste** listet die Spitzenreiter als Balken in der Farbe ihres Asts.
+  Während der Bewertung können Sie Begriffe nur aus- und wieder einblenden;
+  mit **Zurück zum Sammeln** können Teilnehmende wieder Begriffe ergänzen
+  (die Bewertungen bleiben erhalten). Auf der Ergebnisseite erscheinen die
+  Bewertungen am Begriffsbaum, als Rangliste und im CSV-Export.
 - **Wortwolken bearbeiten (Experten-Modus):** Ziehen Sie einen Begriff auf
   einen anderen, um beide zusammenzuführen; mit × blenden Sie einen Begriff aus.
   Der Stift am rechten Rand öffnet die Liste zum Wiederherstellen, Trennen und
