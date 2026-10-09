@@ -2399,13 +2399,65 @@ survives the live updates.
   document.getElementById("lang-de").addEventListener("click", () => setLanguage("de"));
   document.getElementById("lang-en").addEventListener("click", () => setLanguage("en"));
 
+  // Live stream. EventSource reconnects on its own after network errors, and
+  // the first snapshot of a new connection resyncs us. That is not enough
+  // on phones (#180): after sleeping, the connection can be dead without an
+  // error (nothing arrives, readyState stays OPEN), and a failed reconnect
+  // (e.g. a 502 while the server restarts) closes the EventSource for good.
+  // So the server sends a "ping" event every 25 s; a stream that stayed
+  // quiet for longer than STALE_MS, or was closed, is replaced — checked
+  // periodically and whenever the page becomes visible or goes online.
+  const STALE_MS = 60000;
+  let source = null;
+  let lastSeen = 0;
+  let retryTimer = null;
+  let retryDelay = 1000;
   function connect() {
-    const source = new EventSource(`/api/live/rooms/${CODE}/stream/`);
-    source.onmessage = (event) => {
+    if (source) source.close();
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    const es = new EventSource(`/api/live/rooms/${CODE}/stream/`);
+    source = es;
+    lastSeen = Date.now();
+    es.onopen = () => {
+      lastSeen = Date.now();
+      retryDelay = 1000;
+    };
+    es.onmessage = (event) => {
+      lastSeen = Date.now();
       state = JSON.parse(event.data);
       render();
     };
-    // EventSource reconnects on its own; the first snapshot resyncs us.
+    es.addEventListener("ping", () => {
+      lastSeen = Date.now();
+    });
+    es.onerror = () => {
+      if (es === source && es.readyState === EventSource.CLOSED) reconnectLater();
+    };
+  }
+  function reconnectLater() {
+    if (retryTimer) return;
+    retryTimer = setTimeout(connect, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 30000);
+  }
+  function ensureLive() {
+    if (!source) return;
+    if (source.readyState === EventSource.CLOSED || Date.now() - lastSeen > STALE_MS) connect();
+  }
+  // Joins first (the token must exist before votes); retried until online.
+  function start() {
+    join().then(() => {
+      connect();
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") ensureLive();
+      });
+      window.addEventListener("online", ensureLive);
+      // Back/forward cache: the restored page's stream is gone.
+      window.addEventListener("pageshow", (event) => {
+        if (event.persisted) connect();
+      });
+      setInterval(ensureLive, 15000);
+    }, () => setTimeout(start, 5000));
   }
 
   // --- mind map (stage 1): one shared tree per run+question ------------------
@@ -3866,7 +3918,7 @@ survives the live updates.
   } else if (REC_TOKEN) {
     void startRecording();
   } else {
-    join().then(connect);
+    start();
   }
 })();
 </script>

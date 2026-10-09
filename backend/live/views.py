@@ -66,6 +66,7 @@ from .results import (
 from .state import active_run, broadcast, build_payloads, question_payload
 
 KEEPALIVE_SECONDS = 25
+KEEPALIVE_FRAME = "event: ping\ndata: {}\n\n"
 
 
 def _room_by_code(code):
@@ -2422,7 +2423,10 @@ async def stream(request, code):
                         subscriber.queue.get(), timeout=KEEPALIVE_SECONDS
                     )
                 except TimeoutError:
-                    yield ": keepalive\n\n"
+                    # A named event (not a comment) so clients can see the
+                    # stream is alive and reconnect when it goes quiet —
+                    # e.g. after a phone slept (#180). `onmessage` ignores it.
+                    yield KEEPALIVE_FRAME
         finally:
             hub.unsubscribe(room.pk, subscriber)
             if role == "participant":
