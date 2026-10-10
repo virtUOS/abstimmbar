@@ -111,7 +111,9 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
+          // Phones (#179): the header wraps, so the avatar's position varies —
+          // span the viewport (below the button) instead of hanging off it.
+          className="absolute right-0 z-30 mt-2 w-56 overflow-hidden max-sm:fixed max-sm:left-4 max-sm:right-4 max-sm:w-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
           <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
             <p className="truncate">
@@ -384,8 +386,9 @@ export default function App() {
                 easyMode={easyMode}
                 onStartTour={(mode) => void startTourFresh(mode, "help")}
               />
-              <div data-tour="header.mode">
+              <div data-tour="header.mode" className="shrink-0">
                 <SegmentedControl
+                  className="w-max"
                   ariaLabel={t("Mode")}
                   value={whoami.easy_mode ? "simple" : "pro"}
                   onChange={(v) => setEasyMode(v === "simple")}

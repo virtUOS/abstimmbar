@@ -30,7 +30,6 @@ import {
   TextInput,
 } from "../components/ui";
 import HomeCrumb from "../components/HomeCrumb";
-import ScrollFade from "../components/ScrollFade";
 import TranslatableField from "../components/TranslatableField";
 import { localizedText, type LocalizedText, RichText } from "@basicbar/ui";
 import { SetSettingsForm, type SetSettings } from "./SetPage";
@@ -952,15 +951,11 @@ export default function RoomPage() {
           </div>
           {/* #75: filter the sets by type — same control as the rooms-list
               archive filter. */}
-          {/* Phones (#179): four equal columns of ≤71px can't hold
-              "Live-Umfrage" (79px at 12px) without a mid-word break — keep
-              the labels on one line and let the control scroll sideways
-              (edge fade). Drag-to-select is off so a swipe scrolls. */}
-          <ScrollFade className="mb-4 sm:w-max">
+          {/* Phones (#179): the labels don't all fit — they are cut with
+              an ellipsis (SegmentedControl) rather than scrolled. */}
           <SegmentedControl
-            className="w-max min-w-full [&>button]:whitespace-nowrap sm:min-w-0"
+            className="mb-4 sm:w-max"
             ariaLabel={t("Filter by set type")}
-            dragToSelect={false}
             value={typeFilter}
             onChange={(value) => {
               setTypeFilter(value);
@@ -973,7 +968,6 @@ export default function RoomPage() {
               { value: "self_check", label: t(SET_TYPES.self_check.label) },
             ]}
           />
-          </ScrollFade>
           {filtered.length === 0 && (
             <p className="text-sm text-slate-500 dark:text-slate-400">
               {t("No question set of this type.")}

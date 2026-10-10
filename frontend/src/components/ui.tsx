@@ -336,7 +336,6 @@ export function SegmentedControl<T extends string>({
   ariaLabel,
   disabled = false,
   className = "",
-  dragToSelect = true,
 }: {
   options: SegOption<T>[];
   value: T;
@@ -344,11 +343,6 @@ export function SegmentedControl<T extends string>({
   ariaLabel: string;
   disabled?: boolean;
   className?: string;
-  /** Drag the thumb to pick an option (default). Pass `false` when the
-   *  control sits in a horizontal scroller: a swipe must then scroll it
-   *  (touch-action: manipulation), not change the selection (#179). Taps
-   *  and keyboard still select. */
-  dragToSelect?: boolean;
 }) {
   const n = options.length;
   const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
@@ -377,7 +371,7 @@ export function SegmentedControl<T extends string>({
   }
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (disabled || !dragToSelect) return;
+    if (disabled) return;
     startXRef.current = e.clientX;
     draggingRef.current = false;
     movedRef.current = false;
@@ -424,8 +418,8 @@ export function SegmentedControl<T extends string>({
         draggingRef.current = false;
         setDragX(null);
       }}
-      style={{ touchAction: dragToSelect ? "none" : "manipulation" }}
-      className={`relative grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
+      style={{ touchAction: "none" }}
+      className={`relative grid grid-flow-col auto-cols-[minmax(0,1fr)] items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
     >
       <span
         aria-hidden
@@ -446,9 +440,12 @@ export function SegmentedControl<T extends string>({
             }
             if (o.value !== value) onChange(o.value);
           }}
-          className={`relative z-10 inline-flex items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-center transition-colors ${o.value === value ? "text-brand-800 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+          // Too narrow (phones, #179): the label is cut with an ellipsis
+          // instead of breaking mid-word; the full text stays in the title.
+          title={typeof o.label === "string" ? o.label : undefined}
+          className={`relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full px-1.5 py-1 text-center transition-colors sm:px-2.5 ${o.value === value ? "text-brand-800 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
         >
-          {o.label}
+          <span className="min-w-0 truncate">{o.label}</span>
         </button>
       ))}
     </div>
