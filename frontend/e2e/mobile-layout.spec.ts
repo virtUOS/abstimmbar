@@ -402,19 +402,18 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await expect(page.locator('#review')).toBeVisible();
         await settle(page);
         await expectNoHorizontalOverflow(page, '/p/<code>/ review');
-        await expectInViewport(page.locator('#lang-btn'), 'review: language button in #menu-wrap');
+        // The ⋮/language menu is hidden on purpose while the review overlay is
+        // open (openReview); its own "Back" button must be reachable instead.
+        await expect(page.locator('#menu-wrap')).toBeHidden();
+        await expectInViewport(page.locator('#review-close'), 'review: Back button');
         await expectNoTextOverlap(page, '#review', '/p/<code>/ review');
       });
     });
   });
 }
 
-/** Answer the open question like a participant would. Clicks are dispatched
- *  as DOM events: with the current overflow bugs mobile Chromium zooms the
- *  page out, and Playwright's coordinate taps then land on the wrong element.
- *  dispatchEvent skips actionability, so `tap` first hit-tests the control:
- *  its centre must lie inside the device width and `elementFromPoint` there
- *  must be the control or a descendant (not covered, not off-screen). */
+/** Answer the open question like a participant would, with real taps
+ *  (see tapChecked). */
 async function voteInUi(page: Page, kind: Kind) {
   const tap = (locator: Locator) => tapChecked(page, locator);
   switch (kind) {
@@ -427,10 +426,17 @@ async function voteInUi(page: Page, kind: Kind) {
       await tap(page.locator('#options button').nth(2));
       await tap(page.locator('#submit-multi'));
       break;
-    case 'likert':
-      await tap(page.locator('#likert .likert-seg').nth(3));
-      await tap(page.locator('#question button.primary:visible').last());
+    case 'likert': {
+      // A live snapshot that arrives right after the question opened may
+      // re-render the scale and drop the choice — re-tap until it sticks.
+      const submit = page.locator('#question button.primary:visible').last();
+      await expect(async () => {
+        await page.locator('#likert .likert-seg').nth(3).tap({ timeout: 2000 });
+        await expect(submit).toBeEnabled({ timeout: 1000 });
+      }).toPass({ timeout: 10000 });
+      await tap(submit);
       break;
+    }
     case 'word_cloud':
       await page.locator('#word').fill(LONG_WORD);
       await page.locator('#word').press('Enter');
@@ -459,36 +465,13 @@ async function voteInUi(page: Page, kind: Kind) {
   await expect(page.locator('#done')).toBeVisible();
 }
 
-/** Hit-tested DOM click for participant controls (see voteInUi). The live
- *  page re-renders on SSE updates, so scroll + hit-test are retried briefly
- *  (5 s) against a freshly resolved element instead of failing on a detached
- *  node; a control that stays covered or off-screen fails within those 5 s. */
+/** Real tap on a participant control. Playwright's actionability checks
+ *  (visible, stable, enabled, receives the event at its centre — not covered)
+ *  replace the earlier hand-rolled hit-test; the locator is re-resolved on
+ *  every attempt, so SSE re-renders of the live page don't detach it. Both
+ *  phone projects set `hasTouch`, so `tap()` dispatches touch events. */
 async function tapChecked(page: Page, locator: Locator) {
-  const deviceWidth = page.viewportSize()!.width;
   await expect(locator).toBeVisible();
   await expect(locator).toBeEnabled();
-  await expect(async () => {
-    await locator.scrollIntoViewIfNeeded({ timeout: 1000 });
-    const hit = await locator.evaluate(
-      (el, vw) => {
-        const box = el.getBoundingClientRect();
-        const x = box.left + box.width / 2;
-        const y = box.top + box.height / 2;
-        const top = document.elementFromPoint(x, y);
-        const what = (n: Element | null) =>
-          n
-            ? `${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''}${typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/).join('.') : ''}`
-            : 'nothing';
-        const ok = x >= 0 && x <= vw && !!top && (top === el || el.contains(top));
-        return {
-          ok,
-          msg: `centre (${Math.round(x)},${Math.round(y)}) of ${what(el)} "${(el as HTMLElement).innerText.trim().slice(0, 40)}" hits ${what(top)} (device width ${vw})`,
-        };
-      },
-      deviceWidth,
-      { timeout: 1000 },
-    );
-    expect(hit.ok, `participant control is not tappable: ${hit.msg}`).toBe(true);
-  }).toPass({ timeout: 5000 });
-  await locator.dispatchEvent('click');
+  await locator.tap();
 }
