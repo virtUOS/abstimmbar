@@ -75,7 +75,8 @@ export default function TranslatableField({
       {...rest}
       // Space the label/language-tab row off the input so the input's focus
       // ring doesn't crowd the DE/EN tags above it.
-      className={`space-y-1.5 ${className}`.trim()}
+      // `ab-tf`: local hooks in index.css (toolbar wrapping, tab hit area).
+      className={`ab-tf space-y-1.5 ${className}`.trim()}
       values={localizedMap(value)}
       onChange={(lang, text) => onChange(setLocalizedLang(value, lang, text))}
       singleLanguage={easyMode}

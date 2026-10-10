@@ -36,6 +36,7 @@ import MindmapSeedEditor, {
 import HomeCrumb from "../components/HomeCrumb";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
+import TranslationScope from "../components/TranslationScope";
 import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
 
@@ -1026,7 +1027,12 @@ export default function QuestionPage() {
       )}
 
       {tab === "edit" && (
-      <div className="grid gap-5" data-tour="question.editor">
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-5" data-tour="question.editor">
+        {/* minmax(0,1fr): an implicit `auto` track grows to its widest
+            child's min-content (the rich-text toolbar) and overflowed phones
+            (#179). TranslationScope docks the translation controls into the
+            editor on phones instead of floating over it. */}
+        <TranslationScope>
         <div data-tour="question.lang-tabs">
           <TranslatableField
             variant="rich"
@@ -1157,7 +1163,9 @@ export default function QuestionPage() {
                       placeholder={t("Answer text")}
                       ariaLabel={t("Answer text")}
                       onChange={(text) => updateOption(item.id, { text })}
-                      className="min-w-0 flex-1"
+                      // Phones (#179): the input takes a full row of its
+                      // own below the handle/checkbox/image/delete row.
+                      className="min-w-0 flex-1 max-sm:order-last max-sm:basis-full"
                       stale={liveStaleLangs(
                         optionBaseline[item.id] ?? "",
                         item.text,
@@ -1169,6 +1177,8 @@ export default function QuestionPage() {
                       }
                       onMarkSynced={() => setOptionSynced(item.id, item.text)}
                     />
+                    {/* Phones: pushes image/delete to the row's right end. */}
+                    <span aria-hidden className="flex-1 sm:hidden" />
                     {!isLikert && (
                       <label
                         title={item.image ? t("Replace image") : t("Add image")}
@@ -1987,6 +1997,7 @@ export default function QuestionPage() {
           </Button>
           <Button onClick={() => navigate(`/sets/${setId}`)}>{t("Cancel")}</Button>
         </div>
+        </TranslationScope>
       </div>
       )}
 

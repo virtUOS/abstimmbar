@@ -14,7 +14,7 @@ export default function HomeCrumb() {
     <Link
       to="/"
       aria-label={t("My rooms")}
-      className="inline-flex items-center align-middle hover:text-brand-700 dark:hover:text-brand-300"
+      className="-m-1 inline-flex items-center rounded p-1 align-middle hover:text-brand-700 dark:hover:text-brand-300"
     >
       <Home aria-hidden className="h-4 w-4" />
     </Link>

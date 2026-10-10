@@ -126,7 +126,7 @@ export function InfoHint({ text }: { text: string }) {
         aria-expanded={open}
         aria-label={t("More information")}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex rounded text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
+        className="-m-0.5 inline-flex rounded p-0.5 text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
       >
         <Info aria-hidden className="h-5 w-5" />
       </button>

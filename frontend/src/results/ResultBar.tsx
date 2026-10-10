@@ -100,7 +100,7 @@ export default function ResultBar({
           <img src={`${API_BASE_URL}${image}`} alt="" className="max-h-12 rounded-lg" />
         )}
         <span
-          className={`min-w-0 ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? `text-slate-500${darkText}` : ""}`}
+          className={`min-w-0 [overflow-wrap:anywhere] ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? `text-slate-500${darkText}` : ""}`}
         >
           {label}
         </span>
@@ -114,7 +114,7 @@ export default function ResultBar({
           </span>
         )}
         {!before && (
-          <span className={`ml-auto shrink-0 tabular-nums text-slate-500${darkText}`}>
+          <span className={`ml-auto shrink-0 whitespace-nowrap tabular-nums text-slate-500${darkText}`}>
             {count} · <CountUp value={pct} animate={anim} delay={d} />
           </span>
         )}

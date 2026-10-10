@@ -45,7 +45,7 @@ function Row<T extends OutlineItem>({
     <button
       type="button"
       aria-label={t("Move")}
-      className="cursor-grab touch-none rounded px-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:text-slate-300 dark:hover:bg-slate-800"
+      className="inline-flex min-h-6 min-w-6 cursor-grab touch-none items-center justify-center rounded px-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:text-slate-300 dark:hover:bg-slate-800"
       {...attributes}
       {...listeners}
     >

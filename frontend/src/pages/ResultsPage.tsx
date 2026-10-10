@@ -90,7 +90,7 @@ function WordCloudResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block rounded-lg px-2 py-0.5"
+              className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
               style={{ background: termColor(word.text), color: INK }}
             >
               {word.text} <span className="opacity-60">×{word.count}</span>
@@ -116,7 +116,7 @@ function WordCloudResult({
                         ? t("Merged: {{variants}}", { variants: word.variants.join(", ") })
                         : undefined
                     }
-                    className="mr-3 inline-block rounded-lg px-2 py-0.5"
+                    className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
                     style={{ background: termColor(word.text), color: INK }}
                   >
                     {word.text} <span className="opacity-60">×{word.count}</span>
@@ -223,7 +223,7 @@ function FreeTextResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block rounded-lg px-2 py-0.5"
+              className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
               style={{ background: termColor(word.text), color: INK }}
             >
               {word.text} <span className="opacity-60">×{word.count}</span>
@@ -269,7 +269,7 @@ function FreeTextResult({
                     <span
                       key={item.text}
                       title={item.note || undefined}
-                      className="mr-3 inline-block rounded-lg px-2 py-0.5"
+                      className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
                       style={{ background: evalColor(i), color: INK }}
                     >
                       {item.text} <span className="opacity-60">×{item.count}</span>
@@ -417,9 +417,9 @@ export default function ResultsPage() {
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <h1 data-tour="results.view" className="text-2xl font-bold">{t("Results — {{title}}", { title: localizedText(set.title) })}</h1>
         {runs.length > 0 && current && (
-          <div data-tour="results.export" className="flex flex-wrap items-center gap-3">
+          <div data-tour="results.export" className="flex min-w-0 max-w-full flex-wrap items-center gap-3">
             {/* Export as one visibly grouped unit: scope + download. */}
-            <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
+            <div className="inline-flex max-w-full flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-2.5 py-1.5 dark:border-slate-700 dark:bg-slate-900/40">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-400">
                 {t("Export")}
               </span>
@@ -427,7 +427,7 @@ export default function ResultsPage() {
                 aria-label={t("Export scope")}
                 value={exportAll ? "all" : "one"}
                 onChange={(event) => setExportAll(event.target.value === "all")}
-                className="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                className="min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
               >
                 <option value="one">{t("only this session")}</option>
                 <option value="all">{t("all sessions (incl. archive)")}</option>
@@ -470,17 +470,17 @@ export default function ResultsPage() {
           {(current ? [current] : []).map((run) => (
             <section
               key={run.run}
-              className="rounded-2xl border border-slate-200 dark:border-slate-800 p-5"
+              className="rounded-2xl border border-slate-200 dark:border-slate-800 p-3 sm:p-5"
             >
               <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                 {/* The Termin picker doubles as the block heading (#17-Feedback). */}
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
                   <select
                     data-tour="results.runs"
                     aria-label={t("Select session")}
                     value={run.run}
                     onChange={(event) => setSelected(Number(event.target.value))}
-                    className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-base font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
+                    className="min-w-0 max-w-full rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-base font-semibold text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:outline-none"
                   >
                     {runs.map((r) => (
                       <option key={r.run} value={r.run}>
@@ -534,16 +534,16 @@ export default function ResultsPage() {
                   );
                   return (
                     <div key={question.id}>
-                      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100">
+                      <h3 className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-900 max-sm:flex-wrap max-sm:gap-y-0.5 dark:text-slate-100">
                         {(before || isBefore) && (
                           <span className="shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-950 dark:text-brand-300">
                             {before ? t("After") : t("Before")}
                           </span>
                         )}
-                        <span>
+                        <span className="min-w-0 [overflow-wrap:anywhere]">
                           {question.position + 1}. {stripHtml(localizedText(question.text)) || t("No question text")}
                         </span>
-                        <span className="font-normal text-slate-400">
+                        <span className="whitespace-nowrap font-normal text-slate-400">
                           {total} {t("answer", { count: total })}
                         </span>
                         {question.votes_recording > 0 && (
@@ -618,13 +618,13 @@ export default function ResultsPage() {
                                       pct: question.ordering.full_correct_rate,
                                     })}
                                   </div>
-                                  <div className="inline-grid gap-x-2" style={{ gridTemplateColumns: "max-content auto" }}>
+                                  <div className="inline-grid max-w-full gap-x-2" style={{ gridTemplateColumns: "minmax(0, max-content) auto" }}>
                                     {question.ordering.items.flatMap((it, i) => {
                                       const link = question.ordering!.links?.[i];
                                       const rows = [
                                         <div
                                           key={`item-${it.id}`}
-                                          className="col-start-1 flex items-center gap-2 py-0.5 text-sm text-slate-700 dark:text-slate-300"
+                                          className="col-start-1 flex min-w-0 items-center gap-2 py-0.5 text-sm text-slate-700 dark:text-slate-300"
                                           style={{ gridRow: 2 * i + 1 }}
                                         >
                                           <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
@@ -762,7 +762,7 @@ function MindmapOutline({
     <ul className={level ? "ml-4 border-l border-slate-200 pl-3 dark:border-slate-700" : "space-y-1"}>
       {list.map((n) => (
         <li key={n.id} className="py-0.5">
-          <span className="text-sm text-slate-800 dark:text-slate-100">{mindmapNodeText(n)}</span>
+          <span className="text-sm text-slate-800 [overflow-wrap:anywhere] dark:text-slate-100">{mindmapNodeText(n)}</span>
           {n.count > 1 && (
             <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand-700 dark:bg-brand-950 dark:text-brand-300">
               {n.count}

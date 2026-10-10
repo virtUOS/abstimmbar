@@ -537,13 +537,15 @@ export default function RoomsPage() {
             </section>
           )}
 
-          <div className="mb-2 flex items-center justify-between">
+          {/* Phones (#179): heading on its own row, filter + sort below it,
+              so the staff checkbox doesn't read as "☐ My rooms". */}
+          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <h2 className="text-sm font-semibold text-slate-500 dark:text-slate-400">
               {t("My rooms")}
             </h2>
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
               {isStaff && (
-                <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <label className="flex items-center gap-2 whitespace-nowrap text-sm text-slate-500 dark:text-slate-400">
                   <input
                     type="checkbox"
                     checked={showAll}
@@ -556,15 +558,15 @@ export default function RoomsPage() {
                   {t("Show all rooms in the system")}
                 </label>
               )}
-              <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-                {t("Sort by:")}
+              <label className="flex min-w-0 max-w-full items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+                <span className="shrink-0">{t("Sort by:")}</span>
                 <select
                   value={sortKey}
                   onChange={(event) => {
                     setSortKey(event.target.value as SortKey);
                     setPage(1);
                   }}
-                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                  className="min-w-0 max-w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
                 >
                   {SORT_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>
