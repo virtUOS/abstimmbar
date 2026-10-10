@@ -336,6 +336,7 @@ export function SegmentedControl<T extends string>({
   ariaLabel,
   disabled = false,
   className = "",
+  dragToSelect = true,
 }: {
   options: SegOption<T>[];
   value: T;
@@ -343,6 +344,11 @@ export function SegmentedControl<T extends string>({
   ariaLabel: string;
   disabled?: boolean;
   className?: string;
+  /** Drag the thumb to pick an option (default). Pass `false` when the
+   *  control sits in a horizontal scroller: a swipe must then scroll it
+   *  (touch-action: manipulation), not change the selection (#179). Taps
+   *  and keyboard still select. */
+  dragToSelect?: boolean;
 }) {
   const n = options.length;
   const activeIndex = Math.max(0, options.findIndex((o) => o.value === value));
@@ -371,7 +377,7 @@ export function SegmentedControl<T extends string>({
   }
 
   function onPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
-    if (disabled) return;
+    if (disabled || !dragToSelect) return;
     startXRef.current = e.clientX;
     draggingRef.current = false;
     movedRef.current = false;
@@ -418,7 +424,7 @@ export function SegmentedControl<T extends string>({
         draggingRef.current = false;
         setDragX(null);
       }}
-      style={{ touchAction: "none" }}
+      style={{ touchAction: dragToSelect ? "none" : "manipulation" }}
       className={`relative grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
     >
       <span
