@@ -383,6 +383,33 @@ for (const colorScheme of ['light', 'dark'] as const) {
         }
       }
 
+      // A picked likert step / ticked options must survive the live updates
+      // other participants' votes trigger (each one re-sends the state).
+      for (const kind of ['likert', 'multiple_choice'] as const) {
+        test(`/p/<code>/ ${kind}: selection survives other participants' votes`, async ({ page, liveRoom, demoApi }) => {
+          const room = await liveRoom([kind]);
+          const api = apiClient(demoApi);
+          await page.goto(`${API_BASE_URL}/p/${room.code}/`);
+          await expect(page.locator('#waiting')).toBeVisible();
+          const tokens = await joinParticipants(demoApi, room.code, 3);
+          const q = room.questions[0];
+          await control(api, room.runId, 'open', q.id);
+          await expect(page.locator('#question')).toBeVisible();
+          const picked = kind === 'likert'
+            ? page.locator('#likert .likert-seg').nth(3)
+            : page.locator('#options button').nth(0);
+          const submit = kind === 'likert'
+            ? page.locator('#question button.primary:visible').last()
+            : page.locator('#submit-multi');
+          await tapChecked(page, picked);
+          await expect(picked).toHaveClass(/selected/);
+          await castAnswers(demoApi, room.code, q, tokens);
+          await page.waitForTimeout(1500); // let the debounced broadcasts arrive
+          await expect(picked).toHaveClass(/selected/);
+          await expect(submit).toBeEnabled();
+        });
+      }
+
       test('/p/<code>/ finished: "My answers" review fits the screen [P4]', async ({ page, liveRoom, demoApi }) => {
         const room = await liveRoom(['single_choice', 'likert']);
         const api = apiClient(demoApi);
@@ -426,17 +453,10 @@ async function voteInUi(page: Page, kind: Kind) {
       await tap(page.locator('#options button').nth(2));
       await tap(page.locator('#submit-multi'));
       break;
-    case 'likert': {
-      // A live snapshot that arrives right after the question opened may
-      // re-render the scale and drop the choice — re-tap until it sticks.
-      const submit = page.locator('#question button.primary:visible').last();
-      await expect(async () => {
-        await page.locator('#likert .likert-seg').nth(3).tap({ timeout: 2000 });
-        await expect(submit).toBeEnabled({ timeout: 1000 });
-      }).toPass({ timeout: 10000 });
-      await tap(submit);
+    case 'likert':
+      await tap(page.locator('#likert .likert-seg').nth(3));
+      await tap(page.locator('#question button.primary:visible').last());
       break;
-    }
     case 'word_cloud':
       await page.locator('#word').fill(LONG_WORD);
       await page.locator('#word').press('Enter');

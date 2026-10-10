@@ -185,8 +185,8 @@ survives the live updates.
   .mm-form input[type=text]{margin-top:0}
   .mm-form textarea{font:inherit;width:100%;margin-top:8px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);resize:vertical}
   .mm-form .mm-err{margin-top:6px;font-size:13px;color:var(--danger-strong)}
-  .mm-actions{display:flex;gap:8px}
-  .mm-actions button{margin-top:8px;min-height:44px;padding:10px 12px;text-align:center}
+  .mm-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .mm-actions button{flex:1 1 auto;width:auto;overflow-wrap:normal;margin-top:8px;min-height:44px;padding:10px 12px;text-align:center}
   .mm-new > .mm-row{animation:mm-pop .4s ease-out}
   @keyframes mm-pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   @media (prefers-reduced-motion: reduce){.mm-new > .mm-row{animation:none}.mm-toggle svg{transition:none}}
@@ -1399,13 +1399,16 @@ survives the live updates.
   function renderQuestion() {
     const q = state.question;
     const optionsBox = document.getElementById("options");
-    // The priorities slider and the ordering sorter hold in-progress state
-    // (point allocations / a half-sorted list) — don't tear them down and
-    // rebuild (losing it) on background vote broadcasts for the same
-    // run+question (#67/#72). Same guard as the word-cloud chips above.
-    const priKeyNow = q.kind === "priorities" || q.kind === "ordering"
-      ? (state.run_id ?? "") + ":" + q.id : null;
-    if (priKeyNow && priKey === priKeyNow && optionsBox.children.length) return;
+    // The priorities slider, the ordering sorter, the likert scale and
+    // multiple choice hold in-progress state (point allocations, a
+    // half-sorted list, a picked step, ticked options) — don't tear them down
+    // and rebuild (losing it) on background vote broadcasts for the same
+    // run+question (#67/#72, #179). Same guard as the word-cloud chips above.
+    const keepsState = q.kind === "priorities" || q.kind === "ordering"
+      || q.kind === "likert" || !!q.multiple;
+    const priKeyNow = keepsState ? (state.run_id ?? "") + ":" + q.id : null;
+    const holder = q.kind === "likert" ? document.getElementById("likert") : optionsBox;
+    if (priKeyNow && priKey === priKeyNow && holder.children.length) return;
     // We fall through to (re)build the DOM below, so keep the guard key in sync
     // on EVERY path — including clearing it (priKeyNow === null) for a
     // non-priorities question — otherwise returning to a priorities question
