@@ -764,6 +764,8 @@ export default function RoomPage() {
           ref={importInput}
           type="file"
           accept="application/json,.json"
+          aria-label={t("Import question set (JSON)")}
+          tabIndex={-1}
           className="sr-only"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -988,6 +990,7 @@ export default function RoomPage() {
                     const Icon = SET_TYPES[set.type].icon;
                     return (
                       <span
+                        role="img"
                         title={t(SET_TYPES[set.type].label)}
                         aria-label={t(SET_TYPES[set.type].label)}
                         className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${SET_TYPES[set.type].accent.iconBox}`}
