@@ -70,7 +70,9 @@ export default function LikertResult({
   }
 
   return (
-    <div className={present ? "mt-8" : ""}>
+    // Compact: reserve the height of the "⌀" mean marker (-top-4 above the
+    // bar) so it never paints over the question heading above (#179).
+    <div className={present ? "mt-8" : "pt-3"}>
       <div className="relative">
         <div
           className={`relative flex overflow-hidden ${present ? "h-11 rounded-xl text-base" : "h-6 rounded-md text-[11px]"}`}

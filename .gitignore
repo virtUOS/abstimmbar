@@ -13,6 +13,7 @@ dist/
 # Playwright
 /frontend/playwright-report/
 /frontend/test-results/
+/frontend/e2e/.auth/
 .playwright-mcp/
 
 # Environment / secrets

@@ -39,13 +39,14 @@ export default function JoinByCode({ compact = false }: { compact?: boolean }) {
 
   if (compact) {
     return (
-      <form onSubmit={join} className="flex items-end gap-2">
+      <form onSubmit={join} className="flex max-w-full items-end gap-2">
+        {/* Phones (#179): the input shrinks so the button stays in the gutter. */}
         <TextInput
           value={code}
           onChange={(event) => setCode(event.target.value)}
           placeholder={t("Room code …")}
           aria-label={t("Join a vote — room code")}
-          className="!w-48"
+          className="min-w-0 max-sm:flex-1 sm:!w-48"
         />
         <Button type="submit" variant="primary" disabled={!code.trim()}>
           {t("Join")}

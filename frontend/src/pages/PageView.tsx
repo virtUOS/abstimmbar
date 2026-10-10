@@ -9,6 +9,7 @@ import { useParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { FileQuestion } from "lucide-react";
 import { api, type DataCollection, type PageDetail } from "../api";
+import ScrollFade from "../components/ScrollFade";
 import { EmptyState } from "../components/ui";
 import { localizedText, RichText } from "@basicbar/ui";
 
@@ -20,6 +21,7 @@ export default function PageView() {
   const [page, setPage] = useState<PageDetail | null>(null);
   const [missing, setMissing] = useState(false);
   const [data, setData] = useState<DataCollection | null>(null);
+  const [tableScrolls, setTableScrolls] = useState(false);
 
   useEffect(() => {
     setPage(null);
@@ -47,7 +49,17 @@ export default function PageView() {
       {slug === PRIVACY_SLUG && data && (
         <section className="mt-8">
           <h2 className="mb-3 text-xl font-bold">{t("Overview of processed data")}</h2>
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+          {/* Scrolls sideways on phones (#65); the fade and hint make that
+              visible (#179). */}
+          {tableScrolls && (
+            <p className="mb-2 text-xs text-slate-500 sm:hidden dark:text-slate-400">
+              {t("Swipe sideways to see the whole table.")}
+            </p>
+          )}
+          <ScrollFade
+            scrollerClassName="rounded-2xl border border-slate-200 dark:border-slate-800"
+            onScrollableChange={setTableScrolls}
+          >
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
                 <tr>
@@ -79,7 +91,7 @@ export default function PageView() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </ScrollFade>
 
           <h3 className="mb-2 mt-6 font-semibold">{t("What we don't collect")}</h3>
           <ul className="list-disc space-y-1 pl-6 text-sm text-slate-600 dark:text-slate-300">

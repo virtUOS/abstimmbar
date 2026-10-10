@@ -7,8 +7,10 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, type FooterPageLink } from "../api";
 import { localizedText } from "@basicbar/ui";
+import { useTranslation } from "react-i18next";
 
 export default function Footer() {
+  const { t } = useTranslation();
   const [pages, setPages] = useState<FooterPageLink[]>([]);
 
   useEffect(() => {
@@ -27,9 +29,15 @@ export default function Footer() {
             {localizedText(page.title)}
           </Link>
         ))}
-        <span className="ml-auto">
+        <a
+          href="https://github.com/virtUOS/abstimmbar"
+          target="_blank"
+          rel="noopener noreferrer"
+          title={t("abstimmBAR on GitHub")}
+          className="ml-auto hover:text-brand-700 dark:hover:text-brand-300"
+        >
           abstimm<span className="font-semibold">BAR</span>
-        </span>
+        </a>
       </div>
     </footer>
   );

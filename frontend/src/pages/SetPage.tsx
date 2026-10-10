@@ -1842,7 +1842,8 @@ export default function SetPage() {
                             {question.is_after ? t("After") : t("Before")}
                           </span>
                         )}
-                        <span className="block truncate text-sm font-medium text-slate-900 dark:text-slate-100">
+                        {/* Phones (#179): two lines instead of ~12 characters. */}
+                        <span className="block text-sm font-medium text-slate-900 max-sm:line-clamp-2 max-sm:[overflow-wrap:anywhere] sm:truncate dark:text-slate-100">
                           {stripHtml(localizedText(question.text)) || (
                             <span className="italic text-slate-400">{t("No question text")}</span>
                           )}

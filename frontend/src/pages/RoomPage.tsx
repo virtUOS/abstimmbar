@@ -763,6 +763,8 @@ export default function RoomPage() {
           ref={importInput}
           type="file"
           accept="application/json,.json"
+          aria-label={t("Import question set (JSON)")}
+          tabIndex={-1}
           className="sr-only"
           onChange={(event) => {
             const file = event.target.files?.[0];
@@ -927,17 +929,17 @@ export default function RoomPage() {
         </EmptyState>
       ) : (
         <>
-          <div className="mb-3 flex items-center justify-between gap-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <h2 className="font-semibold">{t("Question sets")}</h2>
-            <label className="flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
-              {t("Sort by:")}
+            <label className="flex min-w-0 max-w-full items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+              <span className="shrink-0">{t("Sort by:")}</span>
               <select
                 value={sortKey}
                 onChange={(event) => {
                   setSortKey(event.target.value as SortKey);
                   setSetsPage(1);
                 }}
-                className="rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
+                className="min-w-0 max-w-full rounded-md border border-slate-300 bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:outline-none dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200"
               >
                 {SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -949,8 +951,10 @@ export default function RoomPage() {
           </div>
           {/* #75: filter the sets by type — same control as the rooms-list
               archive filter. */}
+          {/* Phones (#179): the labels don't all fit — they are cut with
+              an ellipsis (SegmentedControl) rather than scrolled. */}
           <SegmentedControl
-            className="mb-4 w-full sm:w-max"
+            className="mb-4 sm:w-max"
             ariaLabel={t("Filter by set type")}
             value={typeFilter}
             onChange={(value) => {
@@ -980,6 +984,7 @@ export default function RoomPage() {
                     const Icon = SET_TYPES[set.type].icon;
                     return (
                       <span
+                        role="img"
                         title={t(SET_TYPES[set.type].label)}
                         aria-label={t(SET_TYPES[set.type].label)}
                         className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${SET_TYPES[set.type].accent.iconBox}`}

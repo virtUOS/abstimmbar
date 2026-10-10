@@ -111,7 +111,9 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-2 w-56 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
+          // Phones (#179): the header wraps, so the avatar's position varies —
+          // span the viewport (below the button) instead of hanging off it.
+          className="absolute right-0 z-30 mt-2 w-56 overflow-hidden max-sm:fixed max-sm:left-4 max-sm:right-4 max-sm:w-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
         >
           <div className="px-3 py-2 text-xs text-slate-400 dark:text-slate-500">
             <p className="truncate">
@@ -181,7 +183,7 @@ function AiNoticeBanner({ site, whoami }: { site: SitePublic; whoami: Whoami }) 
   if (!notice || dismissed) return null;
   return (
     <div className="border-b border-brand-200 bg-brand-50/60 dark:border-brand-900 dark:bg-brand-950/40">
-      <div className="mx-auto flex w-full max-w-5xl items-start gap-3 px-4 py-2.5 text-sm text-slate-700 dark:text-slate-200">
+      <div className="mx-auto flex w-full max-w-5xl items-start gap-2 px-4 py-2 text-sm sm:gap-3 sm:py-2.5 text-slate-700 dark:text-slate-200">
         <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-700 dark:text-brand-300" />
         <p className="min-w-0 flex-1">
           {notice}
@@ -344,7 +346,7 @@ export default function App() {
   return (
     <div className="flex min-h-screen flex-col overflow-x-clip bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="border-b border-slate-200 dark:border-slate-800">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-2 px-4 py-3">
+        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-1 px-4 py-2 sm:gap-y-2 sm:py-3">
           <div className="flex items-center gap-2">
             <Link to="/" className="flex items-center gap-3">
               {site?.logo && (
@@ -384,8 +386,9 @@ export default function App() {
                 easyMode={easyMode}
                 onStartTour={(mode) => void startTourFresh(mode, "help")}
               />
-              <div data-tour="header.mode">
+              <div data-tour="header.mode" className="shrink-0">
                 <SegmentedControl
+                  className="w-max"
                   ariaLabel={t("Mode")}
                   value={whoami.easy_mode ? "simple" : "pro"}
                   onChange={(v) => setEasyMode(v === "simple")}
@@ -415,7 +418,7 @@ export default function App() {
       {whoami?.authenticated && site && <AiNoticeBanner site={site} whoami={whoami} />}
       {whoami?.authenticated && <GenerationStatusBar />}
 
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-5 sm:py-8">
         {error ? (
           <EmptyState icon={Unplug} title={t("Backend unreachable")}>
             <Trans

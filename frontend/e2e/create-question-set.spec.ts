@@ -21,6 +21,8 @@ test('login and create a new question set', async ({ page, trackRoom }) => {
   if (roomId) trackRoom(roomId);
 
   await page.getByRole('button', { name: '+ New question set' }).click();
+  // Set type chooser (#75).
+  await page.getByRole('menuitem', { name: /^Live poll/ }).click();
   await page.getByRole('textbox', { name: 'Title' }).fill(setTitle);
   await page.getByRole('button', { name: 'Save' }).click();
 

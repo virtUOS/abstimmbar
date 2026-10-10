@@ -152,9 +152,9 @@ export default function MindmapRanking({
               >
                 {i + 1}
               </span>
-              <span className="min-w-0">{label(e)}</span>
+              <span className="min-w-0 [overflow-wrap:anywhere]">{label(e)}</span>
               <span
-                className={`ml-auto shrink-0 tabular-nums ${present ? "" : "dark:text-slate-300"}`}
+                className={`ml-auto shrink-0 whitespace-nowrap tabular-nums ${present ? "" : "dark:text-slate-300"}`}
                 aria-label={t("{{up}} plus, {{down}} minus, balance {{balance}}", {
                   up: s.up,
                   down: s.down,

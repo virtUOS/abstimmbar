@@ -146,7 +146,7 @@ survives the live updates.
   /* Likert (#86): a connected, snapping segment row — equal-width steps,
      rounded ends via overflow:hidden on the container, touch-friendly. */
   .likert-row{display:flex;width:100%;margin-top:10px;border:1px solid var(--line);border-radius:14px;overflow:hidden}
-  .likert-seg{flex:1 1 0;min-width:0;margin:0;padding:8px 4px;border:0;border-radius:0;min-height:60px;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:break-word;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s ease,color .12s ease}
+  .likert-seg{flex:1 1 0;min-width:0;margin:0;padding:8px 4px;border:0;border-radius:0;min-height:60px;background:var(--surface);color:var(--ink);font-size:14px;line-height:1.25;text-align:center;white-space:normal;overflow-wrap:anywhere;hyphens:auto;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .12s ease,color .12s ease}
   .likert-seg + .likert-seg{border-left:1px solid var(--line)}
   .likert-seg:hover{background:var(--brand-soft);color:var(--brand-strong)}
   .likert-seg:active{background:var(--brand-strong);color:#fff}
@@ -185,8 +185,8 @@ survives the live updates.
   .mm-form input[type=text]{margin-top:0}
   .mm-form textarea{font:inherit;width:100%;margin-top:8px;padding:10px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);color:var(--ink);resize:vertical}
   .mm-form .mm-err{margin-top:6px;font-size:13px;color:var(--danger-strong)}
-  .mm-actions{display:flex;gap:8px}
-  .mm-actions button{margin-top:8px;min-height:44px;padding:10px 12px;text-align:center}
+  .mm-actions{display:flex;flex-wrap:wrap;gap:8px}
+  .mm-actions button{flex:1 1 auto;width:auto;overflow-wrap:normal;margin-top:8px;min-height:44px;padding:10px 12px;text-align:center}
   .mm-new > .mm-row{animation:mm-pop .4s ease-out}
   @keyframes mm-pop{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
   @media (prefers-reduced-motion: reduce){.mm-new > .mm-row{animation:none}.mm-toggle svg{transition:none}}
@@ -210,6 +210,11 @@ survives the live updates.
   .rbar { height: 100%; border-radius: 10px; width: 0;
           transition: width .6s cubic-bezier(.2,.8,.2,1); }
   .rtrack { position: relative; height: 20px; border-radius: 10px; background: var(--line); }
+  /* Result row head (#179): the label wraps, the count column never does. */
+  .rhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
+           font-size: 14px; margin-bottom: 3px; }
+  .rhead > :first-child { min-width: 0; }
+  .rnums { flex-shrink: 0; white-space: nowrap; color: var(--ink-soft); }
   .rbadge { display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 1px 8px;
             border-radius: 999px; background: var(--correct-strong); color: #fff;
             font-size: 12px; font-weight: 700; vertical-align: 1px; }
@@ -808,7 +813,10 @@ survives the live updates.
     // Single diverging stacked bar: each segment's width is its share of the
     // scale votes, coloured by polarity. Own vote (myOptionIds) gets an arrow.
     const chart = document.createElement("div");
-    chart.style.cssText = "position:relative";
+    // Top margin reserves room for the "⌀" label, which sits 22px above the
+    // bar, so it never overlaps the question text (#179 P3). It collapses
+    // with the list's own top margin.
+    chart.style.cssText = "position:relative;margin-top:28px";
     const bar = document.createElement("div");
     bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:26px;border-radius:8px;font-size:11px";
     let myMidPct = null, cursor = 0;
@@ -840,7 +848,7 @@ survives the live updates.
       ownRow.appendChild(own); list.appendChild(ownRow);
     }
     const caps = document.createElement("div");
-    caps.style.cssText = "display:flex;justify-content:space-between;margin-top:6px;color:var(--ink-soft);font-size:12px";
+    caps.style.cssText = "display:flex;justify-content:space-between;gap:10px;margin-top:6px;color:var(--ink-soft);font-size:12px";
     const cl = document.createElement("span"); cl.textContent = locText(summary.low_label) ? ("← " + locText(summary.low_label)) : "←";
     const cr = document.createElement("span"); cr.textContent = locText(summary.high_label) ? (locText(summary.high_label) + " →") : "→";
     caps.append(cl, cr); list.appendChild(caps);
@@ -891,7 +899,7 @@ survives the live updates.
       const item = document.createElement("div");
       item.style.cssText = "margin-bottom:10px";
       const label = document.createElement("div");
-      label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
+      label.className = "rhead";
       const name = document.createElement("span");
       name.textContent = locText(row.text) + (isMine ? " · " + I18N.yourChoice : "");
       if (isMine || row.is_correct) name.style.fontWeight = "700";
@@ -903,8 +911,8 @@ survives the live updates.
         name.appendChild(badge);
       }
       const nums = document.createElement("span");
+      nums.className = "rnums";
       nums.textContent = row.count + " · " + percent + " %";
-      nums.style.color = "var(--ink-soft)";
       label.append(name, nums);
       const track = document.createElement("div");
       track.className = "rtrack";
@@ -924,7 +932,7 @@ survives the live updates.
         (isMine ? " · " + I18N.you : "");
       // Own term: its usual palette colour plus a frame — green would read as
       // "correct" on results pages.
-      chip.style.cssText = "display:inline-block;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
+      chip.style.cssText = "display:inline-block;max-width:100%;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
         "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)" +
         (isMine ? ";font-weight:700;outline:2px solid var(--ink);outline-offset:2px" : "");
       list.appendChild(chip);
@@ -933,11 +941,11 @@ survives the live updates.
       const item = document.createElement("div");
       item.style.cssText = "margin-bottom:10px";
       const label = document.createElement("div");
-      label.style.cssText = "display:flex;justify-content:space-between;font-size:14px;margin-bottom:3px";
+      label.className = "rhead";
       const name = document.createElement("span");
       name.textContent = locText(opt.text);
       const nums = document.createElement("span");
-      nums.style.color = "var(--ink-soft)";
+      nums.className = "rnums";
       nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
       label.append(name, nums);
       const track = document.createElement("div");
@@ -1184,15 +1192,18 @@ survives the live updates.
       head.style.cssText = "display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px";
       const name = document.createElement("span");
       name.textContent = row.text;
+      name.style.minWidth = "0";
       const num = document.createElement("strong");
       num.className = "tabular-nums";
+      num.style.flexShrink = "0";
       head.append(name, num);
       const range = document.createElement("input");
       range.type = "range";
       range.min = "0";
       range.max = String(PRIORITIES_TOTAL);
       range.step = "1";
-      range.style.cssText = "width:100%";
+      // Taller box = larger touch target around the thin track (#179 P6).
+      range.style.cssText = "display:block;width:100%;height:36px;margin:0;cursor:pointer";
       range.addEventListener("input", () => setValue(i, Number(range.value)));
       wrap.append(head, range);
       container.appendChild(wrap);
@@ -1388,13 +1399,16 @@ survives the live updates.
   function renderQuestion() {
     const q = state.question;
     const optionsBox = document.getElementById("options");
-    // The priorities slider and the ordering sorter hold in-progress state
-    // (point allocations / a half-sorted list) — don't tear them down and
-    // rebuild (losing it) on background vote broadcasts for the same
-    // run+question (#67/#72). Same guard as the word-cloud chips above.
-    const priKeyNow = q.kind === "priorities" || q.kind === "ordering"
-      ? (state.run_id ?? "") + ":" + q.id : null;
-    if (priKeyNow && priKey === priKeyNow && optionsBox.children.length) return;
+    // The priorities slider, the ordering sorter, the likert scale and
+    // multiple choice hold in-progress state (point allocations, a
+    // half-sorted list, a picked step, ticked options) — don't tear them down
+    // and rebuild (losing it) on background vote broadcasts for the same
+    // run+question (#67/#72, #179). Same guard as the word-cloud chips above.
+    const keepsState = q.kind === "priorities" || q.kind === "ordering"
+      || q.kind === "likert" || !!q.multiple;
+    const priKeyNow = keepsState ? (state.run_id ?? "") + ":" + q.id : null;
+    const holder = q.kind === "likert" ? document.getElementById("likert") : optionsBox;
+    if (priKeyNow && priKey === priKeyNow && holder.children.length) return;
     // We fall through to (re)build the DOM below, so keep the guard key in sync
     // on EVERY path — including clearing it (priKeyNow === null) for a
     // non-priorities question — otherwise returning to a priorities question
@@ -2120,14 +2134,16 @@ survives the live updates.
     box.replaceChildren();
     for (const entry of wcList) {
       const chip = document.createElement("span");
-      chip.style.cssText = "display:inline-flex;align-items:center;gap:6px;background:var(--brand-soft);color:var(--brand-strong);border-radius:10px;padding:4px 6px 4px 10px;margin:0 8px 8px 0";
+      chip.style.cssText = "display:inline-flex;align-items:center;gap:2px;max-width:100%;background:var(--brand-soft);color:var(--brand-strong);border-radius:10px;padding:2px 2px 2px 10px;margin:0 8px 8px 0";
       const label = document.createElement("span");
+      label.style.minWidth = "0";
       label.textContent = entry.word;
       const del = document.createElement("button");
       del.type = "button";
       del.innerHTML = '<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
       del.setAttribute("aria-label", I18N.removeTerm.replace("{word}", entry.word));
-      del.style.cssText = "width:auto;min-height:0;margin:0;padding:0 6px;border:0;background:transparent;color:inherit;font-size:18px;line-height:1;cursor:pointer";
+      // 32×32 hit area (#179 P5); the chip padding is trimmed to match.
+      del.style.cssText = "flex:none;display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;min-height:0;margin:0;padding:0;border:0;border-radius:8px;background:transparent;color:inherit;font-size:18px;line-height:1;text-align:center;cursor:pointer";
       del.addEventListener("click", () => void retractWord(entry.key));
       chip.append(label, del);
       box.appendChild(chip);
@@ -3394,7 +3410,7 @@ survives the live updates.
     box.replaceChildren();
     for (const entry of st.list) {
       const chip = document.createElement("span");
-      chip.style.cssText = "display:inline-flex;align-items:center;background:var(--brand-soft);color:var(--brand-strong);border-radius:10px;padding:4px 10px;margin:0 8px 8px 0";
+      chip.style.cssText = "display:inline-flex;align-items:center;max-width:100%;background:var(--brand-soft);color:var(--brand-strong);border-radius:10px;padding:4px 10px;margin:0 8px 8px 0";
       chip.textContent = entry.word;
       box.appendChild(chip);
     }

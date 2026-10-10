@@ -18,7 +18,7 @@ import RoomPage from "./pages/RoomPage";
 import SetPage from "./pages/SetPage";
 import SharedPage from "./pages/SharedPage";
 import { TranslationFormProvider } from "@basicbar/ui";
-import { api } from "./api";
+import { TRANSLATION_CONTROLS_HOOK, translateContent } from "./components/TranslationScope";
 import { TourHost } from "./tour/TourController";
 
 const router = createBrowserRouter([
@@ -62,12 +62,11 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     {/* Legacy storage key so existing visitors keep their stored choice. */}
     <ThemeProvider storageKey="abstimmbar_theme">
       <TranslationFormProvider
-        translate={(text, source, target, format) =>
-          api.translate(text, source, target, format).then((r) => r.translated)
-        }
-        // On narrow screens the floating controls would overlap the question
-        // editor's sticky Save/Cancel bar — lift them clear of it there.
-        controlsClassName="fixed bottom-6 right-6 z-40 max-md:bottom-[5.5rem]"
+        translate={translateContent}
+        // Fallback for fields outside a form-level <TranslationScope> (which
+        // docks the controls into the form on phones, #179). Lifted on narrow
+        // screens to stay clear of sticky action bars.
+        controlsClassName={`${TRANSLATION_CONTROLS_HOOK} fixed bottom-6 right-6 z-40 max-md:bottom-[5.5rem]`}
       >
         <RouterProvider router={router} />
       </TranslationFormProvider>

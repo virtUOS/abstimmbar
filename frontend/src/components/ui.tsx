@@ -126,7 +126,7 @@ export function InfoHint({ text }: { text: string }) {
         aria-expanded={open}
         aria-label={t("More information")}
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex rounded text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
+        className="-m-0.5 inline-flex rounded p-0.5 text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
       >
         <Info aria-hidden className="h-5 w-5" />
       </button>
@@ -419,7 +419,7 @@ export function SegmentedControl<T extends string>({
         setDragX(null);
       }}
       style={{ touchAction: "none" }}
-      className={`relative grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
+      className={`relative grid grid-flow-col auto-cols-[minmax(0,1fr)] items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
     >
       <span
         aria-hidden
@@ -440,9 +440,12 @@ export function SegmentedControl<T extends string>({
             }
             if (o.value !== value) onChange(o.value);
           }}
-          className={`relative z-10 inline-flex items-center justify-center gap-1.5 rounded-full px-2.5 py-1 text-center transition-colors ${o.value === value ? "text-brand-800 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
+          // Too narrow (phones, #179): the label is cut with an ellipsis
+          // instead of breaking mid-word; the full text stays in the title.
+          title={typeof o.label === "string" ? o.label : undefined}
+          className={`relative z-10 inline-flex min-w-0 items-center justify-center gap-1.5 rounded-full px-1.5 py-1 text-center transition-colors sm:px-2.5 ${o.value === value ? "text-brand-800 dark:text-brand-200" : "text-slate-500 dark:text-slate-400"}`}
         >
-          {o.label}
+          <span className="min-w-0 truncate">{o.label}</span>
         </button>
       ))}
     </div>
