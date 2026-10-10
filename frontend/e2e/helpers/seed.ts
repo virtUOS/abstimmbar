@@ -114,6 +114,8 @@ export async function createRoomWithQuestions(
   request: APIRequestContext,
   kinds: readonly Kind[],
   label: string,
+  /** Called as soon as the room exists, before anything else can fail. */
+  onRoomCreated?: (roomId: number) => void,
 ): Promise<Omit<Seed, 'runId'>> {
   const api = apiClient(request);
   // Room titles are unique per owner; parallel tests need their own suffix.
@@ -125,6 +127,7 @@ export async function createRoomWithQuestions(
     ),
     description: T('<p>Beschreibung für den Überlauf-Test</p>'),
   });
+  onRoomCreated?.(room.id);
   try {
     const set = await api.post('/api/question-sets/', {
       room: room.id,
@@ -231,9 +234,12 @@ export async function castAnswers(
 }
 
 /** The shared management-UI room: all 8 kinds, one finished run with answers. */
-export async function seedManagementRoom(request: APIRequestContext): Promise<Seed> {
+export async function seedManagementRoom(
+  request: APIRequestContext,
+  onRoomCreated?: (roomId: number) => void,
+): Promise<Seed> {
   const api = apiClient(request);
-  const base = await createRoomWithQuestions(request, KINDS, 'Verwaltung');
+  const base = await createRoomWithQuestions(request, KINDS, 'Verwaltung', onRoomCreated);
   try {
     const runId = await startRun(api, base.setId);
     const tokens = await joinParticipants(request, base.code, 4);
@@ -248,6 +254,34 @@ export async function seedManagementRoom(request: APIRequestContext): Promise<Se
     await deleteRooms(request, [base.roomId]).catch(() => undefined);
     throw error;
   }
+}
+
+/** Delete leftovers of earlier aborted runs: rooms the caller *owns* whose
+ *  title (either language) starts with "E2E Mobile". Never touches others. */
+export async function sweepStaleE2ERooms(request: APIRequestContext): Promise<number[]> {
+  const api = apiClient(request);
+  const stale: number[] = [];
+  let url: string | null = '/api/rooms/';
+  while (url) {
+    const page: any = await api.get(url);
+    const items: any[] = Array.isArray(page) ? page : (page.results ?? []);
+    for (const room of items) {
+      const titles = typeof room.title === 'object' ? Object.values(room.title) : [room.title];
+      if (room.is_owner && titles.some((t) => typeof t === 'string' && t.startsWith('E2E Mobile'))) {
+        stale.push(room.id);
+      }
+    }
+    const next: string | null = Array.isArray(page) ? null : page.next;
+    url = next ? next.replace(/^https?:\/\/[^/]+/, '') : null;
+  }
+  await deleteRooms(request, stale);
+  return stale;
+}
+
+/** Partial seed record: written as soon as the room exists (cleanup needs only the id). */
+export function writeSeed(seed: Partial<Seed> & { roomId: number }): void {
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  fs.writeFileSync(SEED_FILE, JSON.stringify(seed, null, 1));
 }
 
 export function readSeed(): Seed {

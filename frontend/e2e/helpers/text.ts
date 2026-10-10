@@ -8,7 +8,7 @@ const r = (n: number) => Math.round(n);
 /** No two text runs inside `scope` paint over each other (e.g. a long label
  *  running over its count, a chart marker over the question text). */
 export async function expectNoTextOverlap(page: Page, scope: string, label = scope): Promise<void> {
-  const hits = await page.evaluate((scopeSel) => {
+  const { hits, textRuns } = await page.evaluate((scopeSel) => {
     const roots = Array.from(document.querySelectorAll(scopeSel));
     type Box = { text: string; owner: string; x1: number; y1: number; x2: number; y2: number; node: Text };
     const boxes: Box[] = [];
@@ -55,14 +55,22 @@ export async function expectNoTextOverlap(page: Page, scope: string, label = sco
         }
       }
     }
-    return out;
+    return { hits: out, textRuns: boxes.length };
   }, scope);
+  // Guard against a vacuous pass (wrong scope selector, nothing rendered yet).
+  expect(textRuns, `${label}: no visible text found in "${scope}"`).toBeGreaterThan(0);
   expect(hits, `Overlapping text in ${label}:\n  • ${hits.slice(0, 10).join('\n  • ')}`).toEqual([]);
 }
 
 /** No whitespace-separated word inside the matched elements is split across
  *  two lines (e.g. "Live-/Umfrage", "Archivierte/Räume" in segmented controls). */
-export async function expectNoMidWordBreaks(locator: Locator, label: string): Promise<void> {
+export async function expectNoMidWordBreaks(
+  locator: Locator,
+  label: string,
+  minCount = 1,
+): Promise<void> {
+  const count = await locator.count();
+  expect(count, `${label}: expected at least ${minCount} matching element(s), found ${count}`).toBeGreaterThanOrEqual(minCount);
   const broken = await locator.evaluateAll((els) => {
     const out: string[] = [];
     for (const el of els) {
@@ -93,7 +101,13 @@ export async function expectNoMidWordBreaks(locator: Locator, label: string): Pr
 
 /** Matched elements don't clip their own content horizontally
  *  (scrollWidth > clientWidth, e.g. "Sehr zufrieden" → "zufrieder"). */
-export async function expectNoClippedContent(locator: Locator, label: string): Promise<void> {
+export async function expectNoClippedContent(
+  locator: Locator,
+  label: string,
+  minCount = 1,
+): Promise<void> {
+  const count = await locator.count();
+  expect(count, `${label}: expected at least ${minCount} matching element(s), found ${count}`).toBeGreaterThanOrEqual(minCount);
   const clipped = await locator.evaluateAll((els) =>
     els
       .filter((el) => el.scrollWidth > el.clientWidth + 1)

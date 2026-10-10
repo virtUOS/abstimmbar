@@ -10,21 +10,27 @@ export async function csrfToken(request: APIRequestContext): Promise<string | un
   return cookies.find((c) => c.name === 'abstimmbar_csrftoken')?.value;
 }
 
-/** Delete rooms (by id) this test run created; throws on any failure. */
+/** Delete rooms (by id) this test run created. Tries every room even if one
+ *  fails, then throws one error listing all failures. 404 = already gone. */
 export async function deleteRooms(
   request: APIRequestContext,
   roomIds: (number | string)[],
 ): Promise<void> {
   const token = await csrfToken(request);
+  const failures: string[] = [];
   for (const id of roomIds) {
-    const response = await request.delete(`${API_BASE_URL}/api/rooms/${id}/`, {
-      headers: token ? { 'X-CSRFToken': token } : undefined,
-    });
-    // 404 = already gone (e.g. a retried teardown) — nothing left to clean up.
-    if (!response.ok() && response.status() !== 404) {
-      throw new Error(`Cleanup failed: DELETE /api/rooms/${id}/ returned ${response.status()}`);
+    try {
+      const response = await request.delete(`${API_BASE_URL}/api/rooms/${id}/`, {
+        headers: token ? { 'X-CSRFToken': token } : undefined,
+      });
+      if (!response.ok() && response.status() !== 404) {
+        failures.push(`DELETE /api/rooms/${id}/ returned ${response.status()}`);
+      }
+    } catch (error) {
+      failures.push(`DELETE /api/rooms/${id}/ threw ${(error as Error).message}`);
     }
   }
+  if (failures.length) throw new Error(`Cleanup failed: ${failures.join('; ')}`);
 }
 
 type RoomCleanupFixtures = {

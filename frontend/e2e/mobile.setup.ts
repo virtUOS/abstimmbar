@@ -4,7 +4,14 @@
 import fs from 'node:fs';
 import { test as setup, expect, type Page } from '@playwright/test';
 import { API_BASE_URL, deleteRooms } from './fixtures';
-import { AUTH, AUTH_DIR, SEED_FILE, readSeed, seedManagementRoom } from './helpers/seed';
+import {
+  AUTH,
+  AUTH_DIR,
+  SEED_FILE,
+  seedManagementRoom,
+  sweepStaleE2ERooms,
+  writeSeed,
+} from './helpers/seed';
 
 async function login(page: Page, username: string, statePath: string) {
   await page.goto(`${API_BASE_URL}/oidc/authenticate/`);
@@ -30,13 +37,17 @@ setup('log in demo + admin-demo and seed the E2E Mobile room', async ({ browser 
   const page = await context.newPage();
   await login(page, 'demo', AUTH.demo);
 
-  // A previous run that died before its teardown: remove only the room we
-  // recorded ourselves.
+  // Leftovers of runs that died before their teardown: the recorded room id
+  // plus any demo-owned room titled "E2E Mobile…" (e.g. a participant room
+  // whose test worker was killed).
   if (fs.existsSync(SEED_FILE)) {
-    await deleteRooms(page.request, [readSeed().roomId]);
+    const { roomId } = JSON.parse(fs.readFileSync(SEED_FILE, 'utf8'));
+    if (roomId) await deleteRooms(page.request, [roomId]);
     fs.rmSync(SEED_FILE);
   }
-  const seed = await seedManagementRoom(page.request);
-  fs.writeFileSync(SEED_FILE, JSON.stringify(seed, null, 1));
+  await sweepStaleE2ERooms(page.request);
+  // Record the id the moment the room exists, so teardown can always clean up.
+  const seed = await seedManagementRoom(page.request, (roomId) => writeSeed({ roomId }));
+  writeSeed(seed);
   await context.close();
 });

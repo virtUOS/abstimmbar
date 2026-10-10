@@ -23,11 +23,15 @@ export type OverflowReport = {
 };
 
 /** Collect overflow facts in the page (pure DOM, no dependencies). */
-export async function measureHorizontalOverflow(page: Page): Promise<OverflowReport> {
+export async function measureHorizontalOverflow(
+  page: Page,
+  /** Extra selectors of elements allowed to scroll horizontally. */
+  allowScrollers: string[] = [],
+): Promise<OverflowReport> {
   // Measure against the configured device width: mobile Chromium widens the
   // layout viewport (window.innerWidth) to fit overflowing content.
   const deviceWidth = page.viewportSize()?.width;
-  return page.evaluate((configured) => {
+  return page.evaluate(({ configured, allow }) => {
     const vw = configured ?? window.innerWidth;
     const scroller = document.scrollingElement ?? document.documentElement;
 
@@ -66,11 +70,26 @@ export async function measureHorizontalOverflow(page: Page): Promise<OverflowRep
       return true;
     };
 
-    /** Inside an element that scrolls horizontally on purpose? */
+    /** An intentional horizontal scroller: overflow-x is declared explicitly
+     *  (Tailwind `overflow-x-auto|scroll`, an inline `overflow-x` style, or an
+     *  allowlisted selector) AND it really scrolls sideways. Computed styles
+     *  alone can't tell: `overflow-y:auto` also computes `overflow-x:auto`, so a
+     *  vertical scroller would otherwise mask horizontal overflow. */
+    const isHorizontalScroller = (a: Element): boolean => {
+      const ox = getComputedStyle(a).overflowX;
+      if (ox !== 'auto' && ox !== 'scroll') return false;
+      const declared =
+        a.classList.contains('overflow-x-auto') ||
+        a.classList.contains('overflow-x-scroll') ||
+        ['auto', 'scroll'].includes((a as HTMLElement).style?.overflowX ?? '') ||
+        allow.some((sel) => a.matches(sel));
+      return declared && a.scrollWidth > a.clientWidth + 1;
+    };
+    /** Inside an intentional horizontal scroller? (The scroller's own box is
+     *  still checked against the viewport like any other element.) */
     const inScroller = (el: Element, includeSelf = false): boolean => {
       for (let a = includeSelf ? el : el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
-        const ox = getComputedStyle(a).overflowX;
-        if (ox === 'auto' || ox === 'scroll') return true;
+        if (isHorizontalScroller(a)) return true;
       }
       return false;
     };
@@ -135,7 +154,7 @@ export async function measureHorizontalOverflow(page: Page): Promise<OverflowRep
       clientWidth: scroller.clientWidth,
       offenders,
     };
-  }, deviceWidth);
+  }, { configured: deviceWidth, allow: allowScrollers });
 }
 
 export function formatOverflow(report: OverflowReport, max = 12): string {
@@ -154,8 +173,12 @@ export function formatOverflow(report: OverflowReport, max = 12): string {
 
 /** (a) the document doesn't scroll sideways, (b) no visible element leaves
  *  the viewport except inside an intentional horizontal scroller. */
-export async function expectNoHorizontalOverflow(page: Page, label = page.url()): Promise<void> {
-  const report = await measureHorizontalOverflow(page);
+export async function expectNoHorizontalOverflow(
+  page: Page,
+  label = page.url(),
+  allowScrollers: string[] = [],
+): Promise<void> {
+  const report = await measureHorizontalOverflow(page, allowScrollers);
   const problems: string[] = [];
   if (report.scrollWidth > report.clientWidth) {
     problems.push(`document scrolls horizontally (scrollWidth ${report.scrollWidth} > clientWidth ${report.clientWidth})`);

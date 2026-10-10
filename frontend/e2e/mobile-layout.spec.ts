@@ -75,22 +75,36 @@ const test = base.extend<
       });
       await use();
       // whoami may still be in flight when a fast test ends.
-      await page.unrouteAll({ behavior: 'ignoreErrors' });
+      if (!page.isClosed()) await page.unrouteAll({ behavior: 'ignoreErrors' });
     },
     { auto: true },
   ],
-  liveRoom: async ({ demoApi }, use) => {
+  liveRoom: async ({ demoApi, page }, use) => {
     const created: number[] = [];
     await use(async (kinds) => {
       const api = apiClient(demoApi);
-      const room = await createRoomWithQuestions(demoApi, kinds, kinds.join('+'));
-      created.push(room.roomId);
+      // The id is recorded the moment the room exists, so a failure later in
+      // seeding still gets cleaned up below.
+      const room = await createRoomWithQuestions(demoApi, kinds, kinds.join('+'), (id) =>
+        created.push(id),
+      );
       const runId = await startRun(api, room.setId);
       return { ...room, runId, question: room.questions[0] };
     });
+    // Close the participant page first: a live page that (re)joins while the
+    // room is being deleted makes the cascade fail (FK on ParticipantToken).
+    await page.close();
     await deleteRooms(demoApi, created);
   },
 });
+
+/** The forced Einfach/Experte mode really reached the page (header switch). */
+async function expectMode(page: Page, mode: 'easy' | 'pro') {
+  await expect(
+    page.locator('[data-tour="header.mode"] [role="radio"][aria-checked="true"]'),
+    `header mode switch should show ${mode}`,
+  ).toHaveText(mode === 'easy' ? /^(Simple|Einfach)$/ : /^(Expert|Experte)$/);
+}
 
 /** Let fonts and layout settle before measuring. */
 async function settle(page: Page) {
@@ -121,8 +135,9 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await expect(page.locator('[data-tour="rooms.filter"]')).toBeVisible();
         await settle(page);
         await expectNoMidWordBreaks(
-          page.locator('[role="group"] [role="radio"]'),
-          'segmented controls on home',
+          page.locator('[data-tour="rooms.filter"] [role="radio"]'),
+          'rooms filter segmented control on home',
+          2,
         );
       });
 
@@ -157,6 +172,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
             await expect(page.getByRole('heading', { name: /E2E Mobile/ })).toBeVisible();
             await expect(page.getByText('E2E Fragenset mit langem Titel zum Testen')).toBeVisible();
             await settle(page);
+            await expectMode(page, mode);
             await expectNoHorizontalOverflow(page, `room page (${mode})`);
           });
 
@@ -164,9 +180,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
             await page.goto(`/rooms/${seed.roomId}`);
             await expect(page.getByText('E2E Fragenset mit langem Titel zum Testen')).toBeVisible();
             await settle(page);
+            await expectMode(page, mode);
+            // The set-type filter (All / Live poll / Quiz block / Self-check).
             await expectNoMidWordBreaks(
-              page.locator('[role="group"] [role="radio"]'),
+              page.locator('main [role="group"] [role="radio"]'),
               `segmented controls on room page (${mode})`,
+              3,
             );
           });
 
@@ -174,6 +193,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
             await page.goto(`/sets/${seed.setId}`);
             await expect(page.locator('[data-tour="set.questions"]')).toBeVisible();
             await settle(page);
+            await expectMode(page, mode);
             await expectNoHorizontalOverflow(page, `set page (${mode})`);
           });
 
@@ -182,6 +202,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
             await expect(page.locator('[data-tour="results.view"]')).toBeVisible();
             await expect(page.getByText(LONG_WORD).first()).toBeVisible();
             await settle(page);
+            await expectMode(page, mode);
             await expectNoHorizontalOverflow(page, `results page (${mode})`);
           });
 
@@ -189,6 +210,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
             await page.goto(`/sets/${seed.setId}/results`);
             await expect(page.getByText(LONG_WORD).first()).toBeVisible();
             await settle(page);
+            await expectMode(page, mode);
             await expectNoTextOverlap(page, 'main', `results page (${mode})`);
           });
 
@@ -199,6 +221,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
               await expect(page.locator('[data-tour="question.editor"]')).toBeVisible();
               await expect(page.locator('.ProseMirror').first()).toBeVisible();
               await settle(page);
+              await expectMode(page, mode);
               await expectNoHorizontalOverflow(page, `question editor ${kind} (${mode})`);
             });
           }
@@ -209,6 +232,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
             const inputs = page.getByRole('textbox', { name: /^(Answer text|Antworttext)/ });
             await expect(inputs.first()).toBeVisible();
             await settle(page);
+            await expectMode(page, mode);
             const vw = await page.evaluate(() => window.innerWidth);
             const widths = await inputs.evaluateAll((els) =>
               els.map((el) => Math.round(el.getBoundingClientRect().width)),
@@ -227,16 +251,25 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await page.goto(`/sets/${seed.setId}/questions/${q.id}`);
         await expect(page.locator('[data-tour="question.editor"]')).toBeVisible();
         await settle(page);
-        // The @basicbar/ui TranslationFormProvider pill ("EN · DE · translate all").
-        const pill = page.locator('div.rounded-full:has(> [role="group"] button[aria-pressed])');
-        if ((await pill.count()) === 0) {
-          test.info().annotations.push({
-            type: 'skipped-check',
-            description: 'translation controls not shown (content translation disabled?)',
-          });
-          return;
-        }
-        await expectOverlayNotCovering(page, pill.first(), 'translation controls');
+        await expectMode(page, 'pro');
+        // Our hook class on the TranslationFormProvider controls (main.tsx,
+        // controlsClassName). In Experte the editor registers translatable
+        // fields, so the controls must be there.
+        const controls = page.locator('.translation-controls');
+        await expect(controls, 'translation controls (.translation-controls) missing in Experte').toHaveCount(1);
+        await expect(controls).toBeVisible();
+        await expectOverlayNotCovering(page, controls, 'translation controls');
+        // …and never on top of the sticky Save/Cancel bar.
+        await page.evaluate(() => window.scrollTo(0, 0));
+        const saveBar = page.locator('[data-tour="question.editor"] > div.sticky.bottom-0');
+        const [c, b] = [await controls.boundingBox(), await saveBar.boundingBox()];
+        expect(c && b, 'controls or save bar not rendered').toBeTruthy();
+        const overlapX = Math.min(c!.x + c!.width, b!.x + b!.width) - Math.max(c!.x, b!.x);
+        const overlapY = Math.min(c!.y + c!.height, b!.y + b!.height) - Math.max(c!.y, b!.y);
+        expect(
+          overlapX > 0 && overlapY > 0,
+          `translation controls (x ${Math.round(c!.x)}–${Math.round(c!.x + c!.width)}, y ${Math.round(c!.y)}–${Math.round(c!.y + c!.height)}) overlap the save bar (x ${Math.round(b!.x)}–${Math.round(b!.x + b!.width)}, y ${Math.round(b!.y)}–${Math.round(b!.y + b!.height)})`,
+        ).toBe(false);
       });
 
       test('Impressum fits the screen', async ({ page }) => {
@@ -337,10 +370,14 @@ for (const colorScheme of ['light', 'dark'] as const) {
             await expectNoHorizontalOverflow(page, where);
             await expectInViewport(page.locator('#lang-btn'), `${where}: language button in #menu-wrap`);
             if (kind === 'likert' && state === 'open') {
-              await expectNoClippedContent(page.locator('.likert-seg'), `${where}: likert segments`);
+              await expectNoClippedContent(page.locator('.likert-seg'), `${where}: likert segments`, 5);
             }
             if (state === 'results') {
-              await expectNoTextOverlap(page, '#resultsview', `${where}: results`);
+              await expectNoTextOverlap(
+                page,
+                kind === 'mindmap' ? '#mindmap' : '#resultsview',
+                `${where}: results`,
+              );
             }
           });
         }
@@ -361,7 +398,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
           await expect(page.locator('#resultsview')).toBeVisible();
         }
         await control(api, room.runId, 'finished');
-        await page.locator('#finished-review').dispatchEvent('click');
+        await tapChecked(page, page.locator('#finished-review'));
         await expect(page.locator('#review')).toBeVisible();
         await settle(page);
         await expectNoHorizontalOverflow(page, '/p/<code>/ review');
@@ -374,14 +411,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
 
 /** Answer the open question like a participant would. Clicks are dispatched
  *  as DOM events: with the current overflow bugs mobile Chromium zooms the
- *  page out, and coordinate-based taps then land on the wrong element — the
- *  layout itself is what the assertions check, not tap accuracy. */
+ *  page out, and Playwright's coordinate taps then land on the wrong element.
+ *  dispatchEvent skips actionability, so `tap` first hit-tests the control:
+ *  its centre must lie inside the device width and `elementFromPoint` there
+ *  must be the control or a descendant (not covered, not off-screen). */
 async function voteInUi(page: Page, kind: Kind) {
-  const tap = async (locator: Locator) => {
-    await expect(locator).toBeVisible();
-    await expect(locator).toBeEnabled();
-    await locator.dispatchEvent('click');
-  };
+  const tap = (locator: Locator) => tapChecked(page, locator);
   switch (kind) {
     case 'single_choice':
       // The last option is the long unbreakable word (P1).
@@ -422,4 +457,38 @@ async function voteInUi(page: Page, kind: Kind) {
     }
   }
   await expect(page.locator('#done')).toBeVisible();
+}
+
+/** Hit-tested DOM click for participant controls (see voteInUi). The live
+ *  page re-renders on SSE updates, so scroll + hit-test are retried briefly
+ *  (5 s) against a freshly resolved element instead of failing on a detached
+ *  node; a control that stays covered or off-screen fails within those 5 s. */
+async function tapChecked(page: Page, locator: Locator) {
+  const deviceWidth = page.viewportSize()!.width;
+  await expect(locator).toBeVisible();
+  await expect(locator).toBeEnabled();
+  await expect(async () => {
+    await locator.scrollIntoViewIfNeeded({ timeout: 1000 });
+    const hit = await locator.evaluate(
+      (el, vw) => {
+        const box = el.getBoundingClientRect();
+        const x = box.left + box.width / 2;
+        const y = box.top + box.height / 2;
+        const top = document.elementFromPoint(x, y);
+        const what = (n: Element | null) =>
+          n
+            ? `${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''}${typeof n.className === 'string' && n.className ? '.' + n.className.trim().split(/\s+/).join('.') : ''}`
+            : 'nothing';
+        const ok = x >= 0 && x <= vw && !!top && (top === el || el.contains(top));
+        return {
+          ok,
+          msg: `centre (${Math.round(x)},${Math.round(y)}) of ${what(el)} "${(el as HTMLElement).innerText.trim().slice(0, 40)}" hits ${what(top)} (device width ${vw})`,
+        };
+      },
+      deviceWidth,
+      { timeout: 1000 },
+    );
+    expect(hit.ok, `participant control is not tappable: ${hit.msg}`).toBe(true);
+  }).toPass({ timeout: 5000 });
+  await locator.dispatchEvent('click');
 }
