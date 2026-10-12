@@ -12,14 +12,23 @@
  * the new parent terms an entry needs, transitively); checking one re-checks
  * what it needs. Every selection change re-simulates on the server
  * (`ai-preview`, no LLM call), so the preview always matches what "Apply"
- * would do. */
+ * would do.
+ *
+ * "AI colouring" (same drawer, below): up to six bilingual criteria, saved on
+ * the question; while "Show colouring" is on, the server classifies new and
+ * renamed terms in the background and the beamer rings each assigned term in
+ * its criterion's colour (legend at the bottom of the map). During an
+ * optimisation preview the colouring is not shown (the preview map is a
+ * separate tree). */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FolderPlus, Languages, Loader2, Merge, MoveRight, Sparkles, X } from "lucide-react";
+import { FolderPlus, Languages, Loader2, Merge, MoveRight, Plus, Sparkles, Trash2, X } from "lucide-react";
+import { localizedMap, setLocalizedLang, type LocalizedText } from "@basicbar/ui";
 import { live } from "../api";
-import type { LiveMindmap, LiveMindmapNode, MindmapAiOp, MindmapAiSettings } from "../api";
+import type { LiveMindmap, LiveMindmapNode, MindmapAiOp, MindmapAiSettings, MindmapCriteria } from "../api";
 import { AI_MARK } from "./MindMap";
 import { requestDetail } from "./mindmapModeration";
+import { criterionColor } from "./palette";
 
 interface Proposal {
   proposal: string;
@@ -192,6 +201,259 @@ export function useMindmapAi({
 
 export type MindmapAi = ReturnType<typeof useMindmapAi>;
 
+/** At most this many criteria (mirrors `rooms.mindmap.CRITERIA_MAX`). */
+export const CRITERIA_MAX = 6;
+/** Characters per criterion text (mirrors `CRITERION_TEXT_MAX`). */
+export const CRITERION_TEXT_MAX = 80;
+
+/** A criterion counts once one of its languages has text. */
+export function criterionFilled(value: LocalizedText): boolean {
+  return Object.values(localizedMap(value)).some((text) => !!text?.trim());
+}
+
+/** AI colouring state of the beamer drawer: a local draft of the criteria
+ *  (saved explicitly — a change re-classifies every term) and the switch.
+ *  The server state (`mindmap.criteria` of the presenter payload) is the
+ *  truth; the draft follows it while it has no unsaved edits. */
+export function useMindmapCriteria({
+  runId,
+  questionId,
+  criteria,
+}: {
+  runId: number | null | undefined;
+  questionId: number | null | undefined;
+  criteria: MindmapCriteria | undefined;
+}) {
+  const saved = criteria?.items ?? [];
+  const savedKey = JSON.stringify(saved);
+  const [draft, setDraft] = useState<LocalizedText[]>(saved);
+  const [dirty, setDirty] = useState(false);
+  const [busy, setBusy] = useState<"save" | "toggle" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    setDirty(false);
+    setError(null);
+    setDraft(JSON.parse(savedKey) as LocalizedText[]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runId, questionId]);
+  useEffect(() => {
+    if (!dirty) setDraft(JSON.parse(savedKey) as LocalizedText[]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey]);
+
+  const edit = (next: LocalizedText[]) => {
+    setDraft(next);
+    setDirty(true);
+  };
+  const cleaned = () => draft.filter(criterionFilled);
+
+  const post = async (kind: "save" | "toggle", body: { active?: boolean; criteria?: LocalizedText[] }) => {
+    if (runId == null || questionId == null || busy) return;
+    setBusy(kind);
+    setError(null);
+    try {
+      const res = await live.mindmapAiCriteria(runId, questionId, body);
+      if (body.criteria) {
+        setDraft(res.criteria);
+        setDirty(false);
+      }
+    } catch (err) {
+      setError(requestDetail(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return {
+    draft,
+    dirty,
+    busy,
+    error,
+    active: !!criteria?.active,
+    pending: criteria?.pending ?? 0,
+    serverError: criteria?.error,
+    /** Saved criteria exist (the switch needs some). */
+    hasSaved: saved.length > 0,
+    setText: (index: number, value: LocalizedText) =>
+      edit(draft.map((c, i) => (i === index ? value : c))),
+    add: () => {
+      if (draft.length < CRITERIA_MAX) edit([...draft, { de: "", en: "" }]);
+    },
+    remove: (index: number) => edit(draft.filter((_, i) => i !== index)),
+    revert: () => {
+      setDraft(JSON.parse(savedKey) as LocalizedText[]);
+      setDirty(false);
+      setError(null);
+    },
+    save: () => post("save", { criteria: cleaned() }),
+    /** On/off; unsaved criteria are saved along when switching on. */
+    setActive: (on: boolean) =>
+      post("toggle", on && dirty ? { active: true, criteria: cleaned() } : { active: on }),
+  };
+}
+
+export type MindmapCriteriaCtl = ReturnType<typeof useMindmapCriteria>;
+
+/** "AI colouring" in the drawer: the criteria list (colour swatch, DE/EN,
+ *  remove), add, save, the "Show colouring" switch and the status. */
+function CriteriaSection({ crit }: { crit: MindmapCriteriaCtl }) {
+  const { t } = useTranslation();
+  const disabled = crit.busy !== null;
+  const canSwitchOn = crit.hasSaved || crit.draft.some(criterionFilled);
+  const statusText = !crit.active
+    ? null
+    : crit.serverError === "ai_error"
+      ? t("The AI could not classify the terms (no answer or an error).")
+      : crit.serverError === "invalid_reply"
+        ? t("The AI's answer could not be used.")
+        : crit.pending > 0
+          ? t("{{count}} terms are being classified …", { count: crit.pending })
+          : t("All terms are classified.");
+  return (
+    <section className="space-y-3 border-t border-slate-100 pt-4" data-testid="mm-crit-section">
+      <div>
+        <h3 className="font-semibold text-slate-700">{t("AI colouring")}</h3>
+        <p className="mt-0.5 text-xs text-slate-500">
+          {t(
+            "Up to 6 criteria, e.g. “Places” and “Rivers”. The AI assigns each term the best fitting criterion at most; the term gets a ring in its colour.",
+          )}
+        </p>
+      </div>
+      {crit.draft.length > 0 && (
+        <ol className="space-y-2" aria-label={t("Criteria")}>
+          {crit.draft.map((value, i) => (
+            <li key={i} className="flex items-start gap-2" data-mm-crit-row={i}>
+              <span
+                aria-hidden
+                className="mt-1.5 h-4 w-4 flex-none rounded-full"
+                style={{ background: "#fff", boxShadow: `inset 0 0 0 4px ${criterionColor(i)}` }}
+              />
+              {/* Both languages side by side (the beamer is outside the app
+                  shell, so no TranslatableField here; always light). */}
+              <div className="grid min-w-0 flex-1 grid-cols-2 gap-1.5">
+                {(["de", "en"] as const).map((lang) => (
+                  <input
+                    key={lang}
+                    type="text"
+                    value={localizedMap(value)[lang] ?? ""}
+                    maxLength={CRITERION_TEXT_MAX}
+                    disabled={disabled}
+                    onChange={(e) => crit.setText(i, setLocalizedLang(value, lang, e.target.value))}
+                    placeholder={lang === "de" ? t("German") : t("English")}
+                    aria-label={t("Criterion {{n}} ({{lang}})", {
+                      n: i + 1,
+                      lang: lang === "de" ? t("German") : t("English"),
+                    })}
+                    lang={lang}
+                    className="min-w-0 rounded-lg border border-field bg-white px-2 py-1 text-sm text-slate-900 placeholder:text-slate-500 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 disabled:opacity-60"
+                  />
+                ))}
+              </div>
+              <button
+                type="button"
+                onClick={() => crit.remove(i)}
+                disabled={disabled}
+                aria-label={t("Remove criterion {{n}}", { n: i + 1 })}
+                title={t("Remove criterion {{n}}", { n: i + 1 })}
+                className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 disabled:opacity-60"
+              >
+                <Trash2 className="h-4 w-4" aria-hidden />
+              </button>
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={crit.add}
+          disabled={disabled || crit.draft.length >= CRITERIA_MAX}
+          title={crit.draft.length >= CRITERIA_MAX ? t("At most 6 criteria.") : undefined}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+        >
+          <Plus className="h-4 w-4" aria-hidden />
+          {t("Add criterion")}
+        </button>
+        {crit.dirty && (
+          <>
+            <button
+              type="button"
+              onClick={() => void crit.save()}
+              disabled={disabled}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
+            >
+              {crit.busy === "save" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+              {t("Save criteria")}
+            </button>
+            <button
+              type="button"
+              onClick={crit.revert}
+              disabled={disabled}
+              className="rounded-lg px-2 py-1 text-sm text-slate-600 hover:bg-slate-100 disabled:opacity-60"
+            >
+              {t("Discard changes")}
+            </button>
+          </>
+        )}
+      </div>
+      {crit.dirty && crit.hasSaved && (
+        <p className="text-xs text-slate-500">
+          {t("Saved on the question. Changed criteria re-classify all terms.")}
+        </p>
+      )}
+      <label className="flex items-center gap-2 text-slate-700">
+        <input
+          type="checkbox"
+          checked={crit.active}
+          disabled={disabled || (!crit.active && !canSwitchOn)}
+          onChange={(e) => void crit.setActive(e.target.checked)}
+          className="h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+          data-testid="mm-crit-toggle"
+        />
+        {t("Show colouring")}
+        {crit.busy === "toggle" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
+      </label>
+      {!crit.active && !canSwitchOn && (
+        <p className="text-xs text-slate-500">{t("Add a criterion first.")}</p>
+      )}
+      {statusText && (
+        <div
+          className={crit.serverError ? "text-red-700" : "text-slate-600"}
+          role={crit.serverError ? "alert" : "status"}
+          data-testid="mm-crit-status"
+        >
+          <p className="inline-flex items-center gap-1.5">
+            {!crit.serverError && crit.pending > 0 && (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            )}
+            {statusText}
+          </p>
+          {crit.serverError && (
+            <button
+              type="button"
+              onClick={() => void crit.setActive(true)}
+              disabled={disabled}
+              className="mt-1.5 block rounded-lg border border-slate-300 px-2.5 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+            >
+              {t("Try again")}
+            </button>
+          )}
+        </div>
+      )}
+      {crit.error && (
+        <p className="text-red-700" role="alert">
+          {t(crit.error)}
+        </p>
+      )}
+      <p className="text-xs text-slate-500">
+        {t(
+          "The question, the criteria and the terms (with descriptions) are sent to the AI model — no names or other participant data.",
+        )}
+      </p>
+    </section>
+  );
+}
+
 const OP_ICONS = { merge: Merge, rename: Languages, move: MoveRight, add: FolderPlus } as const;
 
 /** The slide-out drawer: settings + "Optimise mind map", then the proposal
@@ -199,10 +461,14 @@ const OP_ICONS = { merge: Merge, rename: Languages, move: MoveRight, add: Folder
  *  key handling (Enter/Space stay with the focused control). */
 export function MindmapAiDrawer({
   ai,
+  crit,
   drawerAttr,
   onClick,
 }: {
   ai: MindmapAi;
+  /** AI colouring section (below the optimisation; hidden while a
+   *  proposal is shown). */
+  crit?: MindmapCriteriaCtl;
   drawerAttr: string;
   onClick?: (e: { target: EventTarget }) => void;
 }) {
@@ -307,6 +573,7 @@ export function MindmapAiDrawer({
                 )}
               </p>
             </div>
+            {crit && <CriteriaSection crit={crit} />}
           </>
         )}
         {ai.error && (

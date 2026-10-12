@@ -38,5 +38,7 @@
   "{{count}} changes applied — Ctrl/Cmd+Z undoes them._one": "{{count}} change applied — Ctrl/Cmd+Z undoes it.",
   "{{count}} changes applied — Ctrl/Cmd+Z undoes them._other": "{{count}} changes applied — Ctrl/Cmd+Z undoes them.",
   "{{count}} no longer fitted the map and were skipped._one": "{{count}} no longer fitted the map and was skipped.",
-  "{{count}} no longer fitted the map and were skipped._other": "{{count}} no longer fitted the map and were skipped."
+  "{{count}} no longer fitted the map and were skipped._other": "{{count}} no longer fitted the map and were skipped.",
+  "{{count}} terms are being classified …_one": "{{count}} term is being classified …",
+  "{{count}} terms are being classified …_other": "{{count}} terms are being classified …"
 }

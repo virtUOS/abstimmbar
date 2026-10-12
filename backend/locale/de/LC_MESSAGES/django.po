@@ -560,3 +560,11 @@ msgstr "Die Bewertung läuft – Begriffe können jetzt nicht hinzugefügt oder 
 #: live/templates/live/participant.html
 msgid "This term has already been rated and cannot be removed."
 msgstr "Dieser Begriff wurde bereits bewertet und kann nicht mehr entfernt werden."
+
+#: live/templates/live/participant.html
+msgid "Criterion: {name}"
+msgstr "Kriterium: {name}"
+
+#: live/templates/live/participant.html
+msgid "Colour key"
+msgstr "Farblegende"

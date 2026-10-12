@@ -17,7 +17,15 @@
  * the root), dragging a term onto another merges it, dragging it onto the
  * "attach here" tab beside a term (or onto the root) moves it there, double-
  * click renames. Invalid targets are shown red with the reason; the checks
- * mirror the server's (`backend/live/mindmap.py`). */
+ * mirror the server's (`backend/live/mindmap.py`).
+ *
+ * AI colouring by criteria (beamer, `criteria`): a term with a criterion
+ * gets a thick solid ring in that criterion's colour outside the pill (the
+ * fill keeps its branch colour); a legend at the bottom names the colours,
+ * clicking a chip highlights its terms (the others fade). The colour ring
+ * replaces the dashed duplicate ring (one outline per pill — the colour is
+ * the explicit choice of the presenter, the duplicate count stays visible
+ * as the ×N badge); drag-target feedback still wins over both. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
@@ -39,9 +47,19 @@ import {
   X,
   ZoomIn,
 } from "lucide-react";
-import { localizedText } from "@basicbar/ui";
+import { localizedText, type LocalizedText } from "@basicbar/ui";
 import type { LiveMindmapNode, MindmapRating } from "../api";
-import { CORRECT, CORRECT_STRONG, CORRECT_TINT, INK, MINUS, MINUS_INK, MINUS_TINT, NEUTRAL_TILE } from "./palette";
+import {
+  CORRECT,
+  CORRECT_STRONG,
+  CORRECT_TINT,
+  INK,
+  MINUS,
+  MINUS_INK,
+  MINUS_TINT,
+  NEUTRAL_TILE,
+  criterionColor,
+} from "./palette";
 import { EASE, useReducedMotion } from "./motion";
 
 // ---------------------------------------------------------------------------
@@ -698,6 +716,9 @@ export default function MindMap({
   rating,
   lockedNote,
   previewMarks = false,
+  criteria,
+  criterionFocus = null,
+  onCriterionFocus,
 }: {
   rootLabel: string;
   /** Presenter-form tree (hidden nodes are skipped with their subtree). */
@@ -735,6 +756,13 @@ export default function MindMap({
   /** AI preview: terms changed by the proposal get a ring and small marks
    *  (merged / renamed / moved / new parent term) with a tooltip. */
   previewMarks?: boolean;
+  /** AI colouring: the criteria (index = colour, see `criterionColor`);
+   *  terms carry `criterion`. Shows the rings and the legend. */
+  criteria?: LocalizedText[];
+  /** Highlighted criterion (legend click): its terms stay, the rest fade. */
+  criterionFocus?: number | null;
+  /** Legend chip clicked (the same chip again → null). */
+  onCriterionFocus?: (index: number | null) => void;
 }) {
   const { t, i18n } = useTranslation();
   // Seeded terms resolve to the UI language (mindmapNodeText): re-measure on
@@ -977,13 +1005,52 @@ export default function MindMap({
     const id = window.setInterval(read, 800);
     return () => window.clearInterval(id);
   }, []);
+  // --- AI colouring legend (bottom): placed in the widest stretch of the
+  // bottom band that no inset (counter pill, QR corner) covers; when that is
+  // too narrow, it moves up above them. The auto-fit keeps the map clear of
+  // the legend's measured box.
+  const legendItems = useMemo(() => {
+    if (!criteria?.length) return [];
+    const counts = criteria.map(() => 0);
+    byId.forEach((n) => {
+      const c = criterionOf(n, criteria);
+      if (c !== null) counts[c] += 1;
+    });
+    return criteria.map((label, i) => ({ index: i, label: localizedText(label), count: counts[i] }));
+  }, [criteria, byId, uiLang]); // eslint-disable-line react-hooks/exhaustive-deps
+  const legendPlace = useMemo(
+    () => placeLegend(viewport.w, viewport.h, obstacles),
+    [viewport.w, viewport.h, obstacles],
+  );
+  const legendRef = useRef<HTMLDivElement | null>(null);
+  const [legendRect, setLegendRect] = useState<Obstacle | null>(null);
+  useLayoutEffect(() => {
+    const el = legendRef.current;
+    const c = containerRef.current;
+    let next: Obstacle | null = null;
+    if (el && c) {
+      const r = el.getBoundingClientRect();
+      const cr = c.getBoundingClientRect();
+      next = {
+        x: Math.round(r.left - cr.left),
+        y: Math.round(r.top - cr.top),
+        w: Math.round(r.width),
+        h: Math.round(r.height),
+      };
+    }
+    setLegendRect((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
+  });
+  const fitObstacles = useMemo(
+    () => (legendRect ? [...obstacles, legendRect] : obstacles),
+    [obstacles, legendRect],
+  );
   const fitView = useMemo(
     () =>
-      fitAround({ minX, maxX, minY, maxY }, viewport.w, viewport.h, obstacles, {
+      fitAround({ minX, maxX, minY, maxY }, viewport.w, viewport.h, fitObstacles, {
         pad: FIT_PAD,
         maxScale: MAX_FIT,
       }),
-    [minX, maxX, minY, maxY, viewport.w, viewport.h, obstacles],
+    [minX, maxX, minY, maxY, viewport.w, viewport.h, fitObstacles],
   );
   useLayoutEffect(() => {
     if (viewport.w === 0 || manual.current) return;
@@ -1318,8 +1385,18 @@ export default function MindMap({
         : rl.badges.map((b) => b.text).join(" ")
       : "";
     const marks = previewMarks ? previewMarksOf(n, t) : [];
+    const crit = criterionOf(n, criteria);
+    const critTitle =
+      crit !== null ? t("Criterion: {{name}}", { name: localizedText(criteria![crit]) }) : "";
+    const focusFade = criterionFocus !== null && crit !== criterionFocus;
     const nodeTitle =
-      [n.count > 1 ? `${n.count}×` : "", scoreTitle, lockedNote ?? "", ...marks.map((m) => m.title)]
+      [
+        n.count > 1 ? `${n.count}×` : "",
+        critTitle,
+        scoreTitle,
+        lockedNote ?? "",
+        ...marks.map((m) => m.title),
+      ]
         .filter(Boolean)
         .join(" · ") || undefined;
     const target =
@@ -1328,20 +1405,23 @@ export default function MindMap({
       ? `3px solid ${target.problem ? BAD : GOOD}`
       : marks.length > 0
         ? `3px solid ${AI_MARK}`
-        : repeated
-          ? `2px dashed ${deep(hue)}`
-          : undefined;
+        : crit !== null
+          ? `${CRIT_RING}px solid ${criterionColor(crit)}`
+          : repeated
+            ? `2px dashed ${deep(hue)}`
+            : undefined;
     return (
       <div
         key={p.id}
         className="absolute left-0 top-0"
         data-mm-node={moderating ? p.id : undefined}
+        data-mm-criterion={crit ?? undefined}
         style={{
           width: box.w,
           height: box.h,
           transform: `translate(${p.x - box.w / 2}px, ${p.y - box.h / 2}px)`,
           transition: move ? `transform ${move}, width ${move}, height ${move}, opacity 150ms` : undefined,
-          opacity: dimmed.has(p.id) ? 0.3 : recede ? 0.55 : 1,
+          opacity: dimmed.has(p.id) || focusFade ? 0.25 : recede ? 0.55 : 1,
           cursor: moderating ? (nodeDrag ? "grabbing" : "grab") : undefined,
         }}
         onDoubleClick={
@@ -1368,7 +1448,7 @@ export default function MindMap({
             fontWeight: box.weight,
             lineHeight: LINE,
             outline: ring,
-            outlineOffset: ring ? 2 : undefined,
+            outlineOffset: ring ? (crit !== null && !target && marks.length === 0 ? 1 : 2) : undefined,
             boxShadow: shadow,
             // Moved terms take on their new branch's colour smoothly.
             transition: move
@@ -1844,6 +1924,53 @@ export default function MindMap({
           {t("No terms yet …")}
         </p>
       )}
+      {legendItems.length > 0 && (
+        <div
+          ref={legendRef}
+          className="absolute z-10 flex flex-wrap items-center justify-center gap-2"
+          style={{ left: legendPlace.left, width: legendPlace.width, bottom: legendPlace.bottom }}
+          onPointerDown={(e) => e.stopPropagation()}
+          role="group"
+          aria-label={t("Colour key")}
+          data-testid="mm-criteria-legend"
+        >
+          {legendItems.map((item) => {
+            const on = criterionFocus === item.index;
+            return (
+              <button
+                key={item.index}
+                type="button"
+                disabled={!onCriterionFocus}
+                aria-pressed={onCriterionFocus ? on : undefined}
+                onClick={(e) => {
+                  // Space/Enter must not stay on the chip (beamer keys).
+                  e.currentTarget.blur();
+                  onCriterionFocus?.(on ? null : item.index);
+                }}
+                title={
+                  onCriterionFocus
+                    ? on
+                      ? t("Show all terms again (Esc)")
+                      : t("Highlight the terms of “{{name}}”", { name: item.label })
+                    : undefined
+                }
+                className={`inline-flex max-w-[22rem] items-center gap-2 rounded-full border bg-white/95 px-3 py-1 text-sm font-medium text-slate-800 shadow-sm backdrop-blur disabled:cursor-default ${
+                  on ? "border-slate-800" : "border-slate-200 hover:border-slate-400"
+                } ${criterionFocus !== null && !on ? "opacity-60" : ""}`}
+                data-mm-legend={item.index}
+              >
+                <span
+                  aria-hidden
+                  className="h-3.5 w-3.5 flex-none rounded-full"
+                  style={{ background: "#fff", boxShadow: `inset 0 0 0 3.5px ${criterionColor(item.index)}` }}
+                />
+                <span className="truncate">{item.label}</span>
+                <span className="tabular-nums text-slate-500">{item.count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {zoomHandleTop === undefined ? (
         // Zoom controls (bottom right; the presenter's keys stay untouched).
         <div className="absolute bottom-2 right-2 flex flex-col-reverse rounded-xl border border-slate-200 bg-white/90 p-0.5 shadow-sm backdrop-blur">
@@ -1877,6 +2004,46 @@ export default function MindMap({
       )}
     </div>
   );
+}
+
+/** Ring width (px) of a coloured term (AI colouring by criteria). */
+const CRIT_RING = 3.5;
+
+/** The criterion index of a term, or null (none / out of range / no
+ *  colouring). */
+export function criterionOf(n: LiveMindmapNode, criteria: readonly unknown[] | undefined): number | null {
+  const c = n.criterion;
+  return criteria && typeof c === "number" && c >= 0 && c < criteria.length ? c : null;
+}
+
+/** Where the colour legend goes: the widest stretch of the container's
+ *  bottom band (LEGEND_BAND px) that no inset covers (12 px margin); when
+ *  that is narrower than LEGEND_MIN, a full-width row above the lowest inset
+ *  top in that band. */
+const LEGEND_BAND = 56;
+const LEGEND_MIN = 260;
+export function placeLegend(
+  w: number,
+  h: number,
+  obstacles: Obstacle[],
+): { left: number; width: number; bottom: number } {
+  const margin = 12;
+  const top = h - LEGEND_BAND;
+  const blocking = obstacles.filter((o) => o.y < h && o.y + o.h > top);
+  const cuts = blocking
+    .map((o) => [o.x - margin, o.x + o.w + margin] as const)
+    .sort((a, b) => a[0] - b[0]);
+  let best = { left: margin, width: 0 };
+  let cursor = margin;
+  for (const [a, b] of [...cuts, [w - margin, w - margin] as const]) {
+    const end = Math.min(a, w - margin);
+    if (end - cursor > best.width) best = { left: cursor, width: end - cursor };
+    cursor = Math.max(cursor, b);
+  }
+  if (best.width >= LEGEND_MIN || blocking.length === 0)
+    return { left: best.left, width: Math.max(0, best.width), bottom: 10 };
+  const lift = Math.min(...blocking.map((o) => o.y));
+  return { left: margin, width: Math.max(0, w - 2 * margin), bottom: Math.max(10, h - lift + 8) };
 }
 
 /** Accent of the AI preview marks (violet, clear of the pastel branch fills

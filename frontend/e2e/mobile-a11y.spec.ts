@@ -18,6 +18,7 @@ import {
   type Kind,
   type Seed,
 } from './helpers/seed';
+import { CRITERIA, seedCriteriaMindmap } from './helpers/mindmapCriteria';
 
 const test = base.extend<{ _tourSeen: void }, { seed: Seed }>({
   seed: [async ({}, use) => use(readSeed()), { scope: 'worker' }],
@@ -103,6 +104,23 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await expectNoAxeViolations(page, 'results page');
       });
 
+      // Mind map with AI colouring (stored assignments seeded, see
+      // helpers/mindmapCriteria.ts): legend + ring dots in the outline.
+      test('results page (mind map colouring)', async ({ page }) => {
+        const created: number[] = [];
+        try {
+          const room = await seedCriteriaMindmap(page.request, 'a11y crit', (id) => created.push(id));
+          await page.goto(`/sets/${room.setId}/results`);
+          const legend = page.getByTestId('mm-criteria-legend');
+          await expect(legend).toBeVisible();
+          await expect(legend.locator('li')).toHaveCount(CRITERIA.length);
+          await expect(page.locator('li[data-mm-criterion]')).toHaveCount(5);
+          await expectNoAxeViolations(page, 'results page mind map colouring');
+        } finally {
+          await deleteRooms(page.request, created);
+        }
+      });
+
       // The danger button of every delete confirmation (C1); cancelled, so
       // the shared seed stays intact.
       test('delete confirmation dialog', async ({ page, seed }) => {
@@ -164,6 +182,37 @@ for (const colorScheme of ['light', 'dark'] as const) {
           await sliders.nth(1).fill('60');
           await expect(page.locator('.pri-budget')).toContainText(/100/);
           await expectNoAxeViolations(page, 'participant priorities, budget spent');
+        } finally {
+          await page.close();
+          await deleteRooms(demoApi, created);
+          await demoApi.dispose();
+        }
+      });
+
+      // Mind map results with AI colouring: a dot before each assigned term
+      // and the legend; no sideways scrolling on the phone.
+      test('results (mind map colouring)', async ({ page, playwright }) => {
+        const demoApi = await playwright.request.newContext({ storageState: AUTH.demo });
+        const created: number[] = [];
+        try {
+          const room = await seedCriteriaMindmap(demoApi, 'a11y crit', (id) => created.push(id));
+          await page.goto(`${API_BASE_URL}/p/${room.code}/`);
+          await expect(page.locator('#mindmap')).toBeVisible();
+          const legend = page.locator('#mm-legend');
+          await expect(legend).toBeVisible();
+          await expect(legend.locator('li')).toHaveCount(CRITERIA.length);
+          await expect(legend).toContainText(/Orte|Places/);
+          // 5 of the 6 terms carry a criterion (one has none).
+          await expect(page.locator('#mm-tree .mm-crit:visible')).toHaveCount(5);
+          await expect(page.locator('#mm-tree .mm-crit:visible').first()).toHaveAttribute(
+            'aria-label',
+            /^(Kriterium|Criterion): /,
+          );
+          const overflow = await page.evaluate(
+            () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          );
+          expect(overflow, 'horizontal overflow').toBeLessThanOrEqual(0);
+          await expectNoAxeViolations(page, 'participant results mind map colouring');
         } finally {
           await page.close();
           await deleteRooms(demoApi, created);

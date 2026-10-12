@@ -19,12 +19,17 @@ import {
   type WordCloudOptimization,
 } from "../api";
 import { useApp, useEasyMode } from "../App";
-import { localizedText, RichText, stripHtml } from "@basicbar/ui";
+import { localizedText, RichText, stripHtml, type LocalizedText } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
 import LikertResult from "../components/LikertResult";
-import { mindmapBranchHues, mindmapNodeDescriptions, mindmapNodeText } from "../results/MindMap";
+import {
+  criterionOf,
+  mindmapBranchHues,
+  mindmapNodeDescriptions,
+  mindmapNodeText,
+} from "../results/MindMap";
 import MindmapRanking, { rankMindmap } from "../results/MindmapRanking";
 import PriorityBar from "../results/PriorityBar";
 import ResultBar from "../results/ResultBar";
@@ -37,6 +42,7 @@ import {
   NEUTRAL_TILE,
   evalColor,
   termColor,
+  criterionColor,
 } from "../results/palette";
 
 function aiErrorText(err: unknown): string {
@@ -672,6 +678,7 @@ export default function ResultsPage() {
                               nodes={question.mindmap?.nodes ?? []}
                               root={localizedText(question.mindmap?.root.label) || stripHtml(localizedText(question.text))}
                               rating={question.mindmap?.rating}
+                              criteria={question.mindmap?.criteria?.items}
                             />
                           )}
                           {question.words && question.kind === "word_cloud" && (
@@ -709,17 +716,31 @@ type ResultQuestion = RunResults["questions"][number];
 
 /** Mindmap result (visible nodes only): root, then the terms as an indented
  * outline with count pills (> 1) and muted descriptions. With a rating
- * phase: each rated term's score in the outline, and the ranking below. */
+ * phase: each rated term's score in the outline, and the ranking below.
+ * With AI colouring (stored assignments): a ring dot in the criterion's
+ * colour before each assigned term and a legend above the outline. */
 function MindmapOutline({
   nodes,
   root,
   rating,
+  criteria,
 }: {
   nodes: LiveMindmapNode[];
   root: string;
   rating?: MindmapRating;
+  criteria?: LocalizedText[];
 }) {
   const { t } = useTranslation();
+  const critDot = (index: number, label?: string) => (
+    <span
+      role={label ? "img" : undefined}
+      aria-label={label}
+      aria-hidden={label ? undefined : true}
+      title={label}
+      className="mr-1.5 inline-block h-3 w-3 flex-none translate-y-px rounded-full bg-white dark:bg-slate-900"
+      style={{ boxShadow: `inset 0 0 0 3px ${criterionColor(index)}` }}
+    />
+  );
   if (nodes.length === 0) return <span className="text-slate-400">{t("No answers yet.")}</span>;
   const scoreEl = (id: number) => {
     const score = rating?.scores?.[String(id)];
@@ -759,10 +780,17 @@ function MindmapOutline({
       </span>
     );
   };
+  const critMark = (n: LiveMindmapNode) => {
+    const c = criterionOf(n, criteria);
+    return c === null
+      ? null
+      : critDot(c, t("Criterion: {{name}}", { name: localizedText(criteria![c]) }));
+  };
   const render = (list: LiveMindmapNode[], level: number) => (
     <ul className={level ? "ml-4 border-l border-slate-200 pl-3 dark:border-slate-700" : "space-y-1"}>
       {list.map((n) => (
-        <li key={n.id} className="py-0.5">
+        <li key={n.id} className="py-0.5" data-mm-criterion={criterionOf(n, criteria) ?? undefined}>
+          {critMark(n)}
           <span className="text-sm text-slate-800 [overflow-wrap:anywhere] dark:text-slate-100">{mindmapNodeText(n)}</span>
           {n.count > 1 && (
             <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand-700 dark:bg-brand-950 dark:text-brand-300">
@@ -783,6 +811,18 @@ function MindmapOutline({
   const ranking = rating ? rankMindmap(nodes, rating.scores) : [];
   return (
     <div>
+      {criteria && criteria.length > 0 && (
+        <div className="mb-2" data-testid="mm-criteria-legend">
+          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-600 dark:text-slate-300" aria-label={t("Colour key")}>
+            {criteria.map((label, i) => (
+              <li key={i} className="inline-flex items-center">
+                {critDot(i)}
+                {localizedText(label)}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mb-1 text-sm font-semibold text-slate-900 dark:text-slate-50">{root}</div>
       {render(nodes, 0)}
       {rating && (

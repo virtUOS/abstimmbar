@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Check, ChevronLeft, ChevronRight, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Eye, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Plus, Shuffle, Trash2, TriangleAlert, X } from "lucide-react";
 import {
   API_BASE_URL,
   api,
@@ -39,6 +39,8 @@ import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
 import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
+import { CRITERIA_MAX, criterionFilled } from "../results/mindmapAi";
+import { criterionColor } from "../results/palette";
 
 function aiErrorText(err: unknown): string {
   try {
@@ -260,6 +262,8 @@ export default function QuestionPage() {
   const [mindmapAiTranslate, setMindmapAiTranslate] = useState(true);
   const [mindmapAiTargetLang, setMindmapAiTargetLang] = useState<"" | "de" | "en">("");
   const [mindmapAiRestructure, setMindmapAiRestructure] = useState(true);
+  // AI colouring (beamer): up to 6 bilingual criteria.
+  const [mindmapCriteria, setMindmapCriteria] = useState<LocalizedText[]>([]);
   // Server refusal for the rating mode (locked while a running session has
   // ratings), shown at the field.
   const [ratingModeError, setRatingModeError] = useState("");
@@ -360,6 +364,7 @@ export default function QuestionPage() {
       setMindmapAiTranslate(data.mindmap_ai_translate ?? true);
       setMindmapAiTargetLang(data.mindmap_ai_target_lang ?? "");
       setMindmapAiRestructure(data.mindmap_ai_restructure ?? true);
+      setMindmapCriteria(data.mindmap_criteria ?? []);
       setTimeLimit(data.time_limit ? String(data.time_limit) : "");
       // Options keep the full {de, en} map so each can be edited bilingually
       // (#33 MR2 Task 9).
@@ -583,6 +588,7 @@ export default function QuestionPage() {
               mindmap_ai_translate: mindmapAiTranslate,
               mindmap_ai_target_lang: mindmapAiTargetLang,
               mindmap_ai_restructure: mindmapAiRestructure,
+              mindmap_criteria: mindmapCriteria.filter(criterionFilled),
             }
           : {}),
         time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
@@ -824,6 +830,7 @@ export default function QuestionPage() {
       mindmapHighlight, mindmapSeed: fromEditableSeed(mindmapSeed),
       mindmapRatingMode, mindmapRatingBudget, mindmapRatingMulti, mindmapRatingLive,
       mindmapAiMerge, mindmapAiTranslate, mindmapAiTargetLang, mindmapAiRestructure,
+      mindmapCriteria: mindmapCriteria.filter(criterionFilled),
     });
   }
 
@@ -1605,7 +1612,7 @@ export default function QuestionPage() {
           </div>
         )}
         {question.kind === "mindmap" && aiEnabled && (
-          <AiAssistPanel title={t("Optimise mind map with AI (presentation)")}>
+          <AiAssistPanel title={t("AI for the mind map (presentation)")}>
             <ToggleSwitch
               checked={wordcloudAiEnabled}
               onChange={setWordcloudAiEnabled}
@@ -1667,6 +1674,63 @@ export default function QuestionPage() {
                   </label>
                 </div>
               </fieldset>
+            )}
+            {wordcloudAiEnabled && (
+              <div
+                className="mt-4 border-t border-slate-200 pt-3 dark:border-slate-700"
+                data-testid="mm-crit-editor"
+              >
+                <h4 className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {t("AI colouring")}
+                </h4>
+                <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                  {t(
+                    "Up to 6 criteria, e.g. “Places” and “Rivers”. The AI assigns each term the best fitting criterion at most; the term gets a ring in its colour.",
+                  )}{" "}
+                  {t("In presentation mode, switch the colouring on with the star.")}
+                </p>
+                {mindmapCriteria.length > 0 && (
+                  <ol className="mt-2 grid gap-2" aria-label={t("Criteria")}>
+                    {mindmapCriteria.map((value, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span
+                          aria-hidden
+                          className="mt-2.5 h-4 w-4 flex-none rounded-full bg-white dark:bg-slate-900"
+                          style={{ boxShadow: `inset 0 0 0 4px ${criterionColor(i)}` }}
+                        />
+                        <TranslatableField
+                          value={value}
+                          onChange={(next) =>
+                            setMindmapCriteria((list) => list.map((c, k) => (k === i ? next : c)))
+                          }
+                          ariaLabel={t("Criterion {{n}}", { n: i + 1 })}
+                          placeholder={t("Criterion {{n}}", { n: i + 1 })}
+                          className="min-w-0 flex-1"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setMindmapCriteria((list) => list.filter((_, k) => k !== i))}
+                          aria-label={t("Remove criterion {{n}}", { n: i + 1 })}
+                          title={t("Remove criterion {{n}}", { n: i + 1 })}
+                          className="mt-1 rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ol>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setMindmapCriteria((list) => [...list, { de: "", en: "" }])}
+                  disabled={mindmapCriteria.length >= CRITERIA_MAX}
+                  title={mindmapCriteria.length >= CRITERIA_MAX ? t("At most 6 criteria.") : undefined}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-2.5 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+                >
+                  <Plus className="h-4 w-4" aria-hidden />
+                  {t("Add criterion")}
+                </button>
+              </div>
             )}
           </AiAssistPanel>
         )}

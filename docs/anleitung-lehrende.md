@@ -266,6 +266,23 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
   Baum –, **Verwerfen** lässt alles, wie es war. Strg/Cmd+Z nimmt die ganze
   Übernahme auf einmal zurück. Von Ihnen angelegte oder vorgegebene Begriffe
   behält die KI bei; gelöscht oder ausgeblendet wird nichts.
+- **Mindmap mit KI färben:** Im selben Stern-Bereich (und schon im Editor
+  unter **KI-Färbung**) legen Sie bis zu sechs **Kriterien** an, deutsch und
+  englisch, z. B. „Orte“ und „Flüsse“ oder „Handlungen“ und „Zustände“.
+  Schalten Sie **Färbung anzeigen** ein, ordnet die KI jedem Begriff höchstens
+  ein Kriterium zu – das am besten passende – und der Beamer umrandet ihn mit
+  einem farbigen Ring; die Füllfarbe des Asts bleibt. Neue und umbenannte
+  Begriffe werden laufend nachgeordnet (der Stern-Bereich zeigt, wie viele noch
+  warten). Unten auf dem Beamer steht eine **Legende**: Ein Klick auf ein
+  Kriterium hebt nur dessen Begriffe hervor, ein zweiter Klick oder Esc zeigt
+  wieder alle. Ändern Sie die Kriterien, ordnet die KI alles neu zu. Klappt es
+  einmal nicht, erscheint ein Hinweis mit **Erneut versuchen**; die Mindmap
+  funktioniert normal weiter. An das KI-Modell gehen nur die Frage, die
+  Kriterien und die Begriffe mit ihren Beschreibungen. Die Zuordnung sehen Sie
+  auch in den Ergebnissen und im CSV-Export (Spalte „kriterium“). Ihre
+  Teilnehmenden sehen die Farben erst in der Ergebnisphase und nur, wenn Sie
+  die Ergebnisse für sie freigegeben haben – als farbigen Punkt vor dem
+  Begriff mit Legende.
 - **Mindmap-Bewertung:** Haben Sie im Editor eine **Bewertungsphase**
   eingestellt, stoppen Sie zunächst das Sammeln und klicken dann unten auf
   **Bewertung starten**. Ihre Teilnehmenden bewerten die Begriffe nun auf ihrem

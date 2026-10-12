@@ -34,6 +34,12 @@ are measured at full opacity. Form-control borders (WCAG 1.4.11) are not an
 axe rule; they come from one token (`border-field` in the management UI,
 `--field-line` on the participant page) — change those, not single inputs.
 
+The mind-map colouring checks (participant results and results page, both
+themes) seed the AI classification without an LLM: `helpers/mindmapCriteria.ts`
+writes the stored assignments and the colouring switch via
+`docker compose exec -T backend python manage.py shell -c …`, so the
+`docker` CLI must reach the dev stack from where the tests run.
+
 Tests create rooms whose titles start with "E2E" and delete them afterwards.
 A loaded Docker host (e.g. colima with little RAM) makes runs slow and can
 cause timeouts; use `--workers=2` or fewer.

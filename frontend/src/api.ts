@@ -229,6 +229,9 @@ export interface Question {
   mindmap_ai_translate: boolean;
   mindmap_ai_target_lang: "" | "de" | "en";
   mindmap_ai_restructure: boolean;
+  /** mindmap only: AI colouring — up to 6 bilingual criteria ({de,en});
+   *  the AI assigns each term at most one (index = colour). */
+  mindmap_criteria: LocalizedText[];
   /** Per-question reveal override; "inherit" uses the set default (#28). */
   reveal_answers: "inherit" | RevealAnswers;
   /** Before/after pair (#54): the before-question this one mirrors (null if
@@ -1049,7 +1052,22 @@ export interface LiveMindmapNode {
   renamed_from?: string;
   moved?: boolean;
   new?: boolean;
+  /** AI colouring: index into `LiveMindmap.criteria.items`, null = no
+   *  criterion fits / not classified yet. Only present while the payload
+   *  carries criteria (presenter: colouring on; participant/results: stored
+   *  assignments). */
+  criterion?: number | null;
   children: LiveMindmapNode[];
+}
+
+/** AI colouring of a mind map. Presenter: `active` (switch), `pending`
+ *  (visible terms not yet classified) and `error` ("ai_error" |
+ *  "invalid_reply"); participant/results: `items` only. */
+export interface MindmapCriteria {
+  items: LocalizedText[];
+  active?: boolean;
+  pending?: number;
+  error?: "ai_error" | "invalid_reply";
 }
 
 export interface MindmapAiSettings {
@@ -1129,6 +1147,7 @@ export interface LiveMindmap {
   total: number;
   nodes: LiveMindmapNode[];
   rating?: MindmapRating;
+  criteria?: MindmapCriteria;
 }
 
 export interface WordCloudWord {
@@ -1444,6 +1463,19 @@ export const live = {
     request<{ applied: number; skipped: number; undo: MindmapAiUndo }>(
       `/api/runs/${runId}/mindmap/${questionId}/ai-apply`,
       { method: "POST", body: JSON.stringify({ proposal, selected }) },
+    ),
+  /** AI colouring by criteria: save the criteria (`criteria`, max. 6 —
+   *  a change re-classifies everything) and/or switch the colouring on/off
+   *  (`active`; on again = "try again" after an error). {} reads the state.
+   *  503 AI off, 400 switch off / invalid criteria. */
+  mindmapAiCriteria: (
+    runId: number,
+    questionId: number,
+    body: { active?: boolean; criteria?: LocalizedText[] },
+  ) =>
+    request<{ active: boolean; criteria: LocalizedText[]; pending: number; error?: MindmapCriteria["error"] }>(
+      `/api/runs/${runId}/mindmap/${questionId}/ai-criteria`,
+      { method: "POST", body: JSON.stringify(body) },
     ),
   /** Reverts an applied batch (409 when the map changed in between). */
   mindmapAiUndo: (runId: number, questionId: number, undo: MindmapAiUndo) =>

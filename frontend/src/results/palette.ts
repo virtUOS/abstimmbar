@@ -62,3 +62,22 @@ export function likertFill(
  * green, sand, rosé; follow-up categories take palette colours. */
 const EVAL_FILLS = [CORRECT, "oklch(0.86 0.09 85)", "oklch(0.80 0.08 20)", categoryColor(0), categoryColor(2)];
 export const evalColor = (i: number) => EVAL_FILLS[((i % EVAL_FILLS.length) + EVAL_FILLS.length) % EVAL_FILLS.length];
+
+/** Mind-map AI colouring by criteria: six strong colours (blue, orange,
+ *  green, pink, violet, olive), clearly apart from the pastel branch fills
+ *  (L 0.80). All sit at mid lightness (L ≈ 0.60), so a ring or dot reaches
+ *  3:1 against white *and* against the dark page/cards (#0c1013, #161c22,
+ *  slate-800/900) — one palette for the light beamer and both themes of the
+ *  participant and results pages. The participant page mirrors these values
+ *  as `--crit-0…5` (participant.html); keep the order in sync. Index = the
+ *  criterion's position in the question's list. */
+export const CRITERION_COLORS = [
+  "oklch(0.60 0.16 255)",
+  "oklch(0.64 0.17 50)",
+  "oklch(0.60 0.12 165)",
+  "oklch(0.60 0.20 345)",
+  "oklch(0.59 0.17 295)",
+  "oklch(0.62 0.125 95)",
+] as const;
+export const criterionColor = (i: number) =>
+  CRITERION_COLORS[((i % CRITERION_COLORS.length) + CRITERION_COLORS.length) % CRITERION_COLORS.length];

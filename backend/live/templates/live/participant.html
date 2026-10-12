@@ -95,6 +95,8 @@ survives the live updates.
   <div class="question-text" id="mm-question"></div>
   <p class="soft" id="mm-intro" style="margin-top:4px" hidden></p>
   <p id="mm-status" aria-live="polite" style="margin-top:6px;font-weight:600;font-size:14px" hidden></p>
+  {# AI colouring by criteria (results phase, released results): legend. #}
+  <ul class="mm-legend" id="mm-legend" hidden></ul>
   <div id="mm-tree"></div>
   <p class="soft" id="mm-empty" style="margin:8px 0 0 12px" hidden></p>
 </section>
@@ -213,6 +215,17 @@ survives the live updates.
   .mm-mine-r.mm-mine-pts{min-width:26px;text-align:center;background:var(--brand-strong);color:var(--surface)}
   .mm-total{flex:none;font-size:12px;font-weight:700;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--ink-soft);white-space:nowrap}
   .mm-rateinfo{font-size:13px}
+  /* AI colouring by criteria: a dot before each assigned term + a legend.
+     Same six colours and order as the beamer (frontend/src/results/
+     palette.ts CRITERION_COLORS); mid lightness, so each dot reaches 3:1
+     against the light and the dark page (and the own-row tint). */
+  :root{--crit-0:oklch(0.60 0.16 255);--crit-1:oklch(0.64 0.17 50);--crit-2:oklch(0.60 0.12 165);
+    --crit-3:oklch(0.60 0.20 345);--crit-4:oklch(0.59 0.17 295);--crit-5:oklch(0.62 0.125 95)}
+  .mm-crit{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:7px;vertical-align:-1px;flex:none}
+  .mm-crit[hidden]{display:none}
+  .mm-legend{list-style:none;padding:0;margin:12px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;font-size:14px;color:var(--ink)}
+  .mm-legend[hidden]{display:none}
+  .mm-legend li{display:inline-flex;align-items:center;min-width:0;overflow-wrap:anywhere}
   .mm-bump{animation:mm-bump .25s ease-out}
   @keyframes mm-bump{50%{transform:scale(1.15)}}
   @media (prefers-reduced-motion: reduce){.mm-bump{animation:none}}
@@ -473,6 +486,9 @@ survives the live updates.
     mmRatingNotStarted: "{% trans 'The rating has not started yet.' %}",
     mmRatingRunning: "{% trans 'The rating is in progress — terms cannot be added or removed now.' %}",
     mmAlreadyRated: "{% trans 'This term has already been rated and cannot be removed.' %}",
+    // Mind map AI colouring (results).
+    mmCriterion: "{% trans 'Criterion: {name}' %}",
+    mmLegend: "{% trans 'Colour key' %}",
     noQuestions: "{% trans 'There are no questions to answer here.' %}",
   };
   // Authored content (question/option text, set title, results labels) now
@@ -2648,7 +2664,9 @@ survives the live updates.
     const text = document.createElement("span"); text.className = "mm-text";
     const label = document.createElement("span");
     const more = document.createElement("span"); more.className = "mm-more";
-    text.append(label, more);
+    const crit = document.createElement("span"); crit.className = "mm-crit"; crit.hidden = true;
+    crit.setAttribute("role", "img");
+    text.append(crit, label, more);
     const pill = document.createElement("span"); pill.className = "mm-pill";
     const add = document.createElement("button");
     add.type = "button"; add.className = "mm-btn mm-add";
@@ -2681,7 +2699,7 @@ survives the live updates.
     note.setAttribute("aria-live", "polite");
     const kids = document.createElement("ul"); kids.className = "mm-list mm-kids";
     li.append(row, desc, note, kids);
-    const el = { li, toggle, spacer, label, more, pill, add, del, desc, note, kids, descKey: null, noteTimer: null,
+    const el = { li, toggle, spacer, label, more, crit, pill, add, del, desc, note, kids, descKey: null, noteTimer: null,
       rate, rCount, rPlus, rUp, rDown, mineR, total, rValue: null };
     mmEls.set(id, el);
     return el;
@@ -2698,6 +2716,18 @@ survives the live updates.
     const termText = isRoot ? locText(state.mindmap.root.label)
       : ((node.text_i18n && locText(node.text_i18n)) || node.text);
     if (el.label.textContent !== termText) el.label.textContent = termText;
+    // AI colouring: only when the payload carries criteria (results phase,
+    // released results, colouring on).
+    const items = (state.mindmap.criteria && state.mindmap.criteria.items) || [];
+    const ci = isRoot ? null : node.criterion;
+    const hasCrit = typeof ci === "number" && ci >= 0 && ci < items.length;
+    el.crit.hidden = !hasCrit;
+    if (hasCrit) {
+      el.crit.style.background = "var(--crit-" + (ci % 6) + ")";
+      const name = I18N.mmCriterion.replace("{name}", locText(items[ci]));
+      el.crit.setAttribute("aria-label", name);
+      el.crit.title = name;
+    }
     const kids = isRoot ? state.mindmap.nodes : (node.children || []);
     const collapsed = !isRoot && kids.length > 0 && mmCollapsedSet.has(node.id);
     if (el.toggle) {
@@ -2972,6 +3002,22 @@ survives the live updates.
     rootEl.kids.hidden = false;
     mmSyncList(rootEl.kids, mm.nodes || [], 1, animate);
     for (const id of [...mmEls.keys()]) if (id !== "root" && !mmNodes.has(id)) mmEls.delete(id);
+    const legend = document.getElementById("mm-legend");
+    const items = (mm.criteria && mm.criteria.items) || [];
+    const legendKey = JSON.stringify(items) + document.documentElement.lang;
+    if (legend.dataset.key !== legendKey) {
+      legend.dataset.key = legendKey;
+      legend.setAttribute("aria-label", I18N.mmLegend);
+      legend.replaceChildren(...items.map((item, i) => {
+        const li = document.createElement("li");
+        const dot = document.createElement("span"); dot.className = "mm-crit";
+        dot.style.background = "var(--crit-" + (i % 6) + ")";
+        dot.setAttribute("aria-hidden", "true");
+        li.append(dot, document.createTextNode(locText(item)));
+        return li;
+      }));
+    }
+    legend.hidden = items.length === 0;
     const empty = document.getElementById("mm-empty");
     empty.hidden = (mm.nodes || []).length > 0;
     empty.textContent = open ? I18N.mmEmpty : I18N.mmEmptyClosed;

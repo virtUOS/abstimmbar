@@ -32,7 +32,7 @@ import { useReducedMotion } from "../results/motion";
 import MindMap, { AI_MARK, hiddenMindmapNodes, mindmapBranchHues } from "../results/MindMap";
 import MindmapRanking, { rankMindmap } from "../results/MindmapRanking";
 import { requestDetail, useMindmapModeration } from "../results/mindmapModeration";
-import { MindmapAiDrawer, useMindmapAi } from "../results/mindmapAi";
+import { MindmapAiDrawer, useMindmapAi, useMindmapCriteria } from "../results/mindmapAi";
 import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -684,6 +684,22 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   }, [showMmAi]);
   const mmAiRef = useRef(mmAi);
   mmAiRef.current = mmAi;
+  // AI colouring by criteria: rings + legend while the (persisted) switch is
+  // on; criteria and switch live in the same drawer. A legend click
+  // highlights one criterion's terms; Esc or a second click clears it.
+  const mmCrit = useMindmapCriteria({
+    runId,
+    questionId: activeKind === "mindmap" ? activeId : null,
+    criteria: mindmap?.criteria,
+  });
+  const mmCritItems =
+    mindmap?.criteria?.active && mindmap.criteria.items.length > 0 ? mindmap.criteria.items : undefined;
+  const [mmCritFocus, setMmCritFocus] = useState<number | null>(null);
+  const mmCritFocusShown =
+    mmCritItems && mmCritFocus !== null && mmCritFocus < mmCritItems.length ? mmCritFocus : null;
+  useEffect(() => setMmCritFocus(null), [runId, activeId]);
+  const mmCritFocusRef = useRef<number | null>(null);
+  mmCritFocusRef.current = mmShown && wcView !== "ranking" ? mmCritFocusShown : null;
   // With the AI drawer (w-96) open the map fits beside it, so every
   // (marked) term stays visible next to the checklist.
   const mmPreview = mmAi.proposal?.preview;
@@ -1206,6 +1222,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         setShowAiPanel(false);
         setShowModPanel(false);
         if (mmAiRef.current.open) mmAiRef.current.close();
+        return;
+      }
+      // …and a highlighted criterion of the mind-map colouring.
+      if (key === "escape" && mmCritFocusRef.current !== null) {
+        setMmCritFocus(null);
         return;
       }
       if (key === "q") {
@@ -1901,6 +1922,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 zoomHandleTop={mmZoomTop}
                 memoryKey={`${runId}:${question.id}`}
                 rating={mmRating}
+                criteria={mmCritItems}
+                criterionFocus={mmCritFocusShown}
+                onCriterionFocus={setMmCritFocus}
                 lockedNote={
                   expert && mmRate
                     ? t("During the rating, terms can only be hidden — adding, merging, moving and renaming return with “Back to collecting”.")
@@ -2398,7 +2422,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               >
                 <Sparkles className="h-5 w-5" />
               </button>
-              <MindmapAiDrawer ai={mmAi} drawerAttr={WC_DRAWER_ATTR} onClick={blurClickedButton} />
+              <MindmapAiDrawer
+                ai={mmAi}
+                crit={mmCrit}
+                drawerAttr={WC_DRAWER_ATTR}
+                onClick={blurClickedButton}
+              />
             </>
           )}
 
