@@ -15,7 +15,7 @@ from django.db.models import Count
 from common.i18n_fields import translated_map
 from rooms.models import Question
 
-from . import ai_wordcloud_live, mindmap, mindmap_rating
+from . import ai_mindmap_criteria, ai_wordcloud_live, mindmap, mindmap_rating
 from .hub import hub
 from .models import Run, WordCloudModeration
 from .results import (
@@ -151,6 +151,14 @@ def build_payloads(room):
         rating = mindmap_rating.payload(run, question, presenter=False)
         if rating is not None:
             participant["mindmap"]["rating"] = rating
+        if (
+            run.phase == Run.Phase.RESULTS
+            and question_set.show_results_to_participants
+        ):
+            # AI colouring by criteria: only with released results, and only
+            # once at least one term has a criterion (``criteria.items`` +
+            # ``criterion`` per node).
+            ai_mindmap_criteria.attach_stored(run, question, participant["mindmap"])
     # Results on participant devices (v2, per-set option): only while the
     # beamer shows results, correct flags only once revealed.
     if (
@@ -222,6 +230,11 @@ def build_payloads(room):
             presenter["votes"] = mindmap.contributor_count(run, question)
             # Presenter-only: the AI optimisation settings (beamer star panel).
             presenter["question"]["mindmap_ai"] = mindmap.ai_settings(question)
+            # AI colouring by criteria: {active, items, pending, error?}; with
+            # colouring on, ``criterion`` (index|null) on every node.
+            presenter["mindmap"]["criteria"] = ai_mindmap_criteria.presenter_payload(
+                run, question, presenter["mindmap"]
+            )
         elif question.kind in Question.TEXT_KINDS:
             presenter["words"] = words_with_counts(run, question)
             mod = WordCloudModeration.objects.filter(run=run, question=question).first()

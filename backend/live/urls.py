@@ -90,6 +90,10 @@ api_urlpatterns = [
         views.mindmap_ai_undo,
     ),
     path(
+        "runs/<int:run_id>/mindmap/<int:question_id>/ai-criteria",
+        views.mindmap_ai_criteria_view,
+    ),
+    path(
         "runs/<int:run_id>/wordcloud/<int:question_id>/ai-settings",
         views.wordcloud_ai_settings,
     ),

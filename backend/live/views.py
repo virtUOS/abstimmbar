@@ -32,17 +32,19 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from common.markdown import render_markdown
 from common.models import SiteConfig
+from rooms import mindmap as mindmap_authoring
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import (
     ai_evaluation,
-    mindmap,
     ai_freetext,
     ai_freetext_summary,
     ai_mindmap,
+    ai_mindmap_criteria,
     ai_report,
     ai_wordcloud,
     ai_wordcloud_live,
+    mindmap,
     mindmap_rating,
 )
 from .ai_freetext import clean_categories
@@ -767,6 +769,9 @@ def mindmap_add(request, code):
     except mindmap.MindmapError as error:
         return Response({"detail": error.detail}, status=error.status)
     broadcast(room, debounce=mindmap.BROADCAST_DEBOUNCE)
+    if not merged:
+        # A new term: classify it if the beamer shows the AI colouring.
+        ai_mindmap_criteria.schedule(run.pk, question.pk, room.pk)
     return Response(
         {
             "node_id": node.pk,
@@ -1759,6 +1764,8 @@ def mindmap_hide(request, run_id, question_id):
     if node is None or not mindmap.set_hidden(run, question, node, hidden):
         raise Http404
     broadcast(room)
+    # Unhidden terms may still need their AI colouring.
+    ai_mindmap_criteria.schedule(run.pk, question.pk, room.pk)
     # Echo for the beamer's undo stack (inverse = the same call with !hidden).
     return Response({"status": "ok", "node": node, "hidden": hidden})
 
@@ -1819,6 +1826,9 @@ def _mindmap_moderate(request, run_id, question_id, action, status=200):
     if isinstance(body, tuple):
         body, status = body
     broadcast(room)
+    # The tree changed (add/rename/merge/unmerge/move/AI apply …): classify
+    # new or renamed terms if the AI colouring is on (no-op otherwise).
+    ai_mindmap_criteria.schedule(run.pk, question.pk, room.pk)
     return Response(body, status=status)
 
 
@@ -2063,6 +2073,53 @@ def mindmap_ai_undo(request, run_id, question_id):
         return {"status": "ok"}
 
     return _mindmap_moderate(request, run_id, question_id, action)
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def mindmap_ai_criteria_view(request, run_id, question_id):
+    """Presenter (expert mode): AI colouring by criteria. Body ``{active?:
+    bool, criteria?: [{de, en}]}`` — ``criteria`` (max. 6, each ≤ 80 chars)
+    is saved on the question (a change invalidates every stored
+    classification), ``active`` switches the live colouring of this run's map
+    on/off; switching on (again) clears an error and schedules a pass ("try
+    again"). → 200 ``{active, criteria, pending}`` (+ ``error`` code when the
+    last pass failed). 400 bad input / AI switch off (on), 503 AI not
+    configured (on), 404 non-owner. No LLM call in the request."""
+    run, room, question = _mindmap_moderation(request, run_id, question_id)
+    data = request.data
+    if not isinstance(data, dict):
+        return Response({"detail": "Invalid request."}, status=400)
+    active = data.get("active")
+    if "active" in data and not isinstance(active, bool):
+        return Response({"detail": "active must be true or false."}, status=400)
+    criteria = None
+    if "criteria" in data:
+        try:
+            criteria = mindmap_authoring.clean_criteria(data["criteria"], strict=True)
+        except mindmap_authoring.CriteriaError as error:
+            return Response({"detail": str(error)}, status=400)
+    if active is True:
+        if not ai.is_enabled():
+            return Response({"detail": "KI ist nicht konfiguriert."}, status=503)
+        if not question.wordcloud_ai_enabled:
+            return Response(
+                {"detail": "KI-Funktionen sind für diese Frage nicht aktiviert."},
+                status=400,
+            )
+    if criteria is not None and criteria != question.mindmap_criteria:
+        question.mindmap_criteria = criteria
+        question.save(update_fields=["mindmap_criteria", "updated_at"])
+        ai_mindmap_criteria.criteria_changed(question.pk)
+    if active is not None:
+        ai_mindmap_criteria.set_active(run.pk, question.pk, room.pk, active)
+    broadcast(room)
+    tree = mindmap.build_tree(run, question, presenter=True)
+    state = ai_mindmap_criteria.presenter_payload(run, question, tree)
+    body = {"active": state["active"], "criteria": state["items"], "pending": state["pending"]}
+    if state.get("error"):
+        body["error"] = state["error"]
+    return Response(body)
 
 
 @api_view(["POST"])
@@ -2404,7 +2461,8 @@ def results_csv(request, set_id):
     buffer = io.StringIO()
     writer = csv.writer(buffer, delimiter=";")
     header = ["durchfuehrung", "gestartet", "frage_nr", "frage", "antwort", "richtig",
-              "stimmen", "vor_ort", "aufzeichnung", "prozent", "bewertung"]
+              "stimmen", "vor_ort", "aufzeichnung", "prozent", "bewertung",
+              "kriterium"]
     writer.writerow(header)
     raw_writerow = writer.writerow
 
@@ -2437,13 +2495,21 @@ def results_csv(request, set_id):
                     if question.mindmap_rating_mode and not hidden
                     else {}
                 )
+                # AI colouring: the term's criterion (stored, still valid).
+                criteria = question.mindmap_criteria or []
+                assigned = ai_mindmap_criteria.valid_assignments(run, question)
                 for path, count, node_id in mindmap.csv_rows(tree):
                     cell = (
                         "" if hidden
                         else mindmap_rating.csv_cell(question, scores, node_id)
                     )
+                    index = assigned.get(node_id)
+                    criterion = (
+                        resolve_translated_text(criteria[index]) if index is not None else ""
+                    )
                     writer.writerow(
-                        base + [csv_safe(path), "", count, "", "", "", csv_safe(cell)]
+                        base + [csv_safe(path), "", count, "", "", "", csv_safe(cell),
+                                csv_safe(criterion)]
                     )
             elif question.kind in Question.TEXT_KINDS:
                 for word in words_with_counts(run, question, limit=100000):

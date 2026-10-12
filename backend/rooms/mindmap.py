@@ -226,3 +226,78 @@ def clamp_rating_budget(value):
     ):
         return value
     return RATING_DEFAULT_BUDGET
+
+
+# AI colouring by criteria (stage 3, live/ai_mindmap_criteria.py): up to
+# CRITERIA_MAX teacher-defined criteria, each a bilingual {de, en} map.
+CRITERIA_MAX = 6
+CRITERION_TEXT_MAX = 80
+
+
+class CriteriaError(ValueError):
+    """Invalid colouring criteria (strict mode)."""
+
+
+def clean_criteria(value, *, strict=True):
+    """Return the normalised criteria list ``[{lang: text}]``.
+
+    Every entry is a ``{lang: text}`` map (a plain string means the canonical
+    language); texts are normalised like terms. Entirely empty entries are
+    dropped. ``strict`` (editor/beamer API) raises CriteriaError for a wrong
+    type, more than CRITERIA_MAX entries, an over-long text or a duplicate;
+    lenient mode (imports of foreign files) drops/truncates instead. A missing
+    canonical text is filled from the first filled translation."""
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        if strict:
+            raise CriteriaError("Criteria must be a list.")
+        return []
+    canonical, langs = seed_langs()
+    result, seen = [], set()
+    for raw in value:
+        if not isinstance(raw, (dict, str)) or (
+            isinstance(raw, dict)
+            and any(v is not None and not isinstance(v, str) for v in raw.values())
+        ):
+            if strict:
+                raise CriteriaError("Invalid criterion.")
+            continue
+        text = seed_map(raw)
+        if not any(text.values()):
+            continue
+        for lang in langs:
+            if len(text[lang]) > CRITERION_TEXT_MAX:
+                if strict:
+                    raise CriteriaError(
+                        f"A criterion may have at most {CRITERION_TEXT_MAX} characters."
+                    )
+                text[lang] = text[lang][:CRITERION_TEXT_MAX].strip()
+        if not text[canonical]:
+            text[canonical] = next(text[lang] for lang in langs if text[lang])
+        key = text[canonical].casefold()
+        if key in seen:
+            if strict:
+                raise CriteriaError(f"“{text[canonical]}” appears twice.")
+            continue
+        if len(result) >= CRITERIA_MAX:
+            if strict:
+                raise CriteriaError(f"At most {CRITERIA_MAX} criteria.")
+            break
+        seen.add(key)
+        result.append(text)
+    return result
+
+
+def criteria_fingerprint(criteria):
+    """Short fingerprint of the canonical criteria texts (in order): a stored
+    classification is only valid while it matches. "" = no criteria."""
+    import hashlib
+    import json
+
+    canonical, _ = seed_langs()
+    texts = [entry.get(canonical, "") for entry in criteria or [] if isinstance(entry, dict)]
+    if not texts:
+        return ""
+    digest = hashlib.sha256(json.dumps(texts, ensure_ascii=False).encode()).hexdigest()
+    return digest[:16]

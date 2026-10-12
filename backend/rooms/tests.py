@@ -5229,3 +5229,119 @@ class MindmapAiSettingsTests(ApiTestCase):
         self.assertTrue(question.mindmap_ai_merge)
         self.assertTrue(question.mindmap_ai_translate)
         self.assertTrue(question.mindmap_ai_restructure)
+
+
+class MindmapCriteriaTests(ApiTestCase):
+    """Mindmap AI colouring (stage 3, part 2): the question's criteria."""
+
+    def setUp(self):
+        super().setUp()
+        self.question_set = QuestionSet.objects.create(room=self.room, title_de="Live")
+
+    def _create(self, **overrides):
+        payload = {
+            "question_set": self.question_set.pk,
+            "kind": "mindmap",
+            "text": {"de": "<p>Q?</p>", "en": ""},
+            "options": [],
+        }
+        payload.update(overrides)
+        return self.client.post("/api/questions/", payload, content_type="application/json")
+
+    def test_default_empty(self):
+        self.assertEqual(self._create().json()["mindmap_criteria"], [])
+
+    def test_saved_trimmed_and_normalised(self):
+        response = self._create(mindmap_criteria=[
+            {"de": "  Orte ", "en": "Places"},
+            "Flüsse",  # plain string = canonical language
+            {"de": "", "en": "  "},  # empty entry dropped
+            {"de": "", "en": "Mountains"},  # canonical filled from translation
+        ])
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["mindmap_criteria"], [
+            {"de": "Orte", "en": "Places"},
+            {"de": "Flüsse", "en": ""},
+            {"de": "Mountains", "en": "Mountains"},
+        ])
+
+    def test_validation(self):
+        cases = {
+            "not a list": "Orte",
+            "seven": [f"K{i}" for i in range(7)],
+            "too long": ["x" * 81],
+            "too long en": [{"de": "Orte", "en": "x" * 81}],
+            "bad type": [3],
+            "bad value type": [{"de": 3}],
+            "duplicate": ["Orte", {"de": "orte", "en": "x"}],
+        }
+        for label, value in cases.items():
+            response = self._create(mindmap_criteria=value)
+            self.assertEqual(response.status_code, 400, label)
+            self.assertIn("mindmap_criteria", response.json(), label)
+        self.assertEqual(
+            self._create(mindmap_criteria=[f"K{i}" for i in range(6)]).status_code, 201
+        )
+        self.assertEqual(self._create(mindmap_criteria=["x" * 80]).status_code, 201)
+
+    def test_update_triggers_reclassification(self):
+        question = Question.objects.get(pk=self._create().json()["id"])
+        with patch("live.ai_mindmap_criteria.criteria_changed") as changed:
+            response = self.client.patch(
+                f"/api/questions/{question.pk}/", {"mindmap_criteria": ["Orte"]},
+                content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 200, response.content)
+            changed.assert_called_once_with(question.pk)
+            self.client.patch(
+                f"/api/questions/{question.pk}/", {"mindmap_depth": 3},
+                content_type="application/json",
+            )
+            changed.assert_called_once()  # unchanged criteria: no trigger
+
+    def _criteria_question(self):
+        return Question.objects.create(
+            question_set=self.question_set, kind="mindmap", text_de="<p>Q</p>",
+            mindmap_criteria=[{"de": "Orte", "en": "Places"}, {"de": "Flüsse", "en": ""}],
+        )
+
+    def test_duplicate_copies_criteria(self):
+        from .transfer import duplicate_set
+
+        source = self._criteria_question()
+        copy = duplicate_set(self.question_set, self.room).questions.get()
+        self.assertEqual(copy.mindmap_criteria, source.mindmap_criteria)
+
+    def test_export_import_roundtrip(self):
+        from .transfer import export_set, import_set
+
+        source = self._criteria_question()
+        data = export_set(self.question_set)
+        self.assertEqual(data["questions"][0]["mindmap_criteria"], source.mindmap_criteria)
+        imported = import_set(self.room, data).questions.get()
+        self.assertEqual(imported.mindmap_criteria, source.mindmap_criteria)
+
+    def test_import_is_lenient(self):
+        from .transfer import import_set
+
+        imported = import_set(self.room, {
+            "format": "abstimmbar-set-v2",
+            "title": {"de": "Fremd", "en": ""},
+            "questions": [{
+                "kind": "mindmap",
+                "text": {"de": "<p>Q</p>", "en": ""},
+                "mindmap_criteria": ["x" * 100, 5, "Orte", "orte",
+                                     *[f"K{i}" for i in range(10)]],
+            }],
+        })
+        criteria = imported.questions.get().mindmap_criteria
+        self.assertEqual(len(criteria), 6)
+        self.assertEqual(criteria[0]["de"], "x" * 80)
+        self.assertEqual(criteria[1]["de"], "Orte")
+        self.assertEqual(criteria[2]["de"], "K0")
+        bad = import_set(self.room, {
+            "format": "abstimmbar-set-v2", "title": "F",
+            "questions": [{"kind": "mindmap", "text": "<p>Q</p>",
+                           "mindmap_criteria": "nope"}],
+        })
+        self.assertEqual(bad.questions.get().mindmap_criteria, [])

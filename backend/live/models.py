@@ -294,6 +294,14 @@ class MindmapNode(models.Model):
     # teacher nodes may be deleted again (exact undo of an add).
     teacher = models.BooleanField(default=False)
     hidden = models.BooleanField(default=False)
+    # AI colouring (stage 3, live/ai_mindmap_criteria.py): index into the
+    # question's ``mindmap_criteria`` (null = none fits). Only valid while
+    # ``ai_criteria_fp`` matches the current criteria's fingerprint and
+    # ``ai_text_key`` the node's current ``text_key`` (a rename re-classifies);
+    # ``ai_criteria_fp`` "" = never classified.
+    ai_criterion = models.PositiveSmallIntegerField(null=True, blank=True)
+    ai_criteria_fp = models.CharField(max_length=16, blank=True, default="")
+    ai_text_key = models.CharField(max_length=60, blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -7521,7 +7521,7 @@ class MindmapRatingResultsTests(MindmapRatingTestCase):
             f"/api/question-sets/{self.question_set.pk}/results.csv"
         ).content.decode("utf-8-sig")
         lines = body.splitlines()
-        self.assertTrue(lines[0].endswith(";prozent;bewertung"))
+        self.assertTrue(lines[0].endswith(";prozent;bewertung;kriterium"))
         self.assertIn(";Wind > Rotor;;1;;;;3", body)
         self.assertIn(";Solar;;2;;;;1", body)
         # Formula-injection guard for participant text stays in place.
@@ -7568,7 +7568,7 @@ class MindmapRatingFixRoundTests(MindmapRatingTestCase):
         self.assertNotIn("scores", rating)
         self.assertNotIn("ranking", rating)
         self.assertEqual(rating["raters"], 1)
-        self.assertIn(";Wind;;1;;;;\r\n", self.csv())
+        self.assertIn(";Wind;;1;;;;;\r\n", self.csv())
         # Reveal (results phase) or a finished run: scores again.
         self.set_phase(Run.Phase.RESULTS)
         rating = self.results_rating()

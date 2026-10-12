@@ -406,7 +406,7 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             "mindmap_descriptions", "mindmap_highlight_duplicates", "mindmap_seed",
             "mindmap_rating_mode", "mindmap_rating_budget", "mindmap_rating_multi",
             "mindmap_rating_live", "mindmap_ai_merge", "mindmap_ai_translate",
-            "mindmap_ai_target_lang", "mindmap_ai_restructure",
+            "mindmap_ai_target_lang", "mindmap_ai_restructure", "mindmap_criteria",
             "reveal_answers", "before_question", "after_question", "is_after",
             "created_at", "updated_at",
         ]
@@ -522,6 +522,14 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                 attrs["mindmap_seed"] = mindmap.clean_seed(seed, depth, strict=True)
             except mindmap.SeedError as exc:
                 raise serializers.ValidationError({"mindmap_seed": str(exc)}) from exc
+        # Mindmap AI colouring: up to 6 bilingual criteria (strict).
+        if "mindmap_criteria" in attrs:
+            try:
+                attrs["mindmap_criteria"] = mindmap.clean_criteria(
+                    attrs["mindmap_criteria"], strict=True
+                )
+            except mindmap.CriteriaError as exc:
+                raise serializers.ValidationError({"mindmap_criteria": str(exc)}) from exc
         # A section must belong to the same set as the question.
         section = attrs.get("section")
         if section is not None:
@@ -585,9 +593,15 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
         # A question stays in its set; moving between sets is a v2 feature.
         validated_data.pop("question_set", None)
         options = validated_data.pop("options", None)
+        old_criteria = instance.mindmap_criteria
         question = super().update(instance, validated_data)
         if options is not None:
             self._write_options(question, options)
+        if question.mindmap_criteria != old_criteria:
+            # Live colouring on the beamer: re-classify with the new criteria.
+            from live import ai_mindmap_criteria
+
+            ai_mindmap_criteria.criteria_changed(question.pk)
         # Keep a linked after-question's content in sync (#54); no-op otherwise.
         sync_after_question(question)
         return question

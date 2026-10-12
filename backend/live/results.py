@@ -11,7 +11,7 @@ from django.db.models import Avg, Count, Max, Min
 from common.i18n_fields import translated_map
 from rooms.models import Question
 
-from . import mindmap_rating
+from . import ai_mindmap_criteria, mindmap_rating
 from .mindmap import build_tree, contribution_total, contributor_count
 from .models import Vote
 
@@ -399,6 +399,9 @@ def run_results(run):
             rating = mindmap_rating.results(run, question, item["mindmap"])
             if rating is not None:
                 item["mindmap"]["rating"] = rating
+            # AI colouring by criteria (stored per term): ``criteria.items``
+            # + ``criterion`` per node, once any term has one.
+            ai_mindmap_criteria.attach_stored(run, question, item["mindmap"])
             item["votes"] = contributor_count(run, question)
         elif question.kind in Question.TEXT_KINDS:
             item["words"] = words_with_counts(run, question)

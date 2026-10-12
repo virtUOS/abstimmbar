@@ -443,6 +443,10 @@ class Question(TimeStampedModel):
         max_length=8, choices=settings.LANGUAGES, blank=True, default=""
     )
     mindmap_ai_restructure = models.BooleanField(default=True)
+    # AI colouring (stage 3, live/ai_mindmap_criteria.py): up to 6 criteria,
+    # each a bilingual {de, en} map (rooms/mindmap.py clean_criteria); while
+    # colouring is on, the LLM assigns each live term at most one of them.
+    mindmap_criteria = models.JSONField(default=list, blank=True)
 
     class RevealAnswers(models.TextChoices):
         # Per-question override of when correct answers are highlighted (#28).

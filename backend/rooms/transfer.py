@@ -117,6 +117,7 @@ QUESTION_CONTENT_FIELDS = (
     "mindmap_ai_translate",
     "mindmap_ai_target_lang",
     "mindmap_ai_restructure",
+    "mindmap_criteria",
 )
 # Translatable Question fields copied column by column (never the bare
 # accessor): the question text and the mindmap root label.
@@ -298,6 +299,7 @@ def export_set(question_set):
                 "mindmap_ai_translate": question.mindmap_ai_translate,
                 "mindmap_ai_target_lang": question.mindmap_ai_target_lang,
                 "mindmap_ai_restructure": question.mindmap_ai_restructure,
+                "mindmap_criteria": question.mindmap_criteria,
                 "section": section_index.get(question.section_id),
                 "options": [
                     {
@@ -463,6 +465,9 @@ def import_set(room, data):
                 item.get("mindmap_ai_target_lang")
             ),
             mindmap_ai_restructure=bool(item.get("mindmap_ai_restructure", True)),
+            mindmap_criteria=mindmap.clean_criteria(
+                item.get("mindmap_criteria"), strict=False
+            ),
             shuffle_options=bool(item.get("shuffle_options")),
             binary_choice=bool(item.get("binary_choice")),
             time_limit=time_limit,
