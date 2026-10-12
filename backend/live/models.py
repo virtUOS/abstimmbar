@@ -360,6 +360,10 @@ class MindmapPhase(models.Model):
     stage = models.CharField(max_length=10, choices=Stage.choices, default=Stage.COLLECT)
     # Last time the rating stage was (re)started.
     rating_started_at = models.DateTimeField(null=True, blank=True)
+    # AI colouring by criteria switched on for this run's map (presenter's
+    # panel; live/ai_mindmap_criteria.py). Persisted so it survives a
+    # restart; no row = off.
+    ai_criteria_active = models.BooleanField(default=False)
 
     class Meta:
         constraints: ClassVar = [

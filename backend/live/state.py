@@ -155,10 +155,12 @@ def build_payloads(room):
             run.phase == Run.Phase.RESULTS
             and question_set.show_results_to_participants
         ):
-            # AI colouring by criteria: only with released results, and only
-            # once at least one term has a criterion (``criteria.items`` +
-            # ``criterion`` per node).
-            ai_mindmap_criteria.attach_stored(run, question, participant["mindmap"])
+            # AI colouring by criteria: only with released results, while
+            # the presenter's colouring switch is on, and only once at least
+            # one term has a criterion (``criteria.items`` + ``criterion``).
+            ai_mindmap_criteria.attach_stored(
+                run, question, participant["mindmap"], require_active=True
+            )
     # Results on participant devices (v2, per-set option): only while the
     # beamer shows results, correct flags only once revealed.
     if (

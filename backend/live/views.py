@@ -34,6 +34,7 @@ from common.markdown import render_markdown
 from common.models import SiteConfig
 from rooms import mindmap as mindmap_authoring
 from rooms.models import AnswerOption, Question, QuestionSet, Room
+from rooms.transfer import sync_after_question
 
 from . import (
     ai_evaluation,
@@ -2110,6 +2111,8 @@ def mindmap_ai_criteria_view(request, run_id, question_id):
     if criteria is not None and criteria != question.mindmap_criteria:
         question.mindmap_criteria = criteria
         question.save(update_fields=["mindmap_criteria", "updated_at"])
+        # Same as an editor save: a paired after-question (#54) follows.
+        sync_after_question(question)
         ai_mindmap_criteria.criteria_changed(question.pk)
     if active is not None:
         ai_mindmap_criteria.set_active(run.pk, question.pk, room.pk, active)

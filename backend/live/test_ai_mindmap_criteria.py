@@ -13,7 +13,7 @@ from django.test import override_settings
 from . import ai_mindmap_criteria as crit
 from . import mindmap
 from . import tests as base
-from .models import ParticipantToken, Run
+from .models import MindmapNode, MindmapPhase, ParticipantToken, Run
 from .results import run_results
 from .state import build_payloads
 from .test_ai_mindmap import MindmapAiTestCase
@@ -64,10 +64,15 @@ class CriteriaTestCase(MindmapAiTestCase):
         self.mq.mindmap_criteria = CRITERIA
         self.mq.save()
         self.key = (self.run.pk, self.mq.pk)
-        self.addCleanup(crit._active.clear)
         self.addCleanup(crit._errors.clear)
         self.addCleanup(crit._running.clear)
         self.addCleanup(crit._dirty.clear)
+        self.addCleanup(crit._omissions.clear)
+        self.addCleanup(crit._retried.clear)
+        # Never start real worker threads or timers in tests.
+        self.submit = patch.object(crit._executor, "submit").start()
+        self.timer = patch.object(crit, "_timer").start()
+        self.addCleanup(patch.stopall)
 
     def classify(self, llm=None, **mapping):
         llm = llm or FakeLLM(by_text(mapping))
@@ -80,8 +85,10 @@ class CriteriaTestCase(MindmapAiTestCase):
         self.mq.refresh_from_db()
         return crit.valid_assignments(self.run, self.mq).get(node_id, "unclassified")
 
-    def activate(self):
-        crit._active[self.key] = self.room.pk
+    def activate(self, on=True):
+        MindmapPhase.objects.update_or_create(
+            run=self.run, question=self.mq, defaults={"ai_criteria_active": on}
+        )
 
     def find(self, nodes, text):
         for node in nodes:
@@ -181,13 +188,41 @@ class ClassifyPassTests(CriteriaTestCase):
         self.assertEqual(self.llm.texts(), ["Wind-Energie"])
         self.assertEqual(self.stored(new), 0)
 
-    def test_omitted_terms_count_as_none_and_are_not_resent(self):
-        self.classify(FakeLLM(reply={"assignments": [{"id": self.wind, "criterion": 1}]}))
+    def test_omitted_terms_retried_then_stored_as_none(self):
+        only_wind = FakeLLM(reply={"assignments": [{"id": self.wind, "criterion": 1}]})
+        self.assertTrue(self.classify(only_wind))  # omitted terms: retry
         self.assertEqual(self.stored(self.wind), 0)
-        self.assertIsNone(self.stored(self.solar))
+        self.assertEqual(self.stored(self.solar), "unclassified")
+        self.assertFalse(self.classify(FakeLLM(by_text({"Solar": 1}))))
+        self.assertEqual(self.llm.texts(), ["Energy", "Solar", "Speicher", "Windkraft"])
+        self.assertEqual(self.stored(self.solar), 0)
+        self.assertIsNone(self.stored(self.energy))  # answered: none fits
+        # A term left out twice is stored as "none" and not re-sent.
+        self.classify(FakeLLM(reply={"assignments": [{"id": self.wind, "criterion": 1}]}))
+        self.contribute("Geothermie")
+        self.contribute("Biogas")
+        geo = MindmapNode.objects.get(run=self.run, text="Geothermie").pk
+        self.classify(FakeLLM(reply={"assignments": [{"id": geo, "criterion": 2}]}))
+        biogas = MindmapNode.objects.get(text="Biogas").pk
+        self.assertEqual(self.stored(biogas), "unclassified")  # omitted once
+        self.contribute("Wasserstoff")
+        h2 = MindmapNode.objects.get(text="Wasserstoff").pk
+        self.classify(FakeLLM(reply={"assignments": [{"id": h2, "criterion": 1}]}))
+        self.assertEqual(self.llm.texts(), ["Biogas", "Wasserstoff"])
+        self.assertIsNone(self.stored(biogas))  # omitted twice: none
         llm = FakeLLM()
         self.classify(llm)
         self.assertEqual(llm.calls, [])
+
+    def test_omitted_terms_do_not_starve_fresh_ones(self):
+        with patch.object(crit, "BATCH_MAX", 2):
+            # Batch 1: Wind + Windkraft; the model only answers Wind.
+            self.classify(FakeLLM(reply={"assignments": [{"id": self.wind, "criterion": 1}]}))
+            self.classify(Solar=1, Energy=1)
+            # The omitted Windkraft goes behind the fresh terms.
+            self.assertEqual(self.llm.texts(), ["Energy", "Solar"])
+            self.classify()
+            self.assertEqual(self.llm.texts(), ["Speicher", "Windkraft"])
 
     def test_invalid_entries_dropped(self):
         reply = {"assignments": [
@@ -199,7 +234,7 @@ class ClassifyPassTests(CriteriaTestCase):
             {"id": self.speicher, "criterion": 1},  # second entry ignored
         ]}
         self.classify(FakeLLM(reply=reply))
-        self.assertIsNone(self.stored(self.wind))
+        self.assertEqual(self.stored(self.wind), "unclassified")  # retried later
         self.assertEqual(self.stored(self.speicher), 1)
 
     def test_batches_capped(self):
@@ -213,6 +248,10 @@ class ClassifyPassTests(CriteriaTestCase):
     def test_ai_error_stored_and_cleared_on_success(self):
         self.classify(FakeLLM(error=ai_module.AIError("timeout")))
         self.assertEqual(crit.get_error(*self.key), crit.ERROR_AI)
+        self.timer.assert_called_once()
+        self.assertEqual(self.timer.call_args[0][0], crit.RETRY_DELAY)
+        self.classify(FakeLLM(error=ai_module.AIError("timeout")))
+        self.timer.assert_called_once()  # only one automatic retry
         self.assertEqual(self.stored(self.wind), "unclassified")
         self.activate()
         payload = build_payloads(self.room)["presenter"]["mindmap"]["criteria"]
@@ -225,6 +264,42 @@ class ClassifyPassTests(CriteriaTestCase):
         self.assertIsNone(crit.get_error(*self.key))
         payload = build_payloads(self.room)["presenter"]["mindmap"]["criteria"]
         self.assertNotIn("error", payload)
+        # A success re-arms the automatic retry.
+        self.contribute("Geothermie")
+        self.classify(FakeLLM(error=ai_module.AIError("x")))
+        self.assertEqual(self.timer.call_count, 2)
+
+    @override_settings(**base.AI_ON)
+    def test_delayed_retry_schedules(self):
+        self.activate()
+        crit._delayed_retry(*self.key, self.room.pk)
+        self.submit.assert_called_once()
+
+    def test_unexpected_exception_becomes_error_state(self):
+        self.activate()
+        with patch.object(crit, "_write", side_effect=RuntimeError("db gone")), \
+                self.assertLogs("live.ai_mindmap_criteria", level="ERROR"):
+            self.assertFalse(self.classify(Wind=1))
+        self.assertEqual(crit.get_error(*self.key), crit.ERROR_AI)
+        payload = build_payloads(self.room)["presenter"]["mindmap"]["criteria"]
+        self.assertEqual(payload["error"], crit.ERROR_AI)
+
+    def test_ai_switch_off_sends_nothing(self):
+        self.activate()
+        self.mq.wordcloud_ai_enabled = False
+        self.mq.save()
+        llm = FakeLLM()
+        self.assertFalse(self.classify(llm))
+        self.assertEqual(llm.calls, [])
+        payload = build_payloads(self.room)["presenter"]["mindmap"]
+        self.assertFalse(payload["criteria"]["active"])
+        self.assertNotIn("criterion", self.find(payload["nodes"], "Wind"))
+
+    @override_settings(**base.AI_OFF)
+    def test_ai_not_configured_sends_nothing(self):
+        with patch("basicbar_integrations.ai.chat_json") as chat:
+            self.assertFalse(crit.classify_pass(self.run.pk, self.mq.pk, self.room.pk))
+        chat.assert_not_called()
 
     def test_no_criteria_no_call(self):
         self.mq.mindmap_criteria = []
@@ -237,21 +312,52 @@ class ClassifyPassTests(CriteriaTestCase):
 class SchedulingTests(CriteriaTestCase):
     @override_settings(**base.AI_ON)
     def test_schedule_only_when_active_and_single_flight(self):
-        with patch.object(crit._executor, "submit") as submit:
-            crit.schedule(*self.key, self.room.pk)
-            submit.assert_not_called()
-            self.activate()
-            crit.schedule(*self.key, self.room.pk)
-            crit.schedule(*self.key, self.room.pk)
-        self.assertEqual(submit.call_count, 1)
+        crit.schedule(*self.key, self.room.pk)
+        self.submit.assert_not_called()
+        self.activate()
+        crit.schedule(*self.key, self.room.pk)
+        crit.schedule(*self.key, self.room.pk)
+        self.assertEqual(self.submit.call_count, 1)
         self.assertIn(self.key, crit._dirty)
+
+    @override_settings(**base.AI_ON)
+    def test_schedule_respects_question_ai_switch(self):
+        self.activate()
+        self.mq.wordcloud_ai_enabled = False
+        self.mq.save()
+        crit.schedule(*self.key, self.room.pk)
+        self.submit.assert_not_called()
+        self.assertFalse(crit.is_active(*self.key))
+
+    @override_settings(**base.AI_ON)
+    def test_switch_is_persisted(self):
+        self.assertFalse(crit.is_active(*self.key))  # no row = off
+        crit.set_active(*self.key, self.room.pk, True)
+        phase = MindmapPhase.objects.get(run=self.run, question=self.mq)
+        self.assertTrue(phase.ai_criteria_active)
+        self.assertEqual(phase.stage, MindmapPhase.Stage.COLLECT)
+        # "Restart": in-memory bookkeeping gone, the switch survives.
+        crit._running.clear()
+        self.assertTrue(crit.is_active(*self.key))
+        crit.set_active(*self.key, self.room.pk, False)
+        self.assertFalse(crit.is_active(*self.key))
+
+    @override_settings(**base.AI_ON)
+    def test_presenter_payload_schedules_waiting_terms(self):
+        self.activate()
+        build_payloads(self.room)
+        self.submit.assert_called_once()
+        crit._running.clear()
+        self.submit.reset_mock()
+        crit._errors[self.key] = crit.ERROR_AI  # no automatic loop on errors
+        build_payloads(self.room)
+        self.submit.assert_not_called()
 
     @override_settings(**base.AI_OFF)
     def test_no_schedule_without_ai(self):
         self.activate()
-        with patch.object(crit._executor, "submit") as submit:
-            crit.schedule(*self.key, self.room.pk)
-        submit.assert_not_called()
+        crit.schedule(*self.key, self.room.pk)
+        self.submit.assert_not_called()
 
     @override_settings(**base.AI_ON)
     def test_tree_changes_schedule(self):
@@ -274,6 +380,32 @@ class SchedulingTests(CriteriaTestCase):
             crit.criteria_changed(self.mq.pk + 1000)
         schedule.assert_called_once_with(self.run.pk, self.mq.pk, self.room.pk)
 
+    def test_loop_releases_on_exception(self):
+        self.activate()
+        crit._running.add(self.key)
+        with patch.object(crit, "classify_pass", side_effect=KeyboardInterrupt), \
+                self.assertRaises(KeyboardInterrupt):
+            crit._run_loop(*self.key, self.room.pk)
+        self.assertNotIn(self.key, crit._running)
+
+    def test_loop_stops_when_switched_off(self):
+        self.activate()
+        crit._running.add(self.key)
+        calls = []
+
+        def fake_pass(*args):
+            calls.append(args)
+            crit._dirty.add(self.key)
+            self.activate(False)
+            return True
+
+        with patch.object(crit, "classify_pass", side_effect=fake_pass), \
+                patch.object(crit.time, "sleep"):
+            crit._run_loop(*self.key, self.room.pk)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn(self.key, crit._running)
+
+    @override_settings(**base.AI_ON)
     def test_loop_runs_trailing_pass_and_releases(self):
         self.activate()
         crit._running.add(self.key)
@@ -293,11 +425,6 @@ class SchedulingTests(CriteriaTestCase):
 
 
 class EndpointTests(CriteriaTestCase):
-    def setUp(self):
-        super().setUp()
-        self.submit = patch.object(crit._executor, "submit").start()
-        self.addCleanup(patch.stopall)
-
     def criteria(self, body, user=None):
         return self.post("ai-criteria", body, user=user)
 
@@ -325,6 +452,16 @@ class EndpointTests(CriteriaTestCase):
         crit._errors[self.key] = crit.ERROR_AI
         self.assertEqual(self.criteria({}).json()["error"], crit.ERROR_AI)
         self.assertNotIn("error", self.criteria({"active": True}).json())
+
+    @override_settings(**base.AI_ON)
+    def test_criteria_follow_to_after_question(self):
+        after = base.Question.objects.create(
+            question_set=self.question_set, kind=base.Question.Kind.MINDMAP,
+            text="<p>Nachher</p>", position=5, before_question=self.mq,
+        )
+        self.criteria({"criteria": ["Orte"]})
+        after.refresh_from_db()
+        self.assertEqual(after.mindmap_criteria, [{"de": "Orte", "en": ""}])
 
     @override_settings(**base.AI_ON)
     def test_bad_input(self):
@@ -389,7 +526,8 @@ class PayloadTests(CriteriaTestCase):
         ]}))
         self.contribute("Geothermie")
         tree = self.presenter()
-        self.assertEqual(tree["criteria"]["pending"], 1)  # Geothermie
+        # Geothermie + the three terms the reply left out (retried later).
+        self.assertEqual(tree["criteria"]["pending"], 4)
         self.assertTrue(tree["criteria"]["active"])
         self.assertEqual(self.find(tree["nodes"], "Wind")["criterion"], 0)
         self.assertIsNone(self.find(tree["nodes"], "Solar")["criterion"])
@@ -420,8 +558,17 @@ class PayloadTests(CriteriaTestCase):
         self.assertEqual(self.find(tree["nodes"], "Wind")["criterion"], 0)
         self.assertIsNone(self.find(tree["nodes"], "Solar")["criterion"])
         self.assertNotIn("ai_criteria_fp", json.dumps(tree))
+        # Colouring switched off on the beamer: gone for participants too…
+        self.activate(False)
+        tree = self.participant()
+        self.assertNotIn("criteria", tree)
+        self.assertNotIn("criterion", self.find(tree["nodes"], "Wind"))
+        # …but the teacher's results page keeps the stored classification.
+        item = next(q for q in run_results(self.run)["questions"] if q["kind"] == "mindmap")
+        self.assertEqual(self.find(item["mindmap"]["nodes"], "Wind")["criterion"], 0)
 
     def test_participant_nothing_without_assigned_terms(self):
+        self.activate()
         self.classify()  # every term: none fits
         self.set_phase(Run.Phase.RESULTS)
         self.assertNotIn("criteria", self.participant())
