@@ -281,8 +281,8 @@ Im Präsentationsmodus steuern Sie die Sitzung über die Leiste am unteren Rand
   Kriterien und die Begriffe mit ihren Beschreibungen. Die Zuordnung sehen Sie
   auch in den Ergebnissen und im CSV-Export (Spalte „kriterium“). Ihre
   Teilnehmenden sehen die Farben erst in der Ergebnisphase und nur, wenn Sie
-  die Ergebnisse für sie freigegeben haben – als farbigen Punkt vor dem
-  Begriff mit Legende.
+  die Ergebnisse für sie freigegeben haben und die Färbung eingeschaltet ist –
+  als farbigen Punkt vor dem Begriff mit Legende.
 - **Mindmap-Bewertung:** Haben Sie im Editor eine **Bewertungsphase**
   eingestellt, stoppen Sie zunächst das Sammeln und klicken dann unten auf
   **Bewertung starten**. Ihre Teilnehmenden bewerten die Begriffe nun auf ihrem

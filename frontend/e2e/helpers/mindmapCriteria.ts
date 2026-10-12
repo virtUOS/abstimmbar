@@ -74,6 +74,8 @@ export async function seedCriteriaMindmap(
   request: APIRequestContext,
   label: string,
   onRoomCreated: (roomId: number) => void,
+  /** Also add "Mensa" below "Osnabrück" (a repeated term: dashed ring). */
+  { withDuplicate = false }: { withDuplicate?: boolean } = {},
 ): Promise<{ code: string; setId: number; runId: number; questionId: number }> {
   const room = await createRoomWithQuestions(request, ['mindmap'], label, onRoomCreated);
   const api = apiClient(request);
@@ -89,7 +91,10 @@ export async function seedCriteriaMindmap(
   await control(api, runId, 'open', questionId);
   const [participant] = await joinParticipants(request, room.code, 1);
   const ids = new Map<string, number>();
-  for (const term of TERMS) {
+  const terms = withDuplicate
+    ? [...TERMS, { text: 'Mensa', parent: 'Osnabrück', criterion: 1 }]
+    : TERMS;
+  for (const term of terms) {
     const r = await request.post(`${API_BASE_URL}/api/live/rooms/${room.code}/mindmap/add/`, {
       data: {
         token: participant,
@@ -100,7 +105,7 @@ export async function seedCriteriaMindmap(
       headers: token ? { 'X-CSRFToken': token } : undefined,
     });
     if (!r.ok()) throw new Error(`mindmap add ${term.text} → ${r.status()}: ${await r.text()}`);
-    ids.set(term.text, (await r.json()).node_id);
+    if (!ids.has(term.text)) ids.set(term.text, (await r.json()).node_id);
   }
   seedClassification(runId, questionId);
   await control(api, runId, 'results', questionId);

@@ -23,7 +23,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FolderPlus, Languages, Loader2, Merge, MoveRight, Plus, Sparkles, Trash2, X } from "lucide-react";
-import { localizedMap, setLocalizedLang, type LocalizedText } from "@basicbar/ui";
+import { getDefaultContentLang, localizedMap, setLocalizedLang, type LocalizedText } from "@basicbar/ui";
+import type { TFunction } from "i18next";
 import { live } from "../api";
 import type { LiveMindmap, LiveMindmapNode, MindmapAiOp, MindmapAiSettings, MindmapCriteria } from "../api";
 import { AI_MARK } from "./MindMap";
@@ -211,6 +212,47 @@ export function criterionFilled(value: LocalizedText): boolean {
   return Object.values(localizedMap(value)).some((text) => !!text?.trim());
 }
 
+/** A problem with the criteria (mirrors the server's strict check in
+ *  `rooms.mindmap.clean_criteria`): more than 6, a text over 80 characters,
+ *  or the same criterion twice (case-insensitive, canonical language — a
+ *  missing canonical text is taken from the translation). As an i18n key +
+ *  values, null when fine. */
+export function criteriaProblem(
+  list: LocalizedText[],
+): { key: string; values?: Record<string, string | number> } | null {
+  const norm = (text: string | undefined) => (text ?? "").normalize("NFKC").replace(/\s+/g, " ").trim();
+  const canonical = getDefaultContentLang();
+  const filled = list.filter(criterionFilled);
+  if (filled.length > CRITERIA_MAX) return { key: "At most 6 criteria." };
+  const seen = new Set<string>();
+  for (const value of filled) {
+    const map = localizedMap(value);
+    const texts = Object.fromEntries(Object.entries(map).map(([lang, text]) => [lang, norm(text)]));
+    if (Object.values(texts).some((text) => text.length > CRITERION_TEXT_MAX))
+      return {
+        key: "A criterion may have at most {{max}} characters.",
+        values: { max: CRITERION_TEXT_MAX },
+      };
+    const name = texts[canonical] || Object.values(texts).find(Boolean) || "";
+    const key = name.toLocaleLowerCase();
+    if (seen.has(key)) return { key: "The criterion “{{name}}” appears twice.", values: { name } };
+    seen.add(key);
+  }
+  return null;
+}
+
+/** The server's (English) criteria error as a translated message. */
+export function criteriaErrorText(detail: string, t: TFunction): string {
+  const twice = /^“(.*)” appears twice\.$/.exec(detail);
+  if (twice) return t("The criterion “{{name}}” appears twice.", { name: twice[1] });
+  const long = /^A criterion may have at most (\d+) characters\.$/.exec(detail);
+  if (long) return t("A criterion may have at most {{max}} characters.", { max: Number(long[1]) });
+  if (/^At most \d+ criteria\.$/.test(detail)) return t("At most 6 criteria.");
+  if (detail === "Invalid criterion." || detail === "Criteria must be a list.")
+    return t("The criteria could not be saved.");
+  return t(detail);
+}
+
 /** AI colouring state of the beamer drawer: a local draft of the criteria
  *  (saved explicitly — a change re-classifies every term) and the switch.
  *  The server state (`mindmap.criteria` of the presenter payload) is the
@@ -285,10 +327,14 @@ export function useMindmapCriteria({
       setDirty(false);
       setError(null);
     },
-    save: () => post("save", { criteria: cleaned() }),
+    /** Client-side check (translated in the section). */
+    problem: criteriaProblem(draft),
+    save: () => (criteriaProblem(draft) ? Promise.resolve() : post("save", { criteria: cleaned() })),
     /** On/off; unsaved criteria are saved along when switching on. */
     setActive: (on: boolean) =>
-      post("toggle", on && dirty ? { active: true, criteria: cleaned() } : { active: on }),
+      on && dirty && criteriaProblem(draft)
+        ? Promise.resolve()
+        : post("toggle", on && dirty ? { active: true, criteria: cleaned() } : { active: on }),
   };
 }
 
@@ -379,7 +425,7 @@ function CriteriaSection({ crit }: { crit: MindmapCriteriaCtl }) {
             <button
               type="button"
               onClick={() => void crit.save()}
-              disabled={disabled}
+              disabled={disabled || crit.problem !== null}
               className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-2.5 py-1 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-60"
             >
               {crit.busy === "save" && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
@@ -396,6 +442,11 @@ function CriteriaSection({ crit }: { crit: MindmapCriteriaCtl }) {
           </>
         )}
       </div>
+      {crit.problem && (
+        <p className="text-red-700" role="alert" data-testid="mm-crit-problem">
+          {t(crit.problem.key, crit.problem.values)}
+        </p>
+      )}
       {crit.dirty && crit.hasSaved && (
         <p className="text-xs text-slate-500">
           {t("Saved on the question. Changed criteria re-classify all terms.")}
@@ -405,7 +456,9 @@ function CriteriaSection({ crit }: { crit: MindmapCriteriaCtl }) {
         <input
           type="checkbox"
           checked={crit.active}
-          disabled={disabled || (!crit.active && !canSwitchOn)}
+          disabled={
+            disabled || (!crit.active && (!canSwitchOn || (crit.dirty && crit.problem !== null)))
+          }
           onChange={(e) => void crit.setActive(e.target.checked)}
           className="h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
           data-testid="mm-crit-toggle"
@@ -442,7 +495,7 @@ function CriteriaSection({ crit }: { crit: MindmapCriteriaCtl }) {
       )}
       {crit.error && (
         <p className="text-red-700" role="alert">
-          {t(crit.error)}
+          {criteriaErrorText(crit.error, t)}
         </p>
       )}
       <p className="text-xs text-slate-500">

@@ -20,12 +20,14 @@
  * mirror the server's (`backend/live/mindmap.py`).
  *
  * AI colouring by criteria (beamer, `criteria`): a term with a criterion
- * gets a thick solid ring in that criterion's colour outside the pill (the
- * fill keeps its branch colour); a legend at the bottom names the colours,
- * clicking a chip highlights its terms (the others fade). The colour ring
- * replaces the dashed duplicate ring (one outline per pill — the colour is
- * the explicit choice of the presenter, the duplicate count stays visible
- * as the ×N badge); drag-target feedback still wins over both. */
+ * gets a thick ring in that criterion's colour outside the pill, separated
+ * from it by a white gap so it reads as its own marker on any branch colour
+ * (the fill keeps its branch colour); a legend at the bottom names the
+ * colours, clicking a chip highlights its terms (the others fade). A pill
+ * has one outline: a coloured term that is also repeated (same term under
+ * several parents) gets its criterion ring *dashed*, so both pieces of
+ * information stay; drag-target feedback and AI-preview marks win over
+ * both. */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
@@ -1401,12 +1403,13 @@ export default function MindMap({
         .join(" · ") || undefined;
     const target =
       nodeDrag?.target?.kind === "merge" && nodeDrag.target.id === p.id ? nodeDrag.target : null;
+    const critRing = crit !== null && !target && marks.length === 0;
     const ring = target
       ? `3px solid ${target.problem ? BAD : GOOD}`
       : marks.length > 0
         ? `3px solid ${AI_MARK}`
         : crit !== null
-          ? `${CRIT_RING}px solid ${criterionColor(crit)}`
+          ? `${CRIT_RING}px ${repeated ? "dashed" : "solid"} ${criterionColor(crit)}`
           : repeated
             ? `2px dashed ${deep(hue)}`
             : undefined;
@@ -1448,8 +1451,12 @@ export default function MindMap({
             fontWeight: box.weight,
             lineHeight: LINE,
             outline: ring,
-            outlineOffset: ring ? (crit !== null && !target && marks.length === 0 ? 1 : 2) : undefined,
-            boxShadow: shadow,
+            outlineOffset: ring ? 2 : undefined,
+            // Criterion ring: the white gap between pill and ring (a spread
+            // shadow filling the outline offset; no layout change).
+            boxShadow: critRing
+              ? [`0 0 0 ${CRIT_GAP}px #fff`, shadow].filter(Boolean).join(", ")
+              : shadow,
             // Moved terms take on their new branch's colour smoothly.
             transition: move
               ? `font-size ${move}, background-color ${move}, border-color ${move}, box-shadow ${move}`
@@ -2006,8 +2013,11 @@ export default function MindMap({
   );
 }
 
-/** Ring width (px) of a coloured term (AI colouring by criteria). */
-const CRIT_RING = 3.5;
+/** Ring width (px) of a coloured term (AI colouring by criteria) and the
+ *  white gap between pill and ring (= the outline offset). Gap + ring = 5 px
+ *  per side, so neighbouring siblings (10 px apart) never overlap. */
+const CRIT_RING = 3;
+const CRIT_GAP = 2;
 
 /** The criterion index of a term, or null (none / out of range / no
  *  colouring). */

@@ -39,7 +39,12 @@ import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
 import { Button, Field, InfoHint, MenuItem, MoreMenu, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
 import { KIND_LABEL, REVEAL_LABEL } from "./SetPage";
-import { CRITERIA_MAX, criterionFilled } from "../results/mindmapAi";
+import {
+  CRITERIA_MAX,
+  criteriaErrorText,
+  criteriaProblem,
+  criterionFilled,
+} from "../results/mindmapAi";
 import { criterionColor } from "../results/palette";
 
 function aiErrorText(err: unknown): string {
@@ -525,7 +530,9 @@ export default function QuestionPage() {
           ? t("Question text is required.")
           : mindmapProblem
             ? t(mindmapProblem.key, mindmapProblem.values)
-            : t("Add at least two answer options, each with text."),
+            : criteriaIssue
+              ? t(criteriaIssue.key, criteriaIssue.values)
+              : t("Add at least two answer options, each with text."),
       );
       return false;
     }
@@ -632,15 +639,24 @@ export default function QuestionPage() {
       return true;
     } catch (err) {
       let modeError = "";
+      let criteriaError = "";
+      const first = (msg: unknown) =>
+        Array.isArray(msg) ? String(msg[0] ?? "") : typeof msg === "string" ? msg : "";
       try {
         const body = JSON.parse((err as Error).message);
-        const msg = body?.mindmap_rating_mode;
-        modeError = Array.isArray(msg) ? String(msg[0] ?? "") : typeof msg === "string" ? msg : "";
+        modeError = first(body?.mindmap_rating_mode);
+        criteriaError = first(body?.mindmap_criteria);
       } catch {
         /* not a JSON body */
       }
       setRatingModeError(modeError ? t(modeError) : "");
-      setError(modeError ? t(modeError) : String(err));
+      setError(
+        modeError
+          ? t(modeError)
+          : criteriaError
+            ? criteriaErrorText(criteriaError, t)
+            : String(err),
+      );
       return false;
     } finally {
       setSaving(false);
@@ -808,7 +824,9 @@ export default function QuestionPage() {
   const mindmapProblem = isMindmap
     ? seedProblem(fromEditableSeed(mindmapSeed), mindmapDepth)
     : null;
-  const invalid = textMissing || optionsMissing || !!mindmapProblem;
+  // AI colouring criteria: duplicates / too long (as the server checks).
+  const criteriaIssue = isMindmap ? criteriaProblem(mindmapCriteria) : null;
+  const invalid = textMissing || optionsMissing || !!mindmapProblem || !!criteriaIssue;
 
   // Serialized editable state — compared against the baseline to know whether
   // there are unsaved changes before paging to another question (#92).
@@ -1719,6 +1737,11 @@ export default function QuestionPage() {
                       </li>
                     ))}
                   </ol>
+                )}
+                {criteriaIssue && (
+                  <p className="mt-2 text-sm text-red-700 dark:text-red-400" role="alert" data-testid="mm-crit-problem">
+                    {t(criteriaIssue.key, criteriaIssue.values)}
+                  </p>
                 )}
                 <button
                   type="button"

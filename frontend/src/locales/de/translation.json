@@ -1056,5 +1056,8 @@
   "Colour key": "Farblegende",
   "Show all terms again (Esc)": "Wieder alle Begriffe zeigen (Esc)",
   "Highlight the terms of “{{name}}”": "Begriffe von „{{name}}“ hervorheben",
-  "Criterion {{n}} ({{lang}})": "Kriterium {{n}} ({{lang}})"
+  "Criterion {{n}} ({{lang}})": "Kriterium {{n}} ({{lang}})",
+  "A criterion may have at most {{max}} characters.": "Ein Kriterium darf höchstens {{max}} Zeichen haben.",
+  "The criterion “{{name}}” appears twice.": "Das Kriterium „{{name}}“ kommt doppelt vor.",
+  "The criteria could not be saved.": "Die Kriterien konnten nicht gespeichert werden."
 }

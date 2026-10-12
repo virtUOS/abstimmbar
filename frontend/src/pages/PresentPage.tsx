@@ -692,8 +692,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     questionId: activeKind === "mindmap" ? activeId : null,
     criteria: mindmap?.criteria,
   });
+  // Shown in expert mode only (like its controls): in easy mode there would
+  // be no drawer to switch it off.
   const mmCritItems =
-    mindmap?.criteria?.active && mindmap.criteria.items.length > 0 ? mindmap.criteria.items : undefined;
+    expert && mindmap?.criteria?.active && mindmap.criteria.items.length > 0
+      ? mindmap.criteria.items
+      : undefined;
   const [mmCritFocus, setMmCritFocus] = useState<number | null>(null);
   const mmCritFocusShown =
     mmCritItems && mmCritFocus !== null && mmCritFocus < mmCritItems.length ? mmCritFocus : null;
