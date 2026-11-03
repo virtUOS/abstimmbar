@@ -4,11 +4,11 @@ import csv
 import io
 from typing import ClassVar
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.http import HttpResponse
-from django.conf import settings
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
 from rest_framework import mixins, status, viewsets
@@ -147,14 +147,21 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
             .values_list("email", flat=True)
         }
         created = []
-        with transaction.atomic():
-            for name, email in entries:
-                if email.lower() in existing:
-                    skipped.append({"line": email, "reason": "exists"})
-                    continue
-                created.append(CommitteeMember.objects.create(
-                    room=room, group=group, name=name[:200], email=email, role=role,
-                ))
+        for name, email in entries:
+            if email.lower() in existing:
+                skipped.append({"line": email, "reason": "exists"})
+                continue
+            # One savepoint per row: a member added concurrently (unique
+            # room/email) skips that row instead of failing the request.
+            try:
+                with transaction.atomic():
+                    member = CommitteeMember.objects.create(
+                        room=room, group=group, name=name[:200], email=email, role=role,
+                    )
+            except IntegrityError:
+                skipped.append({"line": email, "reason": "exists"})
+                continue
+            created.append(member)
         return Response(
             {
                 "created": CommitteeMemberSerializer(created, many=True).data,
@@ -238,6 +245,10 @@ class MeetingViewSet(viewsets.GenericViewSet):
 
     def invites(self, request, pk=None):
         meeting = self.get_object()
+        try:
+            services.check_not_ended(meeting)
+        except DjangoValidationError as exc:
+            raise _detail(exc) from exc
         services.ensure_invites(meeting)
         return self._respond(meeting)
 

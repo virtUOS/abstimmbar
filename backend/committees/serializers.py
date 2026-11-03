@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
+from typing import ClassVar
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
@@ -21,7 +23,7 @@ class GroupTemplateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GroupTemplate
-        fields = ["id", "name", "groups"]
+        fields: ClassVar = ["id", "name", "groups"]
 
     def get_name(self, obj):
         return translated_map(obj, "name")
@@ -50,8 +52,8 @@ class CommitteeGroupSerializer(
 
     class Meta:
         model = CommitteeGroup
-        fields = ["id", "room", "name", "position", "is_observer", "member_count"]
-        read_only_fields = ["is_observer"]
+        fields: ClassVar = ["id", "room", "name", "position", "is_observer", "member_count"]
+        read_only_fields: ClassVar = ["is_observer"]
 
     def validate(self, attrs):
         self._check_room(attrs)
@@ -61,7 +63,7 @@ class CommitteeGroupSerializer(
 class CommitteeMemberSerializer(_ManagedRoomMixin, serializers.ModelSerializer):
     class Meta:
         model = CommitteeMember
-        fields = ["id", "room", "group", "name", "email", "role", "deputy_rank", "language"]
+        fields: ClassVar = ["id", "room", "group", "name", "email", "role", "deputy_rank", "language"]
 
     def validate(self, attrs):
         self._check_room(attrs)
@@ -78,7 +80,7 @@ class CommitteeMemberSerializer(_ManagedRoomMixin, serializers.ModelSerializer):
 class MeetingMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = CommitteeMember
-        fields = ["id", "name", "email", "group", "role"]
+        fields: ClassVar = ["id", "name", "email", "group", "role"]
 
 
 def invite_url(request, invite: MeetingInvite) -> str:
@@ -92,7 +94,7 @@ class MeetingInviteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MeetingInvite
-        fields = ["id", "member", "url", "removed_at", "removed_after", "state"]
+        fields: ClassVar = ["id", "member", "url", "removed_at", "removed_after", "state"]
 
     def get_url(self, obj):
         return invite_url(self.context["request"], obj)
@@ -104,7 +106,7 @@ class MeetingInviteSerializer(serializers.ModelSerializer):
 class MeetingSubstitutionSerializer(serializers.ModelSerializer):
     class Meta:
         model = MeetingSubstitution
-        fields = ["id", "absent", "deputy", "from_question"]
+        fields: ClassVar = ["id", "absent", "deputy", "from_question"]
 
 
 class MeetingSerializer(serializers.ModelSerializer):
@@ -113,7 +115,7 @@ class MeetingSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = QuestionSet
-        fields = ["id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions"]
+        fields: ClassVar = ["id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions"]
 
     def get_invites(self, obj):
         invites = list(obj.invites.select_related("member").order_by(

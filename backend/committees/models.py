@@ -2,6 +2,7 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 """Committee rooms: groups, members, group templates, substitutions, invites."""
 import secrets
+from typing import ClassVar
 
 from django.core.exceptions import ValidationError
 from django.db import models
@@ -23,7 +24,7 @@ class GroupTemplate(models.Model):
     position = models.PositiveIntegerField(default=0)
 
     class Meta:
-        ordering = ["position"]
+        ordering: ClassVar = ["position"]
 
     def __str__(self):
         return self.name
@@ -38,8 +39,8 @@ class CommitteeGroup(models.Model):
     is_observer = models.BooleanField(default=False)
 
     class Meta:
-        ordering = ["position", "id"]
-        constraints = [
+        ordering: ClassVar = ["position", "id"]
+        constraints: ClassVar = [
             models.UniqueConstraint(
                 fields=["room"], condition=Q(is_observer=True),
                 name="one_observer_group_per_room",
@@ -72,7 +73,7 @@ class CommitteeMember(TimeStampedModel):
     language = models.CharField(max_length=2, choices=Language.choices, default="de")
 
     class Meta:
-        constraints = [
+        constraints: ClassVar = [
             models.UniqueConstraint(
                 fields=["room", "email"], condition=~Q(email=""),
                 name="unique_member_email_per_room",
@@ -110,7 +111,7 @@ class MeetingSubstitution(models.Model):
     )
 
     class Meta:
-        constraints = [
+        constraints: ClassVar = [
             models.UniqueConstraint(
                 fields=["meeting", "absent"], name="unique_substitution_absent",
             ),
@@ -138,7 +139,7 @@ class MeetingInvite(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        constraints = [
+        constraints: ClassVar = [
             models.UniqueConstraint(
                 fields=["meeting", "member"], name="unique_invite_per_member",
             ),

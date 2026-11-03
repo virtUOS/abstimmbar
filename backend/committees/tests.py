@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+from unittest import mock
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
@@ -131,6 +133,44 @@ class ParseMemberListTests(TestCase):
             {"line": "anna@uni.de", "reason": "duplicate"},
         ])
 
+    def test_last_first_name_with_angle_address(self):
+        text = "Rolf, Rüdiger <rrolf@example.org>; Weg, Karl <k@example.org>"
+        entries, skipped = parse_member_list(text)
+        self.assertEqual(entries, [
+            ("Rolf, Rüdiger", "rrolf@example.org"), ("Weg, Karl", "k@example.org"),
+        ])
+        self.assertEqual(skipped, [])
+
+    def test_quoted_name_with_comma(self):
+        entries, skipped = parse_member_list(
+            '"Weg, Karl" <k@example.org>, "Muster, Anna" <a@example.org>',
+        )
+        self.assertEqual(entries, [
+            ("Weg, Karl", "k@example.org"), ("Muster, Anna", "a@example.org"),
+        ])
+        self.assertEqual(skipped, [])
+
+    def test_comma_list_of_last_first_names(self):
+        entries, _ = parse_member_list(
+            "Rolf, Rüdiger <rrolf@example.org>, Weg, Karl <k@example.org>, c@example.org",
+        )
+        self.assertEqual(entries, [
+            ("Rolf, Rüdiger", "rrolf@example.org"), ("Weg, Karl", "k@example.org"),
+            ("c", "c@example.org"),
+        ])
+
+    def test_stray_word_before_bare_mail_stays_separate(self):
+        entries, skipped = parse_member_list("nonsense, bert@uni.de")
+        self.assertEqual(entries, [("bert", "bert@uni.de")])
+        self.assertEqual(skipped, [{"line": "nonsense", "reason": "invalid_email"}])
+
+    def test_email_longer_than_column_rejected(self):
+        email = "a" * 64 + "@" + ".".join(["b" * 63] * 3) + ".de"
+        self.assertGreater(len(email), 254)
+        entries, skipped = parse_member_list(email)
+        self.assertEqual(entries, [])
+        self.assertEqual(skipped, [{"line": email, "reason": "invalid_email"}])
+
 
 class GroupApiTests(ApiBase):
     def test_templates_list(self):
@@ -250,6 +290,32 @@ class MemberApiTests(ApiBase):
         self.assertEqual(data["created"][0]["email"], "anna@uni.de")
         self.assertIn({"line": "bert@uni.de", "reason": "exists"}, data["skipped"])
         self.assertIn({"line": "nonsense", "reason": "invalid_email"}, data["skipped"])
+
+    def test_bulk_too_long_email_no_500(self):
+        g = self.add_group()
+        email = "a" * 64 + "@" + ".".join(["b" * 63] * 3) + ".de"
+        r = self.client.post("/api/committee-members/bulk/", {
+            "room": self.room.pk, "group": g.pk, "role": "voting", "text": email,
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["created"], [])
+        self.assertEqual(r.json()["skipped"], [{"line": email, "reason": "invalid_email"}])
+
+    def test_bulk_integrity_error_skips_row(self):
+        # Two rows for the same address that slip past the parser's dedupe
+        # (as with a concurrent insert): the second is skipped, no 500.
+        g = self.add_group()
+        rows = ([("A", "a@uni.de"), ("A2", "a@uni.de"), ("B", "b@uni.de")], [])
+        with mock.patch("committees.views.parse_member_list", return_value=rows):
+            r = self.client.post("/api/committee-members/bulk/", {
+                "room": self.room.pk, "group": g.pk, "role": "voting", "text": "x",
+            }, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(
+            [m["email"] for m in r.json()["created"]], ["a@uni.de", "b@uni.de"],
+        )
+        self.assertEqual(r.json()["skipped"], [{"line": "a@uni.de", "reason": "exists"}])
+        self.assertEqual(self.room.committee_members.count(), 2)
 
     def test_bulk_bad_group(self):
         r = self.client.post("/api/committee-members/bulk/", {
@@ -522,6 +588,16 @@ class MeetingApiTests(MeetingFixture, ApiBase):
     def test_non_meeting_set_404(self):
         qs = QuestionSet.objects.create(room=self.room, title="X")
         self.assertEqual(self.client.get(f"/api/meetings/{qs.pk}/").status_code, 404)
+
+    def test_invites_rejected_after_end(self):
+        self.member("Anna", self.ga, email="anna@uni.de")
+        services.start_meeting(self.meeting)
+        services.end_meeting(self.meeting)
+        before = MeetingInvite.objects.filter(meeting=self.meeting).count()
+        self.member("Bert", self.ga, email="bert@uni.de")
+        r = self.client.post(self.base + "invites/")
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(MeetingInvite.objects.filter(meeting=self.meeting).count(), before)
 
     def test_detail_with_invites(self):
         anna = self.member("Anna", self.ga, email="anna@uni.de")

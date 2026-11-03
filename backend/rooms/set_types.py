@@ -45,7 +45,6 @@ def allowed_kinds(set_type) -> tuple:
     return _rules(set_type)["allowed_kinds"]
 
 
-
 def check_room_pairing(set_type, room) -> None:
     """Committee rooms hold only meetings; meetings live only in committee
     rooms. Raises a DRF ValidationError (HTTP 400) on a mismatch."""

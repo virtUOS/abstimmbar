@@ -20,7 +20,8 @@ from .models import (
 )
 
 _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
-_SPLIT = re.compile(r"[\n\r,;]")
+# EmailField column length (Django's validator alone would allow 320).
+MAX_EMAIL_LENGTH = 254
 
 
 def managed_committee_rooms(user):
@@ -45,23 +46,77 @@ def apply_template(room: Room, template: GroupTemplate) -> list[CommitteeGroup]:
     return created
 
 
+def _split_outside(text: str, separators: str) -> list[str]:
+    """Split `text` on any of `separators`, except inside ``"…"`` or ``<…>``."""
+    pieces: list[str] = []
+    current: list[str] = []
+    in_quote = in_angle = False
+    for char in text:
+        if char == '"' and not in_angle:
+            in_quote = not in_quote
+        elif char == "<" and not in_quote:
+            in_angle = True
+        elif char == ">" and not in_quote:
+            in_angle = False
+        elif char in separators and not in_quote and not in_angle:
+            pieces.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    pieces.append("".join(current))
+    return pieces
+
+
+def _segments(text: str) -> list[str]:
+    """Newline always and ``;`` (outside quotes) separate entries; ``,`` only between entries,
+    so ``Rolf, Rüdiger <r@x.org>`` stays one entry: comma pieces without an
+    address are held back and joined to a following ``Name <mail>`` piece
+    (as its name); otherwise they stand alone."""
+    segments: list[str] = []
+    chunks = [
+        chunk for line in re.split(r"[\n\r]", text)
+        for chunk in _split_outside(line, ";")
+    ]
+    for chunk in chunks:
+        pending: list[str] = []
+        for piece in _split_outside(chunk, ","):
+            if not piece.strip():
+                continue
+            if "@" not in piece and "<" not in piece:
+                pending.append(piece)
+                continue
+            head = piece.split("<", 1)[0]
+            if "<" in piece and "@" not in head and pending:
+                segments.append(",".join([*pending, piece]))
+            else:
+                segments.extend(pending)
+                segments.append(piece)
+            pending = []
+        segments.extend(pending)
+    return segments
+
+
 def parse_member_list(text: str) -> tuple[list[tuple[str, str]], list[dict]]:
-    """Parse pasted members: separators newline/comma/semicolon, formats
-    ``Name <mail>`` and ``mail`` (name = part before the @). Empty segments
-    are dropped silently."""
+    """Parse pasted members: separators newline/semicolon/comma (a comma inside
+    ``"…"`` or in a ``Last, First <mail>`` name does not separate), formats
+    ``Name <mail>``, ``"Name" <mail>`` and ``mail`` (name = part before the
+    @). Empty segments are dropped silently."""
     entries: list[tuple[str, str]] = []
     skipped: list[dict] = []
     seen: set[str] = set()
-    for segment in _SPLIT.split(text or ""):
+    for segment in _segments(text or ""):
         segment = segment.strip()
         if not segment:
             continue
         match = _NAME_EMAIL.match(segment)
         if match:
-            name, email = match.group("name").strip(), match.group("email").strip()
+            name = match.group("name").strip().strip('"').strip()
+            email = match.group("email").strip()
         else:
             name, email = "", segment
         try:
+            if len(email) > MAX_EMAIL_LENGTH:
+                raise ValidationError("Address too long.")
             validate_email(email)
         except ValidationError:
             skipped.append({"line": segment, "reason": "invalid_email"})
@@ -80,7 +135,7 @@ def parse_member_list(text: str) -> tuple[list[tuple[str, str]], list[dict]]:
 State = QuestionSet.MeetingState
 
 
-def _check_not_ended(meeting: QuestionSet):
+def check_not_ended(meeting: QuestionSet):
     if meeting.meeting_state == State.ENDED:
         raise ValidationError("The meeting has ended.")
 
@@ -111,7 +166,7 @@ def add_substitution(
     """Record that `deputy` votes for `absent` (from `from_question` on, or the
     whole meeting). Duplicate absent/deputy raises IntegrityError (unique
     constraints). In a running meeting the deputy gets a link right away."""
-    _check_not_ended(meeting)
+    check_not_ended(meeting)
     if absent.room_id != meeting.room_id or deputy.room_id != meeting.room_id:
         raise ValidationError("The member does not belong to this room.")
     if absent.group.is_observer:
@@ -135,7 +190,7 @@ def remove_substitution(substitution: MeetingSubstitution):
     """Undo a substitution; in a running meeting the absent member gets
     their link (back). The deputy's link stays (never deleted)."""
     meeting = substitution.meeting
-    _check_not_ended(meeting)
+    check_not_ended(meeting)
     substitution.delete()
     if meeting.meeting_state == State.STARTED:
         ensure_invites(meeting)
@@ -209,7 +264,7 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
 
 
 def remove_invite(invite: MeetingInvite, after_question: Question | None = None):
-    _check_not_ended(invite.meeting)
+    check_not_ended(invite.meeting)
     _check_question(invite.meeting, after_question)
     invite.removed_at = timezone.now()
     invite.removed_after = after_question
@@ -218,7 +273,7 @@ def remove_invite(invite: MeetingInvite, after_question: Question | None = None)
 
 
 def readmit_invite(invite: MeetingInvite):
-    _check_not_ended(invite.meeting)
+    check_not_ended(invite.meeting)
     invite.removed_at = None
     invite.removed_after = None
     invite.save(update_fields=["removed_at", "removed_after"])
