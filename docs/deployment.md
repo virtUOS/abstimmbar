@@ -261,7 +261,7 @@ Hochschule bzw. einen rein internen Host (siehe
 IP-Einschränkung für `/metrics` (siehe [monitoring.md](monitoring.md)).
 
 An Django weitergereicht werden die Pfade `/api/`, `/admin/`, `/oidc/`,
-`/lti/`, `/p/`, `/r/`, `/c/`, `/question-preview/` und `/metrics`;
+`/lti/`, `/p/`, `/r/`, `/c/`, `/g/`, `/question-preview/` und `/metrics`;
 `/static/` und `/media/` liefert Caddy direkt aus den Volumes `static_data` und
 `media_data` aus; alles andere liefert die Oberfläche aus. Setzen Sie einen eigenen
 Reverse-Proxy ein, muss er beides genauso handhaben.
