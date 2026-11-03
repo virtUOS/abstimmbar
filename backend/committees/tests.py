@@ -376,6 +376,38 @@ class MeetingServiceTests(MeetingFixture, TestCase):
         with self.assertRaises(ValidationError):
             services.remove_substitution(sub)
 
+    def test_deputy_link_inactive_after_substitution_removed(self):
+        anna = self.member("Anna", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        sub = services.add_substitution(self.meeting, anna, deputy)
+        services.start_meeting(self.meeting)
+        idep = self.meeting.invites.get(member=deputy)
+        self.assertEqual(services.resolve_invite(idep.token)[1], "active")
+        services.remove_substitution(sub)
+        self.assertEqual(services.resolve_invite(idep.token)[1], "inactive")
+        # re-added as substitute -> valid again
+        services.add_substitution(self.meeting, anna, deputy)
+        self.assertEqual(services.resolve_invite(idep.token)[1], "active")
+
+    def test_voting_member_changed_to_deputy_inactive(self):
+        anna = self.member("Anna", self.ga)
+        services.ensure_invites(self.meeting)
+        invite = self.meeting.invites.get(member=anna)
+        self.assertEqual(services.resolve_invite(invite.token)[1], "waiting")
+        anna.role = "deputy"
+        anna.save()
+        self.assertEqual(services.resolve_invite(invite.token)[1], "inactive")
+        self.assertNotIn(anna, services.participants(self.meeting))
+
+    def test_inactive_checked_before_removed(self):
+        anna = self.member("Anna", self.ga)
+        services.start_meeting(self.meeting)
+        invite = self.meeting.invites.get(member=anna)
+        services.remove_invite(invite)
+        anna.role = "deputy"
+        anna.save()
+        self.assertEqual(services.resolve_invite(invite.token)[1], "inactive")
+
     def test_participants_and_invites(self):
         v1 = self.member("Anna", self.ga)
         v2 = self.member("Bert", self.ga)
@@ -525,7 +557,13 @@ class MeetingApiTests(MeetingFixture, ApiBase):
     def test_csv(self):
         self.member("=cmd", self.ga, email="x@uni.de")
         self.member("Bert", self.obs_group)
-        self.client.post(self.base + "invites/")
+        carla = self.member("Carla", self.ga)
+        dora = self.member("Dora", self.gb)
+        self.client.post(self.base + "start/")
+        # invalid links are left out of the export
+        services.remove_invite(MeetingInvite.objects.get(member=carla))
+        dora.role = "deputy"
+        dora.save()
         r = self.client.get(self.base + "invites.csv", HTTP_ACCEPT_LANGUAGE="de")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(
@@ -538,6 +576,8 @@ class MeetingApiTests(MeetingFixture, ApiBase):
         body = "\n".join(lines[1:])
         self.assertIn("'=cmd", body)
         self.assertIn("Gruppe A", body)
+        self.assertNotIn("Carla", body)
+        self.assertNotIn("Dora", body)
         r = self.client.get(self.base + "invites.csv", HTTP_ACCEPT_LANGUAGE="en")
         lines = r.content.decode("utf-8-sig").strip().splitlines()
         self.assertEqual(lines[0], "Name,E-Mail,Group,Role,Link")

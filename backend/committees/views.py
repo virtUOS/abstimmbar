@@ -251,6 +251,10 @@ class MeetingViewSet(viewsets.GenericViewSet):
         writer = csv.writer(buffer)
         writer.writerow(labels["header"])
         for invite in invites:
+            invite.meeting = meeting
+            # Only valid links: secretariats must never mail out dead ones.
+            if services.invite_state(invite) not in ("waiting", "active"):
+                continue
             member = invite.member
             role = "observer" if member.group.is_observer else member.role
             row = [

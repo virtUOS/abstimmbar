@@ -141,20 +141,31 @@ def remove_substitution(substitution: MeetingSubstitution):
         ensure_invites(meeting)
 
 
+def _seat_q(meeting: QuestionSet) -> Q:
+    """Members who hold a seat in this meeting at all: voting members,
+    observers, and deputies put in by a substitution. Shared by
+    `participants` and `invite_state` so the two cannot drift."""
+    deputies = MeetingSubstitution.objects.filter(meeting=meeting).values("deputy_id")
+    return (
+        Q(role=CommitteeMember.Role.VOTING)
+        | Q(group__is_observer=True)
+        | Q(pk__in=deputies)
+    )
+
+
+def _fully_absent_ids(meeting: QuestionSet):
+    return MeetingSubstitution.objects.filter(
+        meeting=meeting, from_question__isnull=True,
+    ).values("absent_id")
+
+
 def participants(meeting: QuestionSet) -> list[CommitteeMember]:
     """Voting members and observers, minus those substituted for the whole
     meeting, plus every deputy put in by a substitution."""
-    subs = MeetingSubstitution.objects.filter(meeting=meeting)
-    fully_absent = subs.filter(from_question__isnull=True).values("absent_id")
     return list(
         CommitteeMember.objects.filter(room_id=meeting.room_id)
-        .filter(
-            (
-                (Q(role=CommitteeMember.Role.VOTING) | Q(group__is_observer=True))
-                & ~Q(pk__in=fully_absent)
-            )
-            | Q(pk__in=subs.values("deputy_id")),
-        )
+        .filter(_seat_q(meeting))
+        .exclude(pk__in=_fully_absent_ids(meeting))
         .select_related("group")
         .order_by("group__position", "group_id", "name", "id"),
     )
@@ -219,18 +230,20 @@ def invite_state(invite: MeetingInvite) -> str:
     meeting = invite.meeting
     if meeting.meeting_state == State.ENDED:
         return "ended"
-    if MeetingSubstitution.objects.filter(
-        meeting=meeting, absent_id=invite.member_id, from_question__isnull=True,
-    ).exists():
+    if _fully_absent_ids(meeting).filter(absent_id=invite.member_id).exists():
         return "replaced"
+    if not CommitteeMember.objects.filter(
+        _seat_q(meeting), pk=invite.member_id, room_id=meeting.room_id,
+    ).exists():
+        return "inactive"
     if invite.removed_at is not None:
         return "removed"
     return "waiting" if meeting.meeting_state == State.DRAFT else "active"
 
 
 def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:
-    """Look up a personal link: unknown → ended → replaced → removed →
-    waiting (draft) / active (started)."""
+    """Look up a personal link: unknown → ended → replaced → inactive (no
+    longer holds a seat) → removed → waiting (draft) / active (started)."""
     invite = (
         MeetingInvite.objects.select_related("meeting", "member").filter(token=token).first()
         if token else None
