@@ -8,7 +8,9 @@ standing link with no teacher-started run. (A free-text question without a
 model solution is allowed everywhere; the editor only warns for self-checks.) Adding a new set type is one entry here (+ the frontend mirror in
 `frontend/src/setTypes.ts`). Kept as data, not scattered if-branches."""
 
-from .models import Question, QuestionSet
+from rest_framework import serializers
+
+from .models import Question, QuestionSet, Room
 
 _ALL_KINDS = tuple(kind for kind, _ in Question.Kind.choices)
 
@@ -28,6 +30,10 @@ SET_TYPES = {
         # Only kinds with an auto-checkable answer / shown solution.
         "allowed_kinds": ("single_choice", "multiple_choice", "ordering", "open_text"),
     },
+    QuestionSet.SetType.MEETING: {
+        # Committee sessions: simple resolutions and free-text input only.
+        "allowed_kinds": ("single_choice", "multiple_choice", "open_text"),
+    },
 }
 
 
@@ -38,3 +44,12 @@ def _rules(set_type):
 def allowed_kinds(set_type) -> tuple:
     return _rules(set_type)["allowed_kinds"]
 
+
+def check_room_pairing(set_type, room) -> None:
+    """Committee rooms hold only meetings; meetings live only in committee
+    rooms. Raises a DRF ValidationError (HTTP 400) on a mismatch."""
+    is_meeting = set_type == QuestionSet.SetType.MEETING
+    if room.kind == Room.Kind.COMMITTEE and not is_meeting:
+        raise serializers.ValidationError("Committee rooms only hold meetings.")
+    if room.kind != Room.Kind.COMMITTEE and is_meeting:
+        raise serializers.ValidationError("Meetings belong in committee rooms.")

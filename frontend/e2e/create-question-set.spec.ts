@@ -1,4 +1,14 @@
+import type { Page } from '@playwright/test';
 import { test, expect } from './fixtures';
+
+/** "+ New room" is a kind menu in expert mode and a plain button in simple
+ *  mode; pick the standard room either way. */
+async function openNewRoomForm(page: Page) {
+  await page.getByRole('button', { name: /New room/ }).click();
+  const standard = page.getByRole('menuitem', { name: /^Room/ });
+  if (await standard.isVisible()) await standard.click();
+}
+
 
 test('login and create a new question set', async ({ page, trackRoom }) => {
   const runId = Date.now();
@@ -12,7 +22,7 @@ test('login and create a new question set', async ({ page, trackRoom }) => {
   await page.getByRole('textbox', { name: 'Password' }).fill('demo');
   await page.getByRole('button', { name: 'Sign In' }).click();
 
-  await page.getByRole('button', { name: '+ New room' }).click();
+  await openNewRoomForm(page);
   await page.getByRole('textbox', { name: 'Name' }).fill(roomName);
   await page.getByRole('button', { name: 'Create' }).click();
   await expect(page.getByRole('heading', { name: roomName })).toBeVisible();

@@ -1,0 +1,21 @@
+{% extends "live/base.html" %}
+{% load i18n %}
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{% block title %}Abstimmbar{% endblock %}
+{% block content %}
+{% if invalid %}
+<p class="center soft">{% trans "This link is not valid (any more). Please contact the chair of the meeting." %}</p>
+{% else %}
+<p class="soft">{{ room_title }}</p>
+<h1>{{ meeting_title }}</h1>
+{% if scheduled_at %}<p class="soft">{{ scheduled_at|date:"DATETIME_FORMAT" }}</p>{% endif %}
+<p style="margin-top:18px">
+{% if is_observer %}{% trans "You are taking part as an observer. You cannot vote." %}
+{% else %}{% blocktrans with name=member.name group=group_name %}You are taking part as {{ name }} ({{ group }}).{% endblocktrans %}{% endif %}
+</p>
+<p class="soft" style="margin-top:12px">
+{% if state == "waiting" %}{% trans "The meeting has not started yet. Please reload this page when it begins." %}
+{% else %}{% trans "The meeting is in progress. Votes will appear here." %}{% endif %}
+</p>
+{% endif %}
+{% endblock %}

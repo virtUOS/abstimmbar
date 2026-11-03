@@ -10599,3 +10599,69 @@ class PresenterProgressTests(LiveTestCase):
             self.progress(),
             {"answered": 1, "items": 2, "per_person": 2, "unit": "ratings"},
         )
+
+
+class MeetingRunGuardTests(TestCase):
+    """Committee meetings never start an anonymous live run."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="chair")
+        self.room = Room.objects.create(title="Rat", kind=Room.Kind.COMMITTEE)
+        self.room.owners.add(self.owner)
+        self.meeting = QuestionSet.objects.create(
+            room=self.room, title="Sitzung", type=QuestionSet.SetType.MEETING,
+        )
+        Question.objects.create(
+            question_set=self.meeting, kind=Question.Kind.SINGLE_CHOICE, text="<p>Ja?</p>",
+        )
+        self.client.force_login(self.owner)
+
+    def test_start_run_rejected(self):
+        for mode in ("live", "self_paced"):
+            response = self.client.post(
+                f"/api/question-sets/{self.meeting.pk}/start-run/",
+                {"mode": mode}, content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 400)
+        self.assertFalse(Run.objects.filter(question_set=self.meeting).exists())
+
+    def test_archive_results_rejected(self):
+        response = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/archive-results/",
+            {}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Run.objects.filter(question_set=self.meeting).exists())
+
+    def test_foreign_user_still_404(self):
+        self.client.force_login(User.objects.create_user(username="other"))
+        response = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/start-run/",
+            {}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+class CommitteeRoomCodeTests(TestCase):
+    """A committee room's code is an internal key: it opens nothing for
+    participants (members enter via personal links)."""
+
+    def setUp(self):
+        self.room = Room.objects.create(title="Rat", kind=Room.Kind.COMMITTEE)
+        self.standard = Room.objects.create(title="Vorlesung")
+
+    def test_participant_page_not_found(self):
+        self.assertEqual(self.client.get(f"/p/{self.room.code}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/p/{self.standard.code}/").status_code, 200)
+
+    def test_join_and_qr_not_found(self):
+        response = self.client.post(
+            f"/api/live/rooms/{self.room.code}/join/", {}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get(f"/p/{self.room.code}/qr.png").status_code, 404)
+        self.assertFalse(ParticipantToken.objects.filter(room=self.room).exists())
+
+    def test_participant_stream_not_found(self):
+        response = self.client.get(f"/api/live/rooms/{self.room.code}/stream/")
+        self.assertEqual(response.status_code, 404)

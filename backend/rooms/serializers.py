@@ -12,6 +12,7 @@ from typing import ClassVar
 
 from django.conf import settings
 from django.db.models import Count, Max
+from django.utils import timezone
 from django.utils.html import strip_tags
 from rest_framework import serializers
 
@@ -20,7 +21,7 @@ from common.serializers import TranslationSyncMixin
 
 from . import matrix, mindmap, set_types
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
-from .naming import generate_default_titles
+from .naming import generate_default_titles, make_titles_unique, meeting_default_titles
 from .question_fields import clean_evaluation_categories
 from .sanitize import clean_html, clean_media_url
 from .transfer import sync_after_question
@@ -74,7 +75,7 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     class Meta:
         model = Room
         fields: ClassVar = [
-            "id", "code", "title", "description", "show_logo_in_presentation",
+            "id", "code", "kind", "title", "description", "show_logo_in_presentation",
             "show_qr_in_presentation", "show_code_in_presentation",
             "presentation_corner", "closing_info",
             "question_set_count", "set_type_counts", "created_at", "updated_at",
@@ -84,6 +85,11 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "last_used_at", "is_lti",
         ]
         read_only_fields: ClassVar = ["code"]
+
+    def validate_kind(self, value):
+        if self.instance is not None and value != self.instance.kind:
+            raise serializers.ValidationError("The room type cannot be changed.")
+        return value
 
     def get_created_by_name(self, obj):
         return _user_name(obj.created_by)
@@ -221,11 +227,11 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "id", "room", "room_title", "title", "description", "type", "reveal_answers",
             "open_on_show", "show_results_to_participants", "present_results_after",
             "allow_back_navigation", "shuffle_questions", "reveal_only_in_summary",
-            "quiz_time_limit",
+            "quiz_time_limit", "scheduled_at", "meeting_state", "chair_votes",
             "share_token", "self_check_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
         ]
-        read_only_fields: ClassVar = ["share_token", "self_check_token"]
+        read_only_fields: ClassVar = ["share_token", "self_check_token", "meeting_state"]
 
     def get_has_results(self, obj):
         annotated = getattr(obj, "has_answers", None)
@@ -252,6 +258,16 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # Committee rooms hold only meetings; meetings only live there. On
+        # update the type is fixed, but `room` may be (attempted to be) moved.
+        if self.instance is None:
+            if attrs.get("room") is not None:
+                set_types.check_room_pairing(
+                    attrs.get("type", QuestionSet.SetType.LIVE_POLL), attrs["room"]
+                )
+        elif attrs.get("room") is not None:
+            set_types.check_room_pairing(self.instance.type, attrs["room"])
+
         # A time limit only applies to self-paced sets; null it here for
         # any other effective type, but only when the field is actually
         # being written so an unrelated PATCH can't wipe an existing value.
@@ -271,13 +287,24 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         title = (attrs.get(canonical_key, attrs.get("title")) or "").strip()
         if not title:
             if self.instance is None:
-                generated = generate_default_titles(
-                    {"de": "Unbenanntes Fragenset", "en": "Unnamed question set"},
-                    CONTENT_DEFAULT_LANGUAGE,
-                    lambda t: room.question_sets.filter(
+                def exists(t):
+                    return room.question_sets.filter(
                         **{f"{canonical_key}__iexact": t}
-                    ).exists(),
-                )
+                    ).exists()
+
+                # A meeting is named after its date ("Sitzung vom …").
+                if attrs.get("type") == QuestionSet.SetType.MEETING:
+                    generated = make_titles_unique(
+                        meeting_default_titles(attrs.get("scheduled_at") or timezone.now()),
+                        CONTENT_DEFAULT_LANGUAGE,
+                        exists,
+                    )
+                else:
+                    generated = generate_default_titles(
+                        {"de": "Unbenanntes Fragenset", "en": "Unnamed question set"},
+                        CONTENT_DEFAULT_LANGUAGE,
+                        exists,
+                    )
                 # Fill the canonical column, and any OTHER language only when
                 # the user left it blank too (never clobber a provided one).
                 for lang, value in generated.items():

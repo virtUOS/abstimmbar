@@ -28,7 +28,7 @@ from rest_framework import serializers
 from common.i18n_fields import LANGS, translated_map
 
 from . import matrix, mindmap, set_types
-from .models import AnswerOption, Question, QuestionSet, Section
+from .models import AnswerOption, Question, QuestionSet, Room, Section
 from .naming import unique_title
 from .question_fields import clean_evaluation_categories
 from .sanitize import clean_html, clean_media_url
@@ -194,6 +194,7 @@ def duplicate_set(question_set, target_room, title=None):
     caller — the ``duplicate`` API action — builds it as a single string,
     e.g. "<title> (Kopie)"); the copied non-canonical title is left as-is.
     """
+    set_types.check_room_pairing(question_set.type, target_room)
     canonical_key = f"title_{CONTENT_DEFAULT_LANGUAGE}"
     title_cols = _lang_columns(question_set, "title")
     canonical_title = title if title is not None else title_cols[canonical_key]
@@ -355,6 +356,15 @@ def import_set(room, data):
     set_type = data.get("type", QuestionSet.SetType.LIVE_POLL)
     if set_type not in QuestionSet.SetType.values:
         set_type = QuestionSet.SetType.LIVE_POLL
+    # Meetings are created in committee rooms only, never via file import
+    # (and committee rooms hold nothing else).
+    if (
+        set_type == QuestionSet.SetType.MEETING
+        or room.kind == Room.Kind.COMMITTEE
+    ):
+        raise serializers.ValidationError(
+            {"type": "Import is not available for committee rooms."}
+        )
 
     # #75: quiz_time_limit travels with the export/import round-trip too —
     # foreign input, so validate defensively (plausible range, and only

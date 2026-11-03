@@ -44,7 +44,14 @@ class Room(TimeStampedModel):
     rooms are reusable for different groups (review decision, July 2026).
     """
 
+    class Kind(models.TextChoices):
+        # Chosen at creation, immutable afterwards. A committee room only
+        # holds meeting sets (and vice versa).
+        STANDARD = "standard", "Standard"
+        COMMITTEE = "committee", "Committee"
+
     code = models.CharField(max_length=ROOM_CODE_LENGTH, unique=True, editable=False)
+    kind = models.CharField(max_length=12, choices=Kind.choices, default=Kind.STANDARD)
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
     owners = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name="rooms")
@@ -130,6 +137,12 @@ class QuestionSet(TimeStampedModel):
         LIVE_POLL = "live_poll", "Live poll"        # live, presenter-driven
         SELF_PACED = "self_paced", "Self-paced quiz"  # teacher-started silent work
         SELF_CHECK = "self_check", "Self-check"       # async link, immediate feedback
+        MEETING = "meeting", "Meeting"               # committee session (committee rooms only)
+
+    class MeetingState(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        STARTED = "started", "Started"
+        ENDED = "ended", "Ended"
 
     type = models.CharField(
         max_length=20, choices=SetType.choices, default=SetType.LIVE_POLL
@@ -195,6 +208,14 @@ class QuestionSet(TimeStampedModel):
     self_check_token = models.CharField(
         max_length=32, unique=True, null=True, blank=True, editable=False
     )
+
+    # Committee meetings (type == meeting): planned date, lifecycle state
+    # (server-driven, read-only via the API) and whether the chair votes.
+    scheduled_at = models.DateTimeField(null=True, blank=True)
+    meeting_state = models.CharField(
+        max_length=10, choices=MeetingState.choices, default=MeetingState.DRAFT
+    )
+    chair_votes = models.BooleanField(default=False)
 
     class Meta:
         ordering: ClassVar = ["-updated_at"]

@@ -4,11 +4,13 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router";
-import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
+import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, Landmark, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
 import { useApp, useEasyMode } from "../App";
-import { api, requestError, type Room, type SearchResults } from "../api";
-import { SET_TYPES, CREATABLE_SET_TYPES, type SetType } from "../setTypes";
+import { api, requestError, type Room, type RoomKind, type SearchResults } from "../api";
+import { SET_TYPES, type SetType } from "../setTypes";
 import { localizedText, stripHtml } from "@basicbar/ui";
+import { CommitteeRoomBadge } from "../committee/CommitteeRoomBadge";
+import { CreateMenu } from "../components/CreateMenu";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
 import { Button, ConfirmDialog, EmptyState, InfoHint, SegmentedControl, TextInput } from "../components/ui";
@@ -55,7 +57,11 @@ const SET_TYPE_COUNT_LABEL: Record<SetType, string> = {
   live_poll: "{{count}} live poll",
   self_paced: "{{count}} self-paced quiz",
   self_check: "{{count}} self-check",
+  meeting: "{{count}} meeting",
 };
+
+/** Canonical badge order: every set type, incl. committee meetings. */
+const SET_TYPE_ORDER = Object.keys(SET_TYPES) as SetType[];
 
 /** Per-type set counts on a room card (#75): one colored icon badge per set
  *  type present, in the canonical order, each with a count-aware tooltip. The
@@ -65,11 +71,11 @@ const SET_TYPE_COUNT_LABEL: Record<SetType, string> = {
 function RoomSetTypeBreakdown({ room }: { room: Room }) {
   const { t } = useTranslation();
   const counts = room.set_type_counts;
-  const present = CREATABLE_SET_TYPES.filter((type) => (counts?.[type] ?? 0) > 0);
+  const present = SET_TYPE_ORDER.filter((type) => (counts?.[type] ?? 0) > 0);
   if (!present.length) {
     return (
       <p className="mt-1.5 text-sm text-slate-400">
-        {t("No question sets yet")}
+        {room.kind === "committee" ? t("No meetings yet") : t("No question sets yet")}
       </p>
     );
   }
@@ -121,8 +127,16 @@ function RoomCard({
   const iconBtn =
     "rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:hover:bg-slate-800";
   const description = stripHtml(localizedText(room.description));
+  const committee = room.kind === "committee";
   return (
-    <li className="relative min-w-0 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-brand-600">
+    <li
+      className={
+        committee
+          ? // Committee rooms stand apart: tinted card with an accent edge.
+            "relative min-w-0 rounded-2xl border border-l-4 border-indigo-200 border-l-indigo-500 bg-indigo-50/60 p-4 hover:border-indigo-400 hover:border-l-indigo-600 dark:border-indigo-900 dark:border-l-indigo-400 dark:bg-indigo-950/30"
+          : "relative min-w-0 rounded-2xl border border-slate-200 dark:border-slate-800 p-4 hover:border-brand-600"
+      }
+    >
       {/* On mobile the actions drop to their own row so the title/content gets
           the full card width (#81); from sm they sit beside it as before. */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-2">
@@ -156,13 +170,18 @@ function RoomCard({
               </span>
             )}
           </h2>
-          <span
-            title={t("Code")}
-            className="mt-2 inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2 py-1 font-mono text-sm font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
-          >
-            <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
-            {room.code}
-          </span>
+          {committee ? (
+            // Members join via personal links; the code is not shown.
+            <CommitteeRoomBadge className="mt-2" />
+          ) : (
+            <span
+              title={t("Code")}
+              className="mt-2 inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2 py-1 font-mono text-sm font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
+            >
+              <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
+              {room.code}
+            </span>
+          )}
           <RoomSetTypeBreakdown room={room} />
 
           {!room.is_owner && room.owner_name && (
@@ -258,6 +277,8 @@ export default function RoomsPage() {
   const easyMode = useEasyMode();
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [newRoom, setNewRoom] = useState<RoomSettings | null>(null);
+  // Room kind, chosen once at creation (expert mode only; fixed afterwards).
+  const [newRoomKind, setNewRoomKind] = useState<RoomKind>("standard");
   const [createError, setCreateError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<number | null>(null);
@@ -268,6 +289,9 @@ export default function RoomsPage() {
   const [pageSize, setPageSize] = useState(20);
   const [showAll, setShowAll] = useState(false);
   const [roomFilter, setRoomFilter] = useState<"active" | "archived" | "all">("active");
+  // Room kind filter: shown once committee rooms are in play (expert mode, or
+  // the user already has one).
+  const [kindFilter, setKindFilter] = useState<"all" | RoomKind>("all");
 
   const reload = async () => {
     if (roomFilter === "archived") {
@@ -305,7 +329,8 @@ export default function RoomsPage() {
     setCreateError("");
     try {
       // A blank title is fine — the backend fills a dated default.
-      const created = await api.createRoom(newRoom);
+      const kind: RoomKind = easyMode ? "standard" : newRoomKind;
+      const created = await api.createRoom({ ...newRoom, kind });
       setNewRoom(null);
       navigate(`/rooms/${created.id}`);
     } catch (err) {
@@ -346,18 +371,23 @@ export default function RoomsPage() {
   if (!rooms) return null;
 
   const searching = term.length >= 2;
-  const favorites = sortRooms(rooms.filter((r) => r.is_favorite), sortKey);
+  const showKindFilter = !easyMode || rooms.some((r) => r.kind === "committee");
+  const shown =
+    showKindFilter && kindFilter !== "all"
+      ? rooms.filter((r) => r.kind === kindFilter)
+      : rooms;
+  const favorites = sortRooms(shown.filter((r) => r.is_favorite), sortKey);
   // Rooms shared with me by someone else get their own category (#25); my own
   // rooms (incl. those I share with others) stay in the main, paged list.
   // Staff additionally see every other room (via ?all=1) in a third,
   // view-only category once "Show all rooms" is on.
-  const mine = sortRooms(rooms.filter((r) => r.is_owner), sortKey);
+  const mine = sortRooms(shown.filter((r) => r.is_owner), sortKey);
   const sharedWithMe = sortRooms(
-    rooms.filter((r) => !r.is_owner && r.is_member),
+    shown.filter((r) => !r.is_owner && r.is_member),
     sortKey,
   );
   const others = sortRooms(
-    rooms.filter((r) => !r.is_owner && !r.is_member),
+    shown.filter((r) => !r.is_owner && !r.is_member),
     sortKey,
   );
   const totalPages = Math.max(1, Math.ceil(mine.length / pageSize));
@@ -426,36 +456,75 @@ export default function RoomsPage() {
             )}
           />
           <div data-tour="rooms.new-room">
-            <Button
-              variant="primary"
-              onClick={() => {
+            {/* Committee rooms are an expert feature: in easy mode there is
+                only one kind, so the menu collapses to a plain button. */}
+            <CreateMenu<RoomKind>
+              label={t("New room")}
+              options={[
+                {
+                  value: "standard",
+                  label: t("Room"),
+                  description: t("For courses and lectures: polls and quizzes with anonymous participation."),
+                  icon: DoorOpen,
+                },
+                ...(easyMode
+                  ? []
+                  : [
+                      {
+                        value: "committee" as const,
+                        label: t("Committee room"),
+                        description: t("For votes in committees with invited members and status groups."),
+                        icon: Landmark,
+                      },
+                    ]),
+              ]}
+              onPick={(kind) => {
                 setCreateError("");
+                setNewRoomKind(kind);
                 setNewRoom(NEW_ROOM_DEFAULTS);
               }}
-            >
-              + {t("New room")}
-            </Button>
+            />
           </div>
         </div>
       </div>
       )}
 
       {!newRoom && (
-        <div data-tour="rooms.filter" className="mb-6 w-full sm:w-max">
-          <SegmentedControl
-            className="w-full"
-            ariaLabel={t("Show rooms")}
-            value={roomFilter}
-            onChange={(v) => {
-              setRoomFilter(v);
-              setPage(1);
-            }}
-            options={[
-              { value: "active", label: t("Active rooms") },
-              { value: "archived", label: t("Archived rooms") },
-              { value: "all", label: t("All rooms") },
-            ]}
-          />
+        <div className="mb-6 flex flex-wrap gap-3">
+          <div data-tour="rooms.filter" className="w-full sm:w-max">
+            <SegmentedControl
+              className="w-full"
+              ariaLabel={t("Show rooms")}
+              value={roomFilter}
+              onChange={(v) => {
+                setRoomFilter(v);
+                setPage(1);
+              }}
+              options={[
+                { value: "active", label: t("Active rooms") },
+                { value: "archived", label: t("Archived rooms") },
+                { value: "all", label: t("All rooms") },
+              ]}
+            />
+          </div>
+          {showKindFilter && (
+            <div className="w-full sm:w-max">
+              <SegmentedControl
+                className="w-full"
+                ariaLabel={t("Room type")}
+                value={kindFilter}
+                onChange={(v) => {
+                  setKindFilter(v);
+                  setPage(1);
+                }}
+                options={[
+                  { value: "all", label: t("All types") },
+                  { value: "standard", label: t("Rooms") },
+                  { value: "committee", label: t("Committees") },
+                ]}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -465,13 +534,16 @@ export default function RoomsPage() {
           onSubmit={handleCreate}
           className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40"
         >
-          <h2 className="mb-3 font-semibold">{t("New room")}</h2>
+          <h2 className="mb-3 font-semibold">
+            {newRoomKind === "committee" ? t("New committee room") : t("New room")}
+          </h2>
           <RoomSettingsForm
             draft={newRoom}
             onChange={(patch) => setNewRoom({ ...newRoom, ...patch })}
             titlePlaceholder={t("e.g. “Bio 101 lecture”")}
             titleAnchor="room.name"
             easyMode={easyMode}
+            committee={!easyMode && newRoomKind === "committee"}
           />
           <div className="mt-3 flex gap-2">
             <Button type="submit" variant="primary">
@@ -513,6 +585,13 @@ export default function RoomsPage() {
             )}
           </EmptyState>
         )
+          ) : shown.length === 0 ? (
+            <EmptyState
+              icon={kindFilter === "committee" ? Landmark : DoorOpen}
+              title={kindFilter === "committee" ? t("No committee rooms") : t("No rooms of this type")}
+            >
+              {t("Choose “All types” to see your other rooms.")}
+            </EmptyState>
           ) : (
             <>
           {favorites.length > 0 && (

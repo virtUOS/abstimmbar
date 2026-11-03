@@ -6,6 +6,22 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 Die Zahlen in Klammern verweisen auf Pull Requests im
 [GitHub-Repository](https://github.com/virtUOS/abstimmbar/pulls?q=is%3Apr).
 
+## [Unreleased]
+
+### Hinzugefügt
+
+- Gremien-Raum (Teil 1): Raumtyp für Gremien mit Statusgruppen, Mitgliedern,
+  Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
+  Links und Vertretungen. Abstimmen folgt.
+
+> ### Hinweise für den Betrieb
+>
+> - **Caddy leitet `/g/*` an Django weiter.** Unter `/g/<token>/` liegen die
+>   persönlichen Sitzungslinks der Gremienmitglieder. Die mitgelieferte
+>   Caddyfile enthält die Weiterleitung bereits; wer die Caddyfile angepasst
+>   hat oder einen eigenen Reverse-Proxy betreibt, muss `/g/*` ergänzen
+>   (Liste der weiterzuleitenden Pfade in der Installationsanleitung).
+
 ## [1.0.0] – 2026-10-22
 
 Die erste stabile Version. Abstimmbar ist damit für den regulären Einsatz in

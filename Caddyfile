@@ -56,6 +56,10 @@
 	handle /c/* {
 		reverse_proxy app:8000
 	}
+	# Personal committee meeting links (/g/<token>/) → Django.
+	handle /g/* {
+		reverse_proxy app:8000
+	}
 	# Prometheus scrape endpoint — token-guarded by METRICS_TOKEN (404 while
 	# unset); see docs/monitoring.md.
 	handle /metrics {

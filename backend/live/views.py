@@ -77,10 +77,15 @@ KEEPALIVE_SECONDS = 25
 KEEPALIVE_FRAME = "event: ping\ndata: {}\n\n"
 
 
+# Committee rooms are entered only through personal links (/g/<token>/); their
+# room code is an internal key and must not open anything for participants.
+_CODE_ROOMS = Room.objects.exclude(kind=Room.Kind.COMMITTEE)
+
+
 def _room_by_code(code):
     # Word codes are stored lowercase; be forgiving about how a participant
     # typed it (case, surrounding whitespace). Numeric codes are unaffected.
-    return get_object_or_404(Room, code=(code or "").strip().lower())
+    return get_object_or_404(_CODE_ROOMS, code=(code or "").strip().lower())
 
 
 def _require_owner(user, room):
@@ -117,7 +122,7 @@ def participant_home(request):
 @ensure_csrf_cookie
 def participant_page(request, code):
     lang = _lang_from_query(request)
-    room = Room.objects.filter(code=(code or "").strip().lower()).first()
+    room = _CODE_ROOMS.filter(code=(code or "").strip().lower()).first()
     if room is None:
         response = render(request, "live/not_found.html", status=404)
         if lang:
@@ -1896,6 +1901,11 @@ def _finish_other_room_runs(room, keep_set):
             other.delete()
 
 
+# Committee meetings never run through the anonymous live flow: their votes
+# are tied to personal meeting links (Gremien-Raum, PR 2).
+MEETING_RUN_DETAIL = "Meetings cannot be presented as a live poll."
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def start_run(request, set_id):
@@ -1912,6 +1922,8 @@ def start_run(request, set_id):
     question_set = get_object_or_404(QuestionSet.objects.select_related("room"), pk=set_id)
     if not _require_owner(request.user, question_set.room):
         raise Http404
+    if question_set.type == QuestionSet.SetType.MEETING:
+        return Response({"detail": MEETING_RUN_DETAIL}, status=400)
     mode = request.data.get("mode") or Run.Mode.LIVE
     if mode not in {m.value for m in Run.Mode}:
         return Response({"detail": "Invalid mode."}, status=400)
@@ -2904,6 +2916,8 @@ def archive_results(request, set_id):
     Idempotent: if an empty run is already waiting, it is returned as-is.
     """
     question_set = _owned_question_set(request.user, set_id)
+    if question_set.type == QuestionSet.SetType.MEETING:
+        return Response({"detail": MEETING_RUN_DETAIL}, status=400)
     active = (
         question_set.runs.exclude(phase=Run.Phase.FINISHED)
         .order_by("-created_at")
@@ -3103,6 +3117,9 @@ async def stream(request, code):
         if not is_owner:
             return JsonResponse({"detail": "Forbidden"}, status=403)
         role = "presenter"
+    elif room.kind == Room.Kind.COMMITTEE:
+        # No participant stream by room code for committee rooms.
+        raise Http404
 
     subscriber = hub.subscribe(room.pk, role)
     # Joining/leaving changes the participant counter on the beamer.

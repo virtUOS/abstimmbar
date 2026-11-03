@@ -35,9 +35,13 @@ export interface Whoami {
   example_set_id?: number | null;
 }
 
+/** Fixed at creation (Gremien-Raum): a committee room holds only meetings. */
+export type RoomKind = "standard" | "committee";
+
 export interface Room {
   id: number;
   code: string;
+  kind: RoomKind;
   title: LocalizedText;
   description: LocalizedText;
   show_logo_in_presentation: boolean;
@@ -95,10 +99,97 @@ export interface QuestionSet {
   self_check_token: string | null;
   license: string;
   license_holder: string;
+  /** Meetings (committee rooms) only: the scheduled date (sorting only). */
+  scheduled_at: string | null;
+  meeting_state: MeetingState;
+  /** Meetings only: the chair votes too (with an own member entry). */
+  chair_votes: boolean;
   question_count: number;
   has_results: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export type MeetingState = "draft" | "started" | "ended";
+
+/** Seeded starting point for a committee room's groups. */
+export interface CommitteeTemplate {
+  id: number;
+  name: LocalizedText;
+  groups: { de: string; en: string }[];
+}
+
+export interface CommitteeGroup {
+  id: number;
+  room: number;
+  name: LocalizedText;
+  position: number;
+  /** The room's one observer group: never votes, cannot be deleted. */
+  is_observer: boolean;
+  member_count: number;
+}
+
+export type CommitteeRole = "voting" | "deputy";
+
+export interface CommitteeMember {
+  id: number;
+  room: number;
+  group: number;
+  name: string;
+  email: string;
+  role: CommitteeRole;
+  /** Order among a group's deputies (deputies only). */
+  deputy_rank: number | null;
+  language: "de" | "en";
+}
+
+/** A personal meeting link's state (see backend `invite_state`). */
+export type InviteState = "waiting" | "active" | "ended" | "replaced" | "inactive" | "removed";
+
+export interface MeetingInvite {
+  id: number;
+  member: {
+    id: number;
+    name: string;
+    email: string;
+    group: number;
+    role: CommitteeRole;
+  };
+  url: string;
+  removed_at: string | null;
+  /** Removed after this agenda item (question id); null = right away. */
+  removed_after: number | null;
+  state: InviteState;
+}
+
+export interface MeetingSubstitution {
+  id: number;
+  absent: number;
+  deputy: number;
+  /** From this agenda item (question id) on; null = the whole meeting. */
+  from_question: number | null;
+}
+
+export interface MeetingSummary {
+  id: number;
+  meeting_state: MeetingState;
+  scheduled_at: string | null;
+  chair_votes: boolean;
+  invites: MeetingInvite[];
+  substitutions: MeetingSubstitution[];
+}
+
+/** A person from my own rooms, offered when adding committee members. */
+export interface KnownPerson {
+  name: string;
+  email: string;
+}
+
+export type BulkSkipReason = "invalid_email" | "duplicate" | "exists";
+
+export interface BulkMemberResult {
+  created: CommitteeMember[];
+  skipped: { line: string; reason: BulkSkipReason }[];
 }
 
 export interface RoomOwner {
@@ -882,6 +973,7 @@ export const api = {
     request<Room>(`/api/rooms/${id}/archive/`, { method: on ? "POST" : "DELETE" }),
   getRoom: (id: number) => request<Room>(`/api/rooms/${id}/`),
   createRoom: (data: {
+    kind?: RoomKind;
     title: LocalizedText;
     description?: LocalizedText;
     show_logo_in_presentation?: boolean;
@@ -918,6 +1010,97 @@ export const api = {
   leaveRoom: (id: number) =>
     request<void>(`/api/rooms/${id}/leave/`, { method: "POST" }),
 
+  // --- committee rooms: groups and members (Gremien-Raum) ---
+  listCommitteeTemplates: () =>
+    request<CommitteeTemplate[]>("/api/committee-templates/"),
+  listCommitteeGroups: (roomId: number) =>
+    request<CommitteeGroup[]>(`/api/committee-groups/?room=${roomId}`),
+  createCommitteeGroup: (data: { room: number; name: LocalizedText; position?: number }) =>
+    request<CommitteeGroup>("/api/committee-groups/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateCommitteeGroup: (id: number, data: { name?: LocalizedText; position?: number }) =>
+    request<CommitteeGroup>(`/api/committee-groups/${id}/`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  deleteCommitteeGroup: (id: number) =>
+    request<void>(`/api/committee-groups/${id}/`, { method: "DELETE" }),
+  applyCommitteeTemplate: (roomId: number, templateId: number) =>
+    request<CommitteeGroup[]>("/api/committee-groups/apply-template/", {
+      method: "POST",
+      body: JSON.stringify({ room: roomId, template: templateId }),
+    }),
+  listCommitteeMembers: (roomId: number) =>
+    request<CommitteeMember[]>(`/api/committee-members/?room=${roomId}`),
+  createCommitteeMember: (data: Omit<CommitteeMember, "id">) =>
+    request<CommitteeMember>("/api/committee-members/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  updateCommitteeMember: (id: number, data: Partial<Omit<CommitteeMember, "id" | "room">>) =>
+    request<CommitteeMember>(`/api/committee-members/${id}/`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
+  /** Autocomplete for adding members: people from my own rooms only
+   *  (committee members and co-owners); empty for queries under 2 chars. */
+  searchKnownPeople: (roomId: number, query: string) =>
+    request<KnownPerson[]>(
+      `/api/committee-members/known/?room=${roomId}&q=${encodeURIComponent(query)}`,
+    ),
+  deleteCommitteeMember: (id: number) =>
+    request<void>(`/api/committee-members/${id}/`, { method: "DELETE" }),
+  /** Paste import: one member per line/comma/semicolon (`Name <mail>` or
+   *  `mail`); invalid, duplicate and existing addresses come back skipped. */
+  bulkAddCommitteeMembers: (data: {
+    room: number;
+    group: number;
+    role: CommitteeRole;
+    text: string;
+  }) =>
+    request<BulkMemberResult>("/api/committee-members/bulk/", {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+
+  // --- committee meetings: lifecycle, personal links, substitutions ---
+  getMeeting: (setId: number) => request<MeetingSummary>(`/api/meetings/${setId}/`),
+  startMeeting: (setId: number) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/start/`, { method: "POST" }),
+  endMeeting: (setId: number) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/end/`, { method: "POST" }),
+  /** Create the missing personal links (never deletes any). */
+  ensureMeetingInvites: (setId: number) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/invites/`, { method: "POST" }),
+  /** CSV of the currently valid (waiting/active) links. */
+  meetingInvitesCsvUrl: (setId: number) =>
+    `${API_BASE_URL}/api/meetings/${setId}/invites.csv`,
+  suggestDeputy: (setId: number, absentId: number) =>
+    request<{ deputy: MeetingInvite["member"] | null }>(
+      `/api/meetings/${setId}/substitutions/suggest/?absent=${absentId}`,
+    ),
+  addSubstitution: (
+    setId: number,
+    data: { absent: number; deputy: number; from_question?: number | null },
+  ) =>
+    request<MeetingSubstitution>(`/api/meetings/${setId}/substitutions/`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteSubstitution: (setId: number, subId: number) =>
+    request<void>(`/api/meetings/${setId}/substitutions/${subId}/`, { method: "DELETE" }),
+  removeInvite: (setId: number, inviteId: number, afterQuestion?: number | null) =>
+    request<MeetingInvite>(`/api/meetings/${setId}/invites/${inviteId}/remove/`, {
+      method: "POST",
+      body: JSON.stringify(afterQuestion ? { after_question: afterQuestion } : {}),
+    }),
+  readmitInvite: (setId: number, inviteId: number) =>
+    request<MeetingInvite>(`/api/meetings/${setId}/invites/${inviteId}/readmit/`, {
+      method: "POST",
+    }),
+
   listQuestionSets: (roomId: number, search = "") =>
     request<Paginated<QuestionSet>>(
       `/api/question-sets/?room=${roomId}&search=${encodeURIComponent(search)}`,
@@ -947,6 +1130,7 @@ export const api = {
       allow_back_navigation?: boolean;
       shuffle_questions?: boolean;
       reveal_only_in_summary?: boolean;
+      scheduled_at?: string | null;
     },
   ) =>
     request<QuestionSet>("/api/question-sets/", {

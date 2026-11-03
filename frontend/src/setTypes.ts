@@ -4,10 +4,10 @@
 /** Frontend mirror of backend rooms/set_types.py (#75): per set type, its
  *  labels, the question kinds it allows, and which run action the set offers.
  *  Keep in sync with the backend registry. */
-import { ClipboardCheck, GraduationCap, Presentation, type LucideIcon } from "lucide-react";
+import { ClipboardCheck, GraduationCap, Landmark, Presentation, type LucideIcon } from "lucide-react";
 import type { QuestionKind } from "./api";
 
-export type SetType = "live_poll" | "self_paced" | "self_check";
+export type SetType = "live_poll" | "self_paced" | "self_check" | "meeting";
 
 const ALL_KINDS: QuestionKind[] = [
   "single_choice", "multiple_choice", "likert", "word_cloud",
@@ -64,9 +64,25 @@ export const SET_TYPES: Record<SetType, SetTypeInfo> = {
       iconBox: "bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300",
     },
   },
+  // Committee sessions: the only set type of a committee room (and only
+  // there). Created from the room's meeting list, not the type menu.
+  meeting: {
+    label: "Meeting",
+    description: "A committee meeting with invited members: resolutions and free-text input.",
+    allowedKinds: ["single_choice", "multiple_choice", "open_text"],
+    // Never run through the anonymous live flow: meetings are run from the
+    // meeting panel with personal links (backend rejects start-run).
+    runAction: null,
+    icon: Landmark,
+    accent: {
+      badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+      iconBox: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
+    },
+  },
 };
 
-/** Types a user can pick when creating a set. */
+/** Types a user can pick when creating a set in a standard room (committee
+ *  rooms only hold `meeting` sets). */
 export const CREATABLE_SET_TYPES: SetType[] = ["live_poll", "self_paced", "self_check"];
 
 export function allowedKindsFor(type: SetType): QuestionKind[] {

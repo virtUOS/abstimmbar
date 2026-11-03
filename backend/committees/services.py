@@ -1,0 +1,353 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 Universität Osnabrück (virtUOS)
+"""Committee helpers: room access, templates, member lists, meeting lifecycle."""
+import re
+
+from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.db import transaction
+from django.db.models import F, Q
+from django.utils import timezone
+
+from rooms.models import Question, QuestionSet, Room
+
+from .models import (
+    CommitteeGroup,
+    CommitteeMember,
+    GroupTemplate,
+    MeetingInvite,
+    MeetingSubstitution,
+)
+
+_NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
+# EmailField column length (Django's validator alone would allow 320).
+MAX_EMAIL_LENGTH = 254
+
+
+def managed_committee_rooms(user):
+    """Committee rooms the user manages (owner/co-owner; staff: all)."""
+    rooms = Room.objects.filter(kind=Room.Kind.COMMITTEE)
+    if user.is_staff:
+        return rooms
+    return rooms.filter(Q(owners=user) | Q(owner=user)).distinct()
+
+
+KNOWN_PEOPLE_MIN_QUERY = 2
+KNOWN_PEOPLE_LIMIT = 10
+
+
+def known_people(user, room: Room, query: str) -> list[dict]:
+    """Autocomplete for adding members to ``room``: people from the user's own
+    rooms only — members of committee rooms they own or co-own, and the
+    co-owners of any of their rooms (themselves included). Never other
+    accounts, also not for staff. Matches name or e-mail; people without an
+    e-mail address or already in ``room`` are left out."""
+    query = query.strip()
+    if len(query) < KNOWN_PEOPLE_MIN_QUERY:
+        return []
+    own_rooms = Room.objects.filter(Q(owners=user) | Q(owner=user))
+    taken = {
+        email.lower()
+        for email in room.committee_members.exclude(email="").values_list("email", flat=True)
+    }
+    found: dict[str, dict] = {}
+    members = (
+        CommitteeMember.objects.filter(room__in=own_rooms)
+        .exclude(room=room).exclude(email="")
+        .filter(Q(name__icontains=query) | Q(email__icontains=query))
+        .order_by("name")
+    )
+    for member in members[:KNOWN_PEOPLE_LIMIT * 3]:
+        found.setdefault(member.email.lower(), {"name": member.name, "email": member.email})
+    matches_name = (
+        Q(first_name__icontains=query) | Q(last_name__icontains=query)
+        | Q(username__icontains=query) | Q(email__icontains=query)
+    )
+    owners = (
+        get_user_model().objects.filter(rooms__in=own_rooms).exclude(email="")
+        .filter(matches_name).distinct()
+    )
+    for owner in owners[:KNOWN_PEOPLE_LIMIT * 3]:
+        found.setdefault(owner.email.lower(), {
+            "name": owner.get_full_name() or owner.username, "email": owner.email,
+        })
+    people = [person for key, person in found.items() if key not in taken]
+    people.sort(key=lambda person: person["name"].lower())
+    return people[:KNOWN_PEOPLE_LIMIT]
+
+
+@transaction.atomic
+def apply_template(room: Room, template: GroupTemplate) -> list[CommitteeGroup]:
+    if room.committee_groups.filter(is_observer=False).exists():
+        raise ValidationError("Groups already exist.")
+    created = []
+    for position, name in enumerate(template.groups, start=1):
+        created.append(CommitteeGroup.objects.create(
+            room=room, position=position,
+            name_de=(name.get("de") or "").strip() or None,
+            name_en=(name.get("en") or "").strip() or None,
+        ))
+    return created
+
+
+def _split_outside(text: str, separators: str) -> list[str]:
+    """Split `text` on any of `separators`, except inside ``"…"`` or ``<…>``."""
+    pieces: list[str] = []
+    current: list[str] = []
+    in_quote = in_angle = False
+    for char in text:
+        if char == '"' and not in_angle:
+            in_quote = not in_quote
+        elif char == "<" and not in_quote:
+            in_angle = True
+        elif char == ">" and not in_quote:
+            in_angle = False
+        elif char in separators and not in_quote and not in_angle:
+            pieces.append("".join(current))
+            current = []
+            continue
+        current.append(char)
+    pieces.append("".join(current))
+    return pieces
+
+
+def _segments(text: str) -> list[str]:
+    """Newline always and ``;`` (outside quotes) separate entries; ``,`` only between entries,
+    so ``Rolf, Rüdiger <r@x.org>`` stays one entry: comma pieces without an
+    address are held back and joined to a following ``Name <mail>`` piece
+    (as its name); otherwise they stand alone."""
+    segments: list[str] = []
+    chunks = [
+        chunk for line in re.split(r"[\n\r]", text)
+        for chunk in _split_outside(line, ";")
+    ]
+    for chunk in chunks:
+        pending: list[str] = []
+        for piece in _split_outside(chunk, ","):
+            if not piece.strip():
+                continue
+            if "@" not in piece and "<" not in piece:
+                pending.append(piece)
+                continue
+            head = piece.split("<", 1)[0]
+            if "<" in piece and "@" not in head and pending:
+                segments.append(",".join([*pending, piece]))
+            else:
+                segments.extend(pending)
+                segments.append(piece)
+            pending = []
+        segments.extend(pending)
+    return segments
+
+
+def parse_member_list(text: str) -> tuple[list[tuple[str, str]], list[dict]]:
+    """Parse pasted members: separators newline/semicolon/comma (a comma inside
+    ``"…"`` or in a ``Last, First <mail>`` name does not separate), formats
+    ``Name <mail>``, ``"Name" <mail>`` and ``mail`` (name = part before the
+    @). Empty segments are dropped silently."""
+    entries: list[tuple[str, str]] = []
+    skipped: list[dict] = []
+    seen: set[str] = set()
+    for segment in _segments(text or ""):
+        segment = segment.strip()
+        if not segment:
+            continue
+        match = _NAME_EMAIL.match(segment)
+        if match:
+            name = match.group("name").strip().strip('"').strip()
+            email = match.group("email").strip()
+        else:
+            name, email = "", segment
+        try:
+            if len(email) > MAX_EMAIL_LENGTH:
+                raise ValidationError("Address too long.")
+            validate_email(email)
+        except ValidationError:
+            skipped.append({"line": segment, "reason": "invalid_email"})
+            continue
+        key = email.lower()
+        if key in seen:
+            skipped.append({"line": segment, "reason": "duplicate"})
+            continue
+        seen.add(key)
+        entries.append((name or email.split("@", 1)[0], email))
+    return entries, skipped
+
+
+# --- Meetings ------------------------------------------------------------------
+
+State = QuestionSet.MeetingState
+
+
+def check_not_ended(meeting: QuestionSet):
+    if meeting.meeting_state == State.ENDED:
+        raise ValidationError("The meeting has ended.")
+
+
+def _check_question(meeting: QuestionSet, question: Question | None):
+    if question is not None and question.question_set_id != meeting.pk:
+        raise ValidationError("The item does not belong to this meeting.")
+
+
+def suggest_deputy(meeting: QuestionSet, absent: CommitteeMember) -> CommitteeMember | None:
+    """Next free deputy of the absent member's group: by rank (unranked
+    last), then name."""
+    used = MeetingSubstitution.objects.filter(meeting=meeting).values("deputy_id")
+    return (
+        CommitteeMember.objects.filter(
+            group_id=absent.group_id, role=CommitteeMember.Role.DEPUTY,
+        )
+        .exclude(pk__in=used)
+        .order_by(F("deputy_rank").asc(nulls_last=True), "name", "id")
+        .first()
+    )
+
+
+def add_substitution(
+    meeting: QuestionSet, absent: CommitteeMember, deputy: CommitteeMember,
+    from_question: Question | None = None,
+) -> MeetingSubstitution:
+    """Record that `deputy` votes for `absent` (from `from_question` on, or the
+    whole meeting). Duplicate absent/deputy raises IntegrityError (unique
+    constraints). In a running meeting the deputy gets a link right away."""
+    check_not_ended(meeting)
+    if absent.room_id != meeting.room_id or deputy.room_id != meeting.room_id:
+        raise ValidationError("The member does not belong to this room.")
+    if absent.group.is_observer:
+        raise ValidationError("Observers cannot be substituted.")
+    if absent.role != CommitteeMember.Role.VOTING:
+        raise ValidationError("Only voting members can be substituted.")
+    if deputy.group_id != absent.group_id:
+        raise ValidationError("The substitute must belong to the same group.")
+    if deputy.role != CommitteeMember.Role.DEPUTY:
+        raise ValidationError("Only deputies can substitute.")
+    _check_question(meeting, from_question)
+    substitution = MeetingSubstitution.objects.create(
+        meeting=meeting, absent=absent, deputy=deputy, from_question=from_question,
+    )
+    if meeting.meeting_state == State.STARTED:
+        ensure_invites(meeting)
+    return substitution
+
+
+def remove_substitution(substitution: MeetingSubstitution):
+    """Undo a substitution; in a running meeting the absent member gets
+    their link (back). The deputy's link stays (never deleted)."""
+    meeting = substitution.meeting
+    check_not_ended(meeting)
+    substitution.delete()
+    if meeting.meeting_state == State.STARTED:
+        ensure_invites(meeting)
+
+
+def _seat_q(meeting: QuestionSet) -> Q:
+    """Members who hold a seat in this meeting at all: voting members,
+    observers, and deputies put in by a substitution. Shared by
+    `participants` and `invite_state` so the two cannot drift."""
+    deputies = MeetingSubstitution.objects.filter(meeting=meeting).values("deputy_id")
+    return (
+        Q(role=CommitteeMember.Role.VOTING)
+        | Q(group__is_observer=True)
+        | Q(pk__in=deputies)
+    )
+
+
+def _fully_absent_ids(meeting: QuestionSet):
+    return MeetingSubstitution.objects.filter(
+        meeting=meeting, from_question__isnull=True,
+    ).values("absent_id")
+
+
+def participants(meeting: QuestionSet) -> list[CommitteeMember]:
+    """Voting members and observers, minus those substituted for the whole
+    meeting, plus every deputy put in by a substitution."""
+    return list(
+        CommitteeMember.objects.filter(room_id=meeting.room_id)
+        .filter(_seat_q(meeting))
+        .exclude(pk__in=_fully_absent_ids(meeting))
+        .select_related("group")
+        .order_by("group__position", "group_id", "name", "id"),
+    )
+
+
+@transaction.atomic
+def ensure_invites(meeting: QuestionSet) -> list[MeetingInvite]:
+    """Create the missing invites for all participants; never deletes."""
+    have = set(meeting.invites.values_list("member_id", flat=True))
+    for member in participants(meeting):
+        if member.pk not in have:
+            MeetingInvite.objects.get_or_create(meeting=meeting, member=member)
+    return list(meeting.invites.select_related("member__group").order_by("id"))
+
+
+def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
+    """Move `meeting` (the caller's instance, updated in place) from
+    `expected` to `state` under a row lock."""
+    current = (
+        QuestionSet.objects.select_for_update()
+        .values_list("meeting_state", flat=True).get(pk=meeting.pk)
+    )
+    if current != expected:
+        meeting.meeting_state = current
+        raise ValidationError(message)
+    meeting.meeting_state = state
+    meeting.save(update_fields=["meeting_state", "updated_at"])
+
+
+@transaction.atomic
+def start_meeting(meeting: QuestionSet) -> QuestionSet:
+    _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
+    ensure_invites(meeting)
+    return meeting
+
+
+@transaction.atomic
+def end_meeting(meeting: QuestionSet) -> QuestionSet:
+    _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
+    return meeting
+
+
+def remove_invite(invite: MeetingInvite, after_question: Question | None = None):
+    check_not_ended(invite.meeting)
+    _check_question(invite.meeting, after_question)
+    invite.removed_at = timezone.now()
+    invite.removed_after = after_question
+    invite.save(update_fields=["removed_at", "removed_after"])
+    return invite
+
+
+def readmit_invite(invite: MeetingInvite):
+    check_not_ended(invite.meeting)
+    invite.removed_at = None
+    invite.removed_after = None
+    invite.save(update_fields=["removed_at", "removed_after"])
+    return invite
+
+
+def invite_state(invite: MeetingInvite) -> str:
+    """State of an existing invite (see resolve_invite)."""
+    meeting = invite.meeting
+    if meeting.meeting_state == State.ENDED:
+        return "ended"
+    if _fully_absent_ids(meeting).filter(absent_id=invite.member_id).exists():
+        return "replaced"
+    if not CommitteeMember.objects.filter(
+        _seat_q(meeting), pk=invite.member_id, room_id=meeting.room_id,
+    ).exists():
+        return "inactive"
+    if invite.removed_at is not None:
+        return "removed"
+    return "waiting" if meeting.meeting_state == State.DRAFT else "active"
+
+
+def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:
+    """Look up a personal link: unknown → ended → replaced → inactive (no
+    longer holds a seat) → removed → waiting (draft) / active (started)."""
+    invite = (
+        MeetingInvite.objects.select_related("meeting", "member").filter(token=token).first()
+        if token else None
+    )
+    if invite is None:
+        return None, "unknown"
+    return invite, invite_state(invite)

@@ -25,6 +25,7 @@ import AiGenerateForm from "../components/AiGenerateForm";
 import AiReviewPanel from "../components/AiReviewPanel";
 import FileDropzone from "../components/FileDropzone";
 import HomeCrumb from "../components/HomeCrumb";
+import MeetingPanel from "../committee/MeetingPanel";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
 import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
@@ -184,7 +185,8 @@ export function SetSettingsForm({
         value={draft.description}
         onChange={(description) => onChange({ description })}
       />
-      <ProOnly easyMode={easyMode}>
+      {/* Meetings have no answer flow options (reveal, open-on-show, …). */}
+      <ProOnly easyMode={easyMode || draft.type === "meeting"}>
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
             {t("Answers & results")}
@@ -801,6 +803,7 @@ export default function SetPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [copyTarget, setCopyTarget] = useState<number | null>(null);
   const [copyTitle, setCopyTitle] = useState("");
+  const [copyError, setCopyError] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [metaError, setMetaError] = useState("");
   const [sections, setSections] = useState<SectionType[]>([]);
@@ -853,7 +856,10 @@ export default function SetPage() {
   } | null>(null);
   const [confirmResetStats, setConfirmResetStats] = useState(false);
   const easyMode = useEasyMode();
-  const aiVisible = aiEnabled && !easyMode;
+  // Meetings (Gremien-Raum) have no AI generation: their items are agenda
+  // points written by the chair.
+  const aiAllowed = aiEnabled && set?.type !== "meeting";
+  const aiVisible = aiAllowed && !easyMode;
   // Recording mode (#53): opt-in before presenting; carried to the beamer via
   // the present URL. Pro feature (hidden in easy mode).
   const [recordMode, setRecordMode] = useState(false);
@@ -1337,24 +1343,51 @@ export default function SetPage() {
   }
 
   async function openCopyDialog() {
-    const page = await api.listRooms();
-    setRooms(page.results);
-    setCopyTarget(set?.room ?? null);
+    if (!set) return;
     setCopyTitle("");
+    setCopyError("");
     setCopyOpen(true);
+    try {
+      const page = await api.listRooms();
+      // Meetings live only in committee rooms, every other set type only in
+      // standard rooms — offer just the rooms the backend will accept.
+      const kind = set.type === "meeting" ? "committee" : "standard";
+      const targets = page.results.filter((room) => room.kind === kind);
+      setRooms(targets);
+      setCopyTarget(
+        targets.some((room) => room.id === set.room) ? set.room : targets[0]?.id ?? null,
+      );
+    } catch (err) {
+      setRooms([]);
+      setCopyTarget(null);
+      setCopyError(t(requestError(err)));
+    }
   }
 
   async function handleCopy() {
     if (!set || copyTarget === null) return;
-    const clone = await api.duplicateQuestionSet(set.id, {
-      room: copyTarget,
-      ...(copyTitle.trim() ? { title: copyTitle.trim() } : {}),
-    });
-    setCopyOpen(false);
-    navigate(`/sets/${clone.id}`);
+    setCopyError("");
+    try {
+      const clone = await api.duplicateQuestionSet(set.id, {
+        room: copyTarget,
+        ...(copyTitle.trim() ? { title: copyTitle.trim() } : {}),
+      });
+      setCopyOpen(false);
+      navigate(`/sets/${clone.id}`);
+    } catch (err) {
+      setCopyError(t(requestError(err)));
+    }
   }
 
   if (!set || !questions) return null;
+
+  // Sets that run through the presenter (live poll, self-paced quiz). Self-
+  // checks use a standing link; meetings are run from the meeting panel.
+  const runAction = SET_TYPES[set.type].runAction;
+  const presentable = runAction === "present" || runAction === "self_paced";
+  // Meetings hide the set options that only apply to the anonymous flows
+  // (answer reveal, sharing/licence, JSON export, AI generation).
+  const isMeeting = set.type === "meeting";
 
   // Plain local const (not `set.self_check_token`) so it narrows cleanly to
   // `string` inside closures below (#75 phase 3).
@@ -1368,7 +1401,7 @@ export default function SetPage() {
         <Link to={`/rooms/${set.room}`} className="hover:text-brand-700 dark:hover:text-brand-300">
           {set.room_title}
         </Link>{" "}
-        / {t("Question set")}: {localizedText(set.title)}
+        / {set.type === "meeting" ? t("Meeting") : t("Question set")}: {localizedText(set.title)}
       </nav>
 
       {/* Settings: summarized read-only, editable behind the pencil. */}
@@ -1421,13 +1454,17 @@ export default function SetPage() {
               {!easyMode && (
                 <>
                   <MenuItem onClick={() => void openCopyDialog()}><Copy aria-hidden className="h-4 w-4" />{t("Duplicate")}</MenuItem>
-                  <MenuItem onClick={doExport}><Download aria-hidden className="h-4 w-4" />{t("Export (JSON)")}</MenuItem>
-                  <MenuItem onClick={() => void openSharePanel()}>
-                    <Share2 aria-hidden className="h-4 w-4" />{t("Copy set (share link)")}
-                  </MenuItem>
+                  {!isMeeting && (
+                    <>
+                      <MenuItem onClick={doExport}><Download aria-hidden className="h-4 w-4" />{t("Export (JSON)")}</MenuItem>
+                      <MenuItem onClick={() => void openSharePanel()}>
+                        <Share2 aria-hidden className="h-4 w-4" />{t("Copy set (share link)")}
+                      </MenuItem>
+                    </>
+                  )}
                   {/* Archive results & start fresh (#56) — same action as the
                       room's set table, only when there is something to archive. */}
-                  {set.has_results && (
+                  {set.has_results && !isMeeting && (
                     <MenuItem
                       onClick={() => {
                         setArchivedNotice(false);
@@ -1550,7 +1587,7 @@ export default function SetPage() {
             </p>
             </ProOnly>
           )}
-          {set.type !== "self_paced" && set.type !== "self_check" && (
+          {set.type !== "self_paced" && set.type !== "self_check" && !isMeeting && (
             <ProOnly easyMode={easyMode}>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {t("Correct answers:")}{" "}
@@ -1680,12 +1717,19 @@ export default function SetPage() {
               className="!w-64"
             />
           </Field>
-          <Button variant="primary" onClick={() => void handleCopy()}>
+          <Button
+            variant="primary"
+            disabled={copyTarget === null}
+            onClick={() => void handleCopy()}
+          >
             {t("Copy")}
           </Button>
           <Button variant="ghost" onClick={() => setCopyOpen(false)}>
             {t("Cancel")}
           </Button>
+          {copyError && (
+            <p role="alert" className="basis-full text-sm text-danger">{copyError}</p>
+          )}
         </div>
       )}
 
@@ -1751,6 +1795,10 @@ export default function SetPage() {
         </div>
       )}
 
+      {isMeeting && (
+        <MeetingPanel set={set} questions={questions} onSetChange={setSet} />
+      )}
+
       {generateOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiGenerateForm
@@ -1770,7 +1818,7 @@ export default function SetPage() {
         </div>
       )}
 
-      {aiEnabled && reviewOpen && (
+      {aiAllowed && reviewOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiReviewPanel
             setId={id}
@@ -1783,7 +1831,7 @@ export default function SetPage() {
         </div>
       )}
 
-      {aiEnabled && !reviewOpen && reviewJob && (
+      {aiAllowed && !reviewOpen && reviewJob && (
         <GenerationReviewHint
           job={reviewJob}
           onReview={() => setReviewOpen(true)}
@@ -1838,7 +1886,7 @@ export default function SetPage() {
               )}
               {/* The presenter's ✕ only leaves (spec PR 2): an unfinished
                   run is ended here. */}
-              {activeRun !== null && SET_TYPES[set.type].runAction !== "self_check" && (
+              {activeRun !== null && presentable && (
                 <Button
                   variant="danger"
                   data-testid="end-survey"
@@ -1869,7 +1917,7 @@ export default function SetPage() {
               )}
               {/* A Lernkontrolle has no run results — it's per-question
                   attempt stats instead, shown in the publish panel. */}
-              {SET_TYPES[set.type].runAction !== "self_check" && (
+              {presentable && (
                 <div data-tour="set.results">
                   <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
                     <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
@@ -1922,7 +1970,7 @@ export default function SetPage() {
 
       {/* Recording mode (#53): opt-in before presenting (Pro only). A
           Lernkontrolle is never presented, so it has no recording mode. */}
-      {set.type !== "self_check" && questions.length > 0 && (
+      {presentable && questions.length > 0 && (
         <ProOnly easyMode={easyMode}>
         <label className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
           <input
@@ -2131,7 +2179,7 @@ export default function SetPage() {
                           </span>
                           </ProOnly>
                         )}
-                        {set.type !== "self_check" && (
+                        {presentable && (
                           <ProOnly easyMode={easyMode}>
                           <Button
                             variant="ghost"
@@ -2170,7 +2218,7 @@ export default function SetPage() {
                           </Button>
                         )}
                         <MoreMenu label={t("Question actions")}>
-                          {!easyMode && (
+                          {!easyMode && SET_TYPES[set.type].runAction !== null && (
                             <MenuItem onClick={() => void copyQuestionLink(question.id)}>
                               <Copy aria-hidden className="h-4 w-4" />
                               {t("Copy link")}
