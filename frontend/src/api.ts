@@ -770,6 +770,7 @@ export interface AdminStats {
   days: number;
   from: string;
   to: string;
+  committee: { meetings_running: number; secret_ballots_open: number };
   totals: {
     rooms: number;
     rooms_lti: number;

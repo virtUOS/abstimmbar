@@ -1832,3 +1832,36 @@ class BallotApiTests(BallotBase):
         self.assertEqual(resp.status_code, 200)
         resp = self.client.post(self.url(f"ballots/{bid}/release-texts/"))
         self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
+
+
+class StatusTests(BallotBase):
+    def run_command(self):
+        import io
+
+        from django.core.management import call_command
+
+        out = io.StringIO()
+        code = 0
+        try:
+            call_command("committee_status", stdout=out)
+        except SystemExit as exc:
+            code = exc.code
+        return json.loads(out.getvalue()), code
+
+    def test_command_exit_zero_without_open_secret_ballot(self):
+        data, code = self.run_command()
+        self.assertEqual(data, {"meetings_running": 1, "secret_ballots_open": 0})
+        self.assertEqual(code, 0)
+
+    def test_command_exit_one_with_open_secret_ballot(self):
+        ballots.open_ballot(self.meeting, self.q1)
+        data, code = self.run_command()
+        self.assertEqual(data["secret_ballots_open"], 1)
+        self.assertEqual(code, 1)
+
+    def test_prometheus_lines_and_admin_stats(self):
+        from common.views import render_prometheus
+
+        text = render_prometheus()
+        self.assertIn("abstimmbar_committee_meetings_running 1", text)
+        self.assertIn("abstimmbar_committee_secret_ballots_open 0", text)

@@ -165,7 +165,24 @@ class AdminStatsView(APIView):
             "from": since.isoformat(),
             "to": until.isoformat(),
             "days": (until - since).days + 1,
+            "committee": _committee_activity(),
         })
+
+
+def _committee_activity():
+    """Running meetings / open secret ballots. Mirrors
+    ``committees.status.activity`` but resolves the models through the app
+    registry so ``common`` never imports ``committees`` (two tiny counts)."""
+    from django.apps import apps
+
+    meeting = apps.get_model("rooms", "QuestionSet")
+    ballot = apps.get_model("committees", "Ballot")
+    return {
+        "meetings_running": meeting.objects.filter(
+            type="meeting", meeting_state="started",
+        ).count(),
+        "secret_ballots_open": ballot.objects.filter(status="open", secret=True).count(),
+    }
 
 
 def _esc(label_value):
@@ -219,6 +236,11 @@ def render_prometheus():
             DailyModeSession.objects.filter(date=today).values("mode").annotate(n=Count("id"))}
     gauge("abstimmbar_sessions_today", "Active sessions today by mode", None,
           [({"mode": m}, sess.get(m, 0)) for m in ("easy", "pro")])
+    committee = _committee_activity()
+    gauge("abstimmbar_committee_meetings_running", "Committee meetings in progress",
+          committee["meetings_running"])
+    gauge("abstimmbar_committee_secret_ballots_open", "Open secret committee ballots",
+          committee["secret_ballots_open"])
     return "\n".join(lines) + "\n"
 
 

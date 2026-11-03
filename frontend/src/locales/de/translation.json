@@ -1467,5 +1467,6 @@
   "Hide panel": "Seitenfeld ausblenden",
   "Show panel": "Seitenfeld einblenden",
   "Waiting for the next item": "Warten auf den nächsten TOP",
-  "Connection lost – reconnecting…": "Verbindung unterbrochen – neuer Versuch …"
+  "Connection lost – reconnecting…": "Verbindung unterbrochen – neuer Versuch …",
+  "A committee meeting is in progress — please do not restart the server now. Open secret votes: {{n}}": "Gerade läuft eine Gremiensitzung – bitte starten Sie den Server jetzt nicht neu. Offene geheime Abstimmungen: {{n}}"
 }

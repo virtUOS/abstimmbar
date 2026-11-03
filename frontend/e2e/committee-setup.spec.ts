@@ -158,7 +158,7 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   // The badge is always shown; wait for the started state's end button.
   await expect(page.getByRole('button', { name: 'Sitzung beenden' })).toBeVisible();
   await entry.reload();
-  await expect(entry.getByText('Die Sitzung läuft')).toBeVisible();
+  await expect(entry.getByText('Bitte warten Sie auf die nächste Abstimmung.')).toBeVisible();
 
   // 6. End the meeting: the link becomes invalid.
   await page.getByRole('button', { name: 'Sitzung beenden' }).click();
