@@ -52,5 +52,11 @@
   "{{count}} groups proposed — untick what you don't want._one": "{{count}} group proposed — untick it if you don't want it.",
   "{{count}} groups proposed — untick what you don't want._other": "{{count}} groups proposed — untick what you don't want.",
   "AI: {{count}} changes_one": "AI: {{count}} change",
-  "AI: {{count}} changes_other": "AI: {{count}} changes"
+  "AI: {{count}} changes_other": "AI: {{count}} changes",
+  "{{count}} member_one": "{{count}} member",
+  "{{count}} member_other": "{{count}} members",
+  "{{count}} agenda item_one": "{{count}} agenda item",
+  "{{count}} agenda item_other": "{{count}} agenda items",
+  "{{count}} meeting_one": "{{count}} meeting",
+  "{{count}} meeting_other": "{{count}} meetings"
 }

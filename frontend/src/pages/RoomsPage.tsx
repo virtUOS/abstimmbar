@@ -6,12 +6,12 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router";
 import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
 import { useApp, useEasyMode } from "../App";
-import { api, requestError, type Room, type SearchResults } from "../api";
-import { SET_TYPES, CREATABLE_SET_TYPES, type SetType } from "../setTypes";
+import { api, requestError, type Room, type RoomKind, type SearchResults } from "../api";
+import { SET_TYPES, type SetType } from "../setTypes";
 import { localizedText, stripHtml } from "@basicbar/ui";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
-import { Button, ConfirmDialog, EmptyState, InfoHint, SegmentedControl, TextInput } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, InfoHint, ProOnly, SegmentedControl, TextInput } from "../components/ui";
 import { RoomSettingsForm, NEW_ROOM_DEFAULTS, type RoomSettings } from "./RoomPage";
 
 type SortKey = "title" | "last_used" | "created";
@@ -55,7 +55,11 @@ const SET_TYPE_COUNT_LABEL: Record<SetType, string> = {
   live_poll: "{{count}} live poll",
   self_paced: "{{count}} self-paced quiz",
   self_check: "{{count}} self-check",
+  meeting: "{{count}} meeting",
 };
+
+/** Canonical badge order: every set type, incl. committee meetings. */
+const SET_TYPE_ORDER = Object.keys(SET_TYPES) as SetType[];
 
 /** Per-type set counts on a room card (#75): one colored icon badge per set
  *  type present, in the canonical order, each with a count-aware tooltip. The
@@ -65,7 +69,7 @@ const SET_TYPE_COUNT_LABEL: Record<SetType, string> = {
 function RoomSetTypeBreakdown({ room }: { room: Room }) {
   const { t } = useTranslation();
   const counts = room.set_type_counts;
-  const present = CREATABLE_SET_TYPES.filter((type) => (counts?.[type] ?? 0) > 0);
+  const present = SET_TYPE_ORDER.filter((type) => (counts?.[type] ?? 0) > 0);
   if (!present.length) {
     return (
       <p className="mt-1.5 text-sm text-slate-400">
@@ -140,6 +144,11 @@ function RoomCard({
                 className="inline-flex items-center text-brand-600 dark:text-brand-400"
               >
                 <Users aria-label={t("shared")} className="h-4 w-4" />
+              </span>
+            )}
+            {room.kind === "committee" && (
+              <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300">
+                {t("Committee")}
               </span>
             )}
             {room.is_lti && (
@@ -258,6 +267,8 @@ export default function RoomsPage() {
   const easyMode = useEasyMode();
   const [rooms, setRooms] = useState<Room[] | null>(null);
   const [newRoom, setNewRoom] = useState<RoomSettings | null>(null);
+  // Room kind, chosen once at creation (expert mode only; fixed afterwards).
+  const [newRoomKind, setNewRoomKind] = useState<RoomKind>("standard");
   const [createError, setCreateError] = useState("");
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [confirmLeave, setConfirmLeave] = useState<number | null>(null);
@@ -305,7 +316,8 @@ export default function RoomsPage() {
     setCreateError("");
     try {
       // A blank title is fine — the backend fills a dated default.
-      const created = await api.createRoom(newRoom);
+      const kind: RoomKind = easyMode ? "standard" : newRoomKind;
+      const created = await api.createRoom({ ...newRoom, kind });
       setNewRoom(null);
       navigate(`/rooms/${created.id}`);
     } catch (err) {
@@ -430,6 +442,7 @@ export default function RoomsPage() {
               variant="primary"
               onClick={() => {
                 setCreateError("");
+                setNewRoomKind("standard");
                 setNewRoom(NEW_ROOM_DEFAULTS);
               }}
             >
@@ -466,12 +479,37 @@ export default function RoomsPage() {
           className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40"
         >
           <h2 className="mb-3 font-semibold">{t("New room")}</h2>
+          {/* Committee rooms are an expert feature; the kind is fixed once
+              the room exists. */}
+          <ProOnly easyMode={easyMode}>
+            <fieldset className="mb-6 max-w-2xl">
+              <legend className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+                {t("Room type")}
+              </legend>
+              <SegmentedControl
+                className="w-full sm:w-max"
+                ariaLabel={t("Room type")}
+                value={newRoomKind}
+                onChange={setNewRoomKind}
+                options={[
+                  { value: "standard", label: t("Standard") },
+                  { value: "committee", label: t("Committee") },
+                ]}
+              />
+              {newRoomKind === "committee" && (
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                  {t("For votes in committees with invited members and status groups.")}
+                </p>
+              )}
+            </fieldset>
+          </ProOnly>
           <RoomSettingsForm
             draft={newRoom}
             onChange={(patch) => setNewRoom({ ...newRoom, ...patch })}
             titlePlaceholder={t("e.g. “Bio 101 lecture”")}
             titleAnchor="room.name"
             easyMode={easyMode}
+            committee={!easyMode && newRoomKind === "committee"}
           />
           <div className="mt-3 flex gap-2">
             <Button type="submit" variant="primary">

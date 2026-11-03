@@ -36,6 +36,8 @@ import TranslatableField from "../components/TranslatableField";
 import { localizedText, type LocalizedText, RichText, TranslationControlsSlot } from "@basicbar/ui";
 import { SetSettingsForm, type SetSettings } from "./SetPage";
 import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
+import CommitteePanel from "../committee/CommitteePanel";
+import { MeetingList, NewMeetingFields } from "../committee/MeetingList";
 
 /** #75: pick the set type up front — like "+ New question" for questions.
  * The menu lists the creatable types; picking one opens the create form with
@@ -203,6 +205,7 @@ export function RoomSettingsForm({
   titlePlaceholder,
   titleAnchor,
   easyMode = false,
+  committee = false,
 }: {
   draft: RoomSettings;
   onChange: (patch: Partial<RoomSettings>) => void;
@@ -213,6 +216,9 @@ export function RoomSettingsForm({
   /** Easy mode (#52): only title + description; hide presentation features
    * and the participant closing info. Existing values stay stored. */
   easyMode?: boolean;
+  /** Committee room: members join via personal links, so the QR code/room
+   *  code on the beamer and the closing info don't apply. */
+  committee?: boolean;
 }) {
   const { t } = useTranslation();
   const titleField = (
@@ -251,6 +257,8 @@ export function RoomSettingsForm({
             />
             {t("Show logo in presentation mode")}
           </label>
+          {!committee && (
+          <>
           <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
             <input
               type="checkbox"
@@ -293,12 +301,14 @@ export function RoomSettingsForm({
               </Field>
             </div>
           )}
+          </>
+          )}
         </div>
       </fieldset>
       </ProOnly>
 
       {/* Info shown to participants after a vote ends (#24). */}
-      <ProOnly easyMode={easyMode}>
+      <ProOnly easyMode={easyMode || committee}>
       <TranslatableField
         variant="rich"
         label={t("Closing info for participants")}
@@ -517,6 +527,9 @@ export default function RoomPage() {
   const [importError, setImportError] = useState("");
   const [ownersOpen, setOwnersOpen] = useState(false);
   const [newSet, setNewSet] = useState<SetSettings | null>(null);
+  // Committee rooms: the new meeting's date (`datetime-local` value).
+  const [newMeetingAt, setNewMeetingAt] = useState("");
+  const [createError, setCreateError] = useState("");
   const importInput = useRef<HTMLInputElement>(null);
 
   // Room settings (title / description / features), behind the ⋮ menu (#2).
@@ -580,8 +593,9 @@ export default function RoomPage() {
 
   const newSetDirty =
     newSet !== null &&
-    JSON.stringify(newSet) !==
-      JSON.stringify({ ...NEW_SET_DEFAULTS, type: newSet.type });
+    (newMeetingAt !== "" ||
+      JSON.stringify(newSet) !==
+        JSON.stringify({ ...NEW_SET_DEFAULTS, type: newSet.type }));
   const settingsDirty =
     settingsDraft !== null &&
     room !== null &&
@@ -613,6 +627,8 @@ export default function RoomPage() {
       return;
     }
     setSettingsDraft(null);
+    setNewMeetingAt("");
+    setCreateError("");
     setNewSet({ ...NEW_SET_DEFAULTS, type });
   }
   function performSwitch() {
@@ -621,6 +637,8 @@ export default function RoomPage() {
       openSettings();
     } else if (pendingSwitch === "newSet") {
       setSettingsDraft(null);
+      setNewMeetingAt("");
+      setCreateError("");
       setNewSet({ ...NEW_SET_DEFAULTS, type: pendingNewSetType });
     }
     setPendingSwitch(null);
@@ -649,6 +667,26 @@ export default function RoomPage() {
 
   async function handleCreate() {
     if (!newSet) return;
+    setCreateError("");
+    if (newSet.type === "meeting") {
+      // Committee rooms hold only meetings, each with a required date.
+      if (!newMeetingAt) {
+        setCreateError(t("Please enter the date of the meeting."));
+        return;
+      }
+      try {
+        const created = await api.createQuestionSet({
+          room: id,
+          type: "meeting",
+          title: newSet.title,
+          scheduled_at: new Date(newMeetingAt).toISOString(),
+        });
+        navigate(`/sets/${created.id}`);
+      } catch (err) {
+        setCreateError(t(requestError(err)));
+      }
+      return;
+    }
     // A blank title is fine — the backend fills a dated default.
     const created = await api.createQuestionSet({ room: id, ...newSet });
     navigate(`/sets/${created.id}`);
@@ -667,6 +705,8 @@ export default function RoomPage() {
   }
 
   if (!room || !sorted) return null;
+
+  const committee = room.kind === "committee";
 
   const filtered =
     typeFilter === "all" ? sorted : sorted.filter((set) => set.type === typeFilter);
@@ -746,7 +786,8 @@ export default function RoomPage() {
               <Archive aria-hidden className="h-4 w-4" />
               {room.is_archived ? t("Restore room") : t("Archive room")}
             </MenuItem>
-            {!easyMode && (
+            {/* Imported sets are question sets, which committee rooms don't hold. */}
+            {!easyMode && !committee && (
               <MenuItem onClick={() => importInput.current?.click()}>
                 <Upload aria-hidden className="h-4 w-4" />{t("Import question set (JSON)")}
               </MenuItem>
@@ -822,6 +863,7 @@ export default function RoomPage() {
             draft={settingsDraft}
             onChange={(patch) => setSettingsDraft({ ...settingsDraft, ...patch })}
             easyMode={easyMode}
+            committee={committee}
           />
           <div className="mt-3 flex gap-2">
             <Button variant="primary" onClick={() => void saveSettings()}>
@@ -845,6 +887,8 @@ export default function RoomPage() {
 
       {ownersOpen && <OwnersPanel roomId={id} />}
 
+      {committee && <CommitteePanel room={room} />}
+
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="relative w-64 max-w-full">
           <Search
@@ -855,30 +899,56 @@ export default function RoomPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             placeholder={t("Search (also in questions/answers)…")}
-            aria-label={t("Search question sets")}
+            aria-label={committee ? t("Search meetings") : t("Search question sets")}
             className="pl-9"
           />
         </div>
         <div className="flex items-center gap-2">
-          <InfoHint
-            text={t("A question set is a single quiz — e.g. for one lecture session.")}
-          />
-          <div data-tour="room.new-set">
-            <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
-          </div>
+          {committee ? (
+            <>
+              <InfoHint
+                text={t("A meeting is one session of the committee; its agenda items are the questions.")}
+              />
+              <Button variant="primary" onClick={() => requestOpenNewSet("meeting")}>
+                + {t("New meeting")}
+              </Button>
+            </>
+          ) : (
+            <>
+              <InfoHint
+                text={t("A question set is a single quiz — e.g. for one lecture session.")}
+              />
+              <div data-tour="room.new-set">
+                <NewSetMenu easyMode={easyMode} onPick={requestOpenNewSet} />
+              </div>
+            </>
+          )}
         </div>
       </div>
       {importError && <p className="mb-4 text-sm text-danger">{importError}</p>}
 
       {newSet && (
         <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
-          <h2 className="mb-3 font-semibold">{t("New question set")}</h2>
-          <SetSettingsForm
-            draft={newSet}
-            onChange={(patch) => setNewSet({ ...newSet, ...patch })}
-            titleAnchor="set.title"
-            easyMode={easyMode}
-          />
+          <h2 className="mb-3 font-semibold">
+            {newSet.type === "meeting" ? t("New meeting") : t("New question set")}
+          </h2>
+          {newSet.type === "meeting" ? (
+            <NewMeetingFields
+              title={newSet.title}
+              scheduledAt={newMeetingAt}
+              onChange={(patch) => {
+                if (patch.title !== undefined) setNewSet({ ...newSet, title: patch.title });
+                if (patch.scheduledAt !== undefined) setNewMeetingAt(patch.scheduledAt);
+              }}
+            />
+          ) : (
+            <SetSettingsForm
+              draft={newSet}
+              onChange={(patch) => setNewSet({ ...newSet, ...patch })}
+              titleAnchor="set.title"
+              easyMode={easyMode}
+            />
+          )}
           <div className="mt-3 flex gap-2">
             <Button variant="primary" onClick={() => void handleCreate()}>
               {t("Save")}
@@ -893,12 +963,13 @@ export default function RoomPage() {
               {t("Cancel")}
             </Button>
           </div>
+          {createError && <p className="mt-1 text-sm text-danger">{createError}</p>}
         </div>
       )}
 
       {confirmDelete !== null && (
         <ConfirmDialog
-          message={t("Delete question set?")}
+          message={committee ? t("Delete meeting?") : t("Delete question set?")}
           onConfirm={() => void handleDelete(confirmDelete)}
           onCancel={() => setConfirmDelete(null)}
         />
@@ -915,8 +986,21 @@ export default function RoomPage() {
 
       {sorted.length === 0 && search ? (
         <EmptyState icon={SearchX} title={t("No results")}>
-          {t("No question set matches “{{query}}”.", { query: search })}
+          {committee
+            ? t("No meeting matches “{{query}}”.", { query: search })
+            : t("No question set matches “{{query}}”.", { query: search })}
         </EmptyState>
+      ) : committee ? (
+        sorted.length === 0 ? (
+          <EmptyState icon={SET_TYPES.meeting.icon} title={t("No meetings yet")}>
+            {t("A meeting is one session of the committee; its agenda items are the questions.")}
+          </EmptyState>
+        ) : (
+          <>
+            <h2 className="mb-3 font-semibold">{t("Meetings")}</h2>
+            <MeetingList sets={sorted} onDelete={setConfirmDelete} />
+          </>
+        )
       ) : sorted.length === 0 ? (
         <EmptyState icon={Layers} title={t("No question sets yet")}>
           {t("A question set is a single quiz — e.g. for one lecture session.")}
@@ -1061,7 +1145,7 @@ export default function RoomPage() {
           </ul>
         </>
       )}
-      {!search && (
+      {!search && !committee && (
         <Pager
           page={setsCurrent}
           pageSize={setsPageSize}
