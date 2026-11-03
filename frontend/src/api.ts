@@ -227,7 +227,8 @@ export type QuestionKind =
   | "priorities"
   | "ordering"
   | "mindmap"
-  | "matrix";
+  | "matrix"
+  | "resolution";
 
 export type MatrixCategoryMode = "off" | "colors" | "named";
 /** A matrix category: a palette colour (see matrixPalette.ts) and, in mode
@@ -388,6 +389,8 @@ export interface Question {
   /** single_choice only: created via the binary Ja/Nein preset — the editor
    *  shows the Ja/Nein · Wahr/Falsch template quick-fill above two options (#79). */
   binary_choice: boolean;
+  /** Committee meetings only: record each vote with the member's name (false = secret). */
+  named_vote: boolean;
   time_limit: number | null;
   position: number;
   options: AnswerOption[];

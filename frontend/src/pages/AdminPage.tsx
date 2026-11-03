@@ -36,6 +36,7 @@ const KIND_LABELS: Record<string, string> = {
   ordering: "Ordering",
   mindmap: "Mind map",
   matrix: "Four-field matrix",
+  resolution: "Resolution",
 };
 // Literal Tailwind colour classes (so the JIT emits them) for chart segments.
 const PALETTE = [

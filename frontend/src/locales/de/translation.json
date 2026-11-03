@@ -1353,7 +1353,7 @@
   "e.g. “Faculty council, 12th meeting”": "z. B. „Fakultätsrat, 12. Sitzung“",
   "Date and time": "Datum und Uhrzeit",
   "Meeting": "Sitzung",
-  "A committee meeting with invited members: resolutions and free-text input.": "Eine Gremiensitzung mit eingeladenen Mitgliedern: Beschlüsse und Freitext-Eingaben.",
+  "A committee meeting with invited members: resolutions, opinion polls and free-text input.": "Eine Gremiensitzung mit eingeladenen Mitgliedern: Beschlüsse, Meinungsbilder und Freitext.",
   "Please enter the date of the meeting.": "Bitte geben Sie den Termin der Sitzung ein.",
   "Search meetings": "Sitzungen durchsuchen",
   "A meeting is one session of the committee; its agenda items are the questions.": "Eine Sitzung ist ein Termin des Gremiums; ihre Tagesordnungspunkte sind die Fragen.",
@@ -1434,5 +1434,10 @@
   "Paste an e-mail list": "E-Mail-Liste einfügen",
   "Search": "Suche",
   "Date": "Datum",
-  "Time": "Uhrzeit"
+  "Time": "Uhrzeit",
+  "Resolution": "Beschluss",
+  "Yes / No / Abstention on a motion; the vote can be named or secret.": "Ja / Nein / Enthaltung zu einem Antrag; die Abstimmung kann namentlich oder geheim sein.",
+  "Answers: Yes / No / Abstention": "Antworten: Ja / Nein / Enthaltung",
+  "Named vote": "Namentliche Abstimmung",
+  "Each member's vote is stored with their name and listed in the minutes. Otherwise the vote is secret.": "Die Stimme jedes Mitglieds wird mit Namen gespeichert und im Protokoll aufgeführt. Sonst ist die Abstimmung geheim."
 }

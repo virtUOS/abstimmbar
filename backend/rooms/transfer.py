@@ -73,6 +73,7 @@ def _lang_map(value):
 QUESTION_CONTENT_FIELDS = (
     "shuffle_options",
     "binary_choice",
+    "named_vote",
     "time_limit",
     "allow_multiple",
     "wordcloud_live",
@@ -269,6 +270,7 @@ def export_set(question_set):
                 "text": translated_map(question, "text"),
                 "shuffle_options": question.shuffle_options,
                 "binary_choice": question.binary_choice,
+                "named_vote": question.named_vote,
                 "time_limit": question.time_limit,
                 "allow_multiple": question.allow_multiple,
                 "wordcloud_live": question.wordcloud_live,
@@ -564,6 +566,7 @@ def import_set(room, data):
             # Missing in older exports → empty solution, feedback off.
             model_solution=str(item.get("model_solution") or "")[:2000],
             participant_feedback=bool(item.get("participant_feedback")),
+            named_vote=bool(item.get("named_vote")),
             reveal_answers=(
                 item.get("reveal_answers")
                 if item.get("reveal_answers") in Question.RevealAnswers.values

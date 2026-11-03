@@ -87,13 +87,13 @@ let nextClientId = -1;
 // query param on a new (unsaved) question.
 const QUESTION_KINDS = [
   "single_choice", "multiple_choice", "word_cloud", "likert",
-  "open_text", "priorities", "ordering", "mindmap", "matrix",
+  "open_text", "priorities", "ordering", "mindmap", "matrix", "resolution",
 ] as const;
 
 /** Per-kind default options for a brand-new question, moved out of
  * `SetPage.addQuestion` now that creation is deferred to the first save. */
 function defaultOptions(kind: string, template?: string | null): EditableOption[] {
-  if (kind === "word_cloud" || kind === "open_text" || kind === "likert" || kind === "mindmap" || kind === "matrix") return [];
+  if (kind === "word_cloud" || kind === "open_text" || kind === "likert" || kind === "mindmap" || kind === "matrix" || kind === "resolution") return [];
   // The binary preset starts as Ja/Nein; the editor's template quick-fill
   // lets the author switch to Wahr/Falsch or type their own (#79).
   const texts = template === "binary" ? ["Ja", "Nein"] : ["", "", ""];
@@ -212,6 +212,7 @@ export default function QuestionPage() {
   }
   const [shuffle, setShuffle] = useState(false);
   const [binaryChoice, setBinaryChoice] = useState(false);
+  const [namedVote, setNamedVote] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
   const [options, setOptions] = useState<EditableOption[]>([]);
   // #75 Phase 3: a self-check choice question without a marked correct answer
@@ -342,6 +343,7 @@ export default function QuestionPage() {
       setText("");
       setTextBaseline("");
       setBinaryChoice(template === "binary");
+      setNamedVote(false);
       setOptions(defaultOptions(kind, template));
       setOptionBaseline({});
       return supersede;
@@ -356,6 +358,7 @@ export default function QuestionPage() {
       setTextBaseline(data.text);
       setShuffle(data.shuffle_options);
       setBinaryChoice(data.binary_choice ?? false);
+      setNamedVote(data.named_vote ?? false);
       setReveal(data.reveal_answers);
       setAiEvaluate(data.ai_evaluate);
       setEvaluationHint(data.evaluation_hint);
@@ -580,6 +583,7 @@ export default function QuestionPage() {
         text,
         shuffle_options: shuffle,
         binary_choice: question.kind === "single_choice" && binaryChoice,
+        named_vote: set?.type === "meeting" && namedVote,
         reveal_answers:
           question.kind === "single_choice" || question.kind === "multiple_choice"
             ? reveal
@@ -662,7 +666,8 @@ export default function QuestionPage() {
         synced_fields: Array.from(new Set([...syncedFields, ...extraSynced])),
         options:
           question.kind === "word_cloud" || question.kind === "open_text" ||
-          question.kind === "mindmap" || question.kind === "matrix"
+          question.kind === "mindmap" || question.kind === "matrix" ||
+          question.kind === "resolution"
             ? []
             : question.kind === "likert"
               ? likertOptions()
@@ -843,8 +848,11 @@ export default function QuestionPage() {
   const isLikert = question.kind === "likert";
   const isMindmap = question.kind === "mindmap";
   const isMatrix = question.kind === "matrix";
+  const isResolution = question.kind === "resolution";
+  const isMeeting = set.type === "meeting";
   const isChoice =
     question.kind !== "word_cloud" &&
+    !isResolution &&
     question.kind !== "open_text" &&
     !isMindmap &&
     !isMatrix &&
@@ -912,7 +920,7 @@ export default function QuestionPage() {
   // there are unsaved changes before paging to another question (#92).
   function editSnapshot() {
     return JSON.stringify({
-      text, shuffle, binaryChoice, reveal, options,
+      text, shuffle, binaryChoice, namedVote, reveal, options,
       timeLimit, likertPreset, abstention,
       // Likert step count and endpoint labels live outside `options` until
       // save (likertOptions() bakes them in), so the unsaved-changes guard
@@ -1215,6 +1223,27 @@ export default function QuestionPage() {
             )}
             {aiError && <p className="mt-1 text-sm text-danger">{aiError}</p>}
           </AiAssistPanel>
+        )}
+
+        {isResolution && (
+          <p className="rounded-xl bg-brand-50 px-4 py-3 text-sm text-slate-700 dark:bg-brand-950 dark:text-slate-300">
+            {t("Answers: Yes / No / Abstention")}
+          </p>
+        )}
+
+        {isMeeting && (
+          <div>
+            <ToggleSwitch
+              checked={namedVote}
+              onChange={setNamedVote}
+              label={t("Named vote")}
+            />
+            <p className="mt-1 text-xs text-slate-400">
+              {t(
+                "Each member's vote is stored with their name and listed in the minutes. Otherwise the vote is secret.",
+              )}
+            </p>
+          </div>
         )}
 
         {isChoice && (

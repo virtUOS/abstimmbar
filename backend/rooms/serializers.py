@@ -503,8 +503,8 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
     class Meta:
         model = Question
         fields: ClassVar = [
-            "id", "question_set", "section", "kind", "text", "shuffle_options",
-            "binary_choice",
+            "id", "question_set", "section", "kind", "named_vote", "text",
+            "shuffle_options", "binary_choice",
             "time_limit", "position", "options", "ai_evaluate", "evaluation_hint",
             "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
             "wordcloud_grouping", "wordcloud_grouping_use_solution",
@@ -599,6 +599,10 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             attrs["allow_multiple"] = max_answers != 1
             if max_answers == 1:
                 attrs["wordcloud_batch_submit"] = False
+        if kind == Question.Kind.RESOLUTION:
+            # Fixed answers (yes/no/abstain): options are dropped, and any
+            # existing ones are deleted by the nested write.
+            attrs["options"] = []
         if kind in Question.OPTIONLESS_KINDS and attrs.get("options"):
             raise serializers.ValidationError(
                 {"options": "Text questions have no answer options."}
