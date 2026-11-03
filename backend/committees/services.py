@@ -311,7 +311,7 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
 
     ballots.abort_stale(meeting)
     # Under the meeting row lock that open_ballot takes as well.
-    QuestionSet.objects.select_for_update().filter(pk=meeting.pk).exists()
+    QuestionSet.objects.select_for_update().values_list("pk", flat=True).get(pk=meeting.pk)
     if Ballot.objects.filter(
         question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
     ).exists():

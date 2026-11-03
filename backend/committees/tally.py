@@ -6,6 +6,7 @@ Counts and free texts of a secret ballot live only in this process until the
 ballot closes; nothing here is ever logged or written to the database. A
 process restart loses the tally — ``EPOCH`` lets ballots detect that.
 """
+import copy
 import secrets
 import threading
 from collections import Counter
@@ -38,6 +39,13 @@ class SecretTally:
     def has(self, ballot_id: int) -> bool:
         with self._lock:
             return ballot_id in self._ballots
+
+    def snapshot(self, ballot_id: int) -> dict | None:
+        """Deep copy of a ballot's tally, leaving it in place (close discards
+        it only once the result is committed)."""
+        with self._lock:
+            entry = self._ballots.get(ballot_id)
+            return copy.deepcopy(entry) if entry is not None else None
 
     def pop(self, ballot_id: int) -> dict | None:
         with self._lock:

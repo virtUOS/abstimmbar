@@ -109,8 +109,8 @@ def abort_stale(meeting: QuestionSet) -> None:
             discarded_at=now,
         )
         BallotSeat.objects.filter(ballot_id__in=ids).delete()
-    for pk in ids:
-        secret_tally.discard(pk)
+        for pk in ids:
+            transaction.on_commit(lambda pk=pk: secret_tally.discard(pk))
 
 
 def open_ballot_of(meeting: QuestionSet) -> Ballot | None:
@@ -185,6 +185,9 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
     if marked == 0:
         raise ValidationError("You have already voted.", code="already_voted")
     if ballot.secret:
+        # Inside the transaction under the ballot lock: on_commit would run
+        # after the lock is released and race with close_ballot. A commit
+        # failure after this add is accepted as negligible.
         secret_tally.add(ballot.pk, group_id, keys, text)
     else:
         NamedVote.objects.create(
@@ -205,8 +208,10 @@ def _count_keys(ballot: Ballot) -> list[str]:
 def _collect(ballot: Ballot) -> tuple[dict[int, dict], int]:
     """Per-group {"counts", "texts"} and the number of counted ballots."""
     if ballot.secret:
-        popped = secret_tally.pop(ballot.pk) or {"groups": {}}
-        groups = popped["groups"]
+        # A copy: the tally is discarded only after the close commits, so a
+        # rollback leaves an open ballot with its tally intact.
+        snapshot = secret_tally.snapshot(ballot.pk) or {"groups": {}}
+        groups = snapshot["groups"]
         return groups, sum(g["ballots"] for g in groups.values())
     seat_groups = dict(ballot.seats.values_list("member_id", "group_id"))
     groups: dict[int, dict] = {}
@@ -259,6 +264,9 @@ def close_ballot(ballot: Ballot) -> Ballot:
     ballot.status = Ballot.Status.CLOSED
     ballot.closed_at = timezone.now()
     ballot.save(update_fields=["result", "status", "closed_at"])
+    if ballot.secret:
+        pk = ballot.pk
+        transaction.on_commit(lambda: secret_tally.discard(pk))
     return ballot
 
 
@@ -283,7 +291,8 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
     ballot.save(update_fields=[
         "result", "status", "discard_reason", "discard_comment", "discarded_at",
     ])
-    secret_tally.discard(ballot.pk)
+    pk = ballot.pk
+    transaction.on_commit(lambda: secret_tally.discard(pk))
     return ballot
 
 

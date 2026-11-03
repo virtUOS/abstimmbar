@@ -1279,7 +1279,8 @@ class BallotFlowTests(MeetingFixture, ApiBase):
         self.assertEqual(fields, {"id", "ballot", "member", "group", "voted"})
         ballot.refresh_from_db()
         self.assertIsNone(ballot.result)
-        ballot = ballots.close_ballot(ballot)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballot = ballots.close_ballot(ballot)
         result = ballot.result
         self.assertEqual(ballot.status, Ballot.Status.CLOSED)
         self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
@@ -1371,6 +1372,32 @@ class BallotFlowTests(MeetingFixture, ApiBase):
         )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(versions.current(self.q1).number, 2)
+
+    def test_reset_open_discards_tally_on_commit(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.reset_ballot(ballot, "")
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
+
+    def test_close_rollback_keeps_tally(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.vote(self.ben, ballot, {"choice": "no"})
+        with mock.patch.object(
+            BallotText.objects, "bulk_create", side_effect=RuntimeError("boom"),
+        ), self.assertRaises(RuntimeError):
+            ballots.close_ballot(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.OPEN)
+        self.assertIsNone(ballot.result)
+        self.assertTrue(ballots.secret_tally.has(ballot.pk))
+        self.vote(self.bert, ballot, {"choice": "abstain"})
+        with self.captureOnCommitCallbacks(execute=True):
+            result = ballots.close_ballot(ballot).result
+        self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 1, "abstain": 1})
+        self.assertEqual((result["voted"], result["tally_sum"]), (3, 3))
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
 
     def test_reset_comment_too_long(self):
         ballot = ballots.open_ballot(self.meeting, self.q1)
