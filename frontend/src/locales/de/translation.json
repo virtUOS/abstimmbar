@@ -1367,5 +1367,6 @@
   "Committee": "Gremium",
   "Room type": "Raumtyp",
   "Standard": "Standard",
-  "For votes in committees with invited members and status groups.": "Für Abstimmungen in Gremien mit eingeladenen Mitgliedern und Statusgruppen."
+  "For votes in committees with invited members and status groups.": "Für Abstimmungen in Gremien mit eingeladenen Mitgliedern und Statusgruppen.",
+  "Meetings cannot be presented as a live poll.": "Sitzungen können nicht als Live-Umfrage präsentiert werden."
 }

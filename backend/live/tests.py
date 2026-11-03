@@ -10599,3 +10599,44 @@ class PresenterProgressTests(LiveTestCase):
             self.progress(),
             {"answered": 1, "items": 2, "per_person": 2, "unit": "ratings"},
         )
+
+
+class MeetingRunGuardTests(TestCase):
+    """Committee meetings never start an anonymous live run."""
+
+    def setUp(self):
+        self.owner = User.objects.create_user(username="chair")
+        self.room = Room.objects.create(title="Rat", kind=Room.Kind.COMMITTEE)
+        self.room.owners.add(self.owner)
+        self.meeting = QuestionSet.objects.create(
+            room=self.room, title="Sitzung", type=QuestionSet.SetType.MEETING,
+        )
+        Question.objects.create(
+            question_set=self.meeting, kind=Question.Kind.SINGLE_CHOICE, text="<p>Ja?</p>",
+        )
+        self.client.force_login(self.owner)
+
+    def test_start_run_rejected(self):
+        for mode in ("live", "self_paced"):
+            response = self.client.post(
+                f"/api/question-sets/{self.meeting.pk}/start-run/",
+                {"mode": mode}, content_type="application/json",
+            )
+            self.assertEqual(response.status_code, 400)
+        self.assertFalse(Run.objects.filter(question_set=self.meeting).exists())
+
+    def test_archive_results_rejected(self):
+        response = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/archive-results/",
+            {}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Run.objects.filter(question_set=self.meeting).exists())
+
+    def test_foreign_user_still_404(self):
+        self.client.force_login(User.objects.create_user(username="other"))
+        response = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/start-run/",
+            {}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)

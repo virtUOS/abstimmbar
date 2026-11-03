@@ -67,7 +67,10 @@ export default function CommitteePanel({ room }: { room: Room }) {
     });
 
   useEffect(() => {
-    void reload();
+    void reload().catch((err) => {
+      setGroups((current) => current ?? []);
+      setError(t(requestError(err)));
+    });
     void api.listCommitteeTemplates().then(setTemplates).catch(() => setTemplates([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room.id]);

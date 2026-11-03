@@ -70,7 +70,9 @@ export const SET_TYPES: Record<SetType, SetTypeInfo> = {
     label: "Meeting",
     description: "A committee meeting with invited members: resolutions and free-text input.",
     allowedKinds: ["single_choice", "multiple_choice", "open_text"],
-    runAction: "present",
+    // Never run through the anonymous live flow: meetings are run from the
+    // meeting panel with personal links (backend rejects start-run).
+    runAction: null,
     icon: Landmark,
     accent: {
       badge: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",

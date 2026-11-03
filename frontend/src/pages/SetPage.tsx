@@ -1356,6 +1356,11 @@ export default function SetPage() {
 
   if (!set || !questions) return null;
 
+  // Sets that run through the presenter (live poll, self-paced quiz). Self-
+  // checks use a standing link; meetings are run from the meeting panel.
+  const runAction = SET_TYPES[set.type].runAction;
+  const presentable = runAction === "present" || runAction === "self_paced";
+
   // Plain local const (not `set.self_check_token`) so it narrows cleanly to
   // `string` inside closures below (#75 phase 3).
   const selfCheckToken = set.self_check_token;
@@ -1838,7 +1843,7 @@ export default function SetPage() {
               )}
               {/* The presenter's ✕ only leaves (spec PR 2): an unfinished
                   run is ended here. */}
-              {activeRun !== null && SET_TYPES[set.type].runAction !== "self_check" && (
+              {activeRun !== null && presentable && (
                 <Button
                   variant="danger"
                   data-testid="end-survey"
@@ -1869,7 +1874,7 @@ export default function SetPage() {
               )}
               {/* A Lernkontrolle has no run results — it's per-question
                   attempt stats instead, shown in the publish panel. */}
-              {SET_TYPES[set.type].runAction !== "self_check" && (
+              {presentable && (
                 <div data-tour="set.results">
                   <Button onClick={() => navigate(`/sets/${id}/results`)} className="inline-flex items-center gap-1.5">
                     <BarChart3 aria-hidden className="h-4 w-4" />{t("Results")}
@@ -1922,7 +1927,7 @@ export default function SetPage() {
 
       {/* Recording mode (#53): opt-in before presenting (Pro only). A
           Lernkontrolle is never presented, so it has no recording mode. */}
-      {set.type !== "self_check" && questions.length > 0 && (
+      {presentable && questions.length > 0 && (
         <ProOnly easyMode={easyMode}>
         <label className="mb-4 flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
           <input
@@ -2131,7 +2136,7 @@ export default function SetPage() {
                           </span>
                           </ProOnly>
                         )}
-                        {set.type !== "self_check" && (
+                        {presentable && (
                           <ProOnly easyMode={easyMode}>
                           <Button
                             variant="ghost"
@@ -2170,7 +2175,7 @@ export default function SetPage() {
                           </Button>
                         )}
                         <MoreMenu label={t("Question actions")}>
-                          {!easyMode && (
+                          {!easyMode && SET_TYPES[set.type].runAction !== null && (
                             <MenuItem onClick={() => void copyQuestionLink(question.id)}>
                               <Copy aria-hidden className="h-4 w-4" />
                               {t("Copy link")}

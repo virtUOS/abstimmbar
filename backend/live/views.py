@@ -1896,6 +1896,11 @@ def _finish_other_room_runs(room, keep_set):
             other.delete()
 
 
+# Committee meetings never run through the anonymous live flow: their votes
+# are tied to personal meeting links (Gremien-Raum, PR 2).
+MEETING_RUN_DETAIL = "Meetings cannot be presented as a live poll."
+
+
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
 def start_run(request, set_id):
@@ -1912,6 +1917,8 @@ def start_run(request, set_id):
     question_set = get_object_or_404(QuestionSet.objects.select_related("room"), pk=set_id)
     if not _require_owner(request.user, question_set.room):
         raise Http404
+    if question_set.type == QuestionSet.SetType.MEETING:
+        return Response({"detail": MEETING_RUN_DETAIL}, status=400)
     mode = request.data.get("mode") or Run.Mode.LIVE
     if mode not in {m.value for m in Run.Mode}:
         return Response({"detail": "Invalid mode."}, status=400)
@@ -2904,6 +2911,8 @@ def archive_results(request, set_id):
     Idempotent: if an empty run is already waiting, it is returned as-is.
     """
     question_set = _owned_question_set(request.user, set_id)
+    if question_set.type == QuestionSet.SetType.MEETING:
+        return Response({"detail": MEETING_RUN_DETAIL}, status=400)
     active = (
         question_set.runs.exclude(phase=Run.Phase.FINISHED)
         .order_by("-created_at")
