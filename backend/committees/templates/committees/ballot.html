@@ -81,7 +81,11 @@
   let busy = false;         // a vote is being sent
   let error = false;
   let lastView = null;
-  let stopped = false;      // link turned invalid: no more reconnects
+  let stopped = false;      // link turned invalid: no stream until it is valid again
+  let recheckTimer = null;  // slow /me/ poll while stopped (readmission)
+  const RECHECK_MS = 30000;
+  // Final states: the link never becomes valid again.
+  const FINAL_STATES = ["invalid", "ended", "unknown"];
   // Unsent input survives re-renders (keyed by ballot id).
   let draftBallot = null;
   let draftOptions = new Set();
@@ -111,6 +115,7 @@
     if (seq !== meSeq) return;
     me = data.code ? { state: "invalid" } : data;
     if (!linkValid()) stop();
+    else if (stopped) resume();
     render();
   }
 
@@ -143,8 +148,9 @@
     if (key === lastView) return;
     lastView = key;
     view.replaceChildren();
+    const who = document.getElementById("who");
+    if (who) who.hidden = !linkValid();
     if (!linkValid()) {
-      document.getElementById("who").hidden = true;
       view.appendChild(el("p", { class: "soft" }, S.invalid));
       return;
     }
@@ -300,8 +306,7 @@
       me = { ...me, voted: true };
       fetchMe();
     } else if (code === "invalid_link") {
-      me = { state: "invalid" };
-      stop();
+      fetchMe(); // removed (maybe only for now) or replaced: /me/ knows
     } else if (code === "closed" || code === "not_eligible") {
       fetchMe();
     } else {
@@ -448,8 +453,25 @@
   function stop() {
     stopped = true;
     clearTimeout(retryTimer);
+    retryTimer = null;
     if (source) source.close();
+    source = null;
     conn.hidden = true;
+    // A removed or replaced member may be readmitted: ask /me/ now and then
+    // and pick the meeting up again without a reload.
+    clearTimeout(recheckTimer);
+    recheckTimer = null;
+    if (!me || !FINAL_STATES.includes(me.state)) {
+      recheckTimer = setTimeout(fetchMe, RECHECK_MS);
+    }
+  }
+  function resume() {
+    stopped = false;
+    clearTimeout(recheckTimer);
+    recheckTimer = null;
+    retryDelay = 1000;
+    meKey = null; // the next snapshot fetches /me/ afresh
+    connect();
   }
 
   connect();

@@ -63,18 +63,21 @@ test('secret resolution: vote, close, reset, observer', async ({ page, browser, 
   await api('post', `/api/meetings/${meeting.id}/start/`);
   await api('post', `/api/meetings/${meeting.id}/invites/`);
   const summary = await api('get', `/api/meetings/${meeting.id}/`);
-  const linkOf = (email: string): string =>
-    summary.invites.find((i: { member: { email: string } }) => i.member.email === email).url;
+  const inviteOf = (email: string) =>
+    summary.invites.find((i: { member: { email: string } }) => i.member.email === email);
+  const linkOf = (email: string): string => inviteOf(email).url;
 
   // 2. Anna and Ben enter via their links, each in an anonymous context.
-  const open = async (email: string) => {
+  //    Ben's page gets a controllable clock (readmission poll, step 8).
+  const open = async (email: string, clock = false) => {
     const context = await browser.newContext({ locale: 'de-DE' });
     const p = await context.newPage();
+    if (clock) await p.clock.install();
     await p.goto(linkOf(email));
     return { context, p };
   };
   const anna = await open('anna@example.org');
-  const ben = await open('ben@example.org');
+  const ben = await open('ben@example.org', true);
   await expect(anna.p.getByText('Bitte warten Sie auf die nächste Abstimmung.')).toBeVisible();
   await expect(ben.p.getByText('Bitte warten Sie auf die nächste Abstimmung.')).toBeVisible();
 
@@ -85,6 +88,10 @@ test('secret resolution: vote, close, reset, observer', async ({ page, browser, 
   await item.getByRole('button', { name: 'Abstimmung öffnen' }).click();
   const progress = page.getByTestId('beamer-progress');
   await expect(progress).toHaveText('0 von 2 haben abgestimmt');
+  // While the vote is open, no other item can be shown.
+  const other = page.getByTestId('console-item').nth(1).getByRole('button', { name: /Anmerkungen/ });
+  await expect(other).toBeDisabled();
+  await expect(other).toHaveAttribute('title', 'Es läuft noch eine andere Abstimmung.');
 
   // 4. Anna votes yes; the beamer shows participation, no counts.
   await anna.p.getByRole('button', { name: 'Ja', exact: true }).click();
@@ -117,6 +124,18 @@ test('secret resolution: vote, close, reset, observer', async ({ page, browser, 
   const observer = await open('olga@example.org');
   await expect(observer.p.getByText(/können nicht abstimmen/)).toBeVisible();
   await expect(observer.p.getByRole('button', { name: 'Ja', exact: true })).toHaveCount(0);
+
+  // 8. Ben is removed during the vote: his vote is refused and the page
+  //    says so. Readmitted, it picks the meeting up again without a reload.
+  const benInvite = inviteOf('ben@example.org').id;
+  await api('post', `/api/meetings/${meeting.id}/invites/${benInvite}/remove/`, {});
+  await ben.p.getByRole('button', { name: 'Ja', exact: true }).click();
+  await expect(ben.p.getByText(/Dieser Link ist nicht \(mehr\) gültig/)).toBeVisible();
+  await api('post', `/api/meetings/${meeting.id}/invites/${benInvite}/readmit/`);
+  await ben.p.clock.fastForward(31000);
+  await ben.p.getByRole('button', { name: 'Ja', exact: true }).click();
+  await expect(ben.p.getByText('Ihre Stimme ist abgegeben.')).toBeVisible();
+  await expect(progress).toHaveText('1 von 2 haben abgestimmt');
 
   for (const c of [anna, ben, observer]) await c.context.close();
 });
