@@ -163,7 +163,9 @@ export function useApp() {
  * reports the effective mode per role default (non-staff start in "simple",
  * staff start in "pro"), but any signed-in user may toggle between them. */
 export function useEasyMode(): boolean {
-  return useApp().whoami?.easy_mode ?? false;
+  // Fullscreen routes (e.g. the meeting console) render outside the app
+  // shell, where there is no outlet context: fall back to Pro.
+  return (useApp() as AppContext | undefined)?.whoami?.easy_mode ?? false;
 }
 
 /** Layout shell: header (logo/login), routed content, global footer. */

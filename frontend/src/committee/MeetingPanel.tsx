@@ -7,7 +7,8 @@
  *  an ended meeting is read-only. */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Copy, Download, KeyRound, Play, SquareStop, Trash2, UserRoundCheck } from "lucide-react";
+import { Link } from "react-router";
+import { Check, Copy, Download, KeyRound, Play, Presentation, SquareStop, Trash2, UserRoundCheck } from "lucide-react";
 import { localizedText, stripHtml } from "@basicbar/ui";
 import {
   api,
@@ -234,6 +235,15 @@ export default function MeetingPanel({
               <Play aria-hidden className="h-4 w-4" />
               {t("Start meeting")}
             </Button>
+          )}
+          {state === "started" && (
+            <Link
+              to={`/sets/${set.id}/meeting`}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+            >
+              <Presentation aria-hidden className="h-4 w-4" />
+              {t("Lead meeting")}
+            </Link>
           )}
           {state === "started" && (
             <Button
