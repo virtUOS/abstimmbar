@@ -38,6 +38,7 @@ urlpatterns = [
     path("api/", include("common.urls")),
     path("api/lti/", include((lti_api, "lti-api"))),
     path("", include("lti.urls")),
+    path("", include("committees.page_urls")),
     *live_pages,
 ]
 

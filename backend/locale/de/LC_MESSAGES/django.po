@@ -640,3 +640,24 @@ msgstr "Die Bewertung läuft – jetzt können keine Karten hinzugefügt oder en
 #: live/templates/live/participant.html
 msgid "Only one point per card."
 msgstr "Nur ein Punkt pro Karte."
+
+#: committees/templates/committees/entry.html
+msgid "This link is not valid (any more). Please contact the chair of the meeting."
+msgstr "Dieser Link ist nicht (mehr) gültig. Bitte wenden Sie sich an die Sitzungsleitung."
+
+#: committees/templates/committees/entry.html
+msgid "You are taking part as an observer. You cannot vote."
+msgstr "Sie nehmen als Beobachter*in teil und können nicht abstimmen."
+
+#: committees/templates/committees/entry.html
+#, python-format
+msgid "You are taking part as %(name)s (%(group)s)."
+msgstr "Sie nehmen teil als %(name)s (%(group)s)."
+
+#: committees/templates/committees/entry.html
+msgid "The meeting has not started yet. Please reload this page when it begins."
+msgstr "Die Sitzung hat noch nicht begonnen. Bitte laden Sie diese Seite neu, sobald sie beginnt."
+
+#: committees/templates/committees/entry.html
+msgid "The meeting is in progress. Votes will appear here."
+msgstr "Die Sitzung läuft. Abstimmungen erscheinen hier."

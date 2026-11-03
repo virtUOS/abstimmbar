@@ -5,6 +5,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from rooms.models import Question, QuestionSet, Room
@@ -635,3 +636,93 @@ class MeetingApiTests(MeetingFixture, ApiBase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["state"], "active")
         self.assertIsNone(r.json()["removed_at"])
+
+
+class EntryPageTests(MeetingFixture, TestCase):
+    def setUp(self):
+        self.make_fixture()
+        self.room.title_de, self.room.title_en = "Fakultätsrat", "Faculty Council"
+        self.room.save()
+        self.meeting.title_de, self.meeting.title_en = "Sitzung 1", "Meeting 1"
+        self.meeting.scheduled_at = timezone.now()
+        self.meeting.save()
+        self.anna = self.member("Anna Muster", self.ga)
+        self.obs = self.member("Olga Beobachtet", self.obs_group)
+
+    def _invite(self, member):
+        return MeetingInvite.objects.create(meeting=self.meeting, member=member)
+
+    def _get(self, invite, lang=None):
+        suffix = f"?lang={lang}" if lang else ""
+        return self.client.get(f"/g/{invite.token}/{suffix}")
+
+    def test_unknown_token_404_generic(self):
+        r = self.client.get("/g/nope/?lang=en")
+        self.assertEqual(r.status_code, 404)
+        self.assertContains(r, "This link is not valid (any more).", status_code=404)
+
+    def test_waiting(self):
+        invite = self._invite(self.anna)
+        r = self._get(invite, "de")
+        self.assertEqual(r.status_code, 200)
+        self.assertContains(r, "Die Sitzung hat noch nicht begonnen.")
+        self.assertContains(r, "Sie nehmen teil als Anna Muster (Gruppe A).")
+        self.assertContains(r, "Fakultätsrat")
+        self.assertContains(r, "Sitzung 1")
+        r = self._get(invite, "en")
+        self.assertContains(r, "The meeting has not started yet.")
+        self.assertContains(r, "You are taking part as Anna Muster (Group A).")
+        self.assertContains(r, "Faculty Council")
+
+    def test_member_language_default_and_query_override(self):
+        self.anna.language = "en"
+        self.anna.save()
+        invite = self._invite(self.anna)
+        self.assertContains(self._get(invite), "The meeting has not started yet.")
+        self.assertContains(self._get(invite, "de"), "Die Sitzung hat noch nicht begonnen.")
+
+    def test_active(self):
+        invite = self._invite(self.anna)
+        self.meeting.meeting_state = "started"
+        self.meeting.save()
+        self.assertContains(self._get(invite, "en"), "The meeting is in progress.")
+        self.assertContains(self._get(invite, "de"), "Die Sitzung läuft.")
+
+    def test_headers(self):
+        r = self._get(self._invite(self.anna), "de")
+        self.assertEqual(r["Cache-Control"], "no-store")
+        self.assertEqual(r["Referrer-Policy"], "no-referrer")
+        r = self.client.get("/g/nope/")
+        self.assertEqual(r["Cache-Control"], "no-store")
+
+    def test_observer(self):
+        invite = self._invite(self.obs)
+        self.assertContains(
+            self._get(invite, "de"), "Sie nehmen als Beobachter*in teil und können nicht abstimmen.",
+        )
+        self.assertContains(self._get(invite, "en"), "You are taking part as an observer.")
+
+    def test_invalid_states_reveal_nothing(self):
+        ended = self._invite(self.anna)
+        removed = self._invite(self.obs)
+        bert = self.member("Bert Geheim", self.ga)
+        replaced = self._invite(bert)
+        dora = self.member("Dora Vertretung", self.ga, role="deputy")
+        services.add_substitution(self.meeting, bert, dora)
+        inactive = self._invite(self.member("Ina Inaktiv", self.ga, role="deputy"))
+        services.remove_invite(removed)
+        cases = {"removed": removed, "replaced": replaced, "inactive": inactive}
+        for state, invite in cases.items():
+            for lang, text in (("en", "This link is not valid (any more)."),
+                               ("de", "Dieser Link ist nicht (mehr) gültig.")):
+                r = self._get(invite, lang)
+                self.assertEqual(r.status_code, 200, state)
+                self.assertContains(r, text)
+                for secret in ("Fakultätsrat", "Faculty Council", "Sitzung 1", "Meeting 1",
+                               invite.member.name, "Gruppe A", "Group A"):
+                    self.assertNotContains(r, secret, msg_prefix=state)
+        self.meeting.meeting_state = "ended"
+        self.meeting.save()
+        r = self._get(ended, "en")
+        self.assertContains(r, "This link is not valid (any more).")
+        self.assertNotContains(r, "Anna Muster")

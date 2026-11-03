@@ -8,7 +8,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count
 from django.http import HttpResponse
-from django.shortcuts import get_object_or_404
+from django.conf import settings
+from django.shortcuts import get_object_or_404, render
 from django.utils import translation
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -327,3 +328,43 @@ class MeetingViewSet(viewsets.GenericViewSet):
         except DjangoValidationError as exc:
             raise _detail(exc) from exc
         return self._invite_response(invite)
+
+
+# --- personal entry page (/g/<token>/) -----------------------------------------
+
+
+def _localized(obj, base, lang):
+    """Translated field for `lang`, falling back to the other language."""
+    others = [code for code in ("de", "en") if code != lang]
+    for code in (lang, *others):
+        value = getattr(obj, f"{base}_{code}", "")
+        if value:
+            return value
+    return ""
+
+
+def entry_page(request, token):
+    invite, state = services.resolve_invite(token)
+    valid = state in ("waiting", "active")
+    lang = request.GET.get("lang")
+    if lang not in dict(settings.LANGUAGES):
+        lang = invite.member.language if valid else None
+    lang = lang or settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+    context = {"invalid": not valid}
+    if valid:
+        meeting, member = invite.meeting, invite.member
+        context.update(
+            state=state, member=member, is_observer=member.group.is_observer,
+            room_title=_localized(meeting.room, "title", lang),
+            meeting_title=_localized(meeting, "title", lang),
+            scheduled_at=meeting.scheduled_at,
+            group_name=_localized(member.group, "name", lang),
+        )
+    with translation.override(lang):
+        response = render(
+            request, "committees/entry.html", context,
+            status=404 if state == "unknown" else 200,
+        )
+    response["Cache-Control"] = "no-store"
+    response["Referrer-Policy"] = "no-referrer"
+    return response
