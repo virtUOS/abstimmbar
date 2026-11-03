@@ -257,17 +257,15 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        # Committee rooms hold only meetings; meetings only live there. The
-        # type is fixed after creation, so only check on create.
+        # Committee rooms hold only meetings; meetings only live there. On
+        # update the type is fixed, but `room` may be (attempted to be) moved.
         if self.instance is None:
-            room = attrs.get("room")
-            set_type = attrs.get("type", QuestionSet.SetType.LIVE_POLL)
-            is_meeting = set_type == QuestionSet.SetType.MEETING
-            if room is not None:
-                if room.kind == Room.Kind.COMMITTEE and not is_meeting:
-                    raise serializers.ValidationError("Committee rooms only hold meetings.")
-                if room.kind != Room.Kind.COMMITTEE and is_meeting:
-                    raise serializers.ValidationError("Meetings belong in committee rooms.")
+            if attrs.get("room") is not None:
+                set_types.check_room_pairing(
+                    attrs.get("type", QuestionSet.SetType.LIVE_POLL), attrs["room"]
+                )
+        elif attrs.get("room") is not None:
+            set_types.check_room_pairing(self.instance.type, attrs["room"])
 
         # A time limit only applies to self-paced sets; null it here for
         # any other effective type, but only when the field is actually

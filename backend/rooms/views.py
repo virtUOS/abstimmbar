@@ -492,14 +492,6 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                     {"detail": "Target room not found."},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
-        if (target.kind == Room.Kind.COMMITTEE) != (
-            question_set.type == QuestionSet.SetType.MEETING
-        ):
-            # Meetings only live in committee rooms (and vice versa).
-            return Response(
-                {"detail": "Target room not found."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
         title = (request.data.get("title") or "").strip() or None
         if title is None and target == question_set.room:
             # Build the auto-title from the CANONICAL-language column, never

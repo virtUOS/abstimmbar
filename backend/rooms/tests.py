@@ -6325,3 +6325,50 @@ class CommitteeRoomKindTests(ApiTestCase):
             {"format": "abstimmbar-set-v2", "title": "X", "questions": []},
         )
         self.assertEqual(response.status_code, 400)
+
+    def test_patch_cannot_move_set_across_room_kinds(self):
+        committee = self._make_committee_room()
+        poll = QuestionSet.objects.create(room=self.room, title="P")
+        response = self.client.patch(
+            f"/api/question-sets/{poll.pk}/", {"room": committee.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        meeting = QuestionSet.objects.create(
+            room=committee, title="M", type=QuestionSet.SetType.MEETING
+        )
+        response = self.client.patch(
+            f"/api/question-sets/{meeting.pk}/", {"room": self.room.pk},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+        poll.refresh_from_db()
+        meeting.refresh_from_db()
+        self.assertEqual((poll.room, meeting.room), (self.room, committee))
+
+    def test_duplicate_standard_set_into_committee_room_rejected(self):
+        committee = self._make_committee_room()
+        poll = QuestionSet.objects.create(room=self.room, title="P")
+        response = self._post(
+            f"/api/question-sets/{poll.pk}/duplicate/", {"room": committee.pk}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(committee.question_sets.count(), 0)
+
+    def test_shared_copy_respects_room_kind(self):
+        committee = self._make_committee_room()
+        poll = QuestionSet.objects.create(room=self.room, title="P")
+        poll.enable_sharing()
+        response = self._post(
+            f"/api/shared/{poll.share_token}/copy/", {"room": committee.pk}
+        )
+        self.assertEqual(response.status_code, 400)
+        meeting = QuestionSet.objects.create(
+            room=committee, title="M", type=QuestionSet.SetType.MEETING
+        )
+        meeting.enable_sharing()
+        response = self._post(
+            f"/api/shared/{meeting.share_token}/copy/", {"room": self.room.pk}
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(self.room.question_sets.count(), 1)

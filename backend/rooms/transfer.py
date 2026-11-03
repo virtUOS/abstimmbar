@@ -194,6 +194,7 @@ def duplicate_set(question_set, target_room, title=None):
     caller — the ``duplicate`` API action — builds it as a single string,
     e.g. "<title> (Kopie)"); the copied non-canonical title is left as-is.
     """
+    set_types.check_room_pairing(question_set.type, target_room)
     canonical_key = f"title_{CONTENT_DEFAULT_LANGUAGE}"
     title_cols = _lang_columns(question_set, "title")
     canonical_title = title if title is not None else title_cols[canonical_key]
