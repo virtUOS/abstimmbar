@@ -803,6 +803,7 @@ export default function SetPage() {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [copyTarget, setCopyTarget] = useState<number | null>(null);
   const [copyTitle, setCopyTitle] = useState("");
+  const [copyError, setCopyError] = useState("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [metaError, setMetaError] = useState("");
   const [sections, setSections] = useState<SectionType[]>([]);
@@ -1342,21 +1343,40 @@ export default function SetPage() {
   }
 
   async function openCopyDialog() {
-    const page = await api.listRooms();
-    setRooms(page.results);
-    setCopyTarget(set?.room ?? null);
+    if (!set) return;
     setCopyTitle("");
+    setCopyError("");
     setCopyOpen(true);
+    try {
+      const page = await api.listRooms();
+      // Meetings live only in committee rooms, every other set type only in
+      // standard rooms — offer just the rooms the backend will accept.
+      const kind = set.type === "meeting" ? "committee" : "standard";
+      const targets = page.results.filter((room) => room.kind === kind);
+      setRooms(targets);
+      setCopyTarget(
+        targets.some((room) => room.id === set.room) ? set.room : targets[0]?.id ?? null,
+      );
+    } catch (err) {
+      setRooms([]);
+      setCopyTarget(null);
+      setCopyError(t(requestError(err)));
+    }
   }
 
   async function handleCopy() {
     if (!set || copyTarget === null) return;
-    const clone = await api.duplicateQuestionSet(set.id, {
-      room: copyTarget,
-      ...(copyTitle.trim() ? { title: copyTitle.trim() } : {}),
-    });
-    setCopyOpen(false);
-    navigate(`/sets/${clone.id}`);
+    setCopyError("");
+    try {
+      const clone = await api.duplicateQuestionSet(set.id, {
+        room: copyTarget,
+        ...(copyTitle.trim() ? { title: copyTitle.trim() } : {}),
+      });
+      setCopyOpen(false);
+      navigate(`/sets/${clone.id}`);
+    } catch (err) {
+      setCopyError(t(requestError(err)));
+    }
   }
 
   if (!set || !questions) return null;
@@ -1697,12 +1717,19 @@ export default function SetPage() {
               className="!w-64"
             />
           </Field>
-          <Button variant="primary" onClick={() => void handleCopy()}>
+          <Button
+            variant="primary"
+            disabled={copyTarget === null}
+            onClick={() => void handleCopy()}
+          >
             {t("Copy")}
           </Button>
           <Button variant="ghost" onClick={() => setCopyOpen(false)}>
             {t("Cancel")}
           </Button>
+          {copyError && (
+            <p role="alert" className="basis-full text-sm text-danger">{copyError}</p>
+          )}
         </div>
       )}
 

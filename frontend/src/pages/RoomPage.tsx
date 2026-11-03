@@ -739,16 +739,19 @@ export default function RoomPage() {
               </span>
             )}
           </h1>
-          <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
-            <span
-              title={t("Room code")}
-              className="inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2.5 py-1 font-mono text-base font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
-            >
-              <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
-              {room.code}
-            </span>
-            <span>{t("— stays the same across all sessions.")}</span>
-          </p>
+          {/* Committee members join via personal links, not the room code. */}
+          {!committee && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+              <span
+                title={t("Room code")}
+                className="inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2.5 py-1 font-mono text-base font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
+              >
+                <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
+                {room.code}
+              </span>
+              <span>{t("— stays the same across all sessions.")}</span>
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
           <button

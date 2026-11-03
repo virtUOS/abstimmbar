@@ -107,7 +107,8 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await expect(entry.getByText('Die Sitzung hat noch nicht begonnen')).toBeVisible();
 
   await page.getByRole('button', { name: 'Sitzung beginnen' }).click();
-  await expect(page.getByTestId('meeting-state')).toBeVisible();
+  // The badge is always shown; wait for the started state's end button.
+  await expect(page.getByRole('button', { name: 'Sitzung beenden' })).toBeVisible();
   await entry.reload();
   await expect(entry.getByText('Die Sitzung läuft')).toBeVisible();
 
