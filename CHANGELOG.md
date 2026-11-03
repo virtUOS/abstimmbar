@@ -6,6 +6,14 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 Die Zahlen in Klammern verweisen auf Pull Requests im
 [GitHub-Repository](https://github.com/virtUOS/abstimmbar/pulls?q=is%3Apr).
 
+## [Unreleased]
+
+### Hinzugefügt
+
+- Gremien-Raum (Teil 1): Raumtyp für Gremien mit Statusgruppen, Mitgliedern,
+  Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
+  Links und Vertretungen. Abstimmen folgt.
+
 ## [1.0.0] – 2026-10-22
 
 Die erste stabile Version. Abstimmbar ist damit für den regulären Einsatz in

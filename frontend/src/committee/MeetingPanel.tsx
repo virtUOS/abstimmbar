@@ -327,6 +327,7 @@ function InviteSection({
 }) {
   const { t } = useTranslation();
   const [copied, setCopied] = useState<number | null>(null);
+  const [copyError, setCopyError] = useState("");
   const [removing, setRemoving] = useState<number | null>(null);
   const [removeAfter, setRemoveAfter] = useState("");
   const ended = meeting.meeting_state === "ended";
@@ -334,7 +335,13 @@ function InviteSection({
   const hasValid = invites.some((invite) => invite.state === "waiting" || invite.state === "active");
 
   async function copy(invite: MeetingInvite) {
-    await navigator.clipboard.writeText(invite.url);
+    try {
+      await navigator.clipboard.writeText(invite.url);
+    } catch {
+      setCopyError(t("The link could not be copied. Please copy it from the CSV export."));
+      return;
+    }
+    setCopyError("");
     setCopied(invite.id);
     window.setTimeout(() => setCopied((current) => (current === invite.id ? null : current)), 2000);
   }
@@ -500,7 +507,7 @@ function InviteSection({
           </table>
         </div>
       )}
-      <ErrorText text={error} />
+      <ErrorText text={error || copyError} />
     </div>
   );
 }
@@ -554,6 +561,9 @@ function SubstitutionSection({
       !usedAbsent.has(member.id),
   );
   const absent = absentId ? memberById.get(Number(absentId)) : undefined;
+  const groupHasDeputies = absent
+    ? members.some((member) => member.role === "deputy" && member.group === absent.group)
+    : false;
   const deputyOptions = absent
     ? members.filter(
         (member) =>
@@ -672,7 +682,9 @@ function SubstitutionSection({
       )}
       {!readOnly && absent && deputyOptions.length === 0 && (
         <p className="text-sm text-amber-700 dark:text-amber-400">
-          {t("No deputy is set up for this group. Add the person to the room as a deputy.")}
+          {groupHasDeputies
+            ? t("All deputies of this group are already assigned.")
+            : t("No deputy is set up for this group. Add the person to the room as a deputy.")}
         </p>
       )}
       {!readOnly && absent && deputyOptions.length > 0 && (
