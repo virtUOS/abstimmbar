@@ -14,6 +14,7 @@ from rooms.models import Question, QuestionSet, Room
 
 from . import versions
 from .models import (
+    Ballot,
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
@@ -306,6 +307,15 @@ def start_meeting(meeting: QuestionSet) -> QuestionSet:
 
 @transaction.atomic
 def end_meeting(meeting: QuestionSet) -> QuestionSet:
+    from . import ballots  # ballots imports this module
+
+    ballots.abort_stale(meeting)
+    # Under the meeting row lock that open_ballot takes as well.
+    QuestionSet.objects.select_for_update().filter(pk=meeting.pk).exists()
+    if Ballot.objects.filter(
+        question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
+    ).exists():
+        raise ValidationError("A vote is still open.", code="vote_open")
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
     return meeting
 

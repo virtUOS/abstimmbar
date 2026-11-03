@@ -10,16 +10,19 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from rooms.models import Question, QuestionSet, Room
+from rooms.models import AnswerOption, Question, QuestionSet, Room
 
-from . import eligibility, services, versions
+from . import ballots, eligibility, services, versions
 from .models import (
     Ballot,
+    BallotSeat,
+    BallotText,
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
     MeetingInvite,
     MeetingSubstitution,
+    NamedVote,
 )
 from .services import parse_member_list
 
@@ -1230,3 +1233,216 @@ class EligibilityTests(MeetingFixture, TestCase):
                 question=self.q1, version=version, round=1, secret=True,
                 status=Ballot.Status.CLOSED,
             )
+
+
+class BallotFlowTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q1 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Beschluss", position=1,
+        )
+        self.q2 = Question.objects.create(
+            question_set=self.meeting, kind="open_text", text_de="Freitext", position=2,
+        )
+        self.anna = self.member("Anna", self.ga)
+        self.bert = self.member("Bert", self.ga)
+        self.dora = self.member("Dora", self.ga, role="deputy", rank=1)
+        self.ben = self.member("Ben", self.gb)
+        self.olga = self.member("Olga", self.obs_group)
+        services.start_meeting(self.meeting)
+        self.meeting.invites.update(entered_at=timezone.now())
+
+    def invite(self, member):
+        return MeetingInvite.objects.select_related("meeting", "member").get(
+            meeting=self.meeting, member=member,
+        )
+
+    def vote(self, member, ballot, answer):
+        ballots.cast_vote(self.invite(member), ballot.pk, answer)
+
+    def assertCode(self, code, fn, *args):
+        with self.assertRaises(ValidationError) as ctx:
+            fn(*args)
+        self.assertEqual(ctx.exception.code, code)
+
+    def group_result(self, result, group):
+        return next(g for g in result["groups"] if g["group"] == group.pk)
+
+    def test_secret_vote_counts_only_in_memory(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertTrue(ballot.secret)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.vote(self.ben, ballot, {"choice": "no"})
+        self.assertFalse(NamedVote.objects.exists())
+        fields = {f.name for f in BallotSeat._meta.get_fields()}
+        self.assertEqual(fields, {"id", "ballot", "member", "group", "voted"})
+        ballot.refresh_from_db()
+        self.assertIsNone(ballot.result)
+        ballot = ballots.close_ballot(ballot)
+        result = ballot.result
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
+        self.assertEqual(result["voted"], 2)
+        self.assertEqual(result["tally_sum"], 2)
+        self.assertEqual(self.group_result(result, self.ga)["eligible"], 2)
+        self.assertEqual([g["group"] for g in result["groups"]], [self.ga.pk, self.gb.pk])
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
+
+    def test_second_vote_rejected(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.assertCode("already_voted", self.vote, self.anna, ballot, {"choice": "no"})
+        self.assertEqual(ballots.close_ballot(ballot).result["tally_sum"], 1)
+
+    def test_not_eligible_and_observer(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertCode("not_eligible", self.vote, self.olga, ballot, {"choice": "yes"})
+
+    def test_closed_and_invalid_link(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        services.remove_invite(self.invite(self.bert))
+        self.assertCode("invalid_link", self.vote, self.bert, ballot, {"choice": "yes"})
+        ballots.close_ballot(ballot)
+        self.assertCode("closed", self.vote, self.anna, ballot, {"choice": "yes"})
+        self.assertCode("not_open", ballots.close_ballot, ballot)
+
+    def test_late_entry_gets_seat(self):
+        MeetingInvite.objects.filter(meeting=self.meeting, member=self.bert).update(
+            entered_at=None,
+        )
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertEqual(ballot.seats.filter(group=self.ga).count(), 1)
+        ballots.enter(self.invite(self.bert))
+        self.assertIsNotNone(self.invite(self.bert).entered_at)
+        self.assertEqual(ballot.seats.filter(group=self.ga).count(), 2)
+        self.vote(self.bert, ballot, {"choice": "yes"})
+        result = ballots.close_ballot(ballot).result
+        self.assertEqual(self.group_result(result, self.ga)["eligible"], 2)
+        self.assertEqual(result["total"]["counts"]["yes"], 1)
+
+    def test_restart_discards_secret_ballot(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with mock.patch("committees.tally.EPOCH", "other"):
+            ballots.abort_stale(self.meeting)
+            ballot.refresh_from_db()
+            self.assertEqual(ballot.status, Ballot.Status.DISCARDED)
+            self.assertEqual(ballot.discard_reason, Ballot.DiscardReason.RESTART)
+            self.assertEqual(ballot.discard_comment, "Abgebrochen durch Serverneustart.")
+            self.assertIsNotNone(ballot.discarded_at)
+            self.assertEqual(ballot.seats.count(), 0)
+            self.assertEqual(ballots.open_ballot(self.meeting, self.q1).round, 2)
+
+    def test_restart_keeps_named_ballot(self):
+        self.q1.named_vote = True
+        self.q1.save()
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertFalse(ballot.secret)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with mock.patch("committees.tally.EPOCH", "other"):
+            ballots.abort_stale(self.meeting)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.OPEN)
+        self.assertEqual(
+            NamedVote.objects.get(ballot=ballot).answer, {"keys": ["yes"], "text": None},
+        )
+        result = ballots.close_ballot(ballot).result
+        self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 0, "abstain": 0})
+        self.assertEqual(result["tally_sum"], 1)
+
+    def test_reset_after_close_deletes_everything(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        ballots.close_ballot(ballot)
+        r = self.client.patch(
+            f"/api/questions/{self.q1.pk}/", {"text": {"de": "Neu"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+        ballot = ballots.reset_ballot(ballot, "Fehlbedienung")
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.DISCARDED)
+        self.assertEqual(ballot.discard_reason, Ballot.DiscardReason.RESET)
+        self.assertIsNone(ballot.result)
+        self.assertEqual(ballot.seats.count(), 0)
+        self.assertEqual(ballot.discard_comment, "Fehlbedienung")
+        r = self.client.patch(
+            f"/api/questions/{self.q1.pk}/", {"text": {"de": "Neu"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(versions.current(self.q1).number, 2)
+
+    def test_reset_comment_too_long(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertCode("invalid", ballots.reset_ballot, ballot, "x" * 1001)
+
+    def test_one_open_ballot_per_meeting(self):
+        ballots.open_ballot(self.meeting, self.q1)
+        self.assertCode("other_open", ballots.open_ballot, self.meeting, self.q2)
+
+    def test_open_guards(self):
+        draft = QuestionSet.objects.create(
+            room=self.room, title="Neu", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(question_set=draft, kind="resolution", text_de="X")
+        self.assertCode("not_started", ballots.open_ballot, draft, q)
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertEqual(self.meeting.meeting_control.current_question, self.q1)
+        ballots.close_ballot(ballot)
+        self.assertCode("already_voted_on", ballots.open_ballot, self.meeting, self.q1)
+
+    def test_freetext_secret_texts_written_at_close(self):
+        ballot = ballots.open_ballot(self.meeting, self.q2)
+        self.vote(self.anna, ballot, {"text": "  Erstens  "})
+        self.vote(self.ben, ballot, {"text": "Zweitens"})
+        self.vote(self.bert, ballot, {"choice": "abstain"})
+        self.assertEqual(BallotText.objects.count(), 0)
+        ballot = ballots.close_ballot(ballot)
+        self.assertEqual(
+            sorted(BallotText.objects.values_list("text", flat=True)), ["Erstens", "Zweitens"],
+        )
+        self.assertEqual(ballot.result["total"]["counts"], {"text": 2, "abstain": 1})
+        self.assertTrue(ballots.release_texts(ballot).texts_released)
+        resolution = ballots.close_ballot(ballots.open_ballot(self.meeting, self.q1))
+        self.assertCode("invalid", ballots.release_texts, resolution)
+
+    def test_end_meeting_blocked_while_open(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertCode("vote_open", services.end_meeting, self.meeting)
+        ballots.close_ballot(ballot)
+        services.end_meeting(self.meeting)
+        self.assertEqual(self.meeting.meeting_state, QuestionSet.MeetingState.ENDED)
+
+    def test_multiple_choice_validation(self):
+        q3 = Question.objects.create(
+            question_set=self.meeting, kind="multiple_choice", text_de="MC", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=q3, text_de="A", position=1)
+        o2 = AnswerOption.objects.create(question=q3, text_de="B", position=2)
+        other = AnswerOption.objects.create(question=self.q2, text_de="X")
+        for bad in (
+            {"options": []}, {"options": [o1.pk, o1.pk]}, {"options": [other.pk]},
+            {"options": [True]}, {"choice": "yes"}, {}, "x",
+        ):
+            self.assertCode("invalid", ballots.parse_answer, q3, bad)
+        self.assertEqual(
+            ballots.parse_answer(q3, {"options": [o2.pk, o1.pk]}),
+            ([f"opt:{o2.pk}", f"opt:{o1.pk}"], None),
+        )
+        self.assertEqual(ballots.parse_answer(q3, {"choice": "abstain"}), (["abstain"], None))
+        self.assertCode("invalid", ballots.parse_answer, self.q2, {"text": "   "})
+        self.assertCode("invalid", ballots.parse_answer, self.q2, {"text": "x" * 2001})
+        self.assertCode("invalid", ballots.parse_answer, self.q1, {"choice": "maybe"})
+
+    def test_single_choice_zero_counts(self):
+        q3 = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="SC", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=q3, text_de="A", position=1)
+        o2 = AnswerOption.objects.create(question=q3, text_de="B", position=2)
+        ballot = ballots.open_ballot(self.meeting, q3)
+        self.vote(self.anna, ballot, {"option": o1.pk})
+        result = ballots.close_ballot(ballot).result
+        self.assertEqual(
+            result["total"]["counts"], {f"opt:{o1.pk}": 1, f"opt:{o2.pk}": 0, "abstain": 0},
+        )
