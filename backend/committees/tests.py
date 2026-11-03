@@ -726,3 +726,26 @@ class EntryPageTests(MeetingFixture, TestCase):
         r = self._get(ended, "en")
         self.assertContains(r, "This link is not valid (any more).")
         self.assertNotContains(r, "Anna Muster")
+
+
+class RoomDeleteCascadeTests(MeetingFixture, ApiBase):
+    def test_delete_room_with_everything(self):
+        self.make_fixture(self.room)
+        anna = self.member("Anna", self.ga)
+        bert = self.member("Bert", self.ga, role="deputy")
+        invite = MeetingInvite.objects.create(meeting=self.meeting, member=anna)
+        services.add_substitution(self.meeting, anna, bert)
+        r = self.client.delete(f"/api/rooms/{self.room.pk}/")
+        self.assertEqual(r.status_code, 204)
+        self.assertFalse(Room.objects.filter(pk=self.room.pk).exists())
+        self.assertFalse(CommitteeMember.objects.filter(pk__in=[anna.pk, bert.pk]).exists())
+        self.assertFalse(CommitteeGroup.objects.filter(room_id=self.room.pk).exists())
+        self.assertFalse(MeetingInvite.objects.filter(pk=invite.pk).exists())
+        self.assertFalse(MeetingSubstitution.objects.exists())
+        self.assertFalse(QuestionSet.objects.filter(pk=self.meeting.pk).exists())
+
+
+class EntryPageAcceptLanguageTests(TestCase):
+    def test_unknown_token_uses_accept_language(self):
+        r = self.client.get("/g/nope/", HTTP_ACCEPT_LANGUAGE="en")
+        self.assertContains(r, "This link is not valid (any more).", status_code=404)

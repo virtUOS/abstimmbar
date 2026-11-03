@@ -349,7 +349,7 @@ def entry_page(request, token):
     lang = request.GET.get("lang")
     if lang not in dict(settings.LANGUAGES):
         lang = invite.member.language if valid else None
-    lang = lang or settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+    lang = lang or (request.LANGUAGE_CODE or "").split("-")[0] or settings.MODELTRANSLATION_DEFAULT_LANGUAGE
     context = {"invalid": not valid}
     if valid:
         meeting, member = invite.meeting, invite.member

@@ -63,7 +63,7 @@ class CommitteeMember(TimeStampedModel):
         "rooms.Room", on_delete=models.CASCADE, related_name="committee_members",
     )
     group = models.ForeignKey(
-        CommitteeGroup, on_delete=models.PROTECT, related_name="members",
+        CommitteeGroup, on_delete=models.RESTRICT, related_name="members",
     )
     name = models.CharField(max_length=200)
     email = models.EmailField(blank=True)
