@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "accounts",
     "rooms",
     "live",
+    "committees",
     "basicbar_lti",
     "lti",
 ]
