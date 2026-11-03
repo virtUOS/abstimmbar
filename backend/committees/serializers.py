@@ -4,9 +4,16 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
 from common.i18n_fields import TranslatedMapMixin, translated_map
+from rooms.models import QuestionSet
 
-from .models import CommitteeGroup, CommitteeMember, GroupTemplate
-from .services import managed_committee_rooms
+from .models import (
+    CommitteeGroup,
+    CommitteeMember,
+    GroupTemplate,
+    MeetingInvite,
+    MeetingSubstitution,
+)
+from .services import invite_state, managed_committee_rooms
 
 
 class GroupTemplateSerializer(serializers.ModelSerializer):
@@ -66,3 +73,57 @@ class CommitteeMemberSerializer(_ManagedRoomMixin, serializers.ModelSerializer):
         except DjangoValidationError as exc:
             raise serializers.ValidationError(exc.message_dict) from exc
         return attrs
+
+
+class MeetingMemberSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CommitteeMember
+        fields = ["id", "name", "email", "group", "role"]
+
+
+def invite_url(request, invite: MeetingInvite) -> str:
+    return request.build_absolute_uri(f"/g/{invite.token}/")
+
+
+class MeetingInviteSerializer(serializers.ModelSerializer):
+    member = MeetingMemberSerializer(read_only=True)
+    url = serializers.SerializerMethodField()
+    state = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MeetingInvite
+        fields = ["id", "member", "url", "removed_at", "removed_after", "state"]
+
+    def get_url(self, obj):
+        return invite_url(self.context["request"], obj)
+
+    def get_state(self, obj):
+        return invite_state(obj)
+
+
+class MeetingSubstitutionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MeetingSubstitution
+        fields = ["id", "absent", "deputy", "from_question"]
+
+
+class MeetingSerializer(serializers.ModelSerializer):
+    invites = serializers.SerializerMethodField()
+    substitutions = serializers.SerializerMethodField()
+
+    class Meta:
+        model = QuestionSet
+        fields = ["id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions"]
+
+    def get_invites(self, obj):
+        invites = list(obj.invites.select_related("member").order_by(
+            "member__group__position", "member__group_id", "member__name", "id",
+        ))
+        for invite in invites:
+            invite.meeting = obj
+        return MeetingInviteSerializer(invites, many=True, context=self.context).data
+
+    def get_substitutions(self, obj):
+        return MeetingSubstitutionSerializer(
+            obj.substitutions.order_by("id"), many=True,
+        ).data

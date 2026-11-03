@@ -7,9 +7,16 @@ from django.db import IntegrityError, transaction
 from django.test import TestCase
 from rest_framework.test import APIClient
 
-from rooms.models import QuestionSet, Room
+from rooms.models import Question, QuestionSet, Room
 
-from .models import CommitteeGroup, CommitteeMember, GroupTemplate, MeetingInvite
+from . import services
+from .models import (
+    CommitteeGroup,
+    CommitteeMember,
+    GroupTemplate,
+    MeetingInvite,
+    MeetingSubstitution,
+)
 from .services import parse_member_list
 
 
@@ -259,3 +266,332 @@ class MemberApiTests(ApiBase):
             "room": self.room.pk, "group": g.pk, "role": "voting", "text": "a@b.de",
         }, format="json")
         self.assertEqual(r.status_code, 404)
+
+
+class MeetingFixture:
+    """A committee room with groups A, B, observers and one meeting."""
+
+    def make_fixture(self, room=None):
+        self.room = room or make_room()
+        self.obs_group = self.room.committee_groups.get(is_observer=True)
+        self.ga = CommitteeGroup.objects.create(
+            room=self.room, name_de="Gruppe A", name_en="Group A", position=1,
+        )
+        self.gb = CommitteeGroup.objects.create(
+            room=self.room, name_de="Gruppe B", name_en="Group B", position=2,
+        )
+        self.meeting = QuestionSet.objects.create(
+            room=self.room, title="Sitzung", type=QuestionSet.SetType.MEETING,
+        )
+
+    def member(self, name, group, role="voting", rank=None, email=""):
+        return CommitteeMember.objects.create(
+            room=self.room, group=group, name=name, role=role,
+            deputy_rank=rank, email=email,
+        )
+
+
+class MeetingServiceTests(MeetingFixture, TestCase):
+    def setUp(self):
+        self.make_fixture()
+
+    def test_suggest_deputy_by_rank(self):
+        absent = self.member("Anna", self.ga)
+        absent2 = self.member("Bert", self.ga)
+        absent3 = self.member("Carla", self.ga)
+        a2 = self.member("Zoe", self.ga, "deputy", 2)
+        a1 = self.member("Yan", self.ga, "deputy", 1)
+        self.member("Bea", self.gb, "deputy", 1)
+        self.assertEqual(services.suggest_deputy(self.meeting, absent), a1)
+        services.add_substitution(self.meeting, absent, a1)
+        self.assertEqual(services.suggest_deputy(self.meeting, absent2), a2)
+        services.add_substitution(self.meeting, absent2, a2)
+        self.assertIsNone(services.suggest_deputy(self.meeting, absent3))
+
+    def test_suggest_deputy_unranked_last_then_name(self):
+        absent = self.member("Anna", self.ga)
+        self.member("Aaron", self.ga, "deputy", None)
+        ranked = self.member("Zoe", self.ga, "deputy", 5)
+        self.assertEqual(services.suggest_deputy(self.meeting, absent), ranked)
+
+    def test_substitute_other_group_rejected(self):
+        absent = self.member("Anna", self.ga)
+        deputy = self.member("Bea", self.gb, "deputy", 1)
+        with self.assertRaisesMessage(
+            ValidationError, "The substitute must belong to the same group.",
+        ):
+            services.add_substitution(self.meeting, absent, deputy)
+
+    def test_voting_member_cannot_substitute(self):
+        absent = self.member("Anna", self.ga)
+        other = self.member("Bert", self.ga)
+        with self.assertRaisesMessage(ValidationError, "Only deputies can substitute."):
+            services.add_substitution(self.meeting, absent, other)
+
+    def test_observer_cannot_be_absent(self):
+        absent = self.member("Olga", self.obs_group)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        with self.assertRaises(ValidationError):
+            services.add_substitution(self.meeting, absent, deputy)
+
+    def test_substitution_rejected_after_end(self):
+        absent = self.member("Anna", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        services.start_meeting(self.meeting)
+        services.end_meeting(self.meeting)
+        with self.assertRaises(ValidationError):
+            services.add_substitution(self.meeting, absent, deputy)
+
+    def test_from_question_must_belong_to_meeting(self):
+        absent = self.member("Anna", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        other = QuestionSet.objects.create(
+            room=self.room, title="Other", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(question_set=other, kind="single_choice", text="Q")
+        with self.assertRaises(ValidationError):
+            services.add_substitution(self.meeting, absent, deputy, from_question=q)
+
+    def test_deputy_used_twice_rejected(self):
+        a = self.member("Anna", self.ga)
+        b = self.member("Bert", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        services.add_substitution(self.meeting, a, deputy)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            services.add_substitution(self.meeting, b, deputy)
+
+    def test_remove_substitution_in_running_meeting(self):
+        anna = self.member("Anna", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        sub = services.add_substitution(self.meeting, anna, deputy)
+        services.start_meeting(self.meeting)
+        self.assertFalse(self.meeting.invites.filter(member=anna).exists())
+        services.remove_substitution(sub)
+        invite = self.meeting.invites.get(member=anna)
+        self.assertEqual(services.resolve_invite(invite.token)[1], "active")
+        services.end_meeting(self.meeting)
+        sub = MeetingSubstitution.objects.create(
+            meeting=self.meeting, absent=anna, deputy=deputy,
+        )
+        with self.assertRaises(ValidationError):
+            services.remove_substitution(sub)
+
+    def test_participants_and_invites(self):
+        v1 = self.member("Anna", self.ga)
+        v2 = self.member("Bert", self.ga)
+        v3 = self.member("Carla", self.gb)
+        obs = self.member("Olga", self.obs_group)
+        used = self.member("Yan", self.ga, "deputy", 1)
+        self.member("Zoe", self.ga, "deputy", 2)
+        services.add_substitution(self.meeting, v1, used)
+        self.assertEqual(
+            {m.pk for m in services.participants(self.meeting)},
+            {v2.pk, v3.pk, obs.pk, used.pk},
+        )
+        invites = services.ensure_invites(self.meeting)
+        self.assertEqual(len(invites), 4)
+        services.ensure_invites(self.meeting)
+        self.assertEqual(self.meeting.invites.count(), 4)
+
+    def test_partial_substitution_keeps_absent_participant(self):
+        v1 = self.member("Anna", self.ga)
+        used = self.member("Yan", self.ga, "deputy", 1)
+        q = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text="TOP 2",
+        )
+        services.add_substitution(self.meeting, v1, used, from_question=q)
+        self.assertEqual(
+            {m.pk for m in services.participants(self.meeting)}, {v1.pk, used.pk},
+        )
+
+    def test_resolve_states(self):
+        anna = self.member("Anna", self.ga)
+        bert = self.member("Bert", self.ga)
+        carla = self.member("Carla", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        self.assertEqual(services.resolve_invite("nope"), (None, "unknown"))
+        services.ensure_invites(self.meeting)
+        ia = self.meeting.invites.get(member=anna)
+        ib = self.meeting.invites.get(member=bert)
+        ic = self.meeting.invites.get(member=carla)
+        self.assertEqual(services.resolve_invite(ia.token), (ia, "waiting"))
+        services.start_meeting(self.meeting)
+        self.assertEqual(services.resolve_invite(ia.token)[1], "active")
+        services.remove_invite(ib)
+        self.assertEqual(services.resolve_invite(ib.token)[1], "removed")
+        services.readmit_invite(ib)
+        self.assertEqual(services.resolve_invite(ib.token)[1], "active")
+        services.remove_invite(ib)
+        services.add_substitution(self.meeting, carla, deputy)
+        self.assertEqual(services.resolve_invite(ic.token)[1], "replaced")
+        # the deputy got a link when substituting into a running meeting
+        idep = self.meeting.invites.get(member=deputy)
+        self.assertEqual(services.resolve_invite(idep.token)[1], "active")
+        services.end_meeting(self.meeting)
+        for invite in (ia, ib, ic, idep):
+            self.assertEqual(services.resolve_invite(invite.token)[1], "ended")
+
+    def test_remove_after_question_must_belong(self):
+        anna = self.member("Anna", self.ga)
+        services.start_meeting(self.meeting)
+        invite = self.meeting.invites.get(member=anna)
+        other = QuestionSet.objects.create(
+            room=self.room, title="Other", type=QuestionSet.SetType.MEETING,
+        )
+        q_other = Question.objects.create(question_set=other, kind="single_choice", text="Q")
+        with self.assertRaises(ValidationError):
+            services.remove_invite(invite, after_question=q_other)
+        q = Question.objects.create(question_set=self.meeting, kind="single_choice", text="Q")
+        services.remove_invite(invite, after_question=q)
+        invite.refresh_from_db()
+        self.assertIsNotNone(invite.removed_at)
+        self.assertEqual(invite.removed_after, q)
+
+    def test_remove_rejected_after_end(self):
+        anna = self.member("Anna", self.ga)
+        services.start_meeting(self.meeting)
+        invite = self.meeting.invites.get(member=anna)
+        services.end_meeting(self.meeting)
+        with self.assertRaises(ValidationError):
+            services.remove_invite(invite)
+        with self.assertRaises(ValidationError):
+            services.readmit_invite(invite)
+
+    def test_start_twice_rejected(self):
+        services.start_meeting(self.meeting)
+        self.meeting.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_state, QuestionSet.MeetingState.STARTED)
+        with self.assertRaisesMessage(ValidationError, "The meeting has already started."):
+            services.start_meeting(self.meeting)
+
+    def test_end_requires_started(self):
+        with self.assertRaises(ValidationError):
+            services.end_meeting(self.meeting)
+        services.start_meeting(self.meeting)
+        services.end_meeting(self.meeting)
+        self.meeting.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_state, QuestionSet.MeetingState.ENDED)
+        with self.assertRaises(ValidationError):
+            services.end_meeting(self.meeting)
+
+
+class MeetingApiTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.base = f"/api/meetings/{self.meeting.pk}/"
+
+    def test_foreign_user_404(self):
+        self.assertEqual(self.foreign.get(self.base).status_code, 404)
+        self.assertEqual(self.foreign.post(self.base + "start/").status_code, 404)
+        self.assertEqual(self.foreign.get(self.base + "invites.csv").status_code, 404)
+
+    def test_non_meeting_set_404(self):
+        qs = QuestionSet.objects.create(room=self.room, title="X")
+        self.assertEqual(self.client.get(f"/api/meetings/{qs.pk}/").status_code, 404)
+
+    def test_detail_with_invites(self):
+        anna = self.member("Anna", self.ga, email="anna@uni.de")
+        r = self.client.post(self.base + "invites/")
+        self.assertEqual(r.status_code, 200, r.content)
+        r = self.client.get(self.base)
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data["meeting_state"], "draft")
+        self.assertEqual(len(data["invites"]), 1)
+        invite = data["invites"][0]
+        token = MeetingInvite.objects.get(member=anna).token
+        self.assertTrue(invite["url"].endswith(f"/g/{token}/"))
+        self.assertTrue(invite["url"].startswith("http"))
+        self.assertEqual(invite["state"], "waiting")
+        self.assertEqual(invite["member"]["name"], "Anna")
+        self.assertEqual(invite["member"]["group"], self.ga.pk)
+        self.assertEqual(data["substitutions"], [])
+
+    def test_start_and_end(self):
+        self.member("Anna", self.ga)
+        r = self.client.post(self.base + "start/")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["meeting_state"], "started")
+        self.assertEqual(len(r.json()["invites"]), 1)
+        r = self.client.post(self.base + "start/")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "The meeting has already started.")
+        r = self.client.post(self.base + "end/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["meeting_state"], "ended")
+        self.assertEqual(self.client.post(self.base + "end/").status_code, 400)
+
+    def test_csv(self):
+        self.member("=cmd", self.ga, email="x@uni.de")
+        self.member("Bert", self.obs_group)
+        self.client.post(self.base + "invites/")
+        r = self.client.get(self.base + "invites.csv", HTTP_ACCEPT_LANGUAGE="de")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(
+            r["Content-Disposition"],
+            f'attachment; filename="links-{self.meeting.pk}.csv"',
+        )
+        lines = r.content.decode("utf-8-sig").strip().splitlines()
+        self.assertEqual(lines[0], "Name,E-Mail,Gruppe,Rolle,Link")
+        self.assertEqual(len(lines), 3)
+        body = "\n".join(lines[1:])
+        self.assertIn("'=cmd", body)
+        self.assertIn("Gruppe A", body)
+        r = self.client.get(self.base + "invites.csv", HTTP_ACCEPT_LANGUAGE="en")
+        lines = r.content.decode("utf-8-sig").strip().splitlines()
+        self.assertEqual(lines[0], "Name,E-Mail,Group,Role,Link")
+
+    def test_substitutions_api(self):
+        absent = self.member("Anna", self.ga)
+        b = self.member("Bert", self.ga)
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        r = self.client.get(self.base + f"substitutions/suggest/?absent={absent.pk}")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["deputy"]["id"], deputy.pk)
+        r = self.client.post(self.base + "substitutions/", {
+            "absent": absent.pk, "deputy": deputy.pk,
+        }, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        sub_id = r.json()["id"]
+        r = self.client.get(self.base + f"substitutions/suggest/?absent={b.pk}")
+        self.assertIsNone(r.json()["deputy"])
+        # deputy used twice -> 400, not 500
+        r = self.client.post(self.base + "substitutions/", {
+            "absent": b.pk, "deputy": deputy.pk,
+        }, format="json")
+        self.assertEqual(r.status_code, 400, r.content)
+        r = self.client.get(self.base)
+        self.assertEqual(len(r.json()["substitutions"]), 1)
+        r = self.client.delete(self.base + f"substitutions/{sub_id}/")
+        self.assertEqual(r.status_code, 204)
+        self.assertFalse(MeetingSubstitution.objects.exists())
+
+    def test_substitution_member_from_other_room(self):
+        other_room = make_room(title="O")
+        og = CommitteeGroup.objects.create(room=other_room, name_de="X", name_en="X")
+        stranger = CommitteeMember.objects.create(room=other_room, group=og, name="S")
+        deputy = self.member("Yan", self.ga, "deputy", 1)
+        r = self.client.post(self.base + "substitutions/", {
+            "absent": stranger.pk, "deputy": deputy.pk,
+        }, format="json")
+        self.assertEqual(r.status_code, 400)
+        r = self.client.get(self.base + f"substitutions/suggest/?absent={stranger.pk}")
+        self.assertEqual(r.status_code, 400)
+
+    def test_remove_and_readmit(self):
+        anna = self.member("Anna", self.ga)
+        self.client.post(self.base + "start/")
+        invite = MeetingInvite.objects.get(member=anna)
+        q = Question.objects.create(question_set=self.meeting, kind="single_choice", text="Q")
+        r = self.client.post(
+            self.base + f"invites/{invite.pk}/remove/", {"after_question": q.pk},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["state"], "removed")
+        self.assertEqual(r.json()["removed_after"], q.pk)
+        r = self.client.post(self.base + f"invites/{invite.pk}/readmit/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["state"], "active")
+        self.assertIsNone(r.json()["removed_at"])
