@@ -2,15 +2,18 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 import csv
 import io
+import json
 from typing import ClassVar
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_POST
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -21,8 +24,15 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import services
-from .models import CommitteeGroup, CommitteeMember, GroupTemplate, MeetingInvite
+from . import ballots, live, payloads, services
+from .models import (
+    Ballot,
+    CommitteeGroup,
+    CommitteeMember,
+    GroupTemplate,
+    MeetingControl,
+    MeetingInvite,
+)
 from .serializers import (
     CommitteeGroupSerializer,
     CommitteeMemberSerializer,
@@ -180,6 +190,11 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
 
 def _detail(exc: DjangoValidationError) -> ValidationError:
     return ValidationError({"detail": exc.messages[0]})
+
+
+def _coded(exc: DjangoValidationError) -> ValidationError:
+    """Like ``_detail`` plus the machine-readable ``code`` (ballot errors)."""
+    return ValidationError({"detail": exc.messages[0], "code": exc.code})
 
 
 _CSV_LABELS = {
@@ -347,6 +362,63 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise _detail(exc) from exc
         return self._invite_response(invite)
 
+    def _ballot(self, meeting, ballot_id):
+        return get_object_or_404(
+            Ballot.objects.select_related("question"),
+            question__question_set=meeting, pk=ballot_id,
+        )
+
+    def _console(self, meeting, status_code=status.HTTP_200_OK):
+        return Response(payloads.manager_payload(meeting), status=status_code)
+
+    def control(self, request, pk=None):
+        return self._console(self.get_object())
+
+    def show(self, request, pk=None):
+        meeting = self.get_object()
+        question = self._question(meeting, request.data.get("question"), "question")
+        control, _ = MeetingControl.objects.get_or_create(meeting=meeting)
+        control.current_question = question
+        control.save(update_fields=["current_question"])
+        live.notify(meeting)
+        return self._console(meeting)
+
+    def open_item(self, request, pk=None, question_id=None):
+        meeting = self.get_object()
+        question = get_object_or_404(meeting.questions, pk=question_id)
+        try:
+            ballots.open_ballot(meeting, question)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting, status.HTTP_201_CREATED)
+
+    def close_ballot(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        try:
+            ballots.close_ballot(self._ballot(meeting, ballot_id))
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
+    def reset_ballot(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        comment = request.data.get("comment", "")
+        if not isinstance(comment, str):
+            raise ValidationError({"detail": "Invalid comment.", "code": "invalid"})
+        try:
+            ballots.reset_ballot(self._ballot(meeting, ballot_id), comment)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
+    def release_texts(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        try:
+            ballots.release_texts(self._ballot(meeting, ballot_id))
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
 
 # --- personal entry page (/g/<token>/) -----------------------------------------
 
@@ -386,3 +458,64 @@ def entry_page(request, token):
     response["Cache-Control"] = "no-store"
     response["Referrer-Policy"] = "no-referrer"
     return response
+
+
+# --- ballot endpoints (cookie-less, token in the path) -------------------------
+
+
+def _no_store(response):
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@require_GET
+def me(request, token):
+    invite, state = services.resolve_invite(token)
+    if invite is None:
+        return _no_store(JsonResponse({"code": "invalid_link"}, status=404))
+    if state == "active":
+        ballots.enter(invite)
+    ballot = ballots.open_ballot_of(invite.meeting) if state == "active" else None
+    seat = (
+        ballot.seats.filter(member_id=invite.member_id).first() if ballot is not None else None
+    )
+    return _no_store(JsonResponse({
+        "state": state,
+        "observer": invite.member.group.is_observer,
+        "ballot": ballot.pk if ballot is not None else None,
+        "eligible": seat is not None,
+        "voted": bool(seat and seat.voted),
+    }))
+
+
+_VOTE_STATUS = {
+    "already_voted": 409, "closed": 409,
+    "not_eligible": 403, "invalid_link": 403,
+}
+
+
+# CSRF exemption is deliberate: the personal token in the path is the secret
+# and the participant page is cookie-less (no session to ride on), so there is
+# no ambient credential a cross-site request could abuse.
+@csrf_exempt
+@require_POST
+def vote(request, token):
+    invite, _state = services.resolve_invite(token)
+    if invite is None:
+        return _no_store(JsonResponse({"code": "invalid_link"}, status=403))
+    try:
+        body = json.loads(request.body)
+        ballot_id = body["ballot"]
+        answer = body["answer"]
+        if isinstance(ballot_id, bool) or not isinstance(ballot_id, int):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        return _no_store(JsonResponse({"code": "invalid"}, status=400))
+    try:
+        ballots.cast_vote(invite, ballot_id, answer)
+    except DjangoValidationError as exc:
+        # Only the code goes back, never anything derived from the answer.
+        return _no_store(JsonResponse(
+            {"code": exc.code}, status=_VOTE_STATUS.get(exc.code, 400),
+        ))
+    return _no_store(JsonResponse({"voted": True}))

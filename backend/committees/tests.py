@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import json
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -1642,3 +1643,113 @@ class MemberStreamTests(TestCase):
     # test that would run after it in the same class.
     def test_member_stream_rejects_invalid_token(self):
         self.assertEqual(self.client.get("/g/xxx/stream/").status_code, 404)
+
+
+class BallotApiTests(BallotBase):
+    def url(self, suffix):
+        return f"/api/meetings/{self.meeting.pk}/{suffix}"
+
+    def token(self, member):
+        return self.invite(member).token
+
+    def cast(self, member, ballot_id, answer):
+        return self.client.post(
+            f"/g/{self.token(member)}/vote/", {"ballot": ballot_id, "answer": answer},
+            format="json",
+        )
+
+    def open_resolution(self):
+        resp = self.client.post(self.url(f"items/{self.q1.pk}/open/"))
+        self.assertEqual(resp.status_code, 201)
+        return resp.data["open_ballot"]
+
+    def test_full_flow_via_api(self):
+        resp = self.client.post(self.url("show/"), {"question": self.q1.pk}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        bid = self.open_resolution()
+        self.assertEqual(self.cast(self.anna, bid, {"choice": "yes"}).status_code, 200)
+        self.assertEqual(self.cast(self.ben, bid, {"choice": "no"}).status_code, 200)
+        resp = self.client.post(self.url(f"ballots/{bid}/close/"))
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.get(self.url("control/"))
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn('"yes": 1', json.dumps(resp.data))
+        resp = self.client.post(self.url("show/"), {"question": None}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+    def test_show_foreign_question_400(self):
+        other = QuestionSet.objects.create(
+            room=self.room, title="X", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(question_set=other, kind="open_text", text_de="x")
+        resp = self.client.post(self.url("show/"), {"question": q.pk}, format="json")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_foreign_manager_404(self):
+        for method, suffix in (
+            ("get", "control/"), ("post", "show/"),
+            ("post", f"items/{self.q1.pk}/open/"), ("post", "ballots/1/close/"),
+        ):
+            resp = getattr(self.foreign, method)(self.url(suffix), {}, format="json")
+            self.assertEqual(resp.status_code, 404, suffix)
+
+    def test_manager_error_has_code(self):
+        self.open_resolution()
+        resp = self.client.post(self.url(f"items/{self.q2.pk}/open/"))
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["code"], "other_open")
+        self.assertIn("detail", resp.data)
+
+    def test_vote_codes(self):
+        bid = self.open_resolution()
+        self.assertEqual(self.cast(self.anna, bid, {"choice": "yes"}).status_code, 200)
+        resp = self.cast(self.anna, bid, {"choice": "no"})
+        self.assertEqual((resp.status_code, resp.json()["code"]), (409, "already_voted"))
+        resp = self.cast(self.olga, bid, {"choice": "yes"})
+        self.assertEqual((resp.status_code, resp.json()["code"]), (403, "not_eligible"))
+        resp = self.cast(self.bert, bid, {"choice": "maybe"})
+        self.assertEqual((resp.status_code, resp.json()["code"]), (400, "invalid"))
+        resp = self.client.post(
+            f"/g/{self.token(self.bert)}/vote/", "{not json", content_type="application/json",
+        )
+        self.assertEqual((resp.status_code, resp.json()["code"]), (400, "invalid"))
+        self.assertEqual(resp["Cache-Control"], "no-store")
+        self.client.post(self.url(f"ballots/{bid}/close/"))
+        resp = self.cast(self.bert, bid, {"choice": "yes"})
+        self.assertEqual((resp.status_code, resp.json()["code"]), (409, "closed"))
+        resp = self.client.post(
+            "/g/nonsense/vote/", {"ballot": bid, "answer": {}}, format="json",
+        )
+        self.assertEqual(resp.status_code, 403)
+
+    def test_me_reports_voted(self):
+        bid = self.open_resolution()
+        url = f"/g/{self.token(self.anna)}/me/"
+        data = self.client.get(url).json()
+        self.assertEqual(
+            data,
+            {"state": "active", "observer": False, "ballot": bid, "eligible": True, "voted": False},
+        )
+        self.cast(self.anna, bid, {"choice": "yes"})
+        resp = self.client.get(url)
+        self.assertTrue(resp.json()["voted"])
+        self.assertEqual(resp["Cache-Control"], "no-store")
+        obs = self.client.get(f"/g/{self.token(self.olga)}/me/").json()
+        self.assertEqual((obs["observer"], obs["eligible"]), (True, False))
+        self.assertEqual(self.client.get("/g/nonsense/me/").status_code, 404)
+
+    def test_vote_response_never_echoes_answer(self):
+        bid = self.open_resolution()
+        resp = self.cast(self.anna, bid, {"choice": "yes"})
+        self.assertNotIn("yes", resp.content.decode())
+        resp = self.cast(self.anna, bid, {"choice": "yes"})
+        self.assertNotIn("yes", resp.content.decode())
+
+    def test_reset_and_release_texts(self):
+        bid = self.open_resolution()
+        resp = self.client.post(
+            self.url(f"ballots/{bid}/reset/"), {"comment": "oops"}, format="json",
+        )
+        self.assertEqual(resp.status_code, 200)
+        resp = self.client.post(self.url(f"ballots/{bid}/release-texts/"))
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))

@@ -41,4 +41,13 @@ urlpatterns = [
         "substitution-detail", {"delete": "delete_substitution"},
         "substitutions/<int:sub_id>/",
     ),
+    _meeting("control", {"get": "control"}, "control/"),
+    _meeting("show", {"post": "show"}, "show/"),
+    _meeting("item-open", {"post": "open_item"}, "items/<int:question_id>/open/"),
+    _meeting("ballot-close", {"post": "close_ballot"}, "ballots/<int:ballot_id>/close/"),
+    _meeting("ballot-reset", {"post": "reset_ballot"}, "ballots/<int:ballot_id>/reset/"),
+    _meeting(
+        "ballot-release-texts", {"post": "release_texts"},
+        "ballots/<int:ballot_id>/release-texts/",
+    ),
 ]
