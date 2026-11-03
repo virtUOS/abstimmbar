@@ -29,9 +29,6 @@ const SKIP_REASON: Record<BulkSkipReason, string> = {
   exists: "already a member",
 };
 
-/** Below this many voting members a per-group breakdown may reveal votes. */
-const SMALL_GROUP = 3;
-
 function sortGroups(groups: CommitteeGroup[]): CommitteeGroup[] {
   // The observer group always comes last.
   return [...groups].sort(
@@ -130,6 +127,11 @@ export default function CommitteePanel({ room }: { room: Room }) {
         <UsersRound aria-hidden className="h-4 w-4" />
         {t("Groups and members")}
       </h2>
+      {/* Results are broken down per group, so this applies to every group,
+          not just the currently small ones. */}
+      <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+        {t("Results are shown per group. With very small groups, this breakdown may allow conclusions about individual votes.")}
+      </p>
 
       {confirmGroup && (
         <ConfirmDialog
@@ -255,7 +257,6 @@ function GroupSection({
   const [nameDraft, setNameDraft] = useState<LocalizedText | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const name = localizedText(group.name);
-  const voting = members.filter((member) => member.role === "voting").length;
 
   return (
     <div className="min-w-0 border-t border-slate-100 pt-4 dark:border-slate-800">
@@ -309,16 +310,10 @@ function GroupSection({
         </div>
       )}
 
-      {group.is_observer ? (
+      {group.is_observer && (
         <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
           {t("Observers see the beamer view but do not vote.")}
         </p>
-      ) : (
-        voting < SMALL_GROUP && (
-          <p className="mt-1 text-xs text-amber-700 dark:text-amber-400">
-            {t("With very small groups, the breakdown may allow conclusions about individual votes.")}
-          </p>
-        )
       )}
 
       {members.length > 0 && (

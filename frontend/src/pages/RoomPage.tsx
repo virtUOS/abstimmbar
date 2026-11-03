@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router";
-import { Archive, ChartColumnDecreasing, ChevronDown, Crown, DoorOpen, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
+import { Archive, ChartColumnDecreasing, Crown, DoorOpen, Heart, Layers, Play, Search, SearchX, Settings, Trash2, Upload, Users, X } from "lucide-react";
 import { useEasyMode } from "../App";
 import {
   api,
@@ -38,6 +38,7 @@ import { SetSettingsForm, type SetSettings } from "./SetPage";
 import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
 import CommitteePanel from "../committee/CommitteePanel";
 import { MeetingList, NewMeetingFields } from "../committee/MeetingList";
+import { CreateMenu } from "../components/CreateMenu";
 
 /** #75: pick the set type up front — like "+ New question" for questions.
  * The menu lists the creatable types; picking one opens the create form with
@@ -51,87 +52,20 @@ function NewSetMenu({
   onPick: (type: SetType) => void;
 }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
   const types = easyMode
     ? CREATABLE_SET_TYPES.filter((st) => st === "live_poll")
     : CREATABLE_SET_TYPES;
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  // Only one creatable type: no menu to choose from — a plain button.
-  if (types.length < 2) {
-    const only = types[0] ?? "live_poll";
-    return (
-      <Button variant="primary" onClick={() => onPick(only)}>
-        + {t("New question set")}
-      </Button>
-    );
-  }
-
   return (
-    <div className="relative" ref={ref}>
-      <Button
-        variant="primary"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-2"
-      >
-        <span className="text-base leading-none">+</span>
-        {t("New question set")}
-        <ChevronDown
-          aria-hidden
-          className={`h-4 w-4 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-        />
-      </Button>
-      {open && (
-        <div
-          role="menu"
-          className="absolute right-0 z-30 mt-2 w-80 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
-        >
-          {types.map((st) => {
-            const Icon = SET_TYPES[st].icon;
-            return (
-              <button
-                key={st}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  onPick(st);
-                }}
-                className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
-              >
-                <Icon aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-                <span className="min-w-0">
-                  <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
-                    {t(SET_TYPES[st].label)}
-                  </span>
-                  <span className="block text-xs text-slate-500 dark:text-slate-400">
-                    {t(SET_TYPES[st].description)}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <CreateMenu
+      label={t("New question set")}
+      options={types.map((st) => ({
+        value: st,
+        label: t(SET_TYPES[st].label),
+        description: t(SET_TYPES[st].description),
+        icon: SET_TYPES[st].icon,
+      }))}
+      onPick={onPick}
+    />
   );
 }
 

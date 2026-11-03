@@ -12,7 +12,9 @@ const OFFSET_KEY = 'basicbar_translation_controls_offset';
 
 /** Open the new-room form, whose translatable fields show the controls. */
 async function openNewRoomForm(page: Page) {
-  await page.getByRole('button', { name: '+ New room' }).click();
+  // Expert mode (forced below): "+ New room" opens the room-kind menu.
+  await page.getByRole('button', { name: /New room/ }).click();
+  await page.getByRole('menuitem', { name: /^Room/ }).click();
   const controls = page.locator('.translation-controls');
   await expect(controls).toBeVisible();
   return controls;
@@ -37,7 +39,7 @@ test('translation controls: drag by the handle, kept after reload, double-click 
   await page.getByRole('textbox', { name: 'Username or email' }).fill('demo');
   await page.getByRole('textbox', { name: 'Password' }).fill('demo');
   await page.getByRole('button', { name: 'Sign In' }).click();
-  await expect(page.getByRole('button', { name: '+ New room' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /New room/ })).toBeVisible();
   await page.evaluate((key) => localStorage.removeItem(key), OFFSET_KEY);
   await page.reload();
 

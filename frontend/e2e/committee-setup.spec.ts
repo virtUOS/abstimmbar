@@ -37,8 +37,9 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
 
   // 1. Create the committee room (expert mode) and apply the template.
   await page.goto('/');
-  await page.getByRole('button', { name: '+ Neuer Raum' }).click();
-  await page.getByRole('radio', { name: 'Gremium' }).click();
+  await page.getByRole('button', { name: /Neuer Raum/ }).click();
+  await page.getByRole('menuitem', { name: /^Gremien-Raum/ }).click();
+  await expect(page.getByRole('heading', { name: 'Neuer Gremien-Raum' })).toBeVisible();
   await page.getByRole('textbox', { name: /^Name|Titel/ }).first().fill('E2E Gremium');
   await page.getByRole('button', { name: 'Anlegen' }).click();
   await page.waitForURL(/\/rooms\/\d+$/);
@@ -121,11 +122,11 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await guest.close();
 });
 
-test('simple mode hides committee type', async ({ page }) => {
+test('simple mode offers no committee room', async ({ page }) => {
   await loginAs(page, true);
   await page.goto('/');
-  await page.getByRole('button', { name: '+ Neuer Raum' }).click();
+  // One kind only: a plain button that opens the form directly, no menu.
+  await page.getByRole('button', { name: /Neuer Raum/ }).click();
   await expect(page.getByRole('heading', { name: 'Neuer Raum' })).toBeVisible();
-  await expect(page.getByRole('radio', { name: 'Gremium' })).toHaveCount(0);
-  await expect(page.getByText('Raumtyp')).toHaveCount(0);
+  await expect(page.getByRole('menuitem', { name: /Gremien-Raum/ })).toHaveCount(0);
 });

@@ -4,14 +4,15 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router";
-import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
+import { Archive, ArchiveRestore, DoorOpen, Heart as HeartIcon, Landmark, LogOut, Search, SearchX, Trash2, Users } from "lucide-react";
 import { useApp, useEasyMode } from "../App";
 import { api, requestError, type Room, type RoomKind, type SearchResults } from "../api";
 import { SET_TYPES, type SetType } from "../setTypes";
 import { localizedText, stripHtml } from "@basicbar/ui";
+import { CreateMenu } from "../components/CreateMenu";
 import JoinByCode from "../components/JoinByCode";
 import { Pager } from "../components/Pager";
-import { Button, ConfirmDialog, EmptyState, InfoHint, ProOnly, SegmentedControl, TextInput } from "../components/ui";
+import { Button, ConfirmDialog, EmptyState, InfoHint, SegmentedControl, TextInput } from "../components/ui";
 import { RoomSettingsForm, NEW_ROOM_DEFAULTS, type RoomSettings } from "./RoomPage";
 
 type SortKey = "title" | "last_used" | "created";
@@ -438,16 +439,34 @@ export default function RoomsPage() {
             )}
           />
           <div data-tour="rooms.new-room">
-            <Button
-              variant="primary"
-              onClick={() => {
+            {/* Committee rooms are an expert feature: in easy mode there is
+                only one kind, so the menu collapses to a plain button. */}
+            <CreateMenu<RoomKind>
+              label={t("New room")}
+              options={[
+                {
+                  value: "standard",
+                  label: t("Room"),
+                  description: t("For courses and lectures: polls and quizzes with anonymous participation."),
+                  icon: DoorOpen,
+                },
+                ...(easyMode
+                  ? []
+                  : [
+                      {
+                        value: "committee" as const,
+                        label: t("Committee room"),
+                        description: t("For votes in committees with invited members and status groups."),
+                        icon: Landmark,
+                      },
+                    ]),
+              ]}
+              onPick={(kind) => {
                 setCreateError("");
-                setNewRoomKind("standard");
+                setNewRoomKind(kind);
                 setNewRoom(NEW_ROOM_DEFAULTS);
               }}
-            >
-              + {t("New room")}
-            </Button>
+            />
           </div>
         </div>
       </div>
@@ -478,31 +497,9 @@ export default function RoomsPage() {
           onSubmit={handleCreate}
           className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40"
         >
-          <h2 className="mb-3 font-semibold">{t("New room")}</h2>
-          {/* Committee rooms are an expert feature; the kind is fixed once
-              the room exists. */}
-          <ProOnly easyMode={easyMode}>
-            <fieldset className="mb-6 max-w-2xl">
-              <legend className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
-                {t("Room type")}
-              </legend>
-              <SegmentedControl
-                className="w-full sm:w-max"
-                ariaLabel={t("Room type")}
-                value={newRoomKind}
-                onChange={setNewRoomKind}
-                options={[
-                  { value: "standard", label: t("Standard") },
-                  { value: "committee", label: t("Committee") },
-                ]}
-              />
-              {newRoomKind === "committee" && (
-                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-                  {t("For votes in committees with invited members and status groups.")}
-                </p>
-              )}
-            </fieldset>
-          </ProOnly>
+          <h2 className="mb-3 font-semibold">
+            {newRoomKind === "committee" ? t("New committee room") : t("New room")}
+          </h2>
           <RoomSettingsForm
             draft={newRoom}
             onChange={(patch) => setNewRoom({ ...newRoom, ...patch })}
