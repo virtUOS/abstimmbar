@@ -1423,10 +1423,14 @@
   "Invalid member.": "Ungültiges Mitglied.",
   "Invalid item.": "Ungültiger Tagesordnungspunkt.",
   "The member does not belong to this room.": "Das Mitglied gehört nicht zu diesem Raum.",
-  "Known people": "Bekannte Personen",
   "Name or e-mail address": "Name oder E-Mail-Adresse",
   "Finds people from your own committees and the co-owners of your rooms.": "Findet Personen aus Ihren eigenen Gremien und die Mitverwaltenden Ihrer Räume.",
   "Search results": "Suchergebnisse",
   "Nobody found": "Niemand gefunden",
-  "How to add": "Art des Hinzufügens"
+  "Groups: {{groups}} · Members: {{members}}": "Gruppen: {{groups}} · Mitglieder: {{members}}",
+  "The chair and their deputies manage the room via “Collaborative editing” in the ⋮ menu — they need no group. If the chair votes too, add them as a member of their status group.": "Sitzungsleitung und Stellvertretung verwalten den Raum über „Gemeinsam bearbeiten“ im ⋮-Menü – sie brauchen keine Gruppe. Stimmt die Sitzungsleitung mit, tragen Sie sie als Mitglied ihrer Statusgruppe ein.",
+  "Add people via": "Personen hinzufügen über",
+  "Search known people": "Bekannte Personen suchen",
+  "Paste an e-mail list": "E-Mail-Liste einfügen",
+  "Search": "Suche"
 }

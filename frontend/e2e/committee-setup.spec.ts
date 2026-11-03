@@ -88,7 +88,7 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await expect(panel.getByText('zora@example.org')).toBeVisible();
 
   // 2. Bulk-add members to "Andere"; the malformed entry is skipped.
-  await bulk.getByRole('radio', { name: 'E-Mail-Liste' }).click();
+  await bulk.getByRole('radio', { name: /E-Mail-Liste/ }).click();
   await bulk.getByLabel('Gruppe').selectOption({ label: 'Andere' });
   await bulk.getByLabel('E-Mail-Liste').fill('Anna Muster <anna@example.org>, bert@example.org; kaputt');
   await bulk.getByRole('button', { name: 'Mitglieder hinzufügen' }).click();
@@ -99,6 +99,14 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await bulk.getByLabel('E-Mail-Liste').fill('vera@example.org');
   await bulk.getByRole('button', { name: 'Mitglieder hinzufügen' }).click();
   await expect(bulk.getByRole('status')).toContainText('1 angelegt, 0 übersprungen');
+
+  // With members, the panel starts collapsed and shows a summary.
+  await page.reload();
+  const toggle = page.getByRole('button', { name: /Gruppen und Mitglieder/ });
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toContainText('Gruppen: 2 · Mitglieder: 4');
+  await toggle.click();
+  await expect(bulk).toBeVisible();
 
   // 4. A meeting with a date.
   await page.getByRole('button', { name: '+ Neue Sitzung' }).click();

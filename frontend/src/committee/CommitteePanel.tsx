@@ -8,7 +8,7 @@
  *  own rooms or by pasting an e-mail list. */
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Pencil, Trash2, UsersRound } from "lucide-react";
+import { ChevronDown, ClipboardList, Pencil, Search, Trash2, UsersRound } from "lucide-react";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import {
   api,
@@ -55,6 +55,8 @@ export default function CommitteePanel({ room }: { room: Room }) {
   const [newGroup, setNewGroup] = useState<LocalizedText | null>(null);
   const [confirmGroup, setConfirmGroup] = useState<CommitteeGroup | null>(null);
   const [confirmMember, setConfirmMember] = useState<CommitteeMember | null>(null);
+  // Rarely touched once set up: starts collapsed when the room has members.
+  const [open, setOpen] = useState(true);
 
   const reload = () =>
     Promise.all([
@@ -63,10 +65,13 @@ export default function CommitteePanel({ room }: { room: Room }) {
     ]).then(([groupList, memberList]) => {
       setGroups(sortGroups(groupList));
       setMembers(memberList);
+      return memberList;
     });
 
   useEffect(() => {
-    void reload().catch((err) => {
+    void reload()
+      .then((memberList) => setOpen(memberList.length === 0))
+      .catch((err) => {
       setGroups((current) => current ?? []);
       setError(t(requestError(err)));
     });
@@ -122,115 +127,142 @@ export default function CommitteePanel({ room }: { room: Room }) {
       aria-labelledby="committee-groups-heading"
       className="mb-8 grid min-w-0 gap-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-800"
     >
-      <h2
-        id="committee-groups-heading"
-        className="flex items-center gap-1.5 font-semibold text-slate-900 dark:text-slate-100"
-      >
-        <UsersRound aria-hidden className="h-4 w-4" />
-        {t("Groups and members")}
+      <h2 id="committee-groups-heading" className="font-semibold text-slate-900 dark:text-slate-100">
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="committee-groups-body"
+          onClick={() => setOpen((value) => !value)}
+          className="flex w-full flex-wrap items-center gap-x-1.5 text-left"
+        >
+          <UsersRound aria-hidden className="h-4 w-4" />
+          {t("Groups and members")}
+          {!open && (
+            // Phones: the summary takes its own line under the title.
+            <span className="ml-1 text-sm font-normal text-slate-500 max-sm:order-last max-sm:ml-[1.375rem] max-sm:w-full dark:text-slate-400">
+              {t("Groups: {{groups}} · Members: {{members}}", {
+                groups: regular.length,
+                members: members.length,
+              })}
+            </span>
+          )}
+          <ChevronDown
+            aria-hidden
+            className={`ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+          />
+        </button>
       </h2>
-      {/* Results are broken down per group, so this applies to every group,
-          not just the currently small ones. */}
-      <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
-        {t("Results are shown per group. With very small groups, this breakdown may allow conclusions about individual votes.")}
-      </p>
-
-      {confirmGroup && (
-        <ConfirmDialog
-          message={t("Delete group “{{name}}”?", { name: localizedText(confirmGroup.name) })}
-          onConfirm={() => {
-            const group = confirmGroup;
-            setConfirmGroup(null);
-            void run(() => api.deleteCommitteeGroup(group.id));
-          }}
-          onCancel={() => setConfirmGroup(null)}
-        />
-      )}
-      {confirmMember && (
-        <ConfirmDialog
-          message={t("Remove {{name}} from the committee?", { name: confirmMember.name })}
-          confirmLabel={t("Remove")}
-          onConfirm={() => {
-            const member = confirmMember;
-            setConfirmMember(null);
-            void run(() => api.deleteCommitteeMember(member.id));
-          }}
-          onCancel={() => setConfirmMember(null)}
-        />
-      )}
-
-      {regular.length === 0 && (
-        <div className="grid gap-3">
-          <p className="text-sm text-slate-600 dark:text-slate-300">
-            {t("Choose a template for the committee's groups — you can rename and add groups afterwards.")}
+      {open && (
+        <div id="committee-groups-body" className="grid min-w-0 gap-4">
+          {/* Results are broken down per group, so this applies to every group,
+              not just the currently small ones. */}
+          <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+            {t("Results are shown per group. With very small groups, this breakdown may allow conclusions about individual votes.")}
           </p>
-          <ul className="grid gap-3 sm:grid-cols-3">
-            {templates.map((template) => (
-              <li
-                key={template.id}
-                className="flex min-w-0 flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/40"
-              >
-                <div className="min-w-0">
-                  <h3 className="font-medium text-slate-900 dark:text-slate-100">
-                    {localizedText(template.name)}
-                  </h3>
-                  <ul className="mt-1 list-disc pl-5 text-sm text-slate-500 dark:text-slate-400">
-                    {template.groups.map((name, index) => (
-                      <li key={index} className="break-words">{localizedText(name)}</li>
-                    ))}
-                  </ul>
+          {/* Managers are the room's co-owners, not a group: a group would show
+              up in the per-group results. */}
+          <p className="-mt-2 text-xs text-slate-500 dark:text-slate-400">
+            {t("The chair and their deputies manage the room via “Collaborative editing” in the ⋮ menu — they need no group. If the chair votes too, add them as a member of their status group.")}
+          </p>
+
+          {confirmGroup && (
+            <ConfirmDialog
+              message={t("Delete group “{{name}}”?", { name: localizedText(confirmGroup.name) })}
+              onConfirm={() => {
+                const group = confirmGroup;
+                setConfirmGroup(null);
+                void run(() => api.deleteCommitteeGroup(group.id));
+              }}
+              onCancel={() => setConfirmGroup(null)}
+            />
+          )}
+          {confirmMember && (
+            <ConfirmDialog
+              message={t("Remove {{name}} from the committee?", { name: confirmMember.name })}
+              confirmLabel={t("Remove")}
+              onConfirm={() => {
+                const member = confirmMember;
+                setConfirmMember(null);
+                void run(() => api.deleteCommitteeMember(member.id));
+              }}
+              onCancel={() => setConfirmMember(null)}
+            />
+          )}
+
+          {regular.length === 0 && (
+            <div className="grid gap-3">
+              <p className="text-sm text-slate-600 dark:text-slate-300">
+                {t("Choose a template for the committee's groups — you can rename and add groups afterwards.")}
+              </p>
+              <ul className="grid gap-3 sm:grid-cols-3">
+                {templates.map((template) => (
+                  <li
+                    key={template.id}
+                    className="flex min-w-0 flex-col justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/50 p-3 dark:border-slate-800 dark:bg-slate-900/40"
+                  >
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-slate-900 dark:text-slate-100">
+                        {localizedText(template.name)}
+                      </h3>
+                      <ul className="mt-1 list-disc pl-5 text-sm text-slate-500 dark:text-slate-400">
+                        {template.groups.map((name, index) => (
+                          <li key={index} className="break-words">{localizedText(name)}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <Button
+                      aria-label={t("Apply template {{name}}", { name: localizedText(template.name) })}
+                      onClick={() => void run(() => api.applyCommitteeTemplate(room.id, template.id))}
+                      className="self-start"
+                    >
+                      {t("Apply")}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+              {newGroup === null ? (
+                <div>
+                  <Button variant="ghost" onClick={() => setNewGroup("")}>
+                    + {t("Create own group")}
+                  </Button>
                 </div>
-                <Button
-                  aria-label={t("Apply template {{name}}", { name: localizedText(template.name) })}
-                  onClick={() => void run(() => api.applyCommitteeTemplate(room.id, template.id))}
-                  className="self-start"
-                >
-                  {t("Apply")}
-                </Button>
-              </li>
-            ))}
-          </ul>
-          {newGroup === null ? (
-            <div>
-              <Button variant="ghost" onClick={() => setNewGroup("")}>
-                + {t("Create own group")}
-              </Button>
+              ) : (
+                newGroupForm
+              )}
             </div>
-          ) : (
-            newGroupForm
+          )}
+
+          {groups.map((group) => (
+            <GroupSection
+              key={group.id}
+              group={group}
+              members={members.filter((member) => member.group === group.id)}
+              groups={groups}
+              onRename={(name) => run(() => api.updateCommitteeGroup(group.id, { name }))}
+              onDelete={() => setConfirmGroup(group)}
+              onSaveMember={(id, data) => run(() => api.updateCommitteeMember(id, data))}
+              onRemoveMember={setConfirmMember}
+              groupById={groupById}
+            />
+          ))}
+
+          {regular.length > 0 &&
+            (newGroup === null ? (
+              <div>
+                <Button variant="ghost" onClick={() => setNewGroup("")}>
+                  + {t("Add group")}
+                </Button>
+              </div>
+            ) : (
+              newGroupForm
+            ))}
+
+          {error && <p role="alert" className="text-sm text-danger">{error}</p>}
+
+          {regular.length > 0 && (
+            <BulkAddForm roomId={room.id} groups={groups} onAdded={async () => void (await reload())} />
           )}
         </div>
-      )}
-
-      {groups.map((group) => (
-        <GroupSection
-          key={group.id}
-          group={group}
-          members={members.filter((member) => member.group === group.id)}
-          groups={groups}
-          onRename={(name) => run(() => api.updateCommitteeGroup(group.id, { name }))}
-          onDelete={() => setConfirmGroup(group)}
-          onSaveMember={(id, data) => run(() => api.updateCommitteeMember(id, data))}
-          onRemoveMember={setConfirmMember}
-          groupById={groupById}
-        />
-      ))}
-
-      {regular.length > 0 &&
-        (newGroup === null ? (
-          <div>
-            <Button variant="ghost" onClick={() => setNewGroup("")}>
-              + {t("Add group")}
-            </Button>
-          </div>
-        ) : (
-          newGroupForm
-        ))}
-
-      {error && <p role="alert" className="text-sm text-danger">{error}</p>}
-
-      {regular.length > 0 && (
-        <BulkAddForm roomId={room.id} groups={groups} onAdded={reload} />
       )}
     </section>
   );
@@ -584,44 +616,70 @@ function BulkAddForm({
           </Select>
         </Field>
       </div>
-      {/* Two alternative ways in: pick known people, or paste a list. */}
-      <SegmentedControl
-        className="w-full sm:w-max"
-        ariaLabel={t("How to add")}
-        value={mode}
-        onChange={setMode}
-        options={[
-          { value: "search", label: t("Known people") },
-          { value: "list", label: t("E-mail list") },
-        ]}
-      />
-      {mode === "search" ? (
-        <KnownPeopleSearch roomId={roomId} disabled={busy} onPick={pick} />
-      ) : (
-        <>
-          <label className="block">
-            <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-              {t("E-mail list")}
-            </span>
-            <textarea
-              value={text}
-              required
-              rows={4}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={"Anna Muster <anna@example.org>\nbert@example.org"}
-              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-offset-slate-950"
-            />
-            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-              {t("One person per line, or separated by commas or semicolons: “Name <e-mail>” or just the e-mail address.")}
-            </span>
-          </label>
-          <div>
-            <Button type="submit" variant="primary" disabled={busy}>
-              {t("Add members")}
-            </Button>
-          </div>
-        </>
-      )}
+      {/* Two alternative ways in: pick known people, or paste a list. The
+          chosen way's fields sit in one box below the switch. */}
+      <div className="grid gap-2">
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
+          {t("Add people via")}
+        </span>
+        <SegmentedControl
+          className="w-full sm:w-max"
+          ariaLabel={t("Add people via")}
+          value={mode}
+          onChange={setMode}
+          options={[
+            {
+              value: "search",
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <Search aria-hidden className="h-4 w-4 shrink-0" />
+                  {t("Search")}
+                </span>
+              ),
+              title: t("Search known people"),
+            },
+            {
+              value: "list",
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <ClipboardList aria-hidden className="h-4 w-4 shrink-0" />
+                  {t("E-mail list")}
+                </span>
+              ),
+              title: t("Paste an e-mail list"),
+            },
+          ]}
+        />
+        <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 dark:border-slate-800 dark:bg-slate-900/40">
+          {mode === "search" ? (
+            <KnownPeopleSearch roomId={roomId} disabled={busy} onPick={pick} />
+          ) : (
+            <>
+              <label className="block">
+                <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+                  {t("E-mail list")}
+                </span>
+                <textarea
+                  value={text}
+                  required
+                  rows={4}
+                  onChange={(event) => setText(event.target.value)}
+                  placeholder={"Anna Muster <anna@example.org>\nbert@example.org"}
+                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-offset-slate-950"
+                />
+                <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+                  {t("One person per line, or separated by commas or semicolons: “Name <e-mail>” or just the e-mail address.")}
+                </span>
+              </label>
+              <div>
+                <Button type="submit" variant="primary" disabled={busy}>
+                  {t("Add members")}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {result && (
         <div role="status" className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900/60">
