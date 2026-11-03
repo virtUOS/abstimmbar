@@ -12,6 +12,7 @@ from django.utils import timezone
 
 from rooms.models import Question, QuestionSet, Room
 
+from . import versions
 from .models import (
     CommitteeGroup,
     CommitteeMember,
@@ -299,6 +300,7 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 def start_meeting(meeting: QuestionSet) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
     ensure_invites(meeting)
+    versions.freeze_all(meeting)
     return meeting
 
 

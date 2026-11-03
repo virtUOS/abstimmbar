@@ -144,3 +144,26 @@ class MeetingInvite(models.Model):
                 fields=["meeting", "member"], name="unique_invite_per_member",
             ),
         ]
+
+
+class MotionVersion(models.Model):
+    """Frozen wording of an agenda item (text and options) once the meeting
+    has started; every later change adds a new version."""
+
+    question = models.ForeignKey(
+        "rooms.Question", on_delete=models.CASCADE, related_name="motion_versions",
+    )
+    number = models.PositiveIntegerField()
+    text_de = models.TextField(blank=True)
+    text_en = models.TextField(blank=True)
+    # [{"id", "text_de", "text_en"}] in option order.
+    options = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering: ClassVar = ["number"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["question", "number"], name="unique_version_number",
+            ),
+        ]

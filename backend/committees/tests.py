@@ -1090,3 +1090,50 @@ class AgendaGuardDetailTests(MeetingFixture, ApiBase):
         )
         self.assertEqual(r.status_code, 200)
         self.assertEqual(seen[-1], self.q.pk)
+
+
+class MotionVersionTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q1 = Question.objects.create(
+            question_set=self.meeting, kind="open_text", text_de="A", text_en="A",
+            position=1,
+        )
+        self.q2 = Question.objects.create(
+            question_set=self.meeting, kind="open_text", text_de="B", text_en="B",
+            position=2,
+        )
+
+    def patch(self, q, payload):
+        return self.client.patch(f"/api/questions/{q.pk}/", payload, format="json")
+
+    def test_start_freezes_version_one(self):
+        services.start_meeting(self.meeting)
+        for q in (self.q1, self.q2):
+            versions = list(q.motion_versions.all())
+            self.assertEqual([v.number for v in versions], [1])
+        self.assertEqual(self.q1.motion_versions.get().text_de, "A")
+
+    def test_edit_after_start_creates_version_two(self):
+        services.start_meeting(self.meeting)
+        self.assertEqual(self.patch(self.q1, {"text": {"de": "A2"}}).status_code, 200)
+        latest = self.q1.motion_versions.order_by("-number").first()
+        self.assertEqual((latest.number, latest.text_de), (2, "A2"))
+        self.assertEqual(self.patch(self.q1, {"position": 5}).status_code, 200)
+        self.assertEqual(self.q1.motion_versions.count(), 2)
+
+    def test_no_versions_before_start(self):
+        self.assertEqual(self.patch(self.q1, {"text": {"de": "A2"}}).status_code, 200)
+        self.assertEqual(self.q1.motion_versions.count(), 0)
+
+    def test_item_added_during_meeting_gets_version_one(self):
+        services.start_meeting(self.meeting)
+        r = self.client.post(
+            "/api/questions/",
+            {"question_set": self.meeting.pk, "kind": "open_text", "text": {"de": "C"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201)
+        versions = list(Question.objects.get(pk=r.json()["id"]).motion_versions.all())
+        self.assertEqual([(v.number, v.text_de) for v in versions], [(1, "C")])
