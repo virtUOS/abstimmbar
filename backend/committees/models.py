@@ -136,6 +136,8 @@ class MeetingInvite(models.Model):
         "rooms.Question", null=True, blank=True, on_delete=models.RESTRICT,
         related_name="+",
     )
+    # Set when the member enters the running meeting via their link.
+    entered_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -167,3 +169,112 @@ class MotionVersion(models.Model):
                 fields=["question", "number"], name="unique_version_number",
             ),
         ]
+
+
+class MeetingControl(models.Model):
+    """What the beamer of a running meeting shows."""
+
+    meeting = models.OneToOneField(
+        "rooms.QuestionSet", on_delete=models.CASCADE, related_name="meeting_control",
+    )
+    current_question = models.ForeignKey(
+        "rooms.Question", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+
+
+class Ballot(models.Model):
+    """One voting round on an agenda item, bound to the version voted on."""
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        CLOSED = "closed", "Closed"
+        DISCARDED = "discarded", "Discarded"
+
+    class DiscardReason(models.TextChoices):
+        RESET = "reset", "Reset"
+        RESTART = "restart", "Restart"
+
+    question = models.ForeignKey(
+        "rooms.Question", on_delete=models.CASCADE, related_name="ballots",
+    )
+    version = models.ForeignKey(
+        MotionVersion, on_delete=models.RESTRICT, related_name="ballots",
+    )
+    round = models.PositiveIntegerField()
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.OPEN)
+    secret = models.BooleanField()
+    # Process epoch of a secret ballot (§ 8): a mismatch means the in-memory
+    # tally was lost in a restart.
+    epoch = models.CharField(max_length=32, blank=True)
+    opened_at = models.DateTimeField(auto_now_add=True)
+    closed_at = models.DateTimeField(null=True, blank=True)
+    result = models.JSONField(null=True, blank=True)
+    texts_released = models.BooleanField(default=False)
+    discard_reason = models.CharField(
+        max_length=10, choices=DiscardReason.choices, blank=True,
+    )
+    discard_comment = models.TextField(blank=True)
+    discarded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering: ClassVar = ["round"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["question", "round"], name="unique_ballot_round",
+            ),
+            models.UniqueConstraint(
+                fields=["question"], condition=Q(status="open"),
+                name="one_open_ballot_per_question",
+            ),
+        ]
+
+
+class BallotSeat(models.Model):
+    """Participation mark of an eligible voter. Deliberately without any
+    timestamp (§ 8): the order of marks must not reveal who cast which vote."""
+
+    ballot = models.ForeignKey(Ballot, on_delete=models.CASCADE, related_name="seats")
+    member = models.ForeignKey(
+        CommitteeMember, on_delete=models.CASCADE, related_name="+",
+    )
+    group = models.ForeignKey(
+        CommitteeGroup, on_delete=models.RESTRICT, related_name="+",
+    )
+    voted = models.BooleanField(default=False)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["ballot", "member"], name="unique_ballot_seat",
+            ),
+        ]
+
+
+class NamedVote(models.Model):
+    """A member's answer in a named (non-secret) ballot."""
+
+    ballot = models.ForeignKey(
+        Ballot, on_delete=models.CASCADE, related_name="named_votes",
+    )
+    member = models.ForeignKey(
+        CommitteeMember, on_delete=models.CASCADE, related_name="+",
+    )
+    answer = models.JSONField()
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["ballot", "member"], name="unique_named_vote",
+            ),
+        ]
+
+
+class BallotText(models.Model):
+    """Free text of a secret ballot, written shuffled when the ballot closes."""
+
+    ballot = models.ForeignKey(Ballot, on_delete=models.CASCADE, related_name="texts")
+    group = models.ForeignKey(
+        CommitteeGroup, on_delete=models.RESTRICT, related_name="+",
+    )
+    text = models.TextField()

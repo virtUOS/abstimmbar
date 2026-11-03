@@ -5,7 +5,7 @@ from django.db import transaction
 
 from rooms.models import QuestionSet
 
-from .models import MotionVersion
+from .models import Ballot, MotionVersion
 
 
 def _snapshot(question) -> tuple[str, str, list[dict]]:
@@ -59,5 +59,9 @@ def sync(question) -> MotionVersion | None:
 
 def lock_reason(question) -> str | None:
     """``question_lock_checks`` hook: no edits while a vote is open/counted."""
-    # Ballot-based part follows with the Ballot model (Task 4).
+    statuses = set(question.ballots.values_list("status", flat=True))
+    if Ballot.Status.OPEN in statuses:
+        return "A vote on this item is open."
+    if Ballot.Status.CLOSED in statuses:
+        return "This item has been voted on. Reset the vote to change it."
     return None

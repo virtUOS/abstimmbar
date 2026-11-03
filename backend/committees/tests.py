@@ -12,8 +12,9 @@ from rest_framework.test import APIClient
 
 from rooms.models import Question, QuestionSet, Room
 
-from . import services
+from . import eligibility, services, versions
 from .models import (
+    Ballot,
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
@@ -1137,3 +1138,95 @@ class MotionVersionTests(MeetingFixture, ApiBase):
         self.assertEqual(r.status_code, 201)
         versions = list(Question.objects.get(pk=r.json()["id"]).motion_versions.all())
         self.assertEqual([(v.number, v.text_de) for v in versions], [(1, "C")])
+
+
+class EligibilityTests(MeetingFixture, TestCase):
+    def setUp(self):
+        self.make_fixture()
+        self.q1, self.q2, self.q3 = (
+            Question.objects.create(
+                question_set=self.meeting, kind="open_text", text_de=f"TOP {n}",
+                position=n,
+            )
+            for n in (1, 2, 3)
+        )
+        self.anna = self.member("Anna", self.ga)
+        self.bert = self.member("Bert", self.ga)
+        self.dora = self.member("Dora", self.ga, role="deputy", rank=1)
+        self.ben = self.member("Ben", self.gb)
+        self.olga = self.member("Olga", self.obs_group)
+        services.start_meeting(self.meeting)
+        self.enter_all()
+
+    def enter_all(self):
+        self.meeting.invites.filter(entered_at__isnull=True).update(entered_at=timezone.now())
+
+    def voters(self, question):
+        return [m.name for m in eligibility.eligible_voters(self.meeting, question)]
+
+    def invite(self, member):
+        return self.meeting.invites.get(member=member)
+
+    def test_agenda_and_numbers(self):
+        self.assertEqual(eligibility.agenda(self.meeting), [self.q1, self.q2, self.q3])
+        self.assertEqual(eligibility.number_of(self.meeting, self.q3), 3)
+
+    def test_observers_and_deputies_hold_no_seat(self):
+        self.assertEqual(self.voters(self.q1), ["Anna", "Bert", "Ben"])
+
+    def test_not_entered_is_not_eligible(self):
+        MeetingInvite.objects.filter(pk=self.invite(self.bert).pk).update(entered_at=None)
+        self.assertEqual(self.voters(self.q1), ["Anna", "Ben"])
+
+    def test_substitution_from_item(self):
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)
+        self.enter_all()
+        self.assertEqual(self.voters(self.q1), ["Anna", "Bert", "Ben"])
+        self.assertEqual(self.voters(self.q2), ["Bert", "Dora", "Ben"])
+        self.assertEqual(self.voters(self.q3), ["Bert", "Dora", "Ben"])
+        holder = eligibility.seat_holder(self.meeting, self.anna, self.q2)
+        self.assertEqual(holder, self.dora)
+
+    def test_whole_meeting_substitution(self):
+        services.add_substitution(self.meeting, self.anna, self.dora)
+        self.enter_all()
+        self.assertEqual(self.voters(self.q1), ["Bert", "Dora", "Ben"])
+
+    def test_deputy_votes_in_seat_group(self):
+        services.add_substitution(self.meeting, self.anna, self.dora)
+        self.enter_all()
+        groups = {m.name: m.group for m in eligibility.eligible_voters(self.meeting, self.q1)}
+        self.assertEqual(groups["Dora"], self.ga)
+
+    def test_removed_after_item(self):
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        self.assertIn("Bert", self.voters(self.q1))
+        self.assertNotIn("Bert", self.voters(self.q2))
+        services.remove_invite(self.invite(self.bert))
+        self.assertNotIn("Bert", self.voters(self.q1))
+
+    def test_is_present_for_without_invite(self):
+        self.assertFalse(eligibility.is_present_for(None, self.meeting, self.q1))
+
+    def test_lock_reason_follows_ballots(self):
+        version = self.q1.motion_versions.get()
+        ballot = Ballot.objects.create(question=self.q1, version=version, round=1, secret=True)
+        self.assertEqual(versions.lock_reason(self.q1), "A vote on this item is open.")
+        ballot.status = Ballot.Status.CLOSED
+        ballot.save()
+        self.assertIn("Reset the vote", versions.lock_reason(self.q1))
+        ballot.status = Ballot.Status.DISCARDED
+        ballot.discard_reason = Ballot.DiscardReason.RESET
+        ballot.save()
+        self.assertIsNone(versions.lock_reason(self.q1))
+
+    def test_one_open_ballot_per_question(self):
+        version = self.q1.motion_versions.get()
+        Ballot.objects.create(question=self.q1, version=version, round=1, secret=True)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Ballot.objects.create(question=self.q1, version=version, round=2, secret=True)
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            Ballot.objects.create(
+                question=self.q1, version=version, round=1, secret=True,
+                status=Ballot.Status.CLOSED,
+            )
