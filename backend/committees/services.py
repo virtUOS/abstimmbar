@@ -3,6 +3,7 @@
 """Committee helpers: room access, templates, member lists, meeting lifecycle."""
 import re
 
+from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
@@ -30,6 +31,50 @@ def managed_committee_rooms(user):
     if user.is_staff:
         return rooms
     return rooms.filter(Q(owners=user) | Q(owner=user)).distinct()
+
+
+KNOWN_PEOPLE_MIN_QUERY = 2
+KNOWN_PEOPLE_LIMIT = 10
+
+
+def known_people(user, room: Room, query: str) -> list[dict]:
+    """Autocomplete for adding members to ``room``: people from the user's own
+    rooms only — members of committee rooms they own or co-own, and the
+    co-owners of any of their rooms (themselves included). Never other
+    accounts, also not for staff. Matches name or e-mail; people without an
+    e-mail address or already in ``room`` are left out."""
+    query = query.strip()
+    if len(query) < KNOWN_PEOPLE_MIN_QUERY:
+        return []
+    own_rooms = Room.objects.filter(Q(owners=user) | Q(owner=user))
+    taken = {
+        email.lower()
+        for email in room.committee_members.exclude(email="").values_list("email", flat=True)
+    }
+    found: dict[str, dict] = {}
+    members = (
+        CommitteeMember.objects.filter(room__in=own_rooms)
+        .exclude(room=room).exclude(email="")
+        .filter(Q(name__icontains=query) | Q(email__icontains=query))
+        .order_by("name")
+    )
+    for member in members[:KNOWN_PEOPLE_LIMIT * 3]:
+        found.setdefault(member.email.lower(), {"name": member.name, "email": member.email})
+    matches_name = (
+        Q(first_name__icontains=query) | Q(last_name__icontains=query)
+        | Q(username__icontains=query) | Q(email__icontains=query)
+    )
+    owners = (
+        get_user_model().objects.filter(rooms__in=own_rooms).exclude(email="")
+        .filter(matches_name).distinct()
+    )
+    for owner in owners[:KNOWN_PEOPLE_LIMIT * 3]:
+        found.setdefault(owner.email.lower(), {
+            "name": owner.get_full_name() or owner.username, "email": owner.email,
+        })
+    people = [person for key, person in found.items() if key not in taken]
+    people.sort(key=lambda person: person["name"].lower())
+    return people[:KNOWN_PEOPLE_LIMIT]
 
 
 @transaction.atomic

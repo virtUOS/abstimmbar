@@ -335,6 +335,64 @@ class MemberApiTests(ApiBase):
         self.assertEqual(r.status_code, 404)
 
 
+class KnownPeopleTests(ApiBase):
+    """Autocomplete for adding members: only people from the requester's own
+    committee rooms and the co-owners of their rooms — never other accounts."""
+
+    URL = "/api/committee-members/known/"
+
+    def setUp(self):
+        super().setUp()
+        self.mine = make_room(title="Mine")
+        self.mine.owners.add(self.user)
+        group = self.add_group(room=self.mine)
+        CommitteeMember.objects.create(
+            room=self.mine, group=group, name="Anna Muster", email="anna@uni.de",
+        )
+        CommitteeMember.objects.create(room=self.mine, group=group, name="No Mail")
+        foreign_room = make_room(title="Foreign")
+        foreign_room.owners.add(self.other)
+        CommitteeMember.objects.create(
+            room=foreign_room, group=self.add_group(room=foreign_room),
+            name="Annabel Fremd", email="annabel@uni.de",
+        )
+        self.colleague = User.objects.create_user(
+            "colleague", email="carla@uni.de", first_name="Carla", last_name="Kollegin",
+        )
+        course = make_room(kind=Room.Kind.STANDARD, title="Course")
+        course.owners.add(self.user, self.colleague)
+        User.objects.create_user("stranger", email="anton@uni.de", first_name="Anton")
+
+    def search(self, q, client=None):
+        return (client or self.client).get(self.URL, {"room": self.room.pk, "q": q})
+
+    def test_finds_members_of_own_committees(self):
+        r = self.search("ann")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json(), [{"name": "Anna Muster", "email": "anna@uni.de"}])
+
+    def test_finds_co_owners_by_name_or_email(self):
+        expected = [{"name": "Carla Kollegin", "email": "carla@uni.de"}]
+        self.assertEqual(self.search("kolleg").json(), expected)
+        self.assertEqual(self.search("carla@").json(), expected)
+
+    def test_never_other_accounts_or_foreign_committees(self):
+        self.assertEqual(self.search("anton").json(), [])
+        self.assertEqual(self.search("annabel").json(), [])
+
+    def test_excludes_people_already_in_the_room(self):
+        CommitteeMember.objects.create(
+            room=self.room, group=self.add_group(), name="Anna", email="ANNA@uni.de",
+        )
+        self.assertEqual(self.search("ann").json(), [])
+
+    def test_short_query_returns_nothing(self):
+        self.assertEqual(self.search("a").json(), [])
+
+    def test_room_must_be_managed(self):
+        self.assertEqual(self.search("ann", client=self.foreign).status_code, 404)
+
+
 class MeetingFixture:
     """A committee room with groups A, B, observers and one meeting."""
 

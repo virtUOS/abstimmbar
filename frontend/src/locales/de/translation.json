@@ -1422,5 +1422,11 @@
   "The item does not belong to this meeting.": "Der Tagesordnungspunkt gehört nicht zu dieser Sitzung.",
   "Invalid member.": "Ungültiges Mitglied.",
   "Invalid item.": "Ungültiger Tagesordnungspunkt.",
-  "The member does not belong to this room.": "Das Mitglied gehört nicht zu diesem Raum."
+  "The member does not belong to this room.": "Das Mitglied gehört nicht zu diesem Raum.",
+  "Known people": "Bekannte Personen",
+  "Name or e-mail address": "Name oder E-Mail-Adresse",
+  "Finds people from your own committees and the co-owners of your rooms.": "Findet Personen aus Ihren eigenen Gremien und die Mitverwaltenden Ihrer Räume.",
+  "Search results": "Suchergebnisse",
+  "Nobody found": "Niemand gefunden",
+  "How to add": "Art des Hinzufügens"
 }

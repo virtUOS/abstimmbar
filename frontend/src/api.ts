@@ -179,6 +179,12 @@ export interface MeetingSummary {
   substitutions: MeetingSubstitution[];
 }
 
+/** A person from my own rooms, offered when adding committee members. */
+export interface KnownPerson {
+  name: string;
+  email: string;
+}
+
 export type BulkSkipReason = "invalid_email" | "duplicate" | "exists";
 
 export interface BulkMemberResult {
@@ -1038,6 +1044,12 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(data),
     }),
+  /** Autocomplete for adding members: people from my own rooms only
+   *  (committee members and co-owners); empty for queries under 2 chars. */
+  searchKnownPeople: (roomId: number, query: string) =>
+    request<KnownPerson[]>(
+      `/api/committee-members/known/?room=${roomId}&q=${encodeURIComponent(query)}`,
+    ),
   deleteCommitteeMember: (id: number) =>
     request<void>(`/api/committee-members/${id}/`, { method: "DELETE" }),
   /** Paste import: one member per line/comma/semicolon (`Name <mail>` or

@@ -4,7 +4,8 @@
 /** Committee rooms (Gremien-Raum): the room's groups and members. Without
  *  groups (only the automatic observer group) the managers pick a template
  *  or create their own group; afterwards every group is a section with its
- *  member list, and a paste form adds members in bulk. */
+ *  member list. Members are added by searching people from the manager's
+ *  own rooms or by pasting an e-mail list. */
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Pencil, Trash2, UsersRound } from "lucide-react";
@@ -18,9 +19,10 @@ import {
   type CommitteeMember,
   type CommitteeRole,
   type CommitteeTemplate,
+  type KnownPerson,
   type Room,
 } from "../api";
-import { Button, ConfirmDialog, Field, Select, TextInput } from "../components/ui";
+import { Button, ConfirmDialog, Field, SegmentedControl, Select, TextInput } from "../components/ui";
 import TranslatableField from "../components/TranslatableField";
 
 const SKIP_REASON: Record<BulkSkipReason, string> = {
@@ -507,6 +509,7 @@ function BulkAddForm({
     groups.find((group) => !group.is_observer)?.id ?? groups[0].id,
   );
   const [role, setRole] = useState<CommitteeRole>("voting");
+  const [mode, setMode] = useState<"search" | "list">("search");
   const [result, setResult] = useState<BulkMemberResult | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -514,8 +517,9 @@ function BulkAddForm({
   const group = groups.find((g) => g.id === groupId) ?? groups[0];
   const observer = group.is_observer;
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
+  /** Both the search pick and the pasted list go through the bulk import,
+   *  so validation and the created/skipped report are the same. */
+  async function add(lines: string): Promise<boolean> {
     setError("");
     setResult(null);
     setBusy(true);
@@ -524,16 +528,27 @@ function BulkAddForm({
         room: roomId,
         group: group.id,
         role: observer ? "voting" : role,
-        text,
+        text: lines,
       });
       setResult(data);
-      setText("");
       await onAdded();
+      return true;
     } catch (err) {
       setError(t(requestError(err)));
+      return false;
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (await add(text)) setText("");
+  }
+
+  function pick(person: KnownPerson) {
+    // Quoted, so a "Last, First" name is not split at its comma.
+    void add(`"${person.name.replace(/"/g, "")}" <${person.email}>`);
   }
 
   return (
@@ -542,22 +557,6 @@ function BulkAddForm({
       className="grid gap-3 border-t border-slate-100 pt-4 dark:border-slate-800"
     >
       <h3 className="font-medium text-slate-900 dark:text-slate-100">{t("Add members")}</h3>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          {t("E-mail list")}
-        </span>
-        <textarea
-          value={text}
-          required
-          rows={4}
-          onChange={(event) => setText(event.target.value)}
-          placeholder={"Anna Muster <anna@example.org>\nbert@example.org"}
-          className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-offset-slate-950"
-        />
-        <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
-          {t("One person per line, or separated by commas or semicolons: “Name <e-mail>” or just the e-mail address.")}
-        </span>
-      </label>
       <div className="grid gap-3 sm:grid-cols-2">
         <Field label={t("Group")}>
           <Select value={group.id} onChange={(event) => setGroupId(Number(event.target.value))}>
@@ -585,11 +584,44 @@ function BulkAddForm({
           </Select>
         </Field>
       </div>
-      <div>
-        <Button type="submit" variant="primary" disabled={busy}>
-          {t("Add members")}
-        </Button>
-      </div>
+      {/* Two alternative ways in: pick known people, or paste a list. */}
+      <SegmentedControl
+        className="w-full sm:w-max"
+        ariaLabel={t("How to add")}
+        value={mode}
+        onChange={setMode}
+        options={[
+          { value: "search", label: t("Known people") },
+          { value: "list", label: t("E-mail list") },
+        ]}
+      />
+      {mode === "search" ? (
+        <KnownPeopleSearch roomId={roomId} disabled={busy} onPick={pick} />
+      ) : (
+        <>
+          <label className="block">
+            <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+              {t("E-mail list")}
+            </span>
+            <textarea
+              value={text}
+              required
+              rows={4}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={"Anna Muster <anna@example.org>\nbert@example.org"}
+              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-offset-slate-950"
+            />
+            <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+              {t("One person per line, or separated by commas or semicolons: “Name <e-mail>” or just the e-mail address.")}
+            </span>
+          </label>
+          <div>
+            <Button type="submit" variant="primary" disabled={busy}>
+              {t("Add members")}
+            </Button>
+          </div>
+        </>
+      )}
       {error && <p role="alert" className="text-sm text-danger">{error}</p>}
       {result && (
         <div role="status" className="rounded-lg bg-slate-50 p-3 text-sm dark:bg-slate-900/60">
@@ -613,5 +645,88 @@ function BulkAddForm({
         </div>
       )}
     </form>
+  );
+}
+
+/** Autocomplete over people from my own rooms (committee members and
+ *  co-owners; the backend never searches other accounts). Picking a person
+ *  adds them right away with the chosen group and role. */
+function KnownPeopleSearch({
+  roomId,
+  disabled,
+  onPick,
+}: {
+  roomId: number;
+  disabled: boolean;
+  onPick: (person: KnownPerson) => void;
+}) {
+  const { t } = useTranslation();
+  const [query, setQuery] = useState("");
+  const [people, setPeople] = useState<KnownPerson[]>([]);
+  const trimmed = query.trim();
+
+  function choose(person: KnownPerson) {
+    onPick(person);
+    setQuery("");
+  }
+
+  useEffect(() => {
+    if (trimmed.length < 2) {
+      setPeople([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api
+        .searchKnownPeople(roomId, trimmed)
+        .then((found) => !cancelled && setPeople(found))
+        .catch(() => !cancelled && setPeople([]));
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [roomId, trimmed]);
+
+  return (
+    <div>
+      <Field label={t("Name or e-mail address")}>
+        <TextInput
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={(event) => {
+            // Enter picks the first hit instead of submitting the list form.
+            if (event.key !== "Enter") return;
+            event.preventDefault();
+            if (people[0] && !disabled) choose(people[0]);
+          }}
+          autoComplete="off"
+        />
+      </Field>
+      <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
+        {t("Finds people from your own committees and the co-owners of your rooms.")}
+      </span>
+      {trimmed.length >= 2 && (
+        <ul aria-label={t("Search results")} className="mt-2 grid gap-1">
+          {people.length === 0 && (
+            <li className="text-sm text-slate-500 dark:text-slate-400">{t("Nobody found")}</li>
+          )}
+          {people.map((person) => (
+            <li key={person.email}>
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => choose(person)}
+                className="flex w-full items-baseline gap-2 rounded-lg px-3 py-1.5 text-left text-sm hover:bg-slate-50 disabled:opacity-50 dark:hover:bg-slate-800"
+              >
+                <span className="font-medium text-slate-900 dark:text-slate-100">+ {person.name}</span>
+                <span className="min-w-0 truncate text-slate-500 dark:text-slate-400">{person.email}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

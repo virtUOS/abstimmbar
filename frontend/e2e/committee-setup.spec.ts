@@ -6,7 +6,7 @@
  *  Runs as `demo`; the room is titled "E2E …" and deleted afterwards. The
  *  expert/simple mode is answered in the browser via the `/api/whoami/`
  *  response, so the account's stored mode is never changed. */
-import { test, expect, API_BASE_URL } from './fixtures';
+import { test, expect, API_BASE_URL, csrfToken } from './fixtures';
 
 test.use({ locale: 'de-DE', viewport: { width: 1280, height: 900 } });
 
@@ -62,8 +62,33 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
     await expect(panel.getByRole('heading', { name })).toBeVisible();
   }
 
-  // 2. Bulk-add members to "Andere"; the malformed entry is skipped.
   const bulk = page.locator('form', { has: page.getByRole('heading', { name: 'Mitglieder hinzufügen' }) });
+  // Group and role come first, then search or list as alternatives.
+  const groupTop = (await bulk.getByLabel('Gruppe').boundingBox())!.y;
+  const searchTop = (await bulk.getByLabel('Name oder E-Mail-Adresse').boundingBox())!.y;
+  expect(groupTop).toBeLessThan(searchTop);
+  await expect(bulk.getByLabel('E-Mail-Liste')).toHaveCount(0);
+
+  // Search finds a member of another of my committee rooms and adds them.
+  const headers = { 'X-CSRFToken': (await csrfToken(page.request)) ?? '' };
+  const other = await (await page.request.post(`${API_BASE_URL}/api/rooms/`, {
+    headers, data: { title: 'E2E Gremium Zwei', kind: 'committee' },
+  })).json();
+  trackRoom(other.id);
+  const otherGroups = await (await page.request.get(
+    `${API_BASE_URL}/api/committee-groups/?room=${other.id}`,
+  )).json();
+  await page.request.post(`${API_BASE_URL}/api/committee-members/bulk/`, {
+    headers,
+    data: { room: other.id, group: otherGroups[0].id, role: 'voting', text: 'Zora Bekannt <zora@example.org>' },
+  });
+  await bulk.getByLabel('Name oder E-Mail-Adresse').fill('zora');
+  await bulk.getByRole('button', { name: /Zora Bekannt/ }).click();
+  await expect(bulk.getByRole('status')).toContainText('1 angelegt, 0 übersprungen');
+  await expect(panel.getByText('zora@example.org')).toBeVisible();
+
+  // 2. Bulk-add members to "Andere"; the malformed entry is skipped.
+  await bulk.getByRole('radio', { name: 'E-Mail-Liste' }).click();
   await bulk.getByLabel('Gruppe').selectOption({ label: 'Andere' });
   await bulk.getByLabel('E-Mail-Liste').fill('Anna Muster <anna@example.org>, bert@example.org; kaputt');
   await bulk.getByRole('button', { name: 'Mitglieder hinzufügen' }).click();

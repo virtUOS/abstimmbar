@@ -125,6 +125,13 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
 
     perform_update = perform_create
 
+    @action(detail=False, methods=["get"])
+    def known(self, request):
+        """Autocomplete: people from the requester's own rooms (see
+        ``services.known_people``) to add to ``?room=`` — ``?q=`` ≥ 2 chars."""
+        room = _managed_room_or_404(request, request.query_params.get("room"))
+        return Response(services.known_people(request.user, room, request.query_params.get("q", "")))
+
     @action(detail=False, methods=["post"])
     def bulk(self, request):
         room = _managed_room_or_404(request, request.data.get("room"))
