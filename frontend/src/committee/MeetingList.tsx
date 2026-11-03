@@ -189,7 +189,8 @@ export function NewMeetingFields({
   );
 }
 
-const HOURS = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, "0")}:00`);
+// Meetings run between 6:00 and 21:00.
+const HOURS = Array.from({ length: 16 }, (_, i) => `${String(i + 6).padStart(2, "0")}:00`);
 
 /** Meeting date plus a full-hour time — committee meetings start on the
  *  hour, so a minute picker is just noise. `value` is a `datetime-local`

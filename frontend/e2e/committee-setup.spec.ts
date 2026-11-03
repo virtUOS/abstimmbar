@@ -111,9 +111,11 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   // 4. A meeting with a date.
   await page.getByRole('button', { name: '+ Neue Sitzung' }).click();
   await page.getByPlaceholder(/Fakultätsrat/).fill('E2E Sitzung');
-  // Full hours only: a date field plus an hour select.
+  // Full hours from 6:00 to 21:00: a date field plus an hour select.
   await page.getByLabel('Datum', { exact: true }).fill('2030-01-15');
-  await expect(page.getByLabel('Uhrzeit').locator('option[value="10:15"]')).toHaveCount(0);
+  await expect(page.getByLabel('Uhrzeit').locator('option')).toHaveText(
+    ['Uhrzeit', ...Array.from({ length: 16 }, (_, i) => `${String(i + 6).padStart(2, '0')}:00`)],
+  );
   await page.getByLabel('Uhrzeit').selectOption('10:00');
   await page.getByRole('button', { name: 'Speichern' }).click();
   await page.waitForURL(/\/sets\/\d+$/);
