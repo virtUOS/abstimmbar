@@ -110,6 +110,16 @@ test('secret resolution: vote, close, reset, observer', async ({ page, browser, 
   await expect(row('Nein')).toContainText('0');
   await expect(row('Enthaltung')).toContainText('1');
 
+  // While another vote is open, the closed one cannot be reset.
+  const second = page.getByTestId('console-item').nth(1);
+  await other.click();
+  await second.getByRole('button', { name: 'Abstimmung öffnen' }).click();
+  const resetButton = item.getByRole('button', { name: 'Abstimmung zurücksetzen …' });
+  await expect(resetButton).toBeDisabled();
+  await expect(resetButton).toHaveAttribute('title', 'Es läuft noch eine andere Abstimmung.');
+  await second.getByRole('button', { name: 'Abstimmung schließen' }).click();
+  await expect(resetButton).toBeEnabled();
+
   // 6. Reset with a comment and reopen: Anna sees the buttons again.
   await item.getByRole('button', { name: 'Abstimmung zurücksetzen …' }).click();
   const dialog = page.getByRole('dialog');

@@ -282,7 +282,8 @@ export default function MeetingAgenda({
                   {item.ballot_status === "closed" && (
                     <Button
                       variant="danger"
-                      disabled={busy}
+                      disabled={busy || data.open_ballot !== null}
+                      title={data.open_ballot !== null ? t("Another vote is still open.") : undefined}
                       onClick={() => setResetting(item)}
                       className="inline-flex items-center gap-1.5 border border-red-200 dark:border-red-900"
                     >
