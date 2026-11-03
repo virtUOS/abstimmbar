@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/whoami/tour-event/", record_tour_event),
     path("api/whoami/example-room/", ensure_example_room),
     path("api/", include((live_api, "live"))),
+    path("api/", include("committees.urls")),
     path("api/", include("rooms.urls")),
     path("api/", include("common.urls")),
     path("api/lti/", include((lti_api, "lti-api"))),
