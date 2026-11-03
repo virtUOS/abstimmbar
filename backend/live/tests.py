@@ -10640,3 +10640,28 @@ class MeetingRunGuardTests(TestCase):
             {}, content_type="application/json",
         )
         self.assertEqual(response.status_code, 404)
+
+
+class CommitteeRoomCodeTests(TestCase):
+    """A committee room's code is an internal key: it opens nothing for
+    participants (members enter via personal links)."""
+
+    def setUp(self):
+        self.room = Room.objects.create(title="Rat", kind=Room.Kind.COMMITTEE)
+        self.standard = Room.objects.create(title="Vorlesung")
+
+    def test_participant_page_not_found(self):
+        self.assertEqual(self.client.get(f"/p/{self.room.code}/").status_code, 404)
+        self.assertEqual(self.client.get(f"/p/{self.standard.code}/").status_code, 200)
+
+    def test_join_and_qr_not_found(self):
+        response = self.client.post(
+            f"/api/live/rooms/{self.room.code}/join/", {}, content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(self.client.get(f"/p/{self.room.code}/qr.png").status_code, 404)
+        self.assertFalse(ParticipantToken.objects.filter(room=self.room).exists())
+
+    def test_participant_stream_not_found(self):
+        response = self.client.get(f"/api/live/rooms/{self.room.code}/stream/")
+        self.assertEqual(response.status_code, 404)

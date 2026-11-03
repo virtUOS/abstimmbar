@@ -39,6 +39,7 @@ import { CREATABLE_SET_TYPES, SET_TYPES, type SetType } from "../setTypes";
 import CommitteePanel from "../committee/CommitteePanel";
 import { MeetingList, NewMeetingFields } from "../committee/MeetingList";
 import { CreateMenu } from "../components/CreateMenu";
+import { CommitteeRoomBadge } from "../committee/CommitteeRoomBadge";
 
 /** #75: pick the set type up front — like "+ New question" for questions.
  * The menu lists the creatable types; picking one opens the create form with
@@ -674,6 +675,12 @@ export default function RoomPage() {
             )}
           </h1>
           {/* Committee members join via personal links, not the room code. */}
+          {committee && (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
+              <CommitteeRoomBadge />
+              <span>{t("— members join via personal links.")}</span>
+            </p>
+          )}
           {!committee && (
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
               <span

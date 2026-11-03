@@ -77,10 +77,15 @@ KEEPALIVE_SECONDS = 25
 KEEPALIVE_FRAME = "event: ping\ndata: {}\n\n"
 
 
+# Committee rooms are entered only through personal links (/g/<token>/); their
+# room code is an internal key and must not open anything for participants.
+_CODE_ROOMS = Room.objects.exclude(kind=Room.Kind.COMMITTEE)
+
+
 def _room_by_code(code):
     # Word codes are stored lowercase; be forgiving about how a participant
     # typed it (case, surrounding whitespace). Numeric codes are unaffected.
-    return get_object_or_404(Room, code=(code or "").strip().lower())
+    return get_object_or_404(_CODE_ROOMS, code=(code or "").strip().lower())
 
 
 def _require_owner(user, room):
@@ -117,7 +122,7 @@ def participant_home(request):
 @ensure_csrf_cookie
 def participant_page(request, code):
     lang = _lang_from_query(request)
-    room = Room.objects.filter(code=(code or "").strip().lower()).first()
+    room = _CODE_ROOMS.filter(code=(code or "").strip().lower()).first()
     if room is None:
         response = render(request, "live/not_found.html", status=404)
         if lang:
@@ -3112,6 +3117,9 @@ async def stream(request, code):
         if not is_owner:
             return JsonResponse({"detail": "Forbidden"}, status=403)
         role = "presenter"
+    elif room.kind == Room.Kind.COMMITTEE:
+        # No participant stream by room code for committee rooms.
+        raise Http404
 
     subscriber = hub.subscribe(room.pk, role)
     # Joining/leaving changes the participant counter on the beamer.

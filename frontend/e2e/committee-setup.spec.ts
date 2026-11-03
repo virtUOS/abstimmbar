@@ -43,7 +43,16 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await page.getByRole('textbox', { name: /^Name|Titel/ }).first().fill('E2E Gremium');
   await page.getByRole('button', { name: 'Anlegen' }).click();
   await page.waitForURL(/\/rooms\/\d+$/);
-  trackRoom(page.url().split('/').pop()!);
+  const roomUrl = page.url();
+  trackRoom(roomUrl.split('/').pop()!);
+  // Committee rooms show no join code; members use personal links.
+  await expect(page.getByText('Mitglieder treten über persönliche Links bei.')).toBeVisible();
+
+  // The room-type filter on the overview finds it under "Gremien".
+  await page.goto('/');
+  await page.getByRole('radio', { name: 'Gremien' }).click();
+  await expect(page.getByRole('link', { name: /E2E Gremium/ }).first()).toBeVisible();
+  await page.goto(roomUrl);
 
   await page
     .getByRole('button', { name: 'Vorlage Professor*innen / Andere übernehmen' })
