@@ -35,6 +35,12 @@ RESOLUTION_CHOICES = ("yes", "no", "abstain")
 RESTART_COMMENT = "Abgebrochen durch Serverneustart."
 
 
+def _notify(meeting: QuestionSet, debounce=False) -> None:
+    from .live import notify  # live imports this module
+
+    notify(meeting, debounce=debounce)
+
+
 def _invalid():
     return ValidationError("Invalid answer.", code="invalid")
 
@@ -111,6 +117,8 @@ def abort_stale(meeting: QuestionSet) -> None:
         BallotSeat.objects.filter(ballot_id__in=ids).delete()
         for pk in ids:
             transaction.on_commit(lambda pk=pk: secret_tally.discard(pk))
+        if ids:
+            _notify(meeting)
 
 
 def open_ballot_of(meeting: QuestionSet) -> Ballot | None:
@@ -151,6 +159,7 @@ def open_ballot(meeting: QuestionSet, question: Question) -> Ballot:
     MeetingControl.objects.update_or_create(
         meeting=meeting, defaults={"current_question": question},
     )
+    _notify(meeting)
     return ballot
 
 
@@ -193,6 +202,8 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
         NamedVote.objects.create(
             ballot=ballot, member_id=invite.member_id, answer={"keys": keys, "text": text},
         )
+    # Progress only (voted/eligible); a burst of votes becomes one event.
+    _notify(invite.meeting, debounce=True)
 
 
 def _count_keys(ballot: Ballot) -> list[str]:
@@ -267,6 +278,7 @@ def close_ballot(ballot: Ballot) -> Ballot:
     if ballot.secret:
         pk = ballot.pk
         transaction.on_commit(lambda: secret_tally.discard(pk))
+    _notify(ballot.question.question_set)
     return ballot
 
 
@@ -293,6 +305,7 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
     ])
     pk = ballot.pk
     transaction.on_commit(lambda: secret_tally.discard(pk))
+    _notify(ballot.question.question_set)
     return ballot
 
 
@@ -303,6 +316,7 @@ def release_texts(ballot: Ballot) -> Ballot:
         raise ValidationError("Only free-text votes have texts.", code="invalid")
     ballot.texts_released = True
     ballot.save(update_fields=["texts_released"])
+    _notify(ballot.question.question_set)
     return ballot
 
 
@@ -315,6 +329,7 @@ def enter(invite: MeetingInvite) -> None:
     if invite.entered_at is None:
         invite.entered_at = timezone.now()
         invite.save(update_fields=["entered_at"])
+        _notify(invite.meeting)
     ballot = open_ballot_of(invite.meeting)
     if ballot is None:
         return
@@ -323,7 +338,9 @@ def enter(invite: MeetingInvite) -> None:
         return
     for voter in eligibility.eligible_voters(invite.meeting, ballot.question):
         if voter.pk == invite.member_id:
-            BallotSeat.objects.get_or_create(
+            _, created = BallotSeat.objects.get_or_create(
                 ballot=ballot, member_id=voter.pk, defaults={"group_id": voter.group_id},
             )
+            if created:
+                _notify(invite.meeting)
             return

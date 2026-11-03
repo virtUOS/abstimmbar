@@ -27,6 +27,13 @@ _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
 MAX_EMAIL_LENGTH = 254
 
 
+def _notify(meeting: QuestionSet) -> None:
+    """Push fresh snapshots to the meeting's streams after commit."""
+    from .live import notify  # live imports this module
+
+    notify(meeting)
+
+
 def managed_committee_rooms(user):
     """Committee rooms the user manages (owner/co-owner; staff: all)."""
     rooms = Room.objects.filter(kind=Room.Kind.COMMITTEE)
@@ -230,6 +237,7 @@ def add_substitution(
     )
     if meeting.meeting_state == State.STARTED:
         ensure_invites(meeting)
+    _notify(meeting)
     return substitution
 
 
@@ -241,6 +249,7 @@ def remove_substitution(substitution: MeetingSubstitution):
     substitution.delete()
     if meeting.meeting_state == State.STARTED:
         ensure_invites(meeting)
+    _notify(meeting)
 
 
 def _seat_q(meeting: QuestionSet) -> Q:
@@ -302,6 +311,7 @@ def start_meeting(meeting: QuestionSet) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
     ensure_invites(meeting)
     versions.freeze_all(meeting)
+    _notify(meeting)
     return meeting
 
 
@@ -317,6 +327,7 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
     ).exists():
         raise ValidationError("A vote is still open.", code="vote_open")
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
+    _notify(meeting)
     return meeting
 
 
@@ -326,6 +337,7 @@ def remove_invite(invite: MeetingInvite, after_question: Question | None = None)
     invite.removed_at = timezone.now()
     invite.removed_after = after_question
     invite.save(update_fields=["removed_at", "removed_after"])
+    _notify(invite.meeting)
     return invite
 
 
@@ -334,6 +346,7 @@ def readmit_invite(invite: MeetingInvite):
     invite.removed_at = None
     invite.removed_after = None
     invite.save(update_fields=["removed_at", "removed_after"])
+    _notify(invite.meeting)
     return invite
 
 

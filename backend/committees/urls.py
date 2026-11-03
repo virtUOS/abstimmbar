@@ -3,6 +3,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .live import manager_stream
 from .views import (
     CommitteeGroupViewSet,
     CommitteeMemberViewSet,
@@ -26,6 +27,7 @@ def _meeting(name, actions, suffix=""):
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("meetings/<int:pk>/stream/", manager_stream, name="meeting-stream"),
     _meeting("detail", {"get": "retrieve"}),
     _meeting("start", {"post": "start"}, "start/"),
     _meeting("end", {"post": "end"}, "end/"),

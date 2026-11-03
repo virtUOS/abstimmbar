@@ -1235,7 +1235,7 @@ class EligibilityTests(MeetingFixture, TestCase):
             )
 
 
-class BallotFlowTests(MeetingFixture, ApiBase):
+class BallotBase(MeetingFixture, ApiBase):
     def setUp(self):
         super().setUp()
         self.make_fixture(room=self.room)
@@ -1269,6 +1269,8 @@ class BallotFlowTests(MeetingFixture, ApiBase):
     def group_result(self, result, group):
         return next(g for g in result["groups"] if g["group"] == group.pk)
 
+
+class BallotFlowTests(BallotBase):
     def test_secret_vote_counts_only_in_memory(self):
         ballot = ballots.open_ballot(self.meeting, self.q1)
         self.assertTrue(ballot.secret)
@@ -1473,3 +1475,135 @@ class BallotFlowTests(MeetingFixture, ApiBase):
         self.assertEqual(
             result["total"]["counts"], {f"opt:{o1.pk}": 1, f"opt:{o2.pk}": 0, "abstain": 0},
         )
+
+
+def _keys(value):
+    """All dict keys in a nested payload."""
+    if isinstance(value, dict):
+        return set(value) | {k for v in value.values() for k in _keys(v)}
+    if isinstance(value, list):
+        return {k for v in value for k in _keys(v)}
+    return set()
+
+
+class PayloadTests(BallotBase):
+    """Meeting snapshots (public beamer/ballot, manager console)."""
+
+    def payloads(self):
+        from . import payloads
+
+        return payloads.public_payload(self.meeting), payloads.manager_payload(self.meeting)
+
+    def test_no_counts_before_close(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.vote(self.ben, ballot, {"choice": "no"})
+        for payload in self.payloads():
+            item_ballot = payload["item"]["ballot"]
+            self.assertEqual(item_ballot["status"], "open")
+            self.assertIsNone(item_ballot["result"])
+            self.assertNotIn("counts", _keys(payload))
+            self.assertEqual(item_ballot["progress"]["voted"], 2)
+            self.assertEqual(item_ballot["progress"]["eligible"], 3)
+        public, manager = self.payloads()
+        self.assertEqual(manager["open_ballot"], ballot.pk)
+        self.assertEqual(public["item"]["number"], 1)
+        self.assertEqual(public["item"]["text"], "Beschluss")
+        groups = public["item"]["ballot"]["progress"]["groups"]
+        self.assertEqual(
+            [(g["name"], g["voted"], g["eligible"]) for g in groups],
+            [("Gruppe A", 1, 2), ("Gruppe B", 1, 1)],
+        )
+        ballots.close_ballot(ballot)
+        public, _ = self.payloads()
+        result = public["item"]["ballot"]["result"]
+        self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
+        self.assertEqual(result["groups"][0]["name"], "Gruppe A")
+
+    def test_texts_hidden_until_released(self):
+        ballot = ballots.open_ballot(self.meeting, self.q2)
+        self.vote(self.anna, ballot, {"text": "Erstens"})
+        self.vote(self.ben, ballot, {"text": "Zweitens"})
+        public, manager = self.payloads()
+        self.assertIsNone(public["item"]["ballot"]["texts"])
+        self.assertIsNone(manager["texts"])
+        ballot = ballots.close_ballot(ballot)
+        public, manager = self.payloads()
+        self.assertIsNone(public["item"]["ballot"]["texts"])
+        self.assertEqual(len(manager["texts"]), 2)
+        ballots.release_texts(ballot)
+        public, manager = self.payloads()
+        self.assertEqual(len(public["item"]["ballot"]["texts"]), 2)
+        self.assertEqual(len(manager["texts"]), 2)
+        self.assertEqual(
+            sorted(t["text"] for t in public["item"]["ballot"]["texts"]),
+            ["Erstens", "Zweitens"],
+        )
+
+    def test_named_texts_carry_no_names(self):
+        import json
+
+        self.q2.named_vote = True
+        self.q2.save()
+        ballot = ballots.open_ballot(self.meeting, self.q2)
+        self.vote(self.anna, ballot, {"text": "Erstens"})
+        self.vote(self.ben, ballot, {"text": "Zweitens"})
+        ballots.release_texts(ballots.close_ballot(ballot))
+        public, manager = self.payloads()
+        dumped = json.dumps([public, manager["texts"], manager["items"]])
+        self.assertIn("Erstens", dumped)
+        for name in ("Anna", "Ben", "Bert", "Dora", "Olga"):
+            self.assertNotIn(name, dumped)
+
+    def test_presence_status(self):
+        from .presence import presence
+
+        invite = self.invite(self.anna)
+        presence.connect(invite.pk)
+        self.assertEqual(presence.status(invite.pk), (True, None))
+        _, manager = self.payloads()
+        row = next(a for a in manager["attendance"] if a["invite"] == invite.pk)
+        self.assertTrue(row["connected"])
+        self.assertIsNone(row["disconnected_since"])
+        presence.disconnect(invite.pk)
+        _, manager = self.payloads()
+        row = next(a for a in manager["attendance"] if a["invite"] == invite.pk)
+        self.assertFalse(row["connected"])
+        self.assertIsNotNone(row["disconnected_since"])
+        self.assertEqual(row["name"], "Anna")
+        self.assertEqual(row["group"], "Gruppe A")
+        self.assertTrue(row["entered"])
+        olga = next(a for a in manager["attendance"] if a["name"] == "Olga")
+        self.assertTrue(olga["observer"])
+
+
+    def test_mutations_broadcast_after_commit(self):
+        with mock.patch("committees.live.broadcast_meeting") as broadcast:
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                ballot = ballots.open_ballot(self.meeting, self.q1)
+            broadcast.assert_not_called()
+            for callback in callbacks:
+                callback()
+            broadcast.assert_called_with(self.meeting, debounce=False)
+            broadcast.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                self.vote(self.anna, ballot, {"choice": "yes"})
+            self.assertEqual(broadcast.call_args.kwargs, {"debounce": True})
+            for action in (
+                lambda: ballots.close_ballot(ballot),
+                lambda: services.remove_invite(self.invite(self.bert)),
+                lambda: services.readmit_invite(self.invite(self.bert)),
+                lambda: services.end_meeting(self.meeting),
+            ):
+                broadcast.reset_mock()
+                with self.captureOnCommitCallbacks(execute=True):
+                    action()
+                broadcast.assert_called()
+
+
+class MemberStreamTests(TestCase):
+    # Own class with a single test: the stream view closes the DB connection
+    # (connections.close_all), which breaks the test transaction for any
+    # test that would run after it in the same class.
+    def test_member_stream_rejects_invalid_token(self):
+        self.assertEqual(self.client.get("/g/xxx/stream/").status_code, 404)
