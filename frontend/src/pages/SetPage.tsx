@@ -25,6 +25,7 @@ import AiGenerateForm from "../components/AiGenerateForm";
 import AiReviewPanel from "../components/AiReviewPanel";
 import FileDropzone from "../components/FileDropzone";
 import HomeCrumb from "../components/HomeCrumb";
+import MeetingPanel from "../committee/MeetingPanel";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
 import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
@@ -184,7 +185,8 @@ export function SetSettingsForm({
         value={draft.description}
         onChange={(description) => onChange({ description })}
       />
-      <ProOnly easyMode={easyMode}>
+      {/* Meetings have no answer flow options (reveal, open-on-show, …). */}
+      <ProOnly easyMode={easyMode || draft.type === "meeting"}>
         <fieldset>
           <legend className="mb-1 text-sm font-medium text-slate-700 dark:text-slate-300">
             {t("Answers & results")}
@@ -853,7 +855,10 @@ export default function SetPage() {
   } | null>(null);
   const [confirmResetStats, setConfirmResetStats] = useState(false);
   const easyMode = useEasyMode();
-  const aiVisible = aiEnabled && !easyMode;
+  // Meetings (Gremien-Raum) have no AI generation: their items are agenda
+  // points written by the chair.
+  const aiAllowed = aiEnabled && set?.type !== "meeting";
+  const aiVisible = aiAllowed && !easyMode;
   // Recording mode (#53): opt-in before presenting; carried to the beamer via
   // the present URL. Pro feature (hidden in easy mode).
   const [recordMode, setRecordMode] = useState(false);
@@ -1360,6 +1365,9 @@ export default function SetPage() {
   // checks use a standing link; meetings are run from the meeting panel.
   const runAction = SET_TYPES[set.type].runAction;
   const presentable = runAction === "present" || runAction === "self_paced";
+  // Meetings hide the set options that only apply to the anonymous flows
+  // (answer reveal, sharing/licence, JSON export, AI generation).
+  const isMeeting = set.type === "meeting";
 
   // Plain local const (not `set.self_check_token`) so it narrows cleanly to
   // `string` inside closures below (#75 phase 3).
@@ -1426,13 +1434,17 @@ export default function SetPage() {
               {!easyMode && (
                 <>
                   <MenuItem onClick={() => void openCopyDialog()}><Copy aria-hidden className="h-4 w-4" />{t("Duplicate")}</MenuItem>
-                  <MenuItem onClick={doExport}><Download aria-hidden className="h-4 w-4" />{t("Export (JSON)")}</MenuItem>
-                  <MenuItem onClick={() => void openSharePanel()}>
-                    <Share2 aria-hidden className="h-4 w-4" />{t("Copy set (share link)")}
-                  </MenuItem>
+                  {!isMeeting && (
+                    <>
+                      <MenuItem onClick={doExport}><Download aria-hidden className="h-4 w-4" />{t("Export (JSON)")}</MenuItem>
+                      <MenuItem onClick={() => void openSharePanel()}>
+                        <Share2 aria-hidden className="h-4 w-4" />{t("Copy set (share link)")}
+                      </MenuItem>
+                    </>
+                  )}
                   {/* Archive results & start fresh (#56) — same action as the
                       room's set table, only when there is something to archive. */}
-                  {set.has_results && (
+                  {set.has_results && !isMeeting && (
                     <MenuItem
                       onClick={() => {
                         setArchivedNotice(false);
@@ -1555,7 +1567,7 @@ export default function SetPage() {
             </p>
             </ProOnly>
           )}
-          {set.type !== "self_paced" && set.type !== "self_check" && (
+          {set.type !== "self_paced" && set.type !== "self_check" && !isMeeting && (
             <ProOnly easyMode={easyMode}>
             <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
               {t("Correct answers:")}{" "}
@@ -1756,6 +1768,10 @@ export default function SetPage() {
         </div>
       )}
 
+      {isMeeting && (
+        <MeetingPanel set={set} questions={questions} onSetChange={setSet} />
+      )}
+
       {generateOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiGenerateForm
@@ -1775,7 +1791,7 @@ export default function SetPage() {
         </div>
       )}
 
-      {aiEnabled && reviewOpen && (
+      {aiAllowed && reviewOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiReviewPanel
             setId={id}
@@ -1788,7 +1804,7 @@ export default function SetPage() {
         </div>
       )}
 
-      {aiEnabled && !reviewOpen && reviewJob && (
+      {aiAllowed && !reviewOpen && reviewJob && (
         <GenerationReviewHint
           job={reviewJob}
           onReview={() => setReviewOpen(true)}

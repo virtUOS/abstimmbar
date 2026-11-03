@@ -143,6 +143,42 @@ export interface CommitteeMember {
   language: "de" | "en";
 }
 
+/** A personal meeting link's state (see backend `invite_state`). */
+export type InviteState = "waiting" | "active" | "ended" | "replaced" | "inactive" | "removed";
+
+export interface MeetingInvite {
+  id: number;
+  member: {
+    id: number;
+    name: string;
+    email: string;
+    group: number;
+    role: CommitteeRole;
+  };
+  url: string;
+  removed_at: string | null;
+  /** Removed after this agenda item (question id); null = right away. */
+  removed_after: number | null;
+  state: InviteState;
+}
+
+export interface MeetingSubstitution {
+  id: number;
+  absent: number;
+  deputy: number;
+  /** From this agenda item (question id) on; null = the whole meeting. */
+  from_question: number | null;
+}
+
+export interface MeetingSummary {
+  id: number;
+  meeting_state: MeetingState;
+  scheduled_at: string | null;
+  chair_votes: boolean;
+  invites: MeetingInvite[];
+  substitutions: MeetingSubstitution[];
+}
+
 export type BulkSkipReason = "invalid_email" | "duplicate" | "exists";
 
 export interface BulkMemberResult {
@@ -1015,6 +1051,42 @@ export const api = {
     request<BulkMemberResult>("/api/committee-members/bulk/", {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+
+  // --- committee meetings: lifecycle, personal links, substitutions ---
+  getMeeting: (setId: number) => request<MeetingSummary>(`/api/meetings/${setId}/`),
+  startMeeting: (setId: number) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/start/`, { method: "POST" }),
+  endMeeting: (setId: number) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/end/`, { method: "POST" }),
+  /** Create the missing personal links (never deletes any). */
+  ensureMeetingInvites: (setId: number) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/invites/`, { method: "POST" }),
+  /** CSV of the currently valid (waiting/active) links. */
+  meetingInvitesCsvUrl: (setId: number) =>
+    `${API_BASE_URL}/api/meetings/${setId}/invites.csv`,
+  suggestDeputy: (setId: number, absentId: number) =>
+    request<{ deputy: MeetingInvite["member"] | null }>(
+      `/api/meetings/${setId}/substitutions/suggest/?absent=${absentId}`,
+    ),
+  addSubstitution: (
+    setId: number,
+    data: { absent: number; deputy: number; from_question?: number | null },
+  ) =>
+    request<MeetingSubstitution>(`/api/meetings/${setId}/substitutions/`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  deleteSubstitution: (setId: number, subId: number) =>
+    request<void>(`/api/meetings/${setId}/substitutions/${subId}/`, { method: "DELETE" }),
+  removeInvite: (setId: number, inviteId: number, afterQuestion?: number | null) =>
+    request<MeetingInvite>(`/api/meetings/${setId}/invites/${inviteId}/remove/`, {
+      method: "POST",
+      body: JSON.stringify(afterQuestion ? { after_question: afterQuestion } : {}),
+    }),
+  readmitInvite: (setId: number, inviteId: number) =>
+    request<MeetingInvite>(`/api/meetings/${setId}/invites/${inviteId}/readmit/`, {
+      method: "POST",
     }),
 
   listQuestionSets: (roomId: number, search = "") =>

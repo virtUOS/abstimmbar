@@ -13,13 +13,13 @@ import { Button } from "../components/ui";
 import TranslatableField from "../components/TranslatableField";
 import { SET_TYPES } from "../setTypes";
 
-const STATE_LABEL: Record<MeetingState, string> = {
+export const STATE_LABEL: Record<MeetingState, string> = {
   draft: "Planned",
   started: "In progress",
   ended: "Ended",
 };
 
-const STATE_BADGE: Record<MeetingState, string> = {
+export const STATE_BADGE: Record<MeetingState, string> = {
   draft: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   started: "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300",
   ended: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
