@@ -28,6 +28,10 @@ SET_TYPES = {
         # Only kinds with an auto-checkable answer / shown solution.
         "allowed_kinds": ("single_choice", "multiple_choice", "ordering", "open_text"),
     },
+    QuestionSet.SetType.MEETING: {
+        # Committee sessions: simple resolutions and free-text input only.
+        "allowed_kinds": ("single_choice", "multiple_choice", "open_text"),
+    },
 }
 
 

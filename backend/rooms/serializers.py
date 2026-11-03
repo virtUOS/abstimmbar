@@ -74,7 +74,7 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     class Meta:
         model = Room
         fields: ClassVar = [
-            "id", "code", "title", "description", "show_logo_in_presentation",
+            "id", "code", "kind", "title", "description", "show_logo_in_presentation",
             "show_qr_in_presentation", "show_code_in_presentation",
             "presentation_corner", "closing_info",
             "question_set_count", "set_type_counts", "created_at", "updated_at",
@@ -84,6 +84,11 @@ class RoomSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "last_used_at", "is_lti",
         ]
         read_only_fields: ClassVar = ["code"]
+
+    def validate_kind(self, value):
+        if self.instance is not None and value != self.instance.kind:
+            raise serializers.ValidationError("The room type cannot be changed.")
+        return value
 
     def get_created_by_name(self, obj):
         return _user_name(obj.created_by)
@@ -221,11 +226,11 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
             "id", "room", "room_title", "title", "description", "type", "reveal_answers",
             "open_on_show", "show_results_to_participants", "present_results_after",
             "allow_back_navigation", "shuffle_questions", "reveal_only_in_summary",
-            "quiz_time_limit",
+            "quiz_time_limit", "scheduled_at", "meeting_state", "chair_votes",
             "share_token", "self_check_token", "license", "license_holder",
             "question_count", "has_results", "created_at", "updated_at",
         ]
-        read_only_fields: ClassVar = ["share_token", "self_check_token"]
+        read_only_fields: ClassVar = ["share_token", "self_check_token", "meeting_state"]
 
     def get_has_results(self, obj):
         annotated = getattr(obj, "has_answers", None)
@@ -252,6 +257,18 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+        # Committee rooms hold only meetings; meetings only live there. The
+        # type is fixed after creation, so only check on create.
+        if self.instance is None:
+            room = attrs.get("room")
+            set_type = attrs.get("type", QuestionSet.SetType.LIVE_POLL)
+            is_meeting = set_type == QuestionSet.SetType.MEETING
+            if room is not None:
+                if room.kind == Room.Kind.COMMITTEE and not is_meeting:
+                    raise serializers.ValidationError("Committee rooms only hold meetings.")
+                if room.kind != Room.Kind.COMMITTEE and is_meeting:
+                    raise serializers.ValidationError("Meetings belong in committee rooms.")
+
         # A time limit only applies to self-paced sets; null it here for
         # any other effective type, but only when the field is actually
         # being written so an unrelated PATCH can't wipe an existing value.

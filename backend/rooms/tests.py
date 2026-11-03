@@ -125,7 +125,7 @@ class RoomApiTests(ApiTestCase):
         )
         self.assertEqual(
             room["set_type_counts"],
-            {"live_poll": 2, "self_paced": 1, "self_check": 3},
+            {"live_poll": 2, "self_paced": 1, "self_check": 3, "meeting": 0},
         )
         self.assertEqual(room["question_set_count"], 6)
 
@@ -137,7 +137,7 @@ class RoomApiTests(ApiTestCase):
         )
         self.assertEqual(
             response.json()["set_type_counts"],
-            {"live_poll": 0, "self_paced": 0, "self_check": 0},
+            {"live_poll": 0, "self_paced": 0, "self_check": 0, "meeting": 0},
         )
 
     def test_create_room_assigns_owner_and_code(self):
@@ -6237,3 +6237,91 @@ class QuestionFieldListGuardTests(ApiTestCase):
             }],
         })
         self.assertEqual(len(imported.questions.get().wordcloud_grouping), 1000)
+
+
+class CommitteeRoomKindTests(ApiTestCase):
+    def _make_committee_room(self):
+        room = Room.objects.create(title="Fakultätsrat", kind=Room.Kind.COMMITTEE)
+        room.owners.add(self.owner)
+        return room
+
+    def _post(self, url, payload):
+        return self.client.post(url, payload, content_type="application/json")
+
+    def test_create_committee_room(self):
+        response = self._post("/api/rooms/", {"title": {"de": "Rat"}, "kind": "committee"})
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["kind"], "committee")
+
+    def test_kind_defaults_to_standard(self):
+        response = self._post("/api/rooms/", {"title": {"de": "Raum"}})
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["kind"], "standard")
+
+    def test_kind_is_immutable(self):
+        room = self._make_committee_room()
+        response = self.client.patch(
+            f"/api/rooms/{room.pk}/", {"kind": "standard"}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 400)
+        room.refresh_from_db()
+        self.assertEqual(room.kind, "committee")
+
+    def test_committee_room_accepts_only_meetings(self):
+        room = self._make_committee_room()
+        bad = self._post(
+            "/api/question-sets/", {"room": room.pk, "title": "A", "type": "live_poll"}
+        )
+        self.assertEqual(bad.status_code, 400)
+        good = self._post(
+            "/api/question-sets/",
+            {
+                "room": room.pk, "title": "Sitzung", "type": "meeting",
+                "scheduled_at": "2026-11-05T14:00:00+01:00",
+            },
+        )
+        self.assertEqual(good.status_code, 201, good.content)
+        self.assertEqual(good.json()["meeting_state"], "draft")
+
+    def test_meeting_only_in_committee_room(self):
+        response = self._post(
+            "/api/question-sets/", {"room": self.room.pk, "title": "S", "type": "meeting"}
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_meeting_state_read_only(self):
+        room = self._make_committee_room()
+        qs = QuestionSet.objects.create(
+            room=room, title="Sitzung", type=QuestionSet.SetType.MEETING
+        )
+        response = self.client.patch(
+            f"/api/question-sets/{qs.pk}/", {"meeting_state": "ended"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        qs.refresh_from_db()
+        self.assertEqual(qs.meeting_state, "draft")
+        self.assertEqual(response.json()["meeting_state"], "draft")
+
+    def test_meeting_allowed_kinds(self):
+        self.assertEqual(
+            set_types.allowed_kinds("meeting"),
+            ("single_choice", "multiple_choice", "open_text"),
+        )
+
+    def test_duplicate_and_import_respect_room_kind(self):
+        room = self._make_committee_room()
+        meeting = QuestionSet.objects.create(
+            room=room, title="Sitzung", type=QuestionSet.SetType.MEETING
+        )
+        # A meeting cannot be copied into a standard room.
+        response = self._post(
+            f"/api/question-sets/{meeting.pk}/duplicate/", {"room": self.room.pk}
+        )
+        self.assertEqual(response.status_code, 400)
+        # No file import into committee rooms.
+        response = self._post(
+            f"/api/rooms/{room.pk}/import-set/",
+            {"format": "abstimmbar-set-v2", "title": "X", "questions": []},
+        )
+        self.assertEqual(response.status_code, 400)
