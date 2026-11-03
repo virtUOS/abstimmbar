@@ -424,6 +424,41 @@ class MeetingServiceTests(MeetingFixture, TestCase):
     def setUp(self):
         self.make_fixture()
 
+    def test_start_marks_connected_invites_entered(self):
+        from .presence import presence
+
+        anna = self.member("Anna", self.ga)
+        bert = self.member("Bert", self.ga)
+        services.ensure_invites(self.meeting)
+        connected = MeetingInvite.objects.get(meeting=self.meeting, member=anna)
+        presence.connect(connected.pk)
+        self.addCleanup(presence.disconnect, connected.pk)
+        services.start_meeting(self.meeting)
+        connected.refresh_from_db()
+        self.assertIsNotNone(connected.entered_at)
+        self.assertIsNone(
+            MeetingInvite.objects.get(meeting=self.meeting, member=bert).entered_at,
+        )
+        self.assertEqual(eligibility.eligible_voters(self.meeting, Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="X",
+        )), [anna])
+
+    def test_ensure_invites_notifies_in_running_meeting(self):
+        self.member("Anna", self.ga)
+        with mock.patch("committees.live.broadcast_meeting") as broadcast:
+            with self.captureOnCommitCallbacks(execute=True):
+                services.ensure_invites(self.meeting)  # draft: no broadcast
+            broadcast.assert_not_called()
+            services.start_meeting(self.meeting)
+            self.member("Bert", self.ga)
+            with self.captureOnCommitCallbacks(execute=True):
+                services.ensure_invites(self.meeting)
+            broadcast.assert_called_once()
+            broadcast.reset_mock()
+            with self.captureOnCommitCallbacks(execute=True):
+                services.ensure_invites(self.meeting)  # nothing new
+            broadcast.assert_not_called()
+
     def test_suggest_deputy_by_rank(self):
         absent = self.member("Anna", self.ga)
         absent2 = self.member("Bert", self.ga)

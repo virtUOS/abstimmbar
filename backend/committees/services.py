@@ -13,6 +13,7 @@ from django.utils import timezone
 from rooms.models import Question, QuestionSet, Room
 
 from . import versions
+from .presence import presence
 from .models import (
     Ballot,
     CommitteeGroup,
@@ -286,9 +287,13 @@ def participants(meeting: QuestionSet) -> list[CommitteeMember]:
 def ensure_invites(meeting: QuestionSet) -> list[MeetingInvite]:
     """Create the missing invites for all participants; never deletes."""
     have = set(meeting.invites.values_list("member_id", flat=True))
+    created = False
     for member in participants(meeting):
         if member.pk not in have:
-            MeetingInvite.objects.get_or_create(meeting=meeting, member=member)
+            _, new = MeetingInvite.objects.get_or_create(meeting=meeting, member=member)
+            created = created or new
+    if created and meeting.meeting_state == State.STARTED:
+        _notify(meeting)  # attendance changed
     return list(meeting.invites.select_related("member__group").order_by("id"))
 
 
@@ -310,6 +315,13 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 def start_meeting(meeting: QuestionSet) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
     ensure_invites(meeting)
+    # Members whose ballot page is already open (connected while the meeting
+    # was a draft) have entered: the stream's enter() was a no-op then.
+    connected = [
+        pk for pk in meeting.invites.filter(entered_at__isnull=True).values_list("pk", flat=True)
+        if presence.status(pk)[0]
+    ]
+    MeetingInvite.objects.filter(pk__in=connected).update(entered_at=timezone.now())
     versions.freeze_all(meeting)
     _notify(meeting)
     return meeting

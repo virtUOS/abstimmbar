@@ -49,9 +49,16 @@ def notify(meeting: QuestionSet, debounce=False) -> None:
     transaction.on_commit(lambda: broadcast_meeting(meeting, debounce=debounce))
 
 
-def _stream(meeting, subscriber, build, on_close):
+def _stream(meeting, role, build, on_open=None, on_close=None):
+    """Subscribe, presence and their cleanup all live inside the generator,
+    so a stream that never starts (client gone before the first byte)
+    leaves nothing behind."""
     async def events():
+        subscriber = None
         try:
+            subscriber = meeting_hub.subscribe(meeting.pk, role)
+            if on_open:
+                on_open()
             yield sse_frame(await sync_to_async(build)())
             while True:
                 try:
@@ -61,8 +68,10 @@ def _stream(meeting, subscriber, build, on_close):
                 except TimeoutError:
                     yield KEEPALIVE_FRAME
         finally:
-            meeting_hub.unsubscribe(meeting.pk, subscriber)
-            on_close()
+            if subscriber is not None:
+                meeting_hub.unsubscribe(meeting.pk, subscriber)
+                if on_close:
+                    on_close()
 
     response = StreamingHttpResponse(events(), content_type="text/event-stream")
     response["Cache-Control"] = "no-store"
@@ -93,17 +102,19 @@ async def member_stream(request, token):
     if invite is None:
         raise Http404
     meeting = invite.meeting
-    presence.connect(invite.pk)
-    subscriber = meeting_hub.subscribe(meeting.pk, "public")
-    # The console shows who is connected.
-    broadcast_meeting(meeting, debounce=True)
+
+    def _on_open():
+        presence.connect(invite.pk)
+        # The console shows who is connected.
+        broadcast_meeting(meeting, debounce=True)
 
     def _on_close():
         presence.disconnect(invite.pk)
         broadcast_meeting(meeting, debounce=True)
 
     return _stream(
-        meeting, subscriber, _closing(lambda: payloads.public_payload(meeting)), _on_close,
+        meeting, "public", _closing(lambda: payloads.public_payload(meeting)),
+        _on_open, _on_close,
     )
 
 
@@ -121,7 +132,4 @@ async def manager_stream(request, pk):
     meeting = await sync_to_async(_context)()
     if meeting is None:
         return JsonResponse({"detail": "Forbidden"}, status=403)
-    subscriber = meeting_hub.subscribe(meeting.pk, "manager")
-    return _stream(
-        meeting, subscriber, _closing(lambda: payloads.manager_payload(meeting)), lambda: None,
-    )
+    return _stream(meeting, "manager", _closing(lambda: payloads.manager_payload(meeting)))
