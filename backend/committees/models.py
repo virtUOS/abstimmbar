@@ -106,7 +106,7 @@ class MeetingSubstitution(models.Model):
         CommitteeMember, on_delete=models.CASCADE, related_name="+",
     )
     from_question = models.ForeignKey(
-        "rooms.Question", null=True, blank=True, on_delete=models.SET_NULL,
+        "rooms.Question", null=True, blank=True, on_delete=models.RESTRICT,
         related_name="+",
     )
 
@@ -133,7 +133,7 @@ class MeetingInvite(models.Model):
     )
     removed_at = models.DateTimeField(null=True, blank=True)
     removed_after = models.ForeignKey(
-        "rooms.Question", null=True, blank=True, on_delete=models.SET_NULL,
+        "rooms.Question", null=True, blank=True, on_delete=models.RESTRICT,
         related_name="+",
     )
     created_at = models.DateTimeField(auto_now_add=True)

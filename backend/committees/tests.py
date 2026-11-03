@@ -905,3 +905,53 @@ class MeetingDefaultTitleTests(ApiBase):
         title = self.create("2030-01-15T13:00:00Z")
         self.assertEqual(title["de"], "Sitzung vom 15. Januar 2030 (2)")
         self.assertEqual(title["en"], "Meeting on January 15, 2030 (2)")
+
+
+class AgendaGuardTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q = Question.objects.create(
+            question_set=self.meeting, kind="open_text", text_de="A", text_en="A",
+        )
+
+    def test_delete_blocked_while_started(self):
+        services.start_meeting(self.meeting)
+        r = self.client.delete(f"/api/questions/{self.q.pk}/")
+        self.assertEqual(r.status_code, 400)
+        self.assertTrue(Question.objects.filter(pk=self.q.pk).exists())
+
+    def test_everything_read_only_after_end(self):
+        services.start_meeting(self.meeting)
+        services.end_meeting(self.meeting)
+        r = self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"text": {"de": "B"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+        r = self.client.post(
+            "/api/questions/",
+            {"question_set": self.meeting.pk, "kind": "open_text", "text": {"de": "C"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+
+    def test_lock_hook_blocks_text_but_not_position(self):
+        from rooms import hooks
+        hooks.question_lock_checks.append(
+            lambda q: "locked" if q.pk == self.q.pk else None
+        )
+        self.addCleanup(hooks.question_lock_checks.pop)
+        r = self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"text": {"de": "B"}}, format="json",
+        )
+        self.assertEqual((r.status_code, r.json()["detail"]), (400, "locked"))
+        r = self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"position": 5}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+
+    def test_deleting_meeting_with_substitution_from_question_works(self):
+        a = self.member("Anna", self.ga)
+        d = self.member("Dora", self.ga, "deputy", 1)
+        services.add_substitution(self.meeting, a, d, from_question=self.q)
+        self.meeting.delete()  # RESTRICT allows the cascade

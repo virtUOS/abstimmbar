@@ -15,11 +15,12 @@ from django.db.models import Count, Max
 from django.utils import timezone
 from django.utils.html import strip_tags
 from rest_framework import serializers
+from rest_framework.exceptions import APIException
 
 from common.i18n_fields import LANGS, TranslatedMapMixin
 from common.serializers import TranslationSyncMixin
 
-from . import matrix, mindmap, set_types
+from . import hooks, matrix, mindmap, set_types
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import generate_default_titles, make_titles_unique, meeting_default_titles
 from .question_fields import clean_evaluation_categories
@@ -333,6 +334,57 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+MEETING_ENDED = "The meeting has ended."
+MEETING_NO_DELETE = "Items cannot be deleted during a meeting."
+# Content a lock (e.g. an open vote) freezes; position/section stay free.
+LOCKED_QUESTION_FIELDS = ("kind", "named_vote")
+
+
+class AgendaLocked(APIException):
+    """400 with a plain ``{"detail": ...}`` body (not wrapped in a list)."""
+
+    status_code = 400
+
+
+def check_meeting_writable(question_set, *, deleting=False):
+    """Agenda guard for meeting sets: read-only once ended, no removal of
+    items while running. Raises a DRF 400 ``{"detail": ...}``."""
+    if question_set is None or question_set.type != QuestionSet.SetType.MEETING:
+        return
+    state = question_set.meeting_state
+    if state == QuestionSet.MeetingState.ENDED:
+        raise AgendaLocked(MEETING_ENDED)
+    if deleting and state == QuestionSet.MeetingState.STARTED:
+        raise AgendaLocked(MEETING_NO_DELETE)
+
+
+def _options_changed(question, incoming):
+    existing = {o.pk: o for o in question.options.all()}
+    if len(incoming) != len(existing):
+        return True
+    for data in incoming:
+        option = existing.get(data.get("id"))
+        if option is None:
+            return True
+        for field, value in data.items():
+            if field != "id" and getattr(option, field, None) != value:
+                return True
+    return False
+
+
+def question_content_changed(question, attrs):
+    """True if ``attrs`` would change text, kind, options or named_vote."""
+    for field, value in attrs.items():
+        if field == "options":
+            if _options_changed(question, value):
+                return True
+        elif (
+            field in LOCKED_QUESTION_FIELDS or field.startswith("text_")
+        ) and getattr(question, field, None) != value:
+            return True
+    return False
+
+
 class SectionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     """Named question group inside a set (v2). A blank title gets a
     numbered default; the room owner check runs via the set."""
@@ -358,6 +410,12 @@ class SectionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
 
     def validate_description(self, value):
         return clean_html(value)
+
+    def validate(self, attrs):
+        check_meeting_writable(
+            attrs.get("question_set") or getattr(self.instance, "question_set", None)
+        )
+        return attrs
 
     def to_internal_value(self, data):
         attrs = super().to_internal_value(data)
@@ -504,6 +562,13 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
 
     def validate(self, attrs):
         kind = attrs.get("kind", getattr(self.instance, "kind", None))
+        check_meeting_writable(
+            attrs.get("question_set") or getattr(self.instance, "question_set", None)
+        )
+        if self.instance is not None:
+            reason = hooks.question_lock_reason(self.instance)
+            if reason and question_content_changed(self.instance, attrs):
+                raise AgendaLocked(reason)
         # Gate the question kind by the set's type (#75).
         target_set = attrs.get("question_set") or getattr(
             self.instance, "question_set", None
@@ -700,6 +765,7 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             validated_data["section"] = last.section
         question = super().create(validated_data)
         self._write_options(question, options)
+        hooks.run_after_question_saved(question)
         return question
 
     def update(self, instance, validated_data):
@@ -711,6 +777,7 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             self._write_options(question, options)
         # Keep a linked after-question's content in sync (#54); no-op otherwise.
         sync_after_question(question)
+        hooks.run_after_question_saved(question)
         return question
 
     def _write_options(self, question, options_data):

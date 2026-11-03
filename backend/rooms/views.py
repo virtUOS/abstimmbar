@@ -40,6 +40,7 @@ from .serializers import (
     RoomSerializer,
     SectionSerializer,
     UploadedImageSerializer,
+    check_meeting_writable,
     next_outline_position,
 )
 from .transfer import duplicate_question, duplicate_set, export_set, import_set
@@ -742,6 +743,7 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         (or none if no header precedes it), so membership follows position.
         """
         question_set = self.get_object()
+        check_meeting_writable(question_set)
         items = request.data.get("items")
         sections = {s.pk: s for s in question_set.sections.all()}
         questions = {q.pk: q for q in question_set.questions.all()}
@@ -787,6 +789,7 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         are standalone questions.
         """
         target = self.get_object()
+        check_meeting_writable(target)
         ids = request.data.get("question_ids")
         if not isinstance(ids, list) or not ids:
             return Response(
@@ -862,6 +865,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         question_set = instance.question_set
+        check_meeting_writable(question_set, deleting=True)
         instance.delete()
         _touch(question_set)
 
@@ -882,6 +886,10 @@ class QuestionViewSet(viewsets.ModelViewSet):
             )
         if target == source:
             return Response({"status": "ok", "question_set": source.pk})
+        # Leaving a meeting counts as deleting an agenda item; entering one
+        # is an agenda write.
+        check_meeting_writable(source, deleting=True)
+        check_meeting_writable(target)
         # The target's set type must allow this kind (#75; e.g. mindmap is
         # live-poll only) — same rule as copy-questions.
         if question.kind not in set_types.allowed_kinds(target.type):
@@ -947,6 +955,7 @@ class QuestionViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         question_set = question.question_set
+        check_meeting_writable(question_set)
         after = duplicate_question(
             question,
             question_set=question_set,
@@ -999,6 +1008,7 @@ class SectionViewSet(viewsets.ModelViewSet):
 
     def perform_destroy(self, instance):
         question_set = instance.question_set
+        check_meeting_writable(question_set, deleting=True)
         instance.delete()  # SET_NULL keeps the questions, just unsectioned
         _touch(question_set)
 
