@@ -47,10 +47,6 @@ class SecretTally:
             entry = self._ballots.get(ballot_id)
             return copy.deepcopy(entry) if entry is not None else None
 
-    def pop(self, ballot_id: int) -> dict | None:
-        with self._lock:
-            return self._ballots.pop(ballot_id, None)
-
     def discard(self, ballot_id: int) -> None:
         with self._lock:
             self._ballots.pop(ballot_id, None)

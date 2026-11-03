@@ -6,7 +6,7 @@ Secrecy: a secret vote touches the database only through the participation
 mark (``BallotSeat.voted``); its content goes to the in-memory tally. Nothing
 in this module logs, and error messages never carry vote content.
 """
-import random
+import secrets
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -267,11 +267,14 @@ def close_ballot(ballot: Ballot) -> Ballot:
             "group": group.pk, "eligible": eligible, "voted": voted, "counts": counts,
         })
     if ballot.secret:
+        # Groups in fixed order and texts shuffled by a CSPRNG: neither the
+        # row ids nor the order may reveal who (or which group) wrote first.
+        rng = secrets.SystemRandom()
         texts = []
-        for group_id, group in collected.items():
-            shuffled = list(group["texts"])
-            random.shuffle(shuffled)
-            texts.extend(BallotText(ballot=ballot, group_id=group_id, text=t) for t in shuffled)
+        for group in CommitteeGroup.objects.filter(pk__in=list(collected)).order_by("position", "id"):
+            shuffled = list(collected[group.pk]["texts"])
+            rng.shuffle(shuffled)
+            texts.extend(BallotText(ballot=ballot, group_id=group.pk, text=t) for t in shuffled)
         BallotText.objects.bulk_create(texts)
     ballot.result = {
         "groups": result_groups,

@@ -529,10 +529,9 @@ def entry_page(request, token):
     lang = lang or (request.LANGUAGE_CODE or "").split("-")[0] or settings.MODELTRANSLATION_DEFAULT_LANGUAGE
     context = {"invalid": not valid}
     if valid:
-        if state == "active":
-            # Opening the link counts as entering the meeting (and, during an
-            # open vote the member holds a seat for, gives them a place).
-            ballots.enter(invite)
+        # Deliberately no ballots.enter() here: link scanners and previews
+        # fetch the page, too. Entering happens via /me/ and the stream,
+        # which only the page's script calls.
         meeting, member = invite.meeting, invite.member
         context.update(
             state=state, member=member, is_observer=member.group.is_observer,

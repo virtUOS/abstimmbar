@@ -997,12 +997,16 @@ class BallotPageTests(MeetingFixture, TestCase):
         self.assertContains(r, "Sie nehmen als Beobachter*in teil und können nicht abstimmen.")
         self.assertNotContains(r, "Sie stimmen als")
 
-    def test_entered_at_set_when_active(self):
-        self.client.get(f"/g/{self.anna_invite.token}/")
+    def test_entered_at_set_by_me_not_by_page(self):
+        self.client.get(f"/g/{self.anna_invite.token}/me/")
         self.anna_invite.refresh_from_db()
         self.assertIsNone(self.anna_invite.entered_at)
         self._start()
-        self.client.get(f"/g/{self.anna_invite.token}/")
+        # Link scanners and previews fetch the page: that is no entering.
+        self.assertEqual(self.client.get(f"/g/{self.anna_invite.token}/").status_code, 200)
+        self.anna_invite.refresh_from_db()
+        self.assertIsNone(self.anna_invite.entered_at)
+        self.client.get(f"/g/{self.anna_invite.token}/me/")
         self.anna_invite.refresh_from_db()
         self.assertIsNotNone(self.anna_invite.entered_at)
 
@@ -1984,6 +1988,13 @@ class ConsoleGuardTests(BallotBase):
         )
         self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_started"))
 
+    def test_texts_stored_in_fixed_group_order(self):
+        ballot = ballots.open_ballot(self.meeting, self.q2)
+        self.vote(self.ben, ballot, {"text": "B zuerst"})
+        self.vote(self.anna, ballot, {"text": "A danach"})
+        ballots.close_ballot(ballot)
+        groups = list(BallotText.objects.order_by("id").values_list("group_id", flat=True))
+        self.assertEqual(groups, [self.ga.pk, self.gb.pk])
 
 
 class ReferencedEditTests(BallotBase):
