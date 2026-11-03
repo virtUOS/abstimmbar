@@ -24,9 +24,13 @@ def _canonical(value) -> str:
         return resolve_translated_text(value)
 
 
+def group_name(group: CommitteeGroup) -> str:
+    return _canonical(translated_map(group, "name"))
+
+
 def _group_names(meeting: QuestionSet) -> dict[int, str]:
     return {
-        g.pk: _canonical(translated_map(g, "name"))
+        g.pk: group_name(g)
         for g in CommitteeGroup.objects.filter(room_id=meeting.room_id)
     }
 

@@ -2,6 +2,7 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 import json
+import re
 from unittest import mock
 
 from django.contrib.auth import get_user_model
@@ -840,12 +841,13 @@ class EntryPageTests(MeetingFixture, TestCase):
         r = self._get(invite, "de")
         self.assertEqual(r.status_code, 200)
         self.assertContains(r, "Die Sitzung hat noch nicht begonnen.")
-        self.assertContains(r, "Sie nehmen teil als Anna Muster (Gruppe A).")
+        self.assertContains(r, "Sie stimmen als Anna Muster (Gruppe A).")
         self.assertContains(r, "Fakultätsrat")
         self.assertContains(r, "Sitzung 1")
         r = self._get(invite, "en")
         self.assertContains(r, "The meeting has not started yet.")
-        self.assertContains(r, "You are taking part as Anna Muster (Group A).")
+        # Group names are content: canonical language only (PR 2).
+        self.assertContains(r, "You are voting as Anna Muster (Gruppe A).")
         self.assertContains(r, "Faculty Council")
 
     def test_member_language_default_and_query_override(self):
@@ -859,8 +861,8 @@ class EntryPageTests(MeetingFixture, TestCase):
         invite = self._invite(self.anna)
         self.meeting.meeting_state = "started"
         self.meeting.save()
-        self.assertContains(self._get(invite, "en"), "The meeting is in progress.")
-        self.assertContains(self._get(invite, "de"), "Die Sitzung läuft.")
+        self.assertContains(self._get(invite, "en"), "Please wait for the next vote.")
+        self.assertContains(self._get(invite, "de"), "Bitte warten Sie auf die nächste Abstimmung.")
 
     def test_headers(self):
         r = self._get(self._invite(self.anna), "de")
@@ -923,6 +925,83 @@ class EntryPageAcceptLanguageTests(TestCase):
     def test_unknown_token_uses_accept_language(self):
         r = self.client.get("/g/nope/", HTTP_ACCEPT_LANGUAGE="en")
         self.assertContains(r, "This link is not valid (any more).", status_code=404)
+
+
+class BallotPageTests(MeetingFixture, TestCase):
+    def setUp(self):
+        self.make_fixture()
+        self.anna = self.member("Anna Muster", self.ga)
+        self.obs = self.member("Olga Beobachtet", self.obs_group)
+        self.anna_invite = MeetingInvite.objects.create(meeting=self.meeting, member=self.anna)
+        self.obs_invite = MeetingInvite.objects.create(meeting=self.meeting, member=self.obs)
+
+    def _start(self):
+        self.meeting.meeting_state = "started"
+        self.meeting.save()
+
+    def _strings(self, response):
+        """The UI strings handed to the inline script (json_script escapes
+        non-ASCII, so read them back as JSON)."""
+        match = re.search(
+            r'<script id="ballot-i18n" type="application/json">(.*?)</script>',
+            response.content.decode(),
+        )
+        self.assertIsNotNone(match)
+        return json.loads(match.group(1))
+
+    def test_member_page(self):
+        self._start()
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=de")
+        self.assertEqual(r.status_code, 200)
+        self.assertTemplateUsed(r, "committees/ballot.html")
+        self.assertContains(r, "Sie stimmen als Anna Muster (Gruppe A).")
+        self.assertContains(r, f'"token": "{self.anna_invite.token}"')
+        self.assertContains(r, '"stream/"')
+        strings = set(self._strings(r).values())
+        for text in (
+            "Ein Tipp gibt Ihre Stimme sofort und endgültig ab.",
+            "Ihre Stimme ist endgültig, sobald Sie sie abgeben.",
+            "Geheime Abstimmung",
+            "Namentliche Abstimmung – Ihre Stimme wird mit Ihrem Namen gespeichert.",
+            "Auch Ihr Schreibstil kann Rückschlüsse auf Sie erlauben.",
+            "Ihre Stimme ist abgegeben.",
+            "Sie sind für diese Abstimmung nicht stimmberechtigt.",
+            "Bitte warten Sie auf die nächste Abstimmung.",
+            "Verbindung unterbrochen – wird wiederhergestellt …",
+            "Stimme abgeben", "Enthaltung", "Ja", "Nein", "Antworten",
+        ):
+            self.assertIn(text, strings)
+
+    def test_member_page_english(self):
+        self._start()
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=en")
+        self.assertContains(r, "You are voting as Anna Muster (Gruppe A).")
+        self.assertIn("One tap casts your vote immediately and for good.",
+                      self._strings(r).values())
+
+    def test_observer_page(self):
+        self._start()
+        r = self.client.get(f"/g/{self.obs_invite.token}/?lang=de")
+        self.assertEqual(r.status_code, 200)
+        self.assertTemplateUsed(r, "committees/ballot.html")
+        self.assertContains(r, "Sie nehmen als Beobachter*in teil und können nicht abstimmen.")
+        self.assertNotContains(r, "Sie stimmen als")
+
+    def test_entered_at_set_when_active(self):
+        self.client.get(f"/g/{self.anna_invite.token}/")
+        self.anna_invite.refresh_from_db()
+        self.assertIsNone(self.anna_invite.entered_at)
+        self._start()
+        self.client.get(f"/g/{self.anna_invite.token}/")
+        self.anna_invite.refresh_from_db()
+        self.assertIsNotNone(self.anna_invite.entered_at)
+
+    def test_invalid_link_has_no_script(self):
+        services.remove_invite(self.anna_invite)
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=en")
+        self.assertContains(r, "This link is not valid (any more).")
+        self.assertNotContains(r, "/stream/")
+        self.assertNotContains(r, "ballot-i18n")
 
 
 class MeetingDefaultTitleTests(ApiBase):

@@ -12,6 +12,7 @@ from django.db.models import Count
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
+from django.utils.translation import gettext_lazy as _
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from rest_framework import mixins, status, viewsets
@@ -433,7 +434,42 @@ def _localized(obj, base, lang):
     return ""
 
 
+# UI strings of the ballot page's inline script (handed over via
+# json_script; evaluated lazily under the page's language). Placeholders in
+# braces are filled in by the script.
+BALLOT_STRINGS = {
+    "notStarted": _("The meeting has not started yet. This page updates by itself."),
+    "waitVote": _("Please wait for the next vote."),
+    "item": _("Item {number}"),
+    "version": _("Version {number}"),
+    "changed": _("changed"),
+    "hintTap": _("One tap casts your vote immediately and for good."),
+    "hintFinal": _("Your vote is final once you cast it."),
+    "secret": _("Secret ballot"),
+    "named": _("Roll-call vote – your vote is stored with your name."),
+    "yes": _("Yes"),
+    "no": _("No"),
+    "abstain": _("Abstain"),
+    "submit": _("Cast vote"),
+    "yourAnswer": _("Your answer"),
+    "styleHint": _("Your writing style may also allow conclusions about you."),
+    "voted": _("Your vote has been cast."),
+    "notEligible": _("You are not eligible to vote in this ballot."),
+    "invalid": _("This link is not valid (any more). Please contact the chair of the meeting."),
+    "reconnecting": _("Connection lost – reconnecting …"),
+    "error": _("Your vote could not be cast. Please try again."),
+    "voteOpen": _("Voting is open"),
+    "progress": _("{voted} of {eligible} have voted"),
+    "result": _("Result"),
+    "total": _("Total"),
+    "answers": _("Answers"),
+}
+
+
 def entry_page(request, token):
+    """The personal ballot page: a framework-free shell that follows the
+    meeting over SSE (``ballot.html``) — or, for an invalid link, only the
+    generic notice."""
     invite, state = services.resolve_invite(token)
     valid = state in ("waiting", "active")
     lang = request.GET.get("lang")
@@ -442,17 +478,26 @@ def entry_page(request, token):
     lang = lang or (request.LANGUAGE_CODE or "").split("-")[0] or settings.MODELTRANSLATION_DEFAULT_LANGUAGE
     context = {"invalid": not valid}
     if valid:
+        if state == "active":
+            # Opening the link counts as entering the meeting (and, during an
+            # open vote the member holds a seat for, gives them a place).
+            ballots.enter(invite)
         meeting, member = invite.meeting, invite.member
         context.update(
             state=state, member=member, is_observer=member.group.is_observer,
+            token=invite.token,
+            strings=BALLOT_STRINGS,
+            config={"token": invite.token, "observer": member.group.is_observer, "state": state},
             room_title=_localized(meeting.room, "title", lang),
             meeting_title=_localized(meeting, "title", lang),
             scheduled_at=meeting.scheduled_at,
-            group_name=_localized(member.group, "name", lang),
+            # Group names are content: canonical language only (PR 2), the
+            # same as in the stream's progress rows.
+            group_name=payloads.group_name(member.group),
         )
     with translation.override(lang):
         response = render(
-            request, "committees/entry.html", context,
+            request, "committees/ballot.html", context,
             status=404 if state == "unknown" else 200,
         )
     response["Cache-Control"] = "no-store"
