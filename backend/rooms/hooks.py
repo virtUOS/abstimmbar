@@ -6,13 +6,17 @@ their ``AppConfig.ready()``.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .models import Question
 
 # Each check returns a human-readable reason if the question's content
 # (text, kind, options, named_vote) must not be changed right now, else None.
-question_lock_checks: list[Callable] = []
+question_lock_checks: list[Callable[[Question], str | None]] = []
 
 # Called after a question and its options were saved through the API.
-after_question_saved: list[Callable] = []
+after_question_saved: list[Callable[[Question], None]] = []
 
 
 def question_lock_reason(question) -> str | None:

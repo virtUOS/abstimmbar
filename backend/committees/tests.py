@@ -955,3 +955,138 @@ class AgendaGuardTests(MeetingFixture, ApiBase):
         d = self.member("Dora", self.ga, "deputy", 1)
         services.add_substitution(self.meeting, a, d, from_question=self.q)
         self.meeting.delete()  # RESTRICT allows the cascade
+
+
+class AgendaGuardDetailTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q = Question.objects.create(
+            question_set=self.meeting, kind="open_text", text_de="A", text_en="A",
+        )
+        self.other = QuestionSet.objects.create(room=self.room, title="Other")
+
+    def end(self):
+        services.start_meeting(self.meeting)
+        services.end_meeting(self.meeting)
+
+    def assertBlocked(self, r, detail):
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], detail)
+
+    def test_started_allows_edit_and_add(self):
+        services.start_meeting(self.meeting)
+        r = self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"text": {"de": "B"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        r = self.client.post(
+            "/api/questions/",
+            {"question_set": self.meeting.pk, "kind": "open_text", "text": {"de": "C"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201)
+
+    def test_started_delete_and_move_out_blocked(self):
+        services.start_meeting(self.meeting)
+        msg = "Items cannot be deleted during a meeting."
+        self.assertBlocked(self.client.delete(f"/api/questions/{self.q.pk}/"), msg)
+        r = self.client.post(
+            f"/api/questions/{self.q.pk}/move/", {"question_set": self.other.pk},
+            format="json",
+        )
+        self.assertBlocked(r, msg)
+
+    def test_ended_blocks_move_in_copy_reorders_add_after(self):
+        msg = "The meeting has ended."
+        src = Question.objects.create(
+            question_set=self.other, kind="open_text", text_de="S", text_en="S",
+        )
+        self.end()
+        r = self.client.post(
+            f"/api/questions/{src.pk}/move/", {"question_set": self.meeting.pk},
+            format="json",
+        )
+        self.assertBlocked(r, msg)
+        r = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/copy-questions/",
+            {"question_ids": [src.pk]}, format="json",
+        )
+        self.assertBlocked(r, msg)
+        r = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/reorder-outline/",
+            {"items": [{"type": "question", "id": self.q.pk}]}, format="json",
+        )
+        self.assertBlocked(r, msg)
+        r = self.client.post(
+            f"/api/question-sets/{self.meeting.pk}/reorder/",
+            {"question_ids": [self.q.pk]}, format="json",
+        )
+        self.assertBlocked(r, msg)
+        sc = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="X", text_en="X",
+        )
+        r = self.client.post(f"/api/questions/{sc.pk}/add-after/")
+        self.assertBlocked(r, msg)
+
+    def test_ended_blocks_section_writes(self):
+        msg = "The meeting has ended."
+        services.start_meeting(self.meeting)
+        r = self.client.post(
+            "/api/sections/",
+            {"question_set": self.meeting.pk, "title": {"de": "S"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 201)
+        sid = r.json()["id"]
+        services.end_meeting(self.meeting)
+        r = self.client.post(
+            "/api/sections/",
+            {"question_set": self.meeting.pk, "title": {"de": "T"}}, format="json",
+        )
+        self.assertBlocked(r, msg)
+        r = self.client.patch(
+            f"/api/sections/{sid}/", {"title": {"de": "U"}}, format="json",
+        )
+        self.assertBlocked(r, msg)
+        self.assertBlocked(self.client.delete(f"/api/sections/{sid}/"), msg)
+
+    def test_locked_options_blocked_unchanged_resend_passes(self):
+        from rooms import hooks
+        from rooms.models import AnswerOption
+        sc = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="X", text_en="X",
+        )
+        o1 = AnswerOption.objects.create(question=sc, text_de="a", text_en="a", position=0)
+        o2 = AnswerOption.objects.create(question=sc, text_de="b", text_en="b", position=1)
+        hooks.question_lock_checks.append(lambda q: "locked" if q.pk == sc.pk else None)
+        self.addCleanup(hooks.question_lock_checks.pop)
+
+        def opts(second="b"):
+            return [
+                {"id": o1.pk, "text": {"de": "a", "en": "a"}, "is_correct": False},
+                {"id": o2.pk, "text": {"de": second, "en": second}, "is_correct": False},
+            ]
+
+        url = f"/api/questions/{sc.pk}/"
+        r = self.client.patch(url, {"options": opts("changed")}, format="json")
+        self.assertBlocked(r, "locked")
+        r = self.client.patch(url, {"options": opts()}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_after_saved_hook_fires_on_create_and_update(self):
+        from rooms import hooks
+        seen = []
+        hooks.after_question_saved.append(lambda q: seen.append(q.pk))
+        self.addCleanup(hooks.after_question_saved.pop)
+        r = self.client.post(
+            "/api/questions/",
+            {"question_set": self.meeting.pk, "kind": "open_text", "text": {"de": "C"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(seen, [r.json()["id"]])
+        r = self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"text": {"de": "D"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(seen[-1], self.q.pk)

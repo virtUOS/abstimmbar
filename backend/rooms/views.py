@@ -719,6 +719,7 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
     def reorder(self, request, pk=None):
         """Persist a new question order: ``{"question_ids": [3, 1, 2]}``."""
         question_set = self.get_object()
+        check_meeting_writable(question_set)
         ids = request.data.get("question_ids")
         questions = {q.pk: q for q in question_set.questions.all()}
         if not isinstance(ids, list) or set(ids) != set(questions):
