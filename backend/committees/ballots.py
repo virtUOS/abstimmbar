@@ -181,7 +181,8 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
         or (ballot.secret and not secret_tally.has(ballot.pk))
     ):
         raise ValidationError("The vote is closed.", code="closed")
-    if invite_state(invite) != "active":
+    # Judged at the ballot's item: a member removed "after" it still votes.
+    if invite_state(invite, ballot.question) != "active":
         raise ValidationError("The link is not valid.", code="invalid_link")
     group_id = (
         ballot.seats.filter(member_id=invite.member_id)

@@ -16,15 +16,26 @@ def number_of(meeting: QuestionSet, question: Question) -> int:
     return [q.pk for q in agenda(meeting)].index(question.pk) + 1
 
 
-def _numbers(meeting: QuestionSet) -> dict[int, int]:
+def numbers(meeting: QuestionSet) -> dict[int, int]:
+    """Question pk → 1-based item number."""
     return {q.pk: n for n, q in enumerate(agenda(meeting), start=1)}
+
+
+_numbers = numbers
+
+# A substitution's `from_question` or a removal's `removed_after` can point
+# at an item that is no longer on this agenda (moved to another set while
+# the meeting was a draft). Such a reference counts as "from the start of
+# the meeting": the substitution covers every item, the removal applies to
+# every item. Never a KeyError for the whole meeting.
+_OFF_AGENDA = 0
 
 
 def _holder(seat, substitution, numbers, number) -> CommitteeMember:
     if substitution is None:
         return seat
     start = substitution.from_question_id
-    if start is None or numbers[start] <= number:
+    if start is None or numbers.get(start, _OFF_AGENDA) <= number:
         return substitution.deputy
     return seat
 
@@ -36,7 +47,7 @@ def _present(invite, numbers, number) -> bool:
         return True
     # Removed after an item: still present up to and including that item.
     after = invite.removed_after_id
-    return after is not None and numbers[after] >= number
+    return after is not None and numbers.get(after, _OFF_AGENDA) >= number
 
 
 def seat_holder(

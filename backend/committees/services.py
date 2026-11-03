@@ -12,13 +12,14 @@ from django.utils import timezone
 
 from rooms.models import Question, QuestionSet, Room
 
-from . import versions
+from . import eligibility, versions
 from .presence import presence
 from .models import (
     Ballot,
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
+    MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
 )
@@ -362,8 +363,9 @@ def readmit_invite(invite: MeetingInvite):
     return invite
 
 
-def invite_state(invite: MeetingInvite) -> str:
-    """State of an existing invite (see resolve_invite)."""
+def invite_state(invite: MeetingInvite, question: Question | None = None) -> str:
+    """State of an existing invite (see resolve_invite); a removal "after
+    an item" is judged at `question` (default: the item currently shown)."""
     meeting = invite.meeting
     if meeting.meeting_state == State.ENDED:
         return "ended"
@@ -373,9 +375,36 @@ def invite_state(invite: MeetingInvite) -> str:
         _seat_q(meeting), pk=invite.member_id, room_id=meeting.room_id,
     ).exists():
         return "inactive"
-    if invite.removed_at is not None:
+    if _removed_for(invite, question):
         return "removed"
     return "waiting" if meeting.meeting_state == State.DRAFT else "active"
+
+
+def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
+    """Whether a removal applies at `question` (default: the item currently
+    shown). Removed without an item: always. Removed after an item: only
+    once the agenda is past it — up to and including that item (and while
+    no item is shown) the member is still there, as in eligibility. An
+    item that left the agenda counts as removal from the start (§ 5.4,
+    see eligibility._present)."""
+    if invite.removed_at is None:
+        return False
+    after = invite.removed_after_id
+    if after is None:
+        return True
+    agenda_numbers = eligibility.numbers(invite.meeting)
+    if after not in agenda_numbers:
+        return True
+    if question is not None:
+        current = question.pk
+    else:
+        current = (
+            MeetingControl.objects.filter(meeting_id=invite.meeting_id)
+            .values_list("current_question_id", flat=True).first()
+        )
+    if current is None:
+        return False
+    return agenda_numbers.get(current, 0) > agenda_numbers[after]
 
 
 def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:

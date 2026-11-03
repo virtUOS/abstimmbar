@@ -805,8 +805,18 @@ class MeetingApiTests(MeetingFixture, ApiBase):
             format="json",
         )
         self.assertEqual(r.status_code, 200, r.content)
-        self.assertEqual(r.json()["state"], "removed")
+        # Removed "after" an item: still there until the agenda passes it.
+        self.assertEqual(r.json()["state"], "active")
         self.assertEqual(r.json()["removed_after"], q.pk)
+        q2 = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text="Q2", position=q.position + 1,
+        )
+        self.assertEqual(self.client.post(
+            self.base + "show/", {"question": q2.pk}, format="json",
+        ).status_code, 200)
+        r = self.client.get(self.base)
+        state = next(i["state"] for i in r.json()["invites"] if i["id"] == invite.pk)
+        self.assertEqual(state, "removed")
         r = self.client.post(self.base + f"invites/{invite.pk}/readmit/")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["state"], "active")
@@ -1865,3 +1875,66 @@ class StatusTests(BallotBase):
         text = render_prometheus()
         self.assertIn("abstimmbar_committee_meetings_running 1", text)
         self.assertIn("abstimmbar_committee_secret_ballots_open 0", text)
+
+
+class RemovedAfterItemTests(BallotBase):
+    """A member removed "after item n" keeps voting up to and including n."""
+
+    def test_votes_at_that_item_not_after(self):
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        self.assertEqual(services.invite_state(self.invite(self.bert)), "active")
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.assertTrue(ballot.seats.filter(member=self.bert).exists())
+        resp = self.client.get(f"/g/{self.invite(self.bert).token}/me/").json()
+        self.assertEqual((resp["state"], resp["eligible"]), ("active", True))
+        resp = self.client.get(f"/g/{self.invite(self.bert).token}/")
+        self.assertFalse(resp.context["invalid"])
+        self.vote(self.bert, ballot, {"choice": "yes"})
+        result = ballots.close_ballot(ballot).result
+        self.assertEqual(self.group_result(result, self.ga)["eligible"], 2)
+        self.assertEqual(self.group_result(result, self.ga)["voted"], 1)
+
+        ballot = ballots.open_ballot(self.meeting, self.q2)
+        self.assertFalse(ballot.seats.filter(member=self.bert).exists())
+        self.assertEqual(services.invite_state(self.invite(self.bert)), "removed")
+        self.assertCode("invalid_link", self.vote, self.bert, ballot, {"text": "x"})
+
+    def test_vote_via_api_at_that_item(self):
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        resp = self.client.post(
+            f"/g/{self.invite(self.bert).token}/vote/",
+            {"ballot": ballot.pk, "answer": {"choice": "no"}}, format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_removed_after_item_off_agenda_counts_from_start(self):
+        services.remove_invite(self.invite(self.bert), after_question=self.q2)
+        other = QuestionSet.objects.create(room=self.room, title="Other")
+        Question.objects.filter(pk=self.q2.pk).update(question_set=other)
+        self.assertEqual(services.invite_state(self.invite(self.bert)), "removed")
+        self.assertNotIn(self.bert, eligibility.eligible_voters(self.meeting, self.q1))
+
+
+class DeputyPresenceTests(EligibilityTests):
+    """Deferred Task-4 cases: a seat held by a deputy is empty when the
+    deputy is not present — the absent member never falls back in."""
+
+    def test_deputy_removed_leaves_seat_empty(self):
+        services.add_substitution(self.meeting, self.anna, self.dora)
+        self.enter_all()
+        services.remove_invite(self.invite(self.dora))
+        self.assertEqual(self.voters(self.q1), ["Bert", "Ben"])
+
+    def test_deputy_not_entered_leaves_seat_empty(self):
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)
+        self.assertEqual(self.voters(self.q1), ["Anna", "Bert", "Ben"])
+        self.assertEqual(self.voters(self.q2), ["Bert", "Ben"])
+
+    def test_substitution_from_item_off_agenda_covers_whole_meeting(self):
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q3)
+        self.enter_all()
+        other = QuestionSet.objects.create(room=self.room, title="Other")
+        Question.objects.filter(pk=self.q3.pk).update(question_set=other)
+        self.assertEqual(self.voters(self.q1), ["Bert", "Dora", "Ben"])
+
