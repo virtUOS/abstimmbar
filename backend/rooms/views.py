@@ -15,8 +15,21 @@ import nh3
 from basicbar_integrations import ai
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import transaction
-from django.db.models import Case, Count, Exists, IntegerField, Max, OuterRef, Q, Sum, When
+from django.db import router, transaction
+from django.db.models import (
+    Case,
+    Count,
+    Exists,
+    IntegerField,
+    Max,
+    OuterRef,
+    ProtectedError,
+    Q,
+    RestrictedError,
+    Sum,
+    When,
+)
+from django.db.models.deletion import Collector
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import strip_tags
@@ -35,6 +48,7 @@ from . import ai_generate, ai_prompts, generation, set_types
 from .images import InvalidImageError, normalize_image
 from .models import GenerationJob, Question, QuestionSet, Room, Section
 from .serializers import (
+    AgendaLocked,
     QuestionSerializer,
     QuestionSetSerializer,
     RoomSerializer,
@@ -90,6 +104,26 @@ def _i18n_icontains(field, query):
             for lang in settings.MODELTRANSLATION_LANGUAGES
         ),
     )
+
+
+QUESTION_REFERENCED = (
+    "This item is still referenced (substitution or attendance) and cannot be deleted."
+)
+QUESTION_REFERENCED_MOVE = (
+    "This item is still referenced (substitution or attendance) and cannot be moved."
+)
+
+
+def _is_referenced(question) -> bool:
+    """Whether deleting `question` would hit a RESTRICT/PROTECT reference
+    (e.g. a committee meeting's substitution or removal "after item n") —
+    such an item must not leave its set either. Collects only, deletes
+    nothing."""
+    try:
+        Collector(using=router.db_for_write(Question)).collect([question])
+    except (RestrictedError, ProtectedError):
+        return True
+    return False
 
 
 def _touch(question_set):
@@ -867,7 +901,13 @@ class QuestionViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         question_set = instance.question_set
         check_meeting_writable(question_set, deleting=True)
-        instance.delete()
+        try:
+            with transaction.atomic():
+                instance.delete()
+        except (RestrictedError, ProtectedError) as exc:
+            # Apps building on rooms may pin an item (e.g. a committee
+            # meeting's substitution "from item n"); rooms knows only that.
+            raise AgendaLocked(QUESTION_REFERENCED) from exc
         _touch(question_set)
 
     @action(detail=True, methods=["post"])
@@ -891,6 +931,8 @@ class QuestionViewSet(viewsets.ModelViewSet):
         # is an agenda write.
         check_meeting_writable(source, deleting=True)
         check_meeting_writable(target)
+        if source.type == QuestionSet.SetType.MEETING and _is_referenced(question):
+            raise AgendaLocked(QUESTION_REFERENCED_MOVE)
         # The target's set type must allow this kind (#75; e.g. mindmap is
         # live-poll only) — same rule as copy-questions.
         if question.kind not in set_types.allowed_kinds(target.type):

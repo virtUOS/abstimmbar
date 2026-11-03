@@ -1938,3 +1938,156 @@ class DeputyPresenceTests(EligibilityTests):
         Question.objects.filter(pk=self.q3.pk).update(question_set=other)
         self.assertEqual(self.voters(self.q1), ["Bert", "Dora", "Ben"])
 
+
+class ConsoleGuardTests(BallotBase):
+    def url(self, suffix):
+        return f"/api/meetings/{self.meeting.pk}/{suffix}"
+
+    def post(self, suffix, data=None):
+        return self.client.post(self.url(suffix), data or {}, format="json")
+
+    def test_show_blocked_while_another_vote_is_open(self):
+        self.assertEqual(self.post(f"items/{self.q1.pk}/open/").status_code, 201)
+        for question in (self.q2.pk, None):
+            resp = self.post("show/", {"question": question})
+            self.assertEqual(resp.status_code, 400)
+            self.assertEqual(resp.data["code"], "vote_open")
+            self.assertEqual(resp.data["detail"], "Another vote is still open.")
+        self.assertEqual(self.meeting.meeting_control.current_question, self.q1)
+        self.assertEqual(self.post("show/", {"question": self.q1.pk}).status_code, 200)
+
+    def test_show_reset_release_need_running_meeting(self):
+        ballot = ballots.open_ballot(self.meeting, self.q2)
+        self.vote(self.anna, ballot, {"text": "A"})
+        ballots.close_ballot(ballot)
+        services.end_meeting(self.meeting)
+        for suffix, data in (
+            ("show/", {"question": self.q1.pk}),
+            (f"ballots/{ballot.pk}/reset/", {"comment": ""}),
+            (f"ballots/{ballot.pk}/release-texts/", None),
+        ):
+            resp = self.post(suffix, data)
+            self.assertEqual(resp.status_code, 400, suffix)
+            self.assertEqual(resp.data["code"], "not_started", suffix)
+            self.assertEqual(resp.data["detail"], "The meeting is not running.")
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertFalse(ballot.texts_released)
+
+    def test_show_in_draft_meeting(self):
+        draft = QuestionSet.objects.create(
+            room=self.room, title="Neu", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(question_set=draft, kind="resolution", text_de="X")
+        resp = self.client.post(
+            f"/api/meetings/{draft.pk}/show/", {"question": q.pk}, format="json",
+        )
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_started"))
+
+
+
+class ReferencedEditTests(BallotBase):
+    """Deletes and edits that would break vote data or meeting references
+    answer 400 instead of failing (500) or silently cascading."""
+
+    def draft(self):
+        meeting = QuestionSet.objects.create(
+            room=self.room, title="Entwurf", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(question_set=meeting, kind="resolution", text_de="X")
+        return meeting, q
+
+    def test_delete_item_referenced_by_substitution_or_removal(self):
+        meeting, q = self.draft()
+        services.add_substitution(meeting, self.anna, self.dora, from_question=q)
+        resp = self.client.delete(f"/api/questions/{q.pk}/")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(
+            resp.json()["detail"],
+            "This item is still referenced (substitution or attendance) and cannot be deleted.",
+        )
+        MeetingSubstitution.objects.filter(meeting=meeting).delete()
+        services.ensure_invites(meeting)
+        services.remove_invite(meeting.invites.get(member=self.bert), after_question=q)
+        self.assertEqual(self.client.delete(f"/api/questions/{q.pk}/").status_code, 400)
+        self.assertTrue(Question.objects.filter(pk=q.pk).exists())
+
+    def test_move_of_referenced_item_blocked(self):
+        meeting, q = self.draft()
+        services.add_substitution(meeting, self.anna, self.dora, from_question=q)
+        other = QuestionSet.objects.create(
+            room=self.room, title="Other", type=QuestionSet.SetType.MEETING,
+        )
+        resp = self.client.post(
+            f"/api/questions/{q.pk}/move/", {"question_set": other.pk}, format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertIn("cannot be moved", resp.json()["detail"])
+        q.refresh_from_db()
+        self.assertEqual(q.question_set_id, meeting.pk)
+        unreferenced = Question.objects.create(
+            question_set=meeting, kind="resolution", text_de="Y",
+        )
+        resp = self.client.post(
+            f"/api/questions/{unreferenced.pk}/move/", {"question_set": other.pk},
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_delete_group_that_took_part_in_votes(self):
+        ballots.close_ballot(ballots.open_ballot(self.meeting, self.q1))
+        services.end_meeting(self.meeting)
+        CommitteeMember.objects.filter(group=self.gb).update(group=self.ga)
+        resp = self.client.delete(f"/api/committee-groups/{self.gb.pk}/")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(
+            resp.json()["detail"], "This group took part in votes and cannot be deleted.",
+        )
+        self.assertTrue(CommitteeGroup.objects.filter(pk=self.gb.pk).exists())
+
+    def test_delete_member_who_took_part_in_votes(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        ballots.close_ballot(ballot)
+        services.end_meeting(self.meeting)
+        resp = self.client.delete(f"/api/committee-members/{self.ben.pk}/")
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(
+            resp.json()["detail"], "This member took part in votes and cannot be deleted.",
+        )
+        self.assertTrue(BallotSeat.objects.filter(member=self.ben).exists())
+        # A deputy without seats can go.
+        resp = self.client.delete(f"/api/committee-members/{self.dora.pk}/")
+        self.assertEqual(resp.status_code, 204)
+
+    def test_delete_member_with_named_vote(self):
+        self.q1.named_vote = True
+        self.q1.save()
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.ben, ballot, {"choice": "yes"})
+        BallotSeat.objects.filter(member=self.ben).delete()  # only the named vote is left
+        resp = self.client.delete(f"/api/committee-members/{self.ben.pk}/")
+        self.assertEqual(resp.status_code, 400)
+        self.assertTrue(NamedVote.objects.filter(member=self.ben).exists())
+
+    def test_delete_member_after_reset_allowed(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        ballots.reset_ballot(ballot, "")
+        resp = self.client.delete(f"/api/committee-members/{self.dora.pk}/")
+        self.assertEqual(resp.status_code, 204)
+
+    def test_role_or_group_change_blocked_while_running(self):
+        url = f"/api/committee-members/{self.bert.pk}/"
+        for data in ({"role": "deputy"}, {"group": self.gb.pk}):
+            resp = self.client.patch(url, data, format="json")
+            self.assertEqual(resp.status_code, 400, data)
+            self.assertEqual(
+                resp.json()["detail"],
+                "Members cannot change role or group during a running meeting.",
+            )
+        self.bert.refresh_from_db()
+        self.assertEqual((self.bert.role, self.bert.group_id), ("voting", self.ga.pk))
+        resp = self.client.patch(url, {"name": "Bert B.", "role": "voting"}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        services.end_meeting(self.meeting)
+        resp = self.client.patch(url, {"group": self.gb.pk}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.content)

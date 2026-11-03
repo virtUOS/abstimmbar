@@ -210,6 +210,9 @@ export default function MeetingAgenda({
           const text = stripHtml(item.text).trim();
           const texts = current && item.kind === "open_text" ? data.texts : null;
           const ballot = current ? shown?.ballot ?? null : null;
+          // The ballot pages follow the shown item: while a vote is open,
+          // showing another item would hide it from every voter.
+          const showBlocked = data.open_ballot !== null && item.ballot_status !== "open";
           return (
             <li
               key={item.id}
@@ -222,7 +225,8 @@ export default function MeetingAgenda({
             >
               <button
                 type="button"
-                disabled={busy || !running}
+                disabled={busy || !running || showBlocked}
+                title={running && showBlocked ? t("Another vote is still open.") : undefined}
                 aria-current={current ? "true" : undefined}
                 onClick={() => void act(() => api.showItem(setId, item.id))}
                 className="flex min-w-0 items-start gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"

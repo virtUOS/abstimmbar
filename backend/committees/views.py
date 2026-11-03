@@ -8,7 +8,7 @@ from typing import ClassVar
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count
+from django.db.models import Count, ProtectedError, RestrictedError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
@@ -28,11 +28,13 @@ from rooms.models import Question, QuestionSet
 from . import ballots, live, payloads, services
 from .models import (
     Ballot,
+    BallotSeat,
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
     MeetingControl,
     MeetingInvite,
+    NamedVote,
 )
 from .serializers import (
     CommitteeGroupSerializer,
@@ -94,7 +96,14 @@ class CommitteeGroupViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 {"detail": "Move or remove the group's members first."},
             )
-        instance.delete()
+        try:
+            with transaction.atomic():
+                instance.delete()
+        except (RestrictedError, ProtectedError) as exc:
+            # Seats and texts of past votes keep their group (RESTRICT).
+            raise ValidationError(
+                {"detail": "This group took part in votes and cannot be deleted."},
+            ) from exc
 
     @action(detail=False, methods=["post"], url_path="apply-template")
     def apply_template(self, request):
@@ -134,7 +143,40 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
         except IntegrityError as exc:
             raise ValidationError({"detail": "Member could not be saved."}) from exc
 
-    perform_update = perform_create
+    def perform_update(self, serializer):
+        # From the database: the serializer's validate() already set the
+        # new values on the instance.
+        role, group_id, room_id = CommitteeMember.objects.values_list(
+            "role", "group_id", "room_id",
+        ).get(pk=serializer.instance.pk)
+        data = serializer.validated_data
+        changes_seat = (
+            ("role" in data and data["role"] != role)
+            or ("group" in data and data["group"].pk != group_id)
+        )
+        if changes_seat and QuestionSet.objects.filter(
+            room_id=room_id, type=QuestionSet.SetType.MEETING,
+            meeting_state=QuestionSet.MeetingState.STARTED,
+        ).exists():
+            # Seats, deputies and open ballots follow role and group.
+            raise ValidationError(
+                {"detail": "Members cannot change role or group during a running meeting."},
+            )
+        self.perform_create(serializer)
+
+    def perform_destroy(self, instance):
+        voted = (
+            BallotSeat.objects.filter(member=instance)
+            .exclude(ballot__status=Ballot.Status.DISCARDED).exists()
+            or NamedVote.objects.filter(member=instance)
+            .exclude(ballot__status=Ballot.Status.DISCARDED).exists()
+        )
+        if voted:
+            # Deleting would cascade into their seats and named votes.
+            raise ValidationError(
+                {"detail": "This member took part in votes and cannot be deleted."},
+            )
+        instance.delete()
 
     @action(detail=False, methods=["get"])
     def known(self, request):
@@ -378,6 +420,15 @@ class MeetingViewSet(viewsets.GenericViewSet):
     def show(self, request, pk=None):
         meeting = self.get_object()
         question = self._question(meeting, request.data.get("question"), "question")
+        if meeting.meeting_state != QuestionSet.MeetingState.STARTED:
+            raise ValidationError({"detail": "The meeting is not running.", "code": "not_started"})
+        open_ballot = ballots.open_ballot_of(meeting)
+        if open_ballot is not None and (
+            question is None or open_ballot.question_id != question.pk
+        ):
+            # The ballot pages follow the shown item: switching away would
+            # hide the open vote from every voter.
+            raise ValidationError({"detail": "Another vote is still open.", "code": "vote_open"})
         control, _ = MeetingControl.objects.get_or_create(meeting=meeting)
         control.current_question = question
         control.save(update_fields=["current_question"])

@@ -121,6 +121,12 @@ def abort_stale(meeting: QuestionSet) -> None:
             _notify(meeting)
 
 
+def _check_running(meeting: QuestionSet) -> None:
+    state = QuestionSet.objects.values_list("meeting_state", flat=True).get(pk=meeting.pk)
+    if state != QuestionSet.MeetingState.STARTED:
+        raise ValidationError("The meeting is not running.", code="not_started")
+
+
 def open_ballot_of(meeting: QuestionSet) -> Ballot | None:
     abort_stale(meeting)
     return _meeting_ballots(meeting).filter(status=Ballot.Status.OPEN).first()
@@ -288,6 +294,7 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
     comment = (comment or "").strip()
     if len(comment) > MAX_COMMENT_LENGTH:
         raise ValidationError("The comment is too long.", code="invalid")
+    _check_running(ballot.question.question_set)
     abort_stale(ballot.question.question_set)
     locked = _locked(ballot.pk)
     if locked is None or locked.status not in (Ballot.Status.OPEN, Ballot.Status.CLOSED):
@@ -311,6 +318,7 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
 
 
 def release_texts(ballot: Ballot) -> Ballot:
+    _check_running(ballot.question.question_set)
     if ballot.status != Ballot.Status.CLOSED:
         raise ValidationError("The vote is not closed.", code="not_closed")
     if ballot.question.kind != Question.Kind.OPEN_TEXT:
