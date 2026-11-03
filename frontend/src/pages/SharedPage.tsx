@@ -25,6 +25,7 @@ const KIND_LABEL_KEYS: Record<string, string> = {
   ordering: "Ordering",
   mindmap: "Mind map",
   matrix: "Four-field matrix",
+  resolution: "Resolution",
 };
 
 export default function SharedPage() {

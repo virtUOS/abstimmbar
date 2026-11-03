@@ -36,6 +36,7 @@ const KIND_LABELS: Record<string, string> = {
   ordering: "Ordering",
   mindmap: "Mind map",
   matrix: "Four-field matrix",
+  resolution: "Resolution",
 };
 // Literal Tailwind colour classes (so the JIT emits them) for chart segments.
 const PALETTE = [
@@ -240,6 +241,14 @@ function StatsSection() {
 
   return (
     <div className="space-y-8">
+      {stats.committee.meetings_running > 0 && (
+        <p role="alert" className="rounded-lg border-2 border-amber-500 bg-amber-50 px-4 py-3 font-semibold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+          {t(
+            "A committee meeting is in progress — please do not restart the server now. Open secret votes: {{n}}",
+            { n: stats.committee.secret_ballots_open },
+          )}
+        </p>
+      )}
       {/* All-time totals — not affected by the time range below. */}
       <section>
         <h2 className="mb-3 text-lg font-semibold">{t("Overview (all time)")}</h2>

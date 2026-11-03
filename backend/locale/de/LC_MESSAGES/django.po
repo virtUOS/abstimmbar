@@ -641,23 +641,114 @@ msgstr "Die Bewertung läuft – jetzt können keine Karten hinzugefügt oder en
 msgid "Only one point per card."
 msgstr "Nur ein Punkt pro Karte."
 
-#: committees/templates/committees/entry.html
+#: committees/templates/committees/ballot.html committees/views.py
 msgid "This link is not valid (any more). Please contact the chair of the meeting."
 msgstr "Dieser Link ist nicht (mehr) gültig. Bitte wenden Sie sich an die Sitzungsleitung."
 
-#: committees/templates/committees/entry.html
+#: committees/templates/committees/ballot.html
 msgid "You are taking part as an observer. You cannot vote."
 msgstr "Sie nehmen als Beobachter*in teil und können nicht abstimmen."
 
-#: committees/templates/committees/entry.html
+#: committees/templates/committees/ballot.html
 #, python-format
-msgid "You are taking part as %(name)s (%(group)s)."
-msgstr "Sie nehmen teil als %(name)s (%(group)s)."
+msgid "You are voting as %(name)s (%(group)s)."
+msgstr "Sie stimmen als %(name)s (%(group)s)."
 
-#: committees/templates/committees/entry.html
-msgid "The meeting has not started yet. Please reload this page when it begins."
-msgstr "Die Sitzung hat noch nicht begonnen. Bitte laden Sie diese Seite neu, sobald sie beginnt."
+#: committees/templates/committees/ballot.html committees/views.py
+msgid "The meeting has not started yet. This page updates by itself."
+msgstr "Die Sitzung hat noch nicht begonnen. Diese Seite aktualisiert sich von selbst."
 
-#: committees/templates/committees/entry.html
-msgid "The meeting is in progress. Votes will appear here."
-msgstr "Die Sitzung läuft. Abstimmungen erscheinen hier."
+#: committees/templates/committees/ballot.html committees/views.py
+msgid "Please wait for the next vote."
+msgstr "Bitte warten Sie auf die nächste Abstimmung."
+
+#: committees/views.py
+#, python-brace-format
+msgid "Item {number}"
+msgstr "TOP {number}"
+
+#: committees/views.py
+#, python-brace-format
+msgid "Version {number}"
+msgstr "Fassung {number}"
+
+#: committees/views.py
+msgid "changed"
+msgstr "geändert"
+
+#: committees/views.py
+msgid "One tap casts your vote immediately and for good."
+msgstr "Ein Tipp gibt Ihre Stimme sofort und endgültig ab."
+
+#: committees/views.py
+msgid "Your vote is final once you cast it."
+msgstr "Ihre Stimme ist endgültig, sobald Sie sie abgeben."
+
+#: committees/views.py
+msgid "Secret ballot"
+msgstr "Geheime Abstimmung"
+
+#: committees/views.py
+msgid "Roll-call vote – your vote is stored with your name."
+msgstr "Namentliche Abstimmung – Ihre Stimme wird mit Ihrem Namen gespeichert."
+
+#: committees/views.py
+msgid "Yes"
+msgstr "Ja"
+
+#: committees/views.py
+msgid "No"
+msgstr "Nein"
+
+#: committees/views.py
+msgid "Abstain"
+msgstr "Enthaltung"
+
+#: committees/views.py
+msgid "Cast vote"
+msgstr "Stimme abgeben"
+
+#: committees/views.py
+msgid "Your answer"
+msgstr "Ihre Antwort"
+
+#: committees/views.py
+msgid "Your writing style may also allow conclusions about you."
+msgstr "Auch Ihr Schreibstil kann Rückschlüsse auf Sie erlauben."
+
+#: committees/views.py
+msgid "Your vote has been cast."
+msgstr "Ihre Stimme ist abgegeben."
+
+#: committees/views.py
+msgid "You are not eligible to vote in this ballot."
+msgstr "Sie sind für diese Abstimmung nicht stimmberechtigt."
+
+#: committees/views.py
+msgid "Connection lost – reconnecting …"
+msgstr "Verbindung unterbrochen – wird wiederhergestellt …"
+
+#: committees/views.py
+msgid "Your vote could not be cast. Please try again."
+msgstr "Ihre Stimme konnte nicht abgegeben werden. Bitte versuchen Sie es erneut."
+
+#: committees/views.py
+msgid "Voting is open"
+msgstr "Abstimmung läuft"
+
+#: committees/views.py
+#, python-brace-format
+msgid "{voted} of {eligible} have voted"
+msgstr "{voted} von {eligible} haben abgestimmt"
+
+#: committees/views.py
+msgid "Result"
+msgstr "Ergebnis"
+
+#: committees/views.py
+msgid "Total"
+msgstr "Gesamt"
+
+#: committees/views.py
+msgid "Answers"
+msgstr "Antworten"

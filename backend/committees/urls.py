@@ -3,6 +3,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from .live import manager_stream
 from .views import (
     CommitteeGroupViewSet,
     CommitteeMemberViewSet,
@@ -26,6 +27,7 @@ def _meeting(name, actions, suffix=""):
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("meetings/<int:pk>/stream/", manager_stream, name="meeting-stream"),
     _meeting("detail", {"get": "retrieve"}),
     _meeting("start", {"post": "start"}, "start/"),
     _meeting("end", {"post": "end"}, "end/"),
@@ -38,5 +40,14 @@ urlpatterns = [
     _meeting(
         "substitution-detail", {"delete": "delete_substitution"},
         "substitutions/<int:sub_id>/",
+    ),
+    _meeting("control", {"get": "control"}, "control/"),
+    _meeting("show", {"post": "show"}, "show/"),
+    _meeting("item-open", {"post": "open_item"}, "items/<int:question_id>/open/"),
+    _meeting("ballot-close", {"post": "close_ballot"}, "ballots/<int:ballot_id>/close/"),
+    _meeting("ballot-reset", {"post": "reset_ballot"}, "ballots/<int:ballot_id>/reset/"),
+    _meeting(
+        "ballot-release-texts", {"post": "release_texts"},
+        "ballots/<int:ballot_id>/release-texts/",
     ),
 ]

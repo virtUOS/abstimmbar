@@ -330,6 +330,9 @@ class Question(TimeStampedModel):
         # Four-field matrix (stage 1): cards placed in the fields of a 2-axis
         # cross; live MatrixCard rows, not Votes; no AnswerOptions.
         MATRIX = "matrix", "Four-field matrix"
+        # Committee meetings only: fixed answers yes/no/abstain, no
+        # AnswerOptions (the ballot lives in the committees app).
+        RESOLUTION = "resolution", "Resolution"
 
     # Kinds whose answers are AnswerOption rows (vs. free text).
     CHOICE_KINDS = ("single_choice", "multiple_choice", "likert")
@@ -337,7 +340,7 @@ class Question(TimeStampedModel):
     # is deliberately NOT here: its terms live in their own tables.
     TEXT_KINDS = ("word_cloud", "open_text")
     # Kinds that never have AnswerOption rows.
-    OPTIONLESS_KINDS = (*TEXT_KINDS, "mindmap", "matrix")
+    OPTIONLESS_KINDS = (*TEXT_KINDS, "mindmap", "matrix", "resolution")
 
     question_set = models.ForeignKey(
         QuestionSet, on_delete=models.CASCADE, related_name="questions"
@@ -350,6 +353,9 @@ class Question(TimeStampedModel):
         related_name="questions",
     )
     kind = models.CharField(max_length=20, choices=Kind.choices)
+    # Committee meetings only: record each member's vote with their name
+    # (listed in the minutes). False = secret ballot.
+    named_vote = models.BooleanField(default=False)
     # Sanitized HTML from the WYSIWYG editor (ADR-0007); the API layer is the
     # only writer and always passes it through the nh3 allowlist.
     text = models.TextField(blank=True)

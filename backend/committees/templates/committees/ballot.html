@@ -1,0 +1,489 @@
+{% extends "live/base.html" %}
+{% load i18n %}
+{# SPDX-License-Identifier: Apache-2.0 — Copyright 2026 Universität Osnabrück (virtUOS) #}
+{# Personal ballot page of a committee meeting (/g/<token>/): ballot for #}
+{# members, beamer-like view for observers. Framework-free like the     #}
+{# participant page; follows the meeting over SSE.                      #}
+{% block title %}Abstimmbar{% endblock %}
+{% block content %}
+{% if invalid %}
+<p class="center soft">{% trans "This link is not valid (any more). Please contact the chair of the meeting." %}</p>
+{% else %}
+<style>
+  .who { margin-top: 18px; }
+  .conn { margin-top: 14px; padding: 8px 12px; border: 1px dashed var(--field-line);
+          border-radius: 10px; color: var(--ink-soft); font-size: 14px; }
+  #view { margin-top: 18px; }
+  .badges { display: flex; flex-wrap: wrap; gap: 6px; }
+  .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px;
+           font-weight: 700; background: var(--brand-soft); color: var(--brand-strong); }
+  .badge.version { background: transparent; border: 1px solid var(--line); color: var(--ink-soft); }
+  .notice { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line);
+            border-radius: 12px; font-size: 14px; }
+  .notice strong { display: block; }
+  .notice .soft { margin-top: 4px; }
+  button.choice { text-align: center; }
+  button.abstain { margin-top: 18px; text-align: center; }
+  label.opt { display: flex; gap: 12px; align-items: center; min-height: 52px; margin-top: 10px;
+              padding: 12px 16px; border: 1px solid var(--line); border-radius: 14px;
+              background: var(--surface); font-weight: 600; cursor: pointer; }
+  label.opt.checked { background: var(--brand-soft); border-color: var(--brand-strong); }
+  label.opt input { width: 22px; height: 22px; flex: none; margin: 0;
+                    accent-color: var(--brand-strong); }
+  textarea.answer { font: inherit; width: 100%; min-height: 128px; margin-top: 10px;
+                    padding: 12px 16px; border-radius: 14px; resize: vertical; }
+  textarea.answer:focus-visible { outline: 2px solid var(--brand-strong); }
+  .error { margin-top: 12px; color: var(--danger-strong); font-size: 14px; }
+  h2 { font-size: 16px; margin-top: 22px; }
+  h3 { font-size: 14px; margin-top: 16px; color: var(--ink-soft); }
+  .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 6px 0;
+         font-size: 15px; }
+  .row .n { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .bar { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--line);
+         overflow: hidden; }
+  .bar > span { display: block; height: 100%; background: var(--brand-strong); }
+  .text-card { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
+               border-radius: 12px; white-space: pre-wrap; }
+  .text-card .soft { display: block; margin-bottom: 4px; white-space: normal; }
+</style>
+<p class="soft">{{ room_title }}</p>
+<h1>{{ meeting_title }}</h1>
+{% if scheduled_at %}<p class="soft">{{ scheduled_at|date:"DATETIME_FORMAT" }}</p>{% endif %}
+<p class="who" id="who">
+{% if is_observer %}{% trans "You are taking part as an observer. You cannot vote." %}
+{% else %}{% blocktrans with name=member.name group=group_name %}You are voting as {{ name }} ({{ group }}).{% endblocktrans %}{% endif %}
+</p>
+<p class="conn" id="conn" role="status" hidden></p>
+<section id="view" aria-live="polite">
+  <p class="soft">{% if state == "waiting" %}{% trans "The meeting has not started yet. This page updates by itself." %}{% else %}{% trans "Please wait for the next vote." %}{% endif %}</p>
+</section>
+{% endif %}
+{% endblock %}
+
+{% block script %}
+{% if not invalid %}
+{{ strings|json_script:"ballot-i18n" }}
+{{ config|json_script:"ballot-config" }}
+<script>
+(() => {
+  const S = JSON.parse(document.getElementById("ballot-i18n").textContent);
+  const CONFIG = JSON.parse(document.getElementById("ballot-config").textContent);
+  const BASE = "/g/" + encodeURIComponent(CONFIG.token) + "/";
+  const OBSERVER = CONFIG.observer;
+  const view = document.getElementById("view");
+  const conn = document.getElementById("conn");
+  const fill = (text, values) => text.replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
+
+  let snap = null;          // last public snapshot
+  let me = null;            // last /me/ answer (null while loading)
+  let meKey = null;         // meeting state + ballot id + status it was fetched for
+  let meSeq = 0;
+  let busy = false;         // a vote is being sent
+  let error = false;
+  let lastView = null;
+  let stopped = false;      // link turned invalid: no stream until it is valid again
+  let recheckTimer = null;  // slow /me/ poll while stopped (readmission)
+  const RECHECK_MS = 30000;
+  // Final states: the link never becomes valid again.
+  const FINAL_STATES = ["invalid", "ended", "unknown"];
+  // Unsent input survives re-renders (keyed by ballot id).
+  let draftBallot = null;
+  let draftOptions = new Set();
+  let draftText = "";
+
+  function el(tag, attrs, text) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  const linkValid = () => !me || me.state === "waiting" || me.state === "active";
+
+  // --- data -----------------------------------------------------------------
+
+  async function fetchMe() {
+    const seq = ++meSeq;
+    let data;
+    try {
+      const response = await fetch(BASE + "me/", { cache: "no-store" });
+      data = await response.json();
+    } catch (e) {
+      setTimeout(() => { if (seq === meSeq) fetchMe(); }, 3000);
+      return;
+    }
+    if (seq !== meSeq) return;
+    me = data.code ? { state: "invalid" } : data;
+    if (!linkValid()) stop();
+    else if (stopped) resume();
+    render();
+  }
+
+  function onSnapshot(data) {
+    snap = data;
+    const ballot = snap.item && snap.item.ballot;
+    const key = [snap.meeting.state, ballot ? ballot.id : "", ballot ? ballot.status : ""].join("|");
+    if (key !== meKey) {
+      meKey = key;
+      fetchMe();
+    }
+    render();
+  }
+
+  // --- rendering ------------------------------------------------------------
+
+  // What the view depends on. Members don't see the progress, so a burst of
+  // votes by others does not redraw (and reset) their half-filled ballot.
+  function viewKey() {
+    let shown = snap;
+    if (snap && snap.item && snap.item.ballot && !OBSERVER && snap.item.ballot.status === "open") {
+      shown = { ...snap, item: { ...snap.item, ballot: { ...snap.item.ballot, progress: null } } };
+    }
+    return JSON.stringify([shown, me, busy, error]);
+  }
+
+  function render() {
+    if (!snap && linkValid()) return; // keep the server-rendered first line
+    const key = viewKey();
+    if (key === lastView) return;
+    lastView = key;
+    view.replaceChildren();
+    const who = document.getElementById("who");
+    if (who) who.hidden = !linkValid();
+    if (!linkValid()) {
+      view.appendChild(el("p", { class: "soft" }, S.invalid));
+      return;
+    }
+    if (snap.meeting.state === "draft") {
+      view.appendChild(el("p", { class: "soft" }, S.notStarted));
+      return;
+    }
+    const item = snap.item;
+    if (!item) {
+      view.appendChild(el("p", { class: "soft" }, S.waitVote));
+      return;
+    }
+    const ballot = item.ballot;
+    if (OBSERVER) {
+      itemHead(item);
+      if (ballot && ballot.status === "open") progress(ballot.progress);
+      if (ballot && ballot.status === "closed") results(item, ballot);
+      return;
+    }
+    if (ballot && ballot.status === "open") {
+      const current = me && me.ballot === ballot.id;
+      if (current && me.voted) {
+        votedView();
+        return;
+      }
+      itemHead(item);
+      if (!current) return; // me/ is on its way
+      if (!me.eligible) {
+        view.appendChild(el("p", { class: "notice" }, S.notEligible));
+        return;
+      }
+      ballotForm(item, ballot);
+      return;
+    }
+    itemHead(item);
+    if (ballot && ballot.status === "closed") results(item, ballot);
+  }
+
+  function itemHead(item) {
+    const badges = el("div", { class: "badges" });
+    badges.appendChild(el("span", { class: "badge" }, fill(S.item, { number: item.number })));
+    if (item.version) {
+      let label = fill(S.version, { number: item.version });
+      if (item.changed) label += " · " + S.changed;
+      badges.appendChild(el("span", { class: "badge version" }, label));
+    }
+    view.appendChild(badges);
+    const text = el("div", { class: "question-text" });
+    text.innerHTML = item.text || ""; // sanitized when authored (like participant.html)
+    view.appendChild(text);
+  }
+
+  function votedView() {
+    const box = el("div", { class: "center" });
+    const icon = el("div", { class: "emoji" });
+    icon.innerHTML = '<svg class="ic" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>';
+    box.appendChild(icon);
+    box.appendChild(el("p", {}, S.voted));
+    view.appendChild(box);
+  }
+
+  // --- ballot ---------------------------------------------------------------
+
+  function ballotForm(item, ballot) {
+    if (draftBallot !== ballot.id) {
+      draftBallot = ballot.id;
+      draftOptions = new Set();
+      draftText = "";
+    }
+    const notice = el("div", { class: "notice" });
+    notice.appendChild(el("strong", {}, item.named ? S.named : S.secret));
+    const oneTap = item.kind === "resolution" || item.kind === "single_choice";
+    notice.appendChild(el("p", { class: "soft" }, oneTap ? S.hintTap : S.hintFinal));
+    view.appendChild(notice);
+
+    const send = (answer) => cast(ballot.id, answer);
+    if (item.kind === "resolution") {
+      for (const choice of ["yes", "no", "abstain"]) {
+        view.appendChild(button(S[choice], "choice", () => send({ choice })));
+      }
+    } else if (item.kind === "single_choice") {
+      for (const option of item.options) {
+        view.appendChild(button(option.text, "", () => send({ option: option.id })));
+      }
+      view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
+    } else if (item.kind === "multiple_choice") {
+      const submit = button(S.submit, "primary", () => send({ options: [...draftOptions] }));
+      const sync = () => { submit.disabled = busy || draftOptions.size === 0; };
+      for (const option of item.options) {
+        const label = el("label", { class: "opt" });
+        const box = el("input", { type: "checkbox" });
+        box.checked = draftOptions.has(option.id);
+        label.classList.toggle("checked", box.checked);
+        box.disabled = busy;
+        box.addEventListener("change", () => {
+          if (box.checked) draftOptions.add(option.id); else draftOptions.delete(option.id);
+          label.classList.toggle("checked", box.checked);
+          sync();
+        });
+        label.appendChild(box);
+        label.appendChild(el("span", {}, option.text));
+        view.appendChild(label);
+      }
+      view.appendChild(submit);
+      sync();
+      view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
+    } else if (item.kind === "open_text") {
+      const area = el("textarea", { class: "answer", maxlength: "2000", "aria-label": S.yourAnswer,
+                                    placeholder: S.yourAnswer });
+      area.value = draftText;
+      area.disabled = busy;
+      view.appendChild(area);
+      view.appendChild(el("p", { class: "soft", style: "margin-top:6px" }, S.styleHint));
+      const submit = button(S.submit, "primary", () => send({ text: draftText.trim() }));
+      const sync = () => { submit.disabled = busy || !draftText.trim(); };
+      area.addEventListener("input", () => { draftText = area.value; sync(); });
+      view.appendChild(submit);
+      sync();
+      view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
+    }
+    if (error) view.appendChild(el("p", { class: "error", role: "alert" }, S.error));
+  }
+
+  function button(text, cls, onClick) {
+    const node = el("button", { type: "button", class: cls }, text);
+    node.disabled = busy;
+    node.addEventListener("click", onClick);
+    return node;
+  }
+
+  async function cast(ballotId, answer) {
+    if (busy) return;
+    busy = true;
+    error = false;
+    // Disable right away, before any await: a double tap must not send twice.
+    for (const node of view.querySelectorAll("button, input, textarea")) node.disabled = true;
+    let response = null;
+    let code = null;
+    try {
+      response = await fetch(BASE + "vote/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ballot: ballotId, answer }),
+      });
+      code = response.ok ? null : (await response.json()).code;
+    } catch (e) {
+      response = null;
+    }
+    busy = false;
+    if (response && response.ok) {
+      me = { ...me, voted: true };
+    } else if (code === "already_voted") {
+      me = { ...me, voted: true };
+      fetchMe();
+    } else if (code === "invalid_link") {
+      fetchMe(); // removed (maybe only for now) or replaced: /me/ knows
+    } else if (code === "closed" || code === "not_eligible") {
+      fetchMe();
+    } else {
+      error = true;
+    }
+    render();
+  }
+
+  // --- results (shown after closing, like the beamer) ------------------------
+
+  function answerKeys(item, counts) {
+    let keys;
+    if (item.kind === "resolution") keys = ["yes", "no", "abstain"];
+    else if (item.kind === "open_text") keys = ["text", "abstain"];
+    else keys = item.options.map((o) => "opt:" + o.id).concat(["abstain"]);
+    for (const key of Object.keys(counts)) if (!keys.includes(key)) keys.push(key);
+    return keys;
+  }
+
+  function answerLabel(item, key) {
+    if (key === "yes" || key === "no" || key === "abstain") return S[key];
+    if (key === "text") return S.answers;
+    if (key.startsWith("opt:")) {
+      const option = item.options.find((o) => "opt:" + o.id === key);
+      if (option) return option.text;
+    }
+    return key;
+  }
+
+  function countRows(item, counts, withBars) {
+    const keys = answerKeys(item, counts);
+    const sum = keys.reduce((total, key) => total + (counts[key] || 0), 0);
+    const box = el("div");
+    for (const key of keys) {
+      const n = counts[key] || 0;
+      const row = el("div", { class: "row" });
+      row.appendChild(el("span", {}, answerLabel(item, key)));
+      row.appendChild(el("span", { class: "n" }, String(n)));
+      if (withBars) {
+        const bar = el("div", { class: "bar" });
+        const fillEl = el("span");
+        fillEl.style.width = (sum ? Math.round((n / sum) * 100) : 0) + "%";
+        bar.appendChild(fillEl);
+        row.appendChild(bar);
+      }
+      box.appendChild(row);
+    }
+    return box;
+  }
+
+  function results(item, ballot) {
+    const result = ballot.result;
+    if (!result) return;
+    view.appendChild(el("h2", {}, S.result));
+    view.appendChild(el("h3", {}, S.total));
+    view.appendChild(countRows(item, result.total.counts, true));
+    for (const group of result.groups) {
+      view.appendChild(el("h3", {}, group.name));
+      view.appendChild(countRows(item, group.counts, false));
+    }
+    if (ballot.texts && ballot.texts.length) {
+      const names = new Map((ballot.progress.groups || []).map((g) => [g.id, g.name]));
+      view.appendChild(el("h2", {}, S.answers));
+      for (const entry of ballot.texts) {
+        const card = el("div", { class: "text-card" });
+        card.appendChild(el("span", { class: "soft" }, names.get(entry.group) || ""));
+        card.appendChild(document.createTextNode(entry.text));
+        view.appendChild(card);
+      }
+    }
+  }
+
+  function progress(data) {
+    view.appendChild(el("h2", {}, S.voteOpen));
+    view.appendChild(el("p", { class: "soft" }, fill(S.progress, data)));
+    for (const group of data.groups) {
+      const row = el("div", { class: "row" });
+      row.appendChild(el("span", {}, group.name));
+      row.appendChild(el("span", { class: "n" }, group.voted + " / " + group.eligible));
+      const bar = el("div", { class: "bar" });
+      const fillEl = el("span");
+      fillEl.style.width = (group.eligible ? Math.round((group.voted / group.eligible) * 100) : 0) + "%";
+      bar.appendChild(fillEl);
+      row.appendChild(bar);
+      view.appendChild(row);
+    }
+  }
+
+  // --- live stream (keepalive/reconnect pattern of participant.html, #180) ---
+  // EventSource reconnects by itself after network errors, but on phones a
+  // connection can die silently after sleep, and a failed reconnect (e.g. a
+  // 502 during a restart, or 404 once the link is invalid) closes it for
+  // good. The server pings every 25 s; a stream quiet for longer than
+  // STALE_MS, or closed, is replaced.
+  const STALE_MS = 60000;
+  let source = null;
+  let lastSeen = 0;
+  let retryTimer = null;
+  let retryDelay = 1000;
+  const showLost = (lost) => { conn.textContent = S.reconnecting; conn.hidden = !lost || stopped; };
+
+  function connect() {
+    if (stopped) return;
+    if (source) source.close();
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    const es = new EventSource(BASE + "stream/");
+    source = es;
+    lastSeen = Date.now();
+    es.onopen = () => {
+      lastSeen = Date.now();
+      retryDelay = 1000;
+      showLost(false);
+    };
+    es.onmessage = (event) => {
+      lastSeen = Date.now();
+      showLost(false);
+      onSnapshot(JSON.parse(event.data));
+    };
+    es.addEventListener("ping", () => {
+      lastSeen = Date.now();
+    });
+    es.onerror = () => {
+      if (es !== source) return;
+      showLost(true);
+      if (es.readyState === EventSource.CLOSED) {
+        fetchMe(); // a 404 stream may mean the link is no longer valid
+        reconnectLater();
+      }
+    };
+  }
+  function reconnectLater() {
+    if (retryTimer || stopped) return;
+    retryTimer = setTimeout(connect, retryDelay);
+    retryDelay = Math.min(retryDelay * 2, 30000);
+  }
+  function ensureLive() {
+    if (!source || stopped) return;
+    if (source.readyState === EventSource.CLOSED || Date.now() - lastSeen > STALE_MS) {
+      showLost(true);
+      connect();
+    }
+  }
+  function stop() {
+    stopped = true;
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    if (source) source.close();
+    source = null;
+    conn.hidden = true;
+    // A removed or replaced member may be readmitted: ask /me/ now and then
+    // and pick the meeting up again without a reload.
+    clearTimeout(recheckTimer);
+    recheckTimer = null;
+    if (!me || !FINAL_STATES.includes(me.state)) {
+      recheckTimer = setTimeout(fetchMe, RECHECK_MS);
+    }
+  }
+  function resume() {
+    stopped = false;
+    clearTimeout(recheckTimer);
+    recheckTimer = null;
+    retryDelay = 1000;
+    meKey = null; // the next snapshot fetches /me/ afresh
+    connect();
+  }
+
+  connect();
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") ensureLive();
+  });
+  window.addEventListener("online", ensureLive);
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) connect();
+  });
+  setInterval(ensureLive, 15000);
+})();
+</script>
+{% endif %}
+{% endblock %}

@@ -12,7 +12,10 @@ from rest_framework import serializers
 
 from .models import Question, QuestionSet, Room
 
-_ALL_KINDS = tuple(kind for kind, _ in Question.Kind.choices)
+# Resolutions are a committee-meeting item only.
+_ALL_KINDS = tuple(
+    kind for kind, _ in Question.Kind.choices if kind != Question.Kind.RESOLUTION
+)
 
 SET_TYPES = {
     QuestionSet.SetType.LIVE_POLL: {
@@ -31,8 +34,8 @@ SET_TYPES = {
         "allowed_kinds": ("single_choice", "multiple_choice", "ordering", "open_text"),
     },
     QuestionSet.SetType.MEETING: {
-        # Committee sessions: simple resolutions and free-text input only.
-        "allowed_kinds": ("single_choice", "multiple_choice", "open_text"),
+        # Committee sessions: resolutions, opinion polls and free-text input.
+        "allowed_kinds": ("resolution", "single_choice", "multiple_choice", "open_text"),
     },
 }
 

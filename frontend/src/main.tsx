@@ -17,6 +17,7 @@ import ResultsPage from "./pages/ResultsPage";
 import RoomPage from "./pages/RoomPage";
 import SetPage from "./pages/SetPage";
 import SharedPage from "./pages/SharedPage";
+import MeetingConsole, { MeetingBeamerWindow } from "./committee/MeetingConsole";
 import { TranslationFormProvider } from "@basicbar/ui";
 import { TRANSLATION_CONTROLS_HOOK, translateContent } from "./translation";
 import { TourHost } from "./tour/TourController";
@@ -53,6 +54,9 @@ const router = createBrowserRouter([
       { path: "/sets/:setId/present", element: <PresentPage /> },
       // Self-paced quiz dashboard (concept §6.3), same fullscreen shell.
       { path: "/sets/:setId/quiz", element: <PresentPage mode="self_paced" /> },
+      // Committee meeting console and its panel-free beamer window.
+      { path: "/sets/:setId/meeting", element: <MeetingConsole /> },
+      { path: "/sets/:setId/meeting/beamer", element: <MeetingBeamerWindow /> },
     ],
   },
 ]);

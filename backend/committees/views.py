@@ -2,15 +2,19 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 import csv
 import io
+import json
 from typing import ClassVar
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count
-from django.http import HttpResponse
+from django.db.models import Count, ProtectedError, RestrictedError
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
+from django.utils.translation import gettext_lazy as _
+from django.views.decorators.csrf import csrf_exempt
+from django.views.decorators.http import require_GET, require_POST
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -21,8 +25,17 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import services
-from .models import CommitteeGroup, CommitteeMember, GroupTemplate, MeetingInvite
+from . import ballots, live, payloads, services
+from .models import (
+    Ballot,
+    BallotSeat,
+    CommitteeGroup,
+    CommitteeMember,
+    GroupTemplate,
+    MeetingControl,
+    MeetingInvite,
+    NamedVote,
+)
 from .serializers import (
     CommitteeGroupSerializer,
     CommitteeMemberSerializer,
@@ -83,7 +96,14 @@ class CommitteeGroupViewSet(viewsets.ModelViewSet):
             raise ValidationError(
                 {"detail": "Move or remove the group's members first."},
             )
-        instance.delete()
+        try:
+            with transaction.atomic():
+                instance.delete()
+        except (RestrictedError, ProtectedError) as exc:
+            # Seats and texts of past votes keep their group (RESTRICT).
+            raise ValidationError(
+                {"detail": "This group took part in votes and cannot be deleted."},
+            ) from exc
 
     @action(detail=False, methods=["post"], url_path="apply-template")
     def apply_template(self, request):
@@ -123,7 +143,40 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
         except IntegrityError as exc:
             raise ValidationError({"detail": "Member could not be saved."}) from exc
 
-    perform_update = perform_create
+    def perform_update(self, serializer):
+        # From the database: the serializer's validate() already set the
+        # new values on the instance.
+        role, group_id, room_id = CommitteeMember.objects.values_list(
+            "role", "group_id", "room_id",
+        ).get(pk=serializer.instance.pk)
+        data = serializer.validated_data
+        changes_seat = (
+            ("role" in data and data["role"] != role)
+            or ("group" in data and data["group"].pk != group_id)
+        )
+        if changes_seat and QuestionSet.objects.filter(
+            room_id=room_id, type=QuestionSet.SetType.MEETING,
+            meeting_state=QuestionSet.MeetingState.STARTED,
+        ).exists():
+            # Seats, deputies and open ballots follow role and group.
+            raise ValidationError(
+                {"detail": "Members cannot change role or group during a running meeting."},
+            )
+        self.perform_create(serializer)
+
+    def perform_destroy(self, instance):
+        voted = (
+            BallotSeat.objects.filter(member=instance)
+            .exclude(ballot__status=Ballot.Status.DISCARDED).exists()
+            or NamedVote.objects.filter(member=instance)
+            .exclude(ballot__status=Ballot.Status.DISCARDED).exists()
+        )
+        if voted:
+            # Deleting would cascade into their seats and named votes.
+            raise ValidationError(
+                {"detail": "This member took part in votes and cannot be deleted."},
+            )
+        instance.delete()
 
     @action(detail=False, methods=["get"])
     def known(self, request):
@@ -180,6 +233,11 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
 
 def _detail(exc: DjangoValidationError) -> ValidationError:
     return ValidationError({"detail": exc.messages[0]})
+
+
+def _coded(exc: DjangoValidationError) -> ValidationError:
+    """Like ``_detail`` plus the machine-readable ``code`` (ballot errors)."""
+    return ValidationError({"detail": exc.messages[0], "code": exc.code})
 
 
 _CSV_LABELS = {
@@ -347,6 +405,72 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise _detail(exc) from exc
         return self._invite_response(invite)
 
+    def _ballot(self, meeting, ballot_id):
+        return get_object_or_404(
+            Ballot.objects.select_related("question"),
+            question__question_set=meeting, pk=ballot_id,
+        )
+
+    def _console(self, meeting, status_code=status.HTTP_200_OK):
+        return Response(payloads.manager_payload(meeting), status=status_code)
+
+    def control(self, request, pk=None):
+        return self._console(self.get_object())
+
+    def show(self, request, pk=None):
+        meeting = self.get_object()
+        question = self._question(meeting, request.data.get("question"), "question")
+        if meeting.meeting_state != QuestionSet.MeetingState.STARTED:
+            raise ValidationError({"detail": "The meeting is not running.", "code": "not_started"})
+        open_ballot = ballots.open_ballot_of(meeting)
+        if open_ballot is not None and (
+            question is None or open_ballot.question_id != question.pk
+        ):
+            # The ballot pages follow the shown item: switching away would
+            # hide the open vote from every voter.
+            raise ValidationError({"detail": "Another vote is still open.", "code": "vote_open"})
+        control, _ = MeetingControl.objects.get_or_create(meeting=meeting)
+        control.current_question = question
+        control.save(update_fields=["current_question"])
+        live.notify(meeting)
+        return self._console(meeting)
+
+    def open_item(self, request, pk=None, question_id=None):
+        meeting = self.get_object()
+        question = get_object_or_404(meeting.questions, pk=question_id)
+        try:
+            ballots.open_ballot(meeting, question)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting, status.HTTP_201_CREATED)
+
+    def close_ballot(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        try:
+            ballots.close_ballot(self._ballot(meeting, ballot_id))
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
+    def reset_ballot(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        comment = request.data.get("comment", "")
+        if not isinstance(comment, str):
+            raise ValidationError({"detail": "Invalid comment.", "code": "invalid"})
+        try:
+            ballots.reset_ballot(self._ballot(meeting, ballot_id), comment)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
+    def release_texts(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        try:
+            ballots.release_texts(self._ballot(meeting, ballot_id))
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
 
 # --- personal entry page (/g/<token>/) -----------------------------------------
 
@@ -361,7 +485,42 @@ def _localized(obj, base, lang):
     return ""
 
 
+# UI strings of the ballot page's inline script (handed over via
+# json_script; evaluated lazily under the page's language). Placeholders in
+# braces are filled in by the script.
+BALLOT_STRINGS = {
+    "notStarted": _("The meeting has not started yet. This page updates by itself."),
+    "waitVote": _("Please wait for the next vote."),
+    "item": _("Item {number}"),
+    "version": _("Version {number}"),
+    "changed": _("changed"),
+    "hintTap": _("One tap casts your vote immediately and for good."),
+    "hintFinal": _("Your vote is final once you cast it."),
+    "secret": _("Secret ballot"),
+    "named": _("Roll-call vote – your vote is stored with your name."),
+    "yes": _("Yes"),
+    "no": _("No"),
+    "abstain": _("Abstain"),
+    "submit": _("Cast vote"),
+    "yourAnswer": _("Your answer"),
+    "styleHint": _("Your writing style may also allow conclusions about you."),
+    "voted": _("Your vote has been cast."),
+    "notEligible": _("You are not eligible to vote in this ballot."),
+    "invalid": _("This link is not valid (any more). Please contact the chair of the meeting."),
+    "reconnecting": _("Connection lost – reconnecting …"),
+    "error": _("Your vote could not be cast. Please try again."),
+    "voteOpen": _("Voting is open"),
+    "progress": _("{voted} of {eligible} have voted"),
+    "result": _("Result"),
+    "total": _("Total"),
+    "answers": _("Answers"),
+}
+
+
 def entry_page(request, token):
+    """The personal ballot page: a framework-free shell that follows the
+    meeting over SSE (``ballot.html``) — or, for an invalid link, only the
+    generic notice."""
     invite, state = services.resolve_invite(token)
     valid = state in ("waiting", "active")
     lang = request.GET.get("lang")
@@ -370,19 +529,88 @@ def entry_page(request, token):
     lang = lang or (request.LANGUAGE_CODE or "").split("-")[0] or settings.MODELTRANSLATION_DEFAULT_LANGUAGE
     context = {"invalid": not valid}
     if valid:
+        # Deliberately no ballots.enter() here: link scanners and previews
+        # fetch the page, too. Entering happens via /me/ and the stream,
+        # which only the page's script calls.
         meeting, member = invite.meeting, invite.member
         context.update(
             state=state, member=member, is_observer=member.group.is_observer,
+            token=invite.token,
+            strings=BALLOT_STRINGS,
+            config={"token": invite.token, "observer": member.group.is_observer, "state": state},
             room_title=_localized(meeting.room, "title", lang),
             meeting_title=_localized(meeting, "title", lang),
             scheduled_at=meeting.scheduled_at,
-            group_name=_localized(member.group, "name", lang),
+            # Group names are content: canonical language only (PR 2), the
+            # same as in the stream's progress rows.
+            group_name=payloads.group_name(member.group),
         )
     with translation.override(lang):
         response = render(
-            request, "committees/entry.html", context,
+            request, "committees/ballot.html", context,
             status=404 if state == "unknown" else 200,
         )
     response["Cache-Control"] = "no-store"
     response["Referrer-Policy"] = "no-referrer"
     return response
+
+
+# --- ballot endpoints (cookie-less, token in the path) -------------------------
+
+
+def _no_store(response):
+    response["Cache-Control"] = "no-store"
+    return response
+
+
+@require_GET
+def me(request, token):
+    invite, state = services.resolve_invite(token)
+    if invite is None:
+        return _no_store(JsonResponse({"code": "invalid_link"}, status=404))
+    if state == "active":
+        ballots.enter(invite)
+    ballot = ballots.open_ballot_of(invite.meeting) if state == "active" else None
+    seat = (
+        ballot.seats.filter(member_id=invite.member_id).first() if ballot is not None else None
+    )
+    return _no_store(JsonResponse({
+        "state": state,
+        "observer": invite.member.group.is_observer,
+        "ballot": ballot.pk if ballot is not None else None,
+        "eligible": seat is not None,
+        "voted": bool(seat and seat.voted),
+    }))
+
+
+_VOTE_STATUS = {
+    "already_voted": 409, "closed": 409,
+    "not_eligible": 403, "invalid_link": 403,
+}
+
+
+# CSRF exemption is deliberate: the personal token in the path is the secret
+# and the participant page is cookie-less (no session to ride on), so there is
+# no ambient credential a cross-site request could abuse.
+@csrf_exempt
+@require_POST
+def vote(request, token):
+    invite, _state = services.resolve_invite(token)
+    if invite is None:
+        return _no_store(JsonResponse({"code": "invalid_link"}, status=403))
+    try:
+        body = json.loads(request.body)
+        ballot_id = body["ballot"]
+        answer = body["answer"]
+        if isinstance(ballot_id, bool) or not isinstance(ballot_id, int):
+            raise ValueError
+    except (ValueError, KeyError, TypeError):
+        return _no_store(JsonResponse({"code": "invalid"}, status=400))
+    try:
+        ballots.cast_vote(invite, ballot_id, answer)
+    except DjangoValidationError as exc:
+        # Only the code goes back, never anything derived from the answer.
+        return _no_store(JsonResponse(
+            {"code": exc.code}, status=_VOTE_STATUS.get(exc.code, 400),
+        ))
+    return _no_store(JsonResponse({"voted": True}))

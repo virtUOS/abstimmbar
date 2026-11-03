@@ -12,10 +12,14 @@ from django.utils import timezone
 
 from rooms.models import Question, QuestionSet, Room
 
+from . import eligibility, versions
+from .presence import presence
 from .models import (
+    Ballot,
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
+    MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
 )
@@ -23,6 +27,13 @@ from .models import (
 _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
 # EmailField column length (Django's validator alone would allow 320).
 MAX_EMAIL_LENGTH = 254
+
+
+def _notify(meeting: QuestionSet) -> None:
+    """Push fresh snapshots to the meeting's streams after commit."""
+    from .live import notify  # live imports this module
+
+    notify(meeting)
 
 
 def managed_committee_rooms(user):
@@ -228,6 +239,7 @@ def add_substitution(
     )
     if meeting.meeting_state == State.STARTED:
         ensure_invites(meeting)
+    _notify(meeting)
     return substitution
 
 
@@ -239,6 +251,7 @@ def remove_substitution(substitution: MeetingSubstitution):
     substitution.delete()
     if meeting.meeting_state == State.STARTED:
         ensure_invites(meeting)
+    _notify(meeting)
 
 
 def _seat_q(meeting: QuestionSet) -> Q:
@@ -275,9 +288,13 @@ def participants(meeting: QuestionSet) -> list[CommitteeMember]:
 def ensure_invites(meeting: QuestionSet) -> list[MeetingInvite]:
     """Create the missing invites for all participants; never deletes."""
     have = set(meeting.invites.values_list("member_id", flat=True))
+    created = False
     for member in participants(meeting):
         if member.pk not in have:
-            MeetingInvite.objects.get_or_create(meeting=meeting, member=member)
+            _, new = MeetingInvite.objects.get_or_create(meeting=meeting, member=member)
+            created = created or new
+    if created and meeting.meeting_state == State.STARTED:
+        _notify(meeting)  # attendance changed
     return list(meeting.invites.select_related("member__group").order_by("id"))
 
 
@@ -299,12 +316,31 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 def start_meeting(meeting: QuestionSet) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
     ensure_invites(meeting)
+    # Members whose ballot page is already open (connected while the meeting
+    # was a draft) have entered: the stream's enter() was a no-op then.
+    connected = [
+        pk for pk in meeting.invites.filter(entered_at__isnull=True).values_list("pk", flat=True)
+        if presence.status(pk)[0]
+    ]
+    MeetingInvite.objects.filter(pk__in=connected).update(entered_at=timezone.now())
+    versions.freeze_all(meeting)
+    _notify(meeting)
     return meeting
 
 
 @transaction.atomic
 def end_meeting(meeting: QuestionSet) -> QuestionSet:
+    from . import ballots  # ballots imports this module
+
+    ballots.abort_stale(meeting)
+    # Under the meeting row lock that open_ballot takes as well.
+    QuestionSet.objects.select_for_update().values_list("pk", flat=True).get(pk=meeting.pk)
+    if Ballot.objects.filter(
+        question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
+    ).exists():
+        raise ValidationError("A vote is still open.", code="vote_open")
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
+    _notify(meeting)
     return meeting
 
 
@@ -314,6 +350,7 @@ def remove_invite(invite: MeetingInvite, after_question: Question | None = None)
     invite.removed_at = timezone.now()
     invite.removed_after = after_question
     invite.save(update_fields=["removed_at", "removed_after"])
+    _notify(invite.meeting)
     return invite
 
 
@@ -322,11 +359,13 @@ def readmit_invite(invite: MeetingInvite):
     invite.removed_at = None
     invite.removed_after = None
     invite.save(update_fields=["removed_at", "removed_after"])
+    _notify(invite.meeting)
     return invite
 
 
-def invite_state(invite: MeetingInvite) -> str:
-    """State of an existing invite (see resolve_invite)."""
+def invite_state(invite: MeetingInvite, question: Question | None = None) -> str:
+    """State of an existing invite (see resolve_invite); a removal "after
+    an item" is judged at `question` (default: the item currently shown)."""
     meeting = invite.meeting
     if meeting.meeting_state == State.ENDED:
         return "ended"
@@ -336,9 +375,36 @@ def invite_state(invite: MeetingInvite) -> str:
         _seat_q(meeting), pk=invite.member_id, room_id=meeting.room_id,
     ).exists():
         return "inactive"
-    if invite.removed_at is not None:
+    if _removed_for(invite, question):
         return "removed"
     return "waiting" if meeting.meeting_state == State.DRAFT else "active"
+
+
+def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
+    """Whether a removal applies at `question` (default: the item currently
+    shown). Removed without an item: always. Removed after an item: only
+    once the agenda is past it — up to and including that item (and while
+    no item is shown) the member is still there, as in eligibility. An
+    item that left the agenda counts as removal from the start (§ 5.4,
+    see eligibility._present)."""
+    if invite.removed_at is None:
+        return False
+    after = invite.removed_after_id
+    if after is None:
+        return True
+    agenda_numbers = eligibility.numbers(invite.meeting)
+    if after not in agenda_numbers:
+        return True
+    if question is not None:
+        current = question.pk
+    else:
+        current = (
+            MeetingControl.objects.filter(meeting_id=invite.meeting_id)
+            .values_list("current_question_id", flat=True).first()
+        )
+    if current is None:
+        return False
+    return agenda_numbers.get(current, 0) > agenda_numbers[after]
 
 
 def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:

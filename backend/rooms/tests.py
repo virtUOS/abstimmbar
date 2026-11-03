@@ -3955,7 +3955,10 @@ class OnboardingSeedTests(TestCase):
     def test_one_question_of_every_kind(self):
         question_set = self.room.question_sets.get()
         kinds = list(question_set.questions.values_list("kind", flat=True))
-        self.assertEqual(sorted(kinds), sorted(Question.Kind.values))
+        # Resolutions belong to committee meetings only, not the example room.
+        self.assertEqual(
+            sorted(kinds), sorted(set(Question.Kind.values) - {"resolution"})
+        )
         self.assertEqual(len(kinds), len(set(kinds)))  # exactly one each
 
     def test_matrix_is_last_with_axes_edges_and_named_categories(self):
@@ -4227,7 +4230,7 @@ class SelfCheckTokenModelTests(TestCase):
 
 class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):
-        allk = tuple(k for k, _ in Question.Kind.choices)
+        allk = tuple(k for k, _ in Question.Kind.choices if k != "resolution")
         self.assertEqual(set(set_types.allowed_kinds("live_poll")), set(allk))
         # Mindmap is a shared live activity: live polls only.
         self.assertEqual(
@@ -6102,6 +6105,7 @@ class QuestionFieldListGuardTests(ApiTestCase):
         values = {
             "shuffle_options": True,
             "binary_choice": True,
+            "named_vote": True,
             "time_limit": 30,
             "allow_multiple": True,
             "wordcloud_live": False,
@@ -6306,7 +6310,7 @@ class CommitteeRoomKindTests(ApiTestCase):
     def test_meeting_allowed_kinds(self):
         self.assertEqual(
             set_types.allowed_kinds("meeting"),
-            ("single_choice", "multiple_choice", "open_text"),
+            ("resolution", "single_choice", "multiple_choice", "open_text"),
         )
 
     def test_duplicate_and_import_respect_room_kind(self):
@@ -6372,3 +6376,50 @@ class CommitteeRoomKindTests(ApiTestCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(self.room.question_sets.count(), 1)
+
+
+class ResolutionKindTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        committee = Room.objects.create(title="Rat", kind=Room.Kind.COMMITTEE)
+        committee.owners.add(self.owner)
+        self.meeting = QuestionSet.objects.create(
+            room=committee, title="Sitzung", type=QuestionSet.SetType.MEETING
+        )
+        self.poll = QuestionSet.objects.create(room=self.room, title="Umfrage")
+
+    def _post_resolution(self, question_set, **extra):
+        payload = {
+            "question_set": question_set.pk,
+            "kind": "resolution",
+            "text": {"de": "Der Haushalt wird beschlossen."},
+            **extra,
+        }
+        return self.client.post(
+            "/api/questions/", payload, content_type="application/json"
+        )
+
+    def test_resolution_only_in_meetings(self):
+        self.assertEqual(self._post_resolution(self.poll).status_code, 400)
+        self.assertEqual(self._post_resolution(self.meeting).status_code, 201)
+
+    def test_resolution_drops_options(self):
+        response = self._post_resolution(
+            self.meeting,
+            options=[{"text": {"de": "A"}}, {"text": {"de": "B"}}],
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertEqual(response.json()["options"], [])
+        self.assertEqual(AnswerOption.objects.count(), 0)
+
+    def test_named_vote_roundtrip(self):
+        created = self._post_resolution(self.meeting).json()
+        self.assertFalse(created["named_vote"])
+        response = self.client.patch(
+            f"/api/questions/{created['id']}/",
+            {"named_vote": True},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        got = self.client.get(f"/api/questions/{created['id']}/")
+        self.assertTrue(got.json()["named_vote"])

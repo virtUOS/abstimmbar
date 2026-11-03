@@ -179,6 +179,93 @@ export interface MeetingSummary {
   substitutions: MeetingSubstitution[];
 }
 
+/** Kind of an agenda item a ballot can run on. */
+export type MeetingItemKind = "resolution" | "single_choice" | "multiple_choice" | "open_text";
+
+/** Per-group participation of a ballot (never counts before closing). */
+export interface MeetingProgressGroup {
+  id: number;
+  name: string;
+  voted: number;
+  eligible: number;
+}
+
+/** Count keys: "yes" / "no" / "abstain" / "opt:<id>" / "text". */
+export type MeetingCounts = Record<string, number>;
+
+/** A free-text answer without names; `group` is a group id. */
+export interface MeetingText {
+  group: number | null;
+  text: string;
+}
+
+export interface MeetingBallot {
+  id: number;
+  status: "open" | "closed";
+  round: number;
+  progress: { voted: number; eligible: number; groups: MeetingProgressGroup[] };
+  result: null | {
+    groups: { id: number; name: string; counts: MeetingCounts }[];
+    total: { counts: MeetingCounts };
+  };
+  /** Released free texts (closed free-text ballots only). */
+  texts: MeetingText[] | null;
+}
+
+/** The shown agenda item; content in the canonical language only. */
+export interface MeetingItem {
+  id: number;
+  number: number;
+  kind: MeetingItemKind;
+  /** Sanitized HTML. */
+  text: string;
+  version: number | null;
+  changed: boolean;
+  named: boolean;
+  options: { id: number; text: string }[];
+  ballot: MeetingBallot | null;
+}
+
+/** Snapshot of a running meeting as the beamer and ballot pages see it. */
+export interface MeetingPublic {
+  meeting: { id: number; title: string; state: MeetingState };
+  item: MeetingItem | null;
+}
+
+export interface MeetingAgendaItem {
+  id: number;
+  number: number;
+  kind: MeetingItemKind;
+  text: string;
+  version: number | null;
+  named: boolean;
+  ballot_status: null | "open" | "closed";
+  /** Number of discarded (reset/aborted) ballots. */
+  discarded: number;
+}
+
+export interface MeetingAttendance {
+  invite: number;
+  name: string;
+  /** Group name (canonical language). */
+  group: string;
+  observer: boolean;
+  deputy: boolean;
+  entered: boolean;
+  removed: boolean;
+  connected: boolean;
+  disconnected_since: string | null;
+}
+
+/** The console's snapshot: the public one plus agenda and attendance. */
+export interface MeetingManager extends MeetingPublic {
+  items: MeetingAgendaItem[];
+  attendance: MeetingAttendance[];
+  /** Texts of the shown, closed free-text ballot (released or not). */
+  texts: MeetingText[] | null;
+  open_ballot: number | null;
+}
+
 /** A person from my own rooms, offered when adding committee members. */
 export interface KnownPerson {
   name: string;
@@ -227,7 +314,8 @@ export type QuestionKind =
   | "priorities"
   | "ordering"
   | "mindmap"
-  | "matrix";
+  | "matrix"
+  | "resolution";
 
 export type MatrixCategoryMode = "off" | "colors" | "named";
 /** A matrix category: a palette colour (see matrixPalette.ts) and, in mode
@@ -388,6 +476,8 @@ export interface Question {
   /** single_choice only: created via the binary Ja/Nein preset — the editor
    *  shows the Ja/Nein · Wahr/Falsch template quick-fill above two options (#79). */
   binary_choice: boolean;
+  /** Committee meetings only: record each vote with the member's name (false = secret). */
+  named_vote: boolean;
   time_limit: number | null;
   position: number;
   options: AnswerOption[];
@@ -680,6 +770,7 @@ export interface AdminStats {
   days: number;
   from: string;
   to: string;
+  committee: { meetings_running: number; secret_ballots_open: number };
   totals: {
     rooms: number;
     rooms_lti: number;
@@ -1100,6 +1191,35 @@ export const api = {
     request<MeetingInvite>(`/api/meetings/${setId}/invites/${inviteId}/readmit/`, {
       method: "POST",
     }),
+
+  // --- meeting console (manager) ---
+  meetingControl: (setId: number) =>
+    request<MeetingManager>(`/api/meetings/${setId}/control/`),
+  /** Show an agenda item on the beamer (null = none). */
+  showItem: (setId: number, questionId: number | null) =>
+    request<MeetingManager>(`/api/meetings/${setId}/show/`, {
+      method: "POST",
+      body: JSON.stringify({ question: questionId }),
+    }),
+  openBallot: (setId: number, questionId: number) =>
+    request<MeetingManager>(`/api/meetings/${setId}/items/${questionId}/open/`, {
+      method: "POST",
+    }),
+  closeBallot: (setId: number, ballotId: number) =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/close/`, {
+      method: "POST",
+    }),
+  resetBallot: (setId: number, ballotId: number, comment: string) =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/reset/`, {
+      method: "POST",
+      body: JSON.stringify({ comment }),
+    }),
+  releaseTexts: (setId: number, ballotId: number) =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/release-texts/`, {
+      method: "POST",
+    }),
+  /** Console SSE stream (cookie auth; manager snapshots). */
+  meetingStreamUrl: (setId: number) => `${API_BASE_URL}/api/meetings/${setId}/stream/`,
 
   listQuestionSets: (roomId: number, search = "") =>
     request<Paginated<QuestionSet>>(

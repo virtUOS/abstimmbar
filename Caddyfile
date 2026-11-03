@@ -56,9 +56,12 @@
 	handle /c/* {
 		reverse_proxy app:8000
 	}
-	# Personal committee meeting links (/g/<token>/) → Django.
+	# Personal committee meeting links (/g/<token>/) → Django, including
+	# the ballot page's SSE stream (unbuffered, see /api/*).
 	handle /g/* {
-		reverse_proxy app:8000
+		reverse_proxy app:8000 {
+			flush_interval -1
+		}
 	}
 	# Prometheus scrape endpoint — token-guarded by METRICS_TOKEN (404 while
 	# unset); see docs/monitoring.md.
