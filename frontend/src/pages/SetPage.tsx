@@ -1401,7 +1401,7 @@ export default function SetPage() {
         <Link to={`/rooms/${set.room}`} className="hover:text-brand-700 dark:hover:text-brand-300">
           {set.room_title}
         </Link>{" "}
-        / {t("Question set")}: {localizedText(set.title)}
+        / {set.type === "meeting" ? t("Meeting") : t("Question set")}: {localizedText(set.title)}
       </nav>
 
       {/* Settings: summarized read-only, editable behind the pencil. */}

@@ -12,6 +12,7 @@ from typing import ClassVar
 
 from django.conf import settings
 from django.db.models import Count, Max
+from django.utils import timezone
 from django.utils.html import strip_tags
 from rest_framework import serializers
 
@@ -20,7 +21,7 @@ from common.serializers import TranslationSyncMixin
 
 from . import matrix, mindmap, set_types
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
-from .naming import generate_default_titles
+from .naming import generate_default_titles, make_titles_unique, meeting_default_titles
 from .question_fields import clean_evaluation_categories
 from .sanitize import clean_html, clean_media_url
 from .transfer import sync_after_question
@@ -286,13 +287,24 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
         title = (attrs.get(canonical_key, attrs.get("title")) or "").strip()
         if not title:
             if self.instance is None:
-                generated = generate_default_titles(
-                    {"de": "Unbenanntes Fragenset", "en": "Unnamed question set"},
-                    CONTENT_DEFAULT_LANGUAGE,
-                    lambda t: room.question_sets.filter(
+                def exists(t):
+                    return room.question_sets.filter(
                         **{f"{canonical_key}__iexact": t}
-                    ).exists(),
-                )
+                    ).exists()
+
+                # A meeting is named after its date ("Sitzung vom …").
+                if attrs.get("type") == QuestionSet.SetType.MEETING:
+                    generated = make_titles_unique(
+                        meeting_default_titles(attrs.get("scheduled_at") or timezone.now()),
+                        CONTENT_DEFAULT_LANGUAGE,
+                        exists,
+                    )
+                else:
+                    generated = generate_default_titles(
+                        {"de": "Unbenanntes Fragenset", "en": "Unnamed question set"},
+                        CONTENT_DEFAULT_LANGUAGE,
+                        exists,
+                    )
                 # Fill the canonical column, and any OTHER language only when
                 # the user left it blank too (never clobber a provided one).
                 for lang, value in generated.items():

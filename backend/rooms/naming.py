@@ -45,13 +45,28 @@ def default_titles(prefixes):
     return {lang: _format_default(prefix, lang, now) for lang, prefix in prefixes.items()}
 
 
+def meeting_default_titles(when):
+    """Default titles for a committee meeting, named after its date:
+    "Sitzung vom 15. Januar 2030" / "Meeting on January 15, 2030"."""
+    day = timezone.localtime(when)
+    return {
+        "de": f"Sitzung vom {day.day}. {MONTHS['de'][day.month - 1]} {day.year}",
+        "en": f"Meeting on {MONTHS['en'][day.month - 1]} {day.day}, {day.year}",
+    }
+
+
 def generate_default_titles(prefixes, canonical_lang, exists):
-    """Localized default titles with the canonical one made unique (#19).
+    """Localized default titles with the canonical one made unique (#19)."""
+    return make_titles_unique(default_titles(prefixes), canonical_lang, exists)
+
+
+def make_titles_unique(titles, canonical_lang, exists):
+    """Make the canonical title unique (#19).
 
     Uniqueness is enforced only on the canonical language (the column the
     API checks); the same numeric suffix is mirrored onto the other
     languages so a room shows as "… (2)" consistently in every language."""
-    titles = default_titles(prefixes)
+    titles = dict(titles)
     base = titles[canonical_lang]
     unique = unique_title(base, exists)
     titles[canonical_lang] = unique

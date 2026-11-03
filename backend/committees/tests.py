@@ -883,3 +883,25 @@ class EntryPageAcceptLanguageTests(TestCase):
     def test_unknown_token_uses_accept_language(self):
         r = self.client.get("/g/nope/", HTTP_ACCEPT_LANGUAGE="en")
         self.assertContains(r, "This link is not valid (any more).", status_code=404)
+
+
+class MeetingDefaultTitleTests(ApiBase):
+    def create(self, scheduled_at):
+        r = self.client.post(
+            "/api/question-sets/",
+            {"room": self.room.pk, "type": "meeting", "scheduled_at": scheduled_at},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        return r.json()["title"]
+
+    def test_blank_meeting_title_names_the_date(self):
+        title = self.create("2030-01-15T09:00:00Z")
+        self.assertEqual(title["de"], "Sitzung vom 15. Januar 2030")
+        self.assertEqual(title["en"], "Meeting on January 15, 2030")
+
+    def test_same_day_gets_a_suffix(self):
+        self.create("2030-01-15T09:00:00Z")
+        title = self.create("2030-01-15T13:00:00Z")
+        self.assertEqual(title["de"], "Sitzung vom 15. Januar 2030 (2)")
+        self.assertEqual(title["en"], "Meeting on January 15, 2030 (2)")
