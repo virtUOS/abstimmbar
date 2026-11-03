@@ -21,7 +21,7 @@ import {
   type QuestionSet,
 } from "../api";
 import { Button, ConfirmDialog, Field, Select, ToggleSwitch } from "../components/ui";
-import { STATE_BADGE, STATE_LABEL } from "./MeetingList";
+import { MeetingDateInput, STATE_BADGE, STATE_LABEL } from "./MeetingList";
 
 const INVITE_STATE_LABEL: Record<InviteState, string> = {
   waiting: "waiting",
@@ -192,20 +192,12 @@ export default function MeetingPanel({
 
       {/* Date and chair-votes switch: only before the meeting starts. */}
       <div className="grid gap-3">
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-            {t("Date and time")}
-          </span>
-          <input
-            type="datetime-local"
-            required
-            value={dateDraft}
-            disabled={state !== "draft"}
-            onChange={(event) => setDateDraft(event.target.value)}
-            onBlur={saveDate}
-            className="w-full max-w-xs rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-60 dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark] dark:focus:ring-offset-slate-950"
-          />
-        </label>
+        <MeetingDateInput
+          value={dateDraft}
+          disabled={state !== "draft"}
+          onChange={setDateDraft}
+          onBlur={saveDate}
+        />
         <div>
           <ToggleSwitch
             checked={meeting.chair_votes}

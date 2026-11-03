@@ -4,12 +4,13 @@
 /** Committee rooms (Gremien-Raum): the room's meetings, split into upcoming
  *  ones (soonest first) and the archive of ended ones (latest first), plus
  *  the fields for creating a meeting (title + required date). */
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import { CalendarClock, ChartColumnDecreasing, Trash2 } from "lucide-react";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import type { MeetingState, QuestionSet } from "../api";
-import { Button } from "../components/ui";
+import { Button, Select } from "../components/ui";
 import TranslatableField from "../components/TranslatableField";
 import { SET_TYPES } from "../setTypes";
 
@@ -161,7 +162,7 @@ function MeetingCards({
 }
 
 /** Create-form fields for a meeting: title and the required date/time
- *  (`datetime-local`, i.e. the browser's local time). */
+ *  (a `datetime-local` value, i.e. the browser's local time). */
 export function NewMeetingFields({
   title,
   scheduledAt,
@@ -180,18 +181,86 @@ export function NewMeetingFields({
         onChange={(next) => onChange({ title: next })}
         placeholder={t("e.g. “Faculty council, 12th meeting”")}
       />
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
-          {t("Date and time")}
-        </span>
-        <input
-          type="datetime-local"
-          required
-          value={scheduledAt}
-          onChange={(event) => onChange({ scheduledAt: event.target.value })}
-          className="w-full max-w-xs rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark] dark:focus:ring-offset-slate-950"
-        />
-      </label>
+      <MeetingDateInput
+        value={scheduledAt}
+        onChange={(next) => onChange({ scheduledAt: next })}
+      />
     </div>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, hour) => `${String(hour).padStart(2, "0")}:00`);
+
+/** Meeting date plus a full-hour time — committee meetings start on the
+ *  hour, so a minute picker is just noise. `value` is a `datetime-local`
+ *  string ("YYYY-MM-DDTHH:MM"); `onChange` reports "" until both parts are
+ *  set. A stored time off the hour stays selectable. `onBlur` fires once
+ *  focus leaves both controls. */
+export function MeetingDateInput({
+  value,
+  onChange,
+  onBlur,
+  disabled = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onBlur?: () => void;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation();
+  const [date, setDate] = useState(value.slice(0, 10));
+  const [time, setTime] = useState(value.slice(11, 16));
+  useEffect(() => {
+    if (!value) return;
+    setDate(value.slice(0, 10));
+    setTime(value.slice(11, 16));
+  }, [value]);
+
+  function update(nextDate: string, nextTime: string) {
+    setDate(nextDate);
+    setTime(nextTime);
+    onChange(nextDate && nextTime ? `${nextDate}T${nextTime}` : "");
+  }
+
+  const hours = time && !HOURS.includes(time) ? [...HOURS, time].sort() : HOURS;
+  return (
+    <fieldset
+      className="min-w-0"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onBlur?.();
+      }}
+    >
+      <legend className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">
+        {t("Date and time")}
+      </legend>
+      <div className="flex gap-2">
+        <input
+          type="date"
+          required
+          aria-label={t("Date")}
+          value={date}
+          disabled={disabled}
+          onChange={(event) => update(event.target.value, time)}
+          className="min-w-0 flex-1 rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-60 sm:max-w-[12rem] dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark] dark:focus:ring-offset-slate-950"
+        />
+        <Select
+          required
+          aria-label={t("Time")}
+          value={time}
+          disabled={disabled}
+          onChange={(event) => update(date, event.target.value)}
+          className="!w-auto disabled:opacity-60"
+        >
+          <option value="" disabled>
+            {t("Time")}
+          </option>
+          {hours.map((hour) => (
+            <option key={hour} value={hour}>
+              {hour}
+            </option>
+          ))}
+        </Select>
+      </div>
+    </fieldset>
   );
 }
