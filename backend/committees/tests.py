@@ -2951,6 +2951,42 @@ class VerifyTests(BallotBase):
         )
         self.assertTrue(r.data["chain_intact"])
 
+    def test_relabel_keeps_reference_for_later_links(self):
+        s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=0)
+        Question.objects.filter(pk=self.q1.pk).update(section=s1)
+        ballot = self.closed()
+        result_ref = SealLink.objects.get(kind="result").reference
+        self.assertTrue(result_ref.endswith("-TOP1"), result_ref)
+        services.add_resolution(self.meeting, "Änderung", s1, named=False)
+        self.assertEqual(agenda.labels(self.meeting)[self.q1.pk], "1a")
+        ballot = Ballot.objects.get(pk=ballot.pk)
+        ballots.set_finding(ballot, "adopted")
+        finding = SealLink.objects.get(kind="finding")
+        self.assertEqual(finding.reference, result_ref)
+        ballots.reset_ballot(Ballot.objects.get(pk=ballot.pk), "Fehler")
+        self.assertEqual(
+            set(SealLink.objects.filter(ballot=ballot).values_list("reference", flat=True)),
+            {result_ref},
+        )
+        r = self.verify(result_ref, finding.hash[:16])
+        self.assertEqual(
+            [(link["kind"], link["status"]) for link in r.data["links"]],
+            [("result", "discarded"), ("finding", "discarded"), ("discard", "valid")],
+        )
+        self.assertTrue(r.data["fingerprint_matches"])
+
+    def test_discarded_without_discard_link_is_altered(self):
+        ballot = self.closed()
+        Ballot.objects.filter(pk=ballot.pk).update(status=Ballot.Status.DISCARDED)
+        r = self.verify(self.ref())
+        self.assertEqual([link["status"] for link in r.data["links"]], ["altered"])
+
+    def test_link_without_ballot_is_altered(self):
+        self.closed()
+        SealLink.objects.update(ballot=None)
+        r = self.verify(self.ref())
+        self.assertEqual([link["status"] for link in r.data["links"]], ["altered"])
+
     def test_tampered_link_breaks_chain(self):
         self.closed()
         SealLink.objects.update(content_hash="0" * 64)

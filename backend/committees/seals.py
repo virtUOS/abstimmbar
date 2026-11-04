@@ -165,11 +165,16 @@ def append(ballot: Ballot, kind: str) -> SealLink | None:
     if _skip(ballot):
         return None
     meeting = ballot.question.question_set
-    room = Room.objects.select_for_update().get(pk=meeting.room_id)
+    room = Room.objects.select_for_update(no_key=True).get(pk=meeting.room_id)
     last = SealLink.objects.filter(room=room).order_by("-seq").first()
     seq = last.seq + 1 if last else 1
     previous = last.hash if last else ""
-    ref = reference(ballot)
+    # All links of one ballot share its first link's reference: the agenda
+    # may be relabelled between the result and a later finding/discard.
+    ref = (
+        SealLink.objects.filter(room=room, ballot=ballot)
+        .order_by("seq").values_list("reference", flat=True).first()
+    ) or reference(ballot)
     content_hash = digest(content(ballot, kind, ref))
     return SealLink.objects.create(
         room=room, seq=seq, kind=kind, reference=ref, ballot=ballot,
@@ -204,13 +209,12 @@ def _status(link: SealLink, discards: set[tuple[int, int]]) -> str:
     ballot = link.ballot
     if ballot is None:
         return "altered"
-    if (
-        link.kind != SealLink.Kind.DISCARD
-        and ballot.status == Ballot.Status.DISCARDED
-        and any(b == ballot.pk and seq > link.seq for b, seq in discards)
-    ):
-        # A reset wipes the rows the result was built from.
-        return "discarded"
+    if link.kind != SealLink.Kind.DISCARD and ballot.status == Ballot.Status.DISCARDED:
+        if any(b == ballot.pk and seq > link.seq for b, seq in discards):
+            # A reset wipes the rows the result was built from.
+            return "discarded"
+        # Discarded without a sealed discard: not done through the app.
+        return "altered"
     recomputed = digest(content(ballot, link.kind, link.reference))
     return "valid" if recomputed == link.content_hash else "altered"
 
