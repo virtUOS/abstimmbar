@@ -9,7 +9,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
-from django.utils import timezone
+from django.utils import timezone, translation
 from rest_framework.test import APIClient
 
 from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
@@ -2222,3 +2222,12 @@ class AgendaOutlineTests(MeetingFixture, TestCase):
         self.assertEqual(
             [agenda.suffix(i) for i in (0, 25, 26, 27)], ["a", "z", "aa", "ab"],
         )
+
+    def test_description_is_canonical_language(self):
+        s = Section.objects.create(
+            question_set=self.meeting, title_de="T", position=1,
+            description_de="Beschreibung", description_en="Description",
+        )
+        with translation.override("en"):
+            top = agenda.top_by_section(self.meeting, s.pk, agenda.tops(self.meeting))
+        self.assertEqual(top.description, "Beschreibung")

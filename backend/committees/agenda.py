@@ -70,7 +70,7 @@ def tops(meeting: QuestionSet) -> list[Top]:
                 number,
                 section.pk,
                 _canonical(translated_map(section, "title")),
-                section.description,
+                _canonical(translated_map(section, "description")),
                 tuple(qids),
             ))
     return result
@@ -87,9 +87,15 @@ def labels(meeting: QuestionSet) -> dict[int, str]:
     return out
 
 
-def top_of(meeting: QuestionSet, question_id: int) -> Top | None:
-    return next((t for t in tops(meeting) if question_id in t.question_ids), None)
+def top_of(
+    meeting: QuestionSet, question_id: int, tops_list: list[Top] | None = None
+) -> Top | None:
+    items = tops(meeting) if tops_list is None else tops_list
+    return next((t for t in items if question_id in t.question_ids), None)
 
 
-def top_by_section(meeting: QuestionSet, section_id: int) -> Top | None:
-    return next((t for t in tops(meeting) if t.section_id == section_id), None)
+def top_by_section(
+    meeting: QuestionSet, section_id: int, tops_list: list[Top] | None = None
+) -> Top | None:
+    items = tops(meeting) if tops_list is None else tops_list
+    return next((t for t in items if t.section_id == section_id), None)
