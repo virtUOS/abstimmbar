@@ -9,6 +9,7 @@ from .views import (
     CommitteeMemberViewSet,
     GroupTemplateViewSet,
     MeetingViewSet,
+    verify_seal,
 )
 
 router = DefaultRouter()
@@ -27,6 +28,7 @@ def _meeting(name, actions, suffix=""):
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("committee-seals/verify/", verify_seal, name="committee-seal-verify"),
     path("meetings/<int:pk>/stream/", manager_stream, name="meeting-stream"),
     _meeting("detail", {"get": "retrieve"}),
     _meeting("start", {"post": "start"}, "start/"),

@@ -1533,5 +1533,21 @@
   "Adopted": "Angenommen",
   "Rejected": "Abgelehnt",
   "Leave open": "Offen lassen",
-  "Count check failed: {{voted}} marked as voted, {{tally}} ballots counted.": "Zählprobe auffällig: {{voted}} als abgestimmt vermerkt, {{tally}} Stimmzettel gezählt."
+  "Count check failed: {{voted}} marked as voted, {{tally}} ballots counted.": "Zählprobe auffällig: {{voted}} als abgestimmt vermerkt, {{tally}} Stimmzettel gezählt.",
+  "Check seal": "Siegel prüfen",
+  "Reference": "Kennung",
+  "Fingerprint (optional)": "Fingerabdruck (optional)",
+  "Check": "Prüfen",
+  "Matches the seal.": "Stimmt mit dem Siegel überein.",
+  "Changed after sealing!": "Nach dem Versiegeln verändert!",
+  "Discarded (vote repeated).": "Verworfen (Abstimmung wiederholt).",
+  "Meeting deleted.": "Sitzung gelöscht.",
+  "Chain intact.": "Kette intakt.",
+  "Chain broken!": "Kette unterbrochen!",
+  "No seal found for this reference.": "Zu dieser Kennung wurde kein Siegel gefunden.",
+  "The fingerprint matches.": "Der Fingerabdruck stimmt überein.",
+  "The fingerprint does not match.": "Der Fingerabdruck stimmt nicht überein.",
+  "The fingerprint needs at least 16 hex characters.": "Der Fingerabdruck braucht mindestens 16 Hexadezimalzeichen.",
+  "Result": "Ergebnis",
+  "Vote discarded": "Abstimmung verworfen"
 }

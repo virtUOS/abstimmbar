@@ -2900,3 +2900,104 @@ class SealTests(BallotBase):
         self.assertEqual(agenda.labels(self.meeting)[self.q1.pk], "1a")
         self.assertTrue(seals.reference(Ballot.objects.get(pk=ballot.pk)).endswith("TOP1a"))
         self.assertEqual(recomputed(), link.content_hash)
+
+
+class VerifyTests(BallotBase):
+    closed = SealTests.closed
+
+    def verify(self, reference, fingerprint="", client=None, room=None):
+        return (client or self.client).get("/api/committee-seals/verify/", {
+            "room": (room or self.room).pk, "reference": reference, "fingerprint": fingerprint,
+        })
+
+    def ref(self):
+        return SealLink.objects.order_by("seq").first().reference
+
+    def test_valid_result(self):
+        self.closed()
+        r = self.verify(self.ref())
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["found"])
+        self.assertTrue(r.data["chain_intact"])
+        self.assertEqual([link["status"] for link in r.data["links"]], ["valid"])
+        self.assertEqual(r.data["links"][0]["kind"], "result")
+        self.assertIsNone(r.data["fingerprint_matches"])
+
+    def test_unknown_reference(self):
+        self.closed()
+        r = self.verify("nope")
+        self.assertFalse(r.data["found"])
+        self.assertEqual(r.data["links"], [])
+
+    def test_altered_result_detected(self):
+        ballot = self.closed()
+        result = dict(Ballot.objects.get(pk=ballot.pk).result)
+        result["total"] = {**result["total"], "counts": {"yes": 0, "no": 1, "abstain": 0}}
+        Ballot.objects.filter(pk=ballot.pk).update(result=result)
+        r = self.verify(self.ref())
+        self.assertEqual(r.data["links"][0]["status"], "altered")
+        self.assertTrue(r.data["chain_intact"])
+
+    def test_reset_after_seal_is_discarded(self):
+        ballot = self.closed()
+        ballots.set_finding(ballot, "adopted")
+        ballots.reset_ballot(ballot, "Fehler")
+        r = self.verify(self.ref())
+        self.assertEqual(
+            [(link["kind"], link["status"]) for link in r.data["links"]],
+            [("result", "discarded"), ("finding", "discarded"), ("discard", "valid")],
+        )
+        self.assertTrue(r.data["chain_intact"])
+
+    def test_tampered_link_breaks_chain(self):
+        self.closed()
+        SealLink.objects.update(content_hash="0" * 64)
+        r = self.verify(self.ref())
+        self.assertFalse(r.data["chain_intact"])
+
+    def test_gap_breaks_chain(self):
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        SealLink.objects.filter(seq=1).delete()
+        r = self.verify(SealLink.objects.get().reference)
+        self.assertFalse(r.data["chain_intact"])
+
+    def test_deleted_meeting_placeholder(self):
+        self.closed()
+        a_ref = self.ref()
+        services.end_meeting(self.meeting)
+        self.meeting.delete()
+        fixture = MeetingFixture()
+        fixture.make_fixture(room=self.room)
+        question = Question.objects.create(
+            question_set=fixture.meeting, kind="resolution", text_de="B", position=1,
+        )
+        fixture.member("Xena", fixture.ga)
+        services.start_meeting(fixture.meeting)
+        ballot = ballots.open_ballot(fixture.meeting, question)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.close_ballot(ballot)
+        r = self.verify(a_ref)
+        self.assertEqual([link["status"] for link in r.data["links"]], ["deleted"])
+        self.assertTrue(r.data["chain_intact"])
+        b = self.verify(SealLink.objects.get(seq=2).reference)
+        self.assertEqual([link["status"] for link in b.data["links"]], ["valid"])
+
+    def test_fingerprint_prefix(self):
+        self.closed()
+        h = SealLink.objects.get().hash
+        spaced = " ".join(h[i:i + 4] for i in range(0, 16, 4)).upper()
+        self.assertTrue(self.verify(self.ref(), spaced).data["fingerprint_matches"])
+        self.assertFalse(self.verify(self.ref(), "0" * 16).data["fingerprint_matches"])
+        r = self.verify(self.ref(), h[:8])
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["code"], "invalid")
+        self.assertEqual(self.verify(self.ref(), "xyz" * 6).status_code, 400)
+
+    def test_not_manager_404(self):
+        self.closed()
+        r = self.verify(self.ref(), client=self.foreign)
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self.verify(self.ref(), room=self.room).status_code, 200)
+        r = self.client.get("/api/committee-seals/verify/", {"room": 99999, "reference": "x"})
+        self.assertEqual(r.status_code, 404)

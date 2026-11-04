@@ -112,6 +112,22 @@ export interface QuestionSet {
 
 export type MeetingState = "draft" | "started" | "ended";
 
+export type SealLinkStatus = "valid" | "altered" | "discarded" | "deleted";
+
+/** Result of checking a seal reference (and optionally a printed fingerprint). */
+export interface SealVerification {
+  found: boolean;
+  chain_intact: boolean;
+  links: {
+    kind: "result" | "finding" | "discard";
+    seq: number;
+    created_at: string;
+    hash: string;
+    status: SealLinkStatus;
+  }[];
+  fingerprint_matches: boolean | null;
+}
+
 /** Seeded starting point for a committee room's groups. */
 export interface CommitteeTemplate {
   id: number;
@@ -1128,6 +1144,14 @@ export const api = {
     request<void>(`/api/rooms/${id}/leave/`, { method: "POST" }),
 
   // --- committee rooms: groups and members (Gremien-Raum) ---
+  verifySeal: (roomId: number, reference: string, fingerprint: string) =>
+    request<SealVerification>(
+      `/api/committee-seals/verify/?${new URLSearchParams({
+        room: String(roomId),
+        reference,
+        fingerprint,
+      })}`,
+    ),
   listCommitteeTemplates: () =>
     request<CommitteeTemplate[]>("/api/committee-templates/"),
   listCommitteeGroups: (roomId: number) =>

@@ -17,7 +17,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from rest_framework import mixins, status, viewsets
-from rest_framework.decorators import action
+from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -26,7 +26,7 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import ballots, live, payloads, services
+from . import ballots, live, payloads, seals, services
 from .models import (
     Ballot,
     BallotSeat,
@@ -230,6 +230,20 @@ class CommitteeMemberViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def verify_seal(request):
+    """Check a seal reference (and optionally a printed fingerprint)."""
+    room = _managed_room_or_404(request, request.query_params.get("room"))
+    reference = request.query_params.get("reference", "").strip()
+    try:
+        return Response(seals.verify(
+            room, reference, request.query_params.get("fingerprint", ""),
+        ))
+    except DjangoValidationError as exc:
+        raise _coded(exc) from exc
 
 
 def _detail(exc: DjangoValidationError) -> ValidationError:

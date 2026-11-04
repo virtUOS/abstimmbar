@@ -10,6 +10,7 @@ ballots only *who* voted, never the choice.
 import hashlib
 import json
 
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils import timezone
 
@@ -173,3 +174,82 @@ def append(ballot: Ballot, kind: str) -> SealLink | None:
         meeting_id=meeting.pk, content_hash=content_hash, previous=previous,
         hash=link_hash(seq, kind, ref, content_hash, previous),
     )
+
+
+MIN_FINGERPRINT = 16
+
+
+def _chain_intact(room: Room) -> bool:
+    previous = ""
+    for expected_seq, link in enumerate(SealLink.objects.filter(room=room).order_by("seq"), 1):
+        if (
+            link.seq != expected_seq
+            or link.previous != previous
+            or link.hash != link_hash(
+                link.seq, link.kind, link.reference, link.content_hash, link.previous,
+            )
+        ):
+            return False
+        previous = link.hash
+    return True
+
+
+def _status(link: SealLink, discards: set[tuple[int, int]]) -> str:
+    """valid / altered / discarded / deleted for one link. `discards` holds
+    (ballot_id, seq) of the room's discard links."""
+    if link.deleted_at is not None:
+        return "deleted"
+    ballot = link.ballot
+    if ballot is None:
+        return "altered"
+    if (
+        link.kind != SealLink.Kind.DISCARD
+        and ballot.status == Ballot.Status.DISCARDED
+        and any(b == ballot.pk and seq > link.seq for b, seq in discards)
+    ):
+        # A reset wipes the rows the result was built from.
+        return "discarded"
+    recomputed = digest(content(ballot, link.kind, link.reference))
+    return "valid" if recomputed == link.content_hash else "altered"
+
+
+def normalize_fingerprint(raw: str) -> str:
+    """Hex digits only, lowercase; ValidationError(code="invalid") if too
+    short or not hex."""
+    value = "".join(raw.split()).lower()
+    if len(value) < MIN_FINGERPRINT or any(c not in "0123456789abcdef" for c in value):
+        raise ValidationError(
+            f"The fingerprint needs at least {MIN_FINGERPRINT} hex characters.",
+            code="invalid",
+        )
+    return value
+
+
+def verify(room: Room, reference: str, fingerprint: str = "") -> dict:
+    fp = normalize_fingerprint(fingerprint) if fingerprint.strip() else ""
+    links = list(
+        SealLink.objects.filter(room=room, reference=reference)
+        .select_related("ballot__question__question_set", "ballot__version")
+        .order_by("seq")
+    )
+    discards = set(
+        SealLink.objects.filter(room=room, kind=SealLink.Kind.DISCARD, ballot__isnull=False)
+        .values_list("ballot_id", "seq")
+    )
+    return {
+        "found": bool(links),
+        "chain_intact": _chain_intact(room),
+        "links": [
+            {
+                "kind": link.kind,
+                "seq": link.seq,
+                "created_at": link.created_at,
+                "hash": link.hash,
+                "status": _status(link, discards),
+            }
+            for link in links
+        ],
+        "fingerprint_matches": (
+            any(link.hash.startswith(fp) for link in links) if fp else None
+        ),
+    }
