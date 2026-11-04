@@ -110,7 +110,7 @@ export default function MeetingAttendance({
                   <Select value={after} onChange={(event) => setAfter(event.target.value)}>
                     <option value="">{t("Right away")}</option>
                     {data.items.map((item) => {
-                      const label = t("Item {{number}}", { number: item.label });
+                      const label = t("TOP {{number}}", { number: item.label });
                       const text = stripHtml(item.text).trim();
                       const short = text.length > 40 ? `${text.slice(0, 40)}…` : text;
                       return (

@@ -260,6 +260,8 @@ export interface MeetingAgendaItem {
   ballot_status: null | "open" | "closed";
   /** Number of discarded (reset/aborted) ballots. */
   discarded: number;
+  /** Bundled into the en bloc vote led by this item (question id). */
+  bundle_lead: number | null;
 }
 
 export interface MeetingAttendance {
@@ -1219,6 +1221,27 @@ export const api = {
     request<MeetingManager>(`/api/meetings/${setId}/show/`, {
       method: "POST",
       body: JSON.stringify({ question: questionId }),
+    }),
+  /** Show a TOP (section) on the beamer without a vote. */
+  showTop: (setId: number, sectionId: number) =>
+    request<MeetingManager>(`/api/meetings/${setId}/show/`, {
+      method: "POST",
+      body: JSON.stringify({ section: sectionId }),
+    }),
+  /** Add a resolution during the meeting (section null = a new TOP at the end). */
+  addMeetingResolution: (
+    setId: number,
+    data: { text: string; section: number | null; named: boolean },
+  ) =>
+    request<MeetingManager>(`/api/meetings/${setId}/items/`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  /** One vote en bloc over several resolutions. */
+  openBundle: (setId: number, questionIds: number[]) =>
+    request<MeetingManager>(`/api/meetings/${setId}/bundles/`, {
+      method: "POST",
+      body: JSON.stringify({ questions: questionIds }),
     }),
   openBallot: (setId: number, questionId: number) =>
     request<MeetingManager>(`/api/meetings/${setId}/items/${questionId}/open/`, {

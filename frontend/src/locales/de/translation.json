@@ -1511,5 +1511,19 @@
   "TOPs": "TOPs",
   "+ TOP here": "+ TOP hier",
   "Create agenda items (TOPs) with “TOPs”; a TOP may also have no vote.": "Legen Sie Tagesordnungspunkte (TOPs) über „TOPs“ an; ein TOP kann auch ohne Abstimmung sein.",
-  "+ TOP at the end": "+ TOP am Ende"
+  "+ TOP at the end": "+ TOP am Ende",
+  "+ Resolution": "+ Beschluss",
+  "Resolution text": "Beschlusstext",
+  "Roll-call vote": "Namentliche Abstimmung",
+  "Combine votes …": "Abstimmungen zusammenfassen …",
+  "Vote en bloc ({{count}})": "En bloc abstimmen ({{count}})",
+  "en bloc with TOP {{label}}": "en bloc mit TOP {{label}}",
+  "Invalid items.": "Ungültige Auswahl.",
+  "Invalid TOP.": "Ungültiger TOP.",
+  "Choose at least two items.": "Wählen Sie mindestens zwei Beschlüsse aus.",
+  "Only resolutions can be voted on en bloc.": "Nur über Beschlüsse kann en bloc abgestimmt werden.",
+  "Secret and roll-call items cannot be voted on together.": "Geheime und namentliche Abstimmungen können nicht zusammengefasst werden.",
+  "The text must not be empty.": "Der Text darf nicht leer sein.",
+  "The TOP does not belong to this meeting.": "Der TOP gehört nicht zu dieser Sitzung.",
+  "Give either a question or a section.": "Geben Sie entweder eine Abstimmung oder einen TOP an."
 }
