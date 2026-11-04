@@ -1575,5 +1575,7 @@
   "Finding: adopted": "Feststellung: angenommen",
   "Finding: rejected": "Feststellung: abgelehnt",
   "Fingerprint": "Fingerabdruck",
-  "Verification: Abstimmbar → Room → Check seal": "Prüfung: Abstimmbar → Raum → Siegel prüfen"
+  "Verification: Abstimmbar → Room → Check seal": "Prüfung: Abstimmbar → Raum → Siegel prüfen",
+  "Vote: {{start}}–{{end}}": "Abstimmung: {{start}}–{{end}}",
+  "Fingerprint of the finding": "Fingerabdruck der Feststellung"
 }

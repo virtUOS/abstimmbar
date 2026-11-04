@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
 import { Printer } from "lucide-react";
-import { stripHtml } from "@basicbar/ui";
+import { RichText } from "@basicbar/ui";
 import {
   api,
   requestBody,
@@ -209,9 +209,10 @@ export default function ProtocolPage() {
                       {t("TOP {{number}}", { number: top.number })}: {top.title}
                     </h3>
                     {top.description && (
-                      <p className="mt-0.5 text-sm text-slate-600 dark:text-slate-400">
-                        {stripHtml(top.description)}
-                      </p>
+                      <RichText
+                        html={top.description}
+                        className="mt-0.5 text-sm text-slate-600 dark:text-slate-400"
+                      />
                     )}
                   </div>
                 )}
@@ -232,7 +233,8 @@ export default function ProtocolPage() {
 }
 
 function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const time = new Intl.DateTimeFormat(i18n.language, { timeStyle: "short" });
   const label = (key: string) => answerLabel(t as (key: string) => string, item, key);
   const result = item.result;
   const muted = "text-slate-600 dark:text-slate-400";
@@ -241,10 +243,10 @@ function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null
       data-testid="protocol-item"
       className="break-inside-avoid grid gap-2 rounded-xl border border-slate-200 p-3 text-sm dark:border-slate-800"
     >
-      <p className="font-medium text-slate-900 dark:text-slate-100">
-        <span className="mr-2 font-semibold">{item.label}</span>
-        {stripHtml(item.text)}
-      </p>
+      <div className="flex items-start gap-2 font-medium text-slate-900 dark:text-slate-100">
+        <span className="shrink-0 font-semibold">{t("TOP {{number}}", { number: item.label })}</span>
+        <RichText html={item.text} className="protocol-rich min-w-0 flex-1" />
+      </div>
       {item.version_changed && item.version && (
         <p className={muted}>
           {t("Version {{n}} – differs from the version at the start of the meeting", {
@@ -274,6 +276,15 @@ function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null
         <>
           <p className={muted}>
             {item.named ? t("Named vote") : t("Secret vote")}
+            {item.opened_at && item.closed_at && (
+              <>
+                {" · "}
+                {t("Vote: {{start}}–{{end}}", {
+                  start: time.format(new Date(item.opened_at)),
+                  end: time.format(new Date(item.closed_at)),
+                })}
+              </>
+            )}
           </p>
           <ul className="flex flex-wrap gap-x-4 gap-y-0.5 text-slate-800 dark:text-slate-200">
             {item.options.map((option) => (
@@ -351,6 +362,14 @@ function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null
                   <span className="font-mono">{item.reference}</span>
                 )}
               </p>
+              {item.finding_fingerprint && (
+                <p>
+                  {t("Fingerprint of the finding")}:{" "}
+                  <span className="break-all font-mono">
+                    {fingerprintBlocks(item.finding_fingerprint)}
+                  </span>
+                </p>
+              )}
               {item.fingerprint && (
                 <p>
                   {t("Fingerprint")}:{" "}
