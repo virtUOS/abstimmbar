@@ -1525,5 +1525,7 @@
   "Secret and roll-call items cannot be voted on together.": "Geheime und namentliche Abstimmungen können nicht zusammengefasst werden.",
   "The text must not be empty.": "Der Text darf nicht leer sein.",
   "The TOP does not belong to this meeting.": "Der TOP gehört nicht zu dieser Sitzung.",
-  "Give either a question or a section.": "Geben Sie entweder eine Abstimmung oder einen TOP an."
+  "Give either a question or a section.": "Geben Sie entweder eine Abstimmung oder einen TOP an.",
+  "One vote for all of these resolutions.": "Eine Stimme für alle diese Beschlüsse.",
+  "+ Resolution as new TOP": "+ Beschluss als neuer TOP"
 }

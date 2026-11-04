@@ -547,7 +547,9 @@ def _localized(obj, base, lang):
 BALLOT_STRINGS = {
     "notStarted": _("The meeting has not started yet. This page updates by itself."),
     "waitVote": _("Please wait for the next vote."),
-    "item": _("Item {number}"),
+    "top": _("TOP {label}"),
+    "topTitle": _("TOP {number}: {title}"),
+    "bundle": _("One vote for all of these resolutions."),
     "version": _("Version {number}"),
     "changed": _("changed"),
     "hintTap": _("One tap casts your vote immediately and for good."),

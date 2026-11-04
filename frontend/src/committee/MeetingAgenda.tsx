@@ -294,7 +294,7 @@ export default function MeetingAgenda({
         onClick={() => setAdding({ section })}
         className="justify-self-start"
       >
-        {t("+ Resolution")}
+        {section === null ? t("+ Resolution as new TOP") : t("+ Resolution")}
       </Button>
     );
   }

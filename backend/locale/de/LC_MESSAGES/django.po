@@ -758,3 +758,12 @@ msgstr "Vorschau: So sehen Mitglieder den Stimmzettel. Ihre Eingaben hier werden
 
 msgid "Try again"
 msgstr "Noch einmal"
+
+msgid "TOP {label}"
+msgstr "TOP {label}"
+
+msgid "TOP {number}: {title}"
+msgstr "TOP {number}: {title}"
+
+msgid "One vote for all of these resolutions."
+msgstr "Eine Stimme für alle diese Beschlüsse."

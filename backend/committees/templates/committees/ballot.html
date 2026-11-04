@@ -17,6 +17,8 @@
   .badges { display: flex; flex-wrap: wrap; gap: 6px; }
   .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px;
            font-weight: 700; background: var(--brand-soft); color: var(--brand-strong); }
+  .top-name { font-weight: 600; overflow-wrap: anywhere; }
+  .top-title { font-size: 20px; margin: 4px 0; overflow-wrap: anywhere; }
   .badge.version { background: transparent; border: 1px solid var(--line); color: var(--ink-soft); }
   .notice { margin-top: 14px; padding: 10px 12px; border: 1px solid var(--line);
             border-radius: 12px; font-size: 14px; }
@@ -162,6 +164,12 @@
     }
     const item = snap.item;
     if (!item) {
+      if (snap.top) {
+        view.appendChild(el("h2", { class: "top-title" }, fill(S.topTitle, { number: snap.top.number, title: snap.top.title || "" })));
+        const desc = el("div", { class: "question-text" });
+        desc.innerHTML = snap.top.description || ""; // sanitized when authored
+        view.appendChild(desc);
+      }
       view.appendChild(el("p", { class: "soft" }, S.waitVote));
       return;
     }
@@ -193,7 +201,8 @@
 
   function itemHead(item) {
     const badges = el("div", { class: "badges" });
-    badges.appendChild(el("span", { class: "badge" }, fill(S.item, { number: item.label })));
+    badges.appendChild(el("span", { class: "badge" }, fill(S.top, { label: item.label })));
+    if (snap.top && snap.top.title) badges.appendChild(el("span", { class: "top-name" }, snap.top.title));
     if (item.version) {
       let label = fill(S.version, { number: item.version });
       if (item.changed) label += " · " + S.changed;
@@ -203,6 +212,15 @@
     const text = el("div", { class: "question-text" });
     text.innerHTML = item.text || ""; // sanitized when authored (like participant.html)
     view.appendChild(text);
+    const bundle = item.bundle || [];
+    for (const extra of bundle) {
+      const eb = el("div", { class: "badges" });
+      eb.appendChild(el("span", { class: "badge" }, fill(S.top, { label: extra.label })));
+      view.appendChild(eb);
+      const et = el("div", { class: "question-text" });
+      et.innerHTML = extra.text || "";
+      view.appendChild(et);
+    }
   }
 
   function votedView() {
@@ -232,6 +250,7 @@
     notice.appendChild(el("strong", {}, item.named ? S.named : S.secret));
     const oneTap = item.kind === "resolution" || item.kind === "single_choice";
     notice.appendChild(el("p", { class: "soft" }, oneTap ? S.hintTap : S.hintFinal));
+    if (item.bundle && item.bundle.length) notice.appendChild(el("p", {}, S.bundle));
     view.appendChild(notice);
 
     const send = (answer) => cast(ballot.id, answer);

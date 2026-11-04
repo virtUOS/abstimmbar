@@ -196,7 +196,7 @@ export default function MeetingPanel({
   const itemLabel = (question: Question) => {
     const text = stripHtml(localizedText(question.text)).trim();
     const number = labels.get(question.id);
-    const label = number ? t("Item {{number}}", { number }) : "";
+    const label = number ? t("TOP {{number}}", { number }) : "";
     return text ? `${label}: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}` : label;
   };
   const longDate = (iso: string) =>

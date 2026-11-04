@@ -164,7 +164,24 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
         <span className="break-words">{data.meeting.title}</span>
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
-        {!item ? (
+        {!item && data.top ? (
+          <div key={`top-${data.top.number}`} className="ab-fade-in mx-auto grid max-w-4xl gap-6">
+            <span className="justify-self-start rounded-full bg-brand-100 px-3 py-1 text-sm font-semibold text-brand-900 dark:bg-brand-900/40 dark:text-brand-100">
+              {t("TOP {{number}}", { number: data.top.number })}
+            </span>
+            {data.top.title && (
+              <h1 className="break-words text-3xl font-semibold leading-snug md:text-5xl">
+                {data.top.title}
+              </h1>
+            )}
+            {data.top.description && (
+              <RichText
+                className="break-words text-xl leading-snug md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
+                html={data.top.description}
+              />
+            )}
+          </div>
+        ) : !item ? (
           <div className="flex h-full items-center justify-center text-center">
             <p className="text-2xl text-slate-500 dark:text-slate-400 md:text-3xl">
               {t("Waiting for the next item")}
@@ -175,8 +192,13 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
             <div className="grid gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-brand-100 px-3 py-1 text-sm font-semibold text-brand-900 dark:bg-brand-900/40 dark:text-brand-100">
-                  {t("Item {{number}}", { number: item.label })}
+                  {t("TOP {{number}}", { number: item.label })}
                 </span>
+                {data.top?.title && (
+                  <span className="min-w-0 break-words text-base font-semibold text-slate-700 dark:text-slate-200">
+                    {data.top.title}
+                  </span>
+                )}
                 {item.version !== null && (
                   <span
                     className={`rounded-full border px-3 py-1 text-sm ${
@@ -195,6 +217,24 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                 className="break-words text-2xl font-semibold leading-snug md:text-4xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
                 html={item.text}
               />
+              {item.bundle.length > 0 && (
+                <div className="grid gap-4">
+                  {item.bundle.map((extra) => (
+                    <div key={extra.id} className="grid gap-2">
+                      <span className="justify-self-start rounded-full bg-brand-100 px-3 py-1 text-sm font-semibold text-brand-900 dark:bg-brand-900/40 dark:text-brand-100">
+                        {t("TOP {{number}}", { number: extra.label })}
+                      </span>
+                      <RichText
+                        className="break-words text-xl leading-snug md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
+                        html={extra.text}
+                      />
+                    </div>
+                  ))}
+                  <p className="text-lg text-slate-600 dark:text-slate-300">
+                    {t("One vote for all of these resolutions.")}
+                  </p>
+                </div>
+              )}
               {item.options.length > 0 && !ballot?.result && (
                 <ol className="grid gap-2 text-lg md:text-2xl">
                   {item.options.map((option, index) => (
