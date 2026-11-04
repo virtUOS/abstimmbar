@@ -2717,7 +2717,7 @@ class SealTests(BallotBase):
             return ballots.close_ballot(ballot)
 
     def expected_hash(self, link, ballot):
-        content = seals.content(ballot, link.kind)
+        content = seals.content(ballot, link.kind, link.reference)
         return seals.digest({
             "v": 1, "seq": link.seq, "kind": link.kind, "reference": link.reference,
             "content_hash": seals.digest(content), "previous": link.previous,
@@ -2731,7 +2731,7 @@ class SealTests(BallotBase):
         self.assertEqual(link.meeting_id, self.meeting.pk)
         self.assertEqual(link.ballot_id, ballot.pk)
         ballot = Ballot.objects.get(pk=ballot.pk)
-        content = seals.content(ballot, "result")
+        content = seals.content(ballot, "result", link.reference)
         self.assertEqual(link.content_hash, seals.digest(content))
         self.assertEqual(link.hash, self.expected_hash(link, ballot))
         self.assertEqual(len(link.hash), 64)
@@ -2773,47 +2773,54 @@ class SealTests(BallotBase):
 
     def test_secret_content_has_no_choices_per_person(self):
         ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
-        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result")
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result", "R")
         self.assertEqual(set(content), self.RESULT_KEYS)
         self.assertTrue(content["secret"])
         self.assertEqual(content["named"], [])
-        self.assertEqual(content["voters"], ["Anna (Gruppe A)", "Ben (Gruppe B)"])
+        self.assertEqual(content["voters"], sorted([self.anna.pk, self.ben.pk]))
         self.assertEqual(content["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
-        self.assertEqual([g["name"] for g in content["groups"]], ["Gruppe A", "Gruppe B"])
+        self.assertEqual(
+            [set(g) for g in content["groups"]],
+            [{"group_id", "eligible", "voted", "counts"}] * 2,
+        )
+        self.assertEqual(
+            [g["group_id"] for g in content["groups"]], sorted([self.ga.pk, self.gb.pk]),
+        )
 
     def test_named_content_lists_choices(self):
         self.q1.named_vote = True
         self.q1.save()
         ballot = self.closed(answers=[(self.ben, {"choice": "no"}), (self.anna, {"choice": "yes"})])
-        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result")
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result", "R")
         self.assertEqual(set(content), self.RESULT_KEYS)
-        self.assertEqual(
-            content["named"],
-            [{"member": "Anna", "keys": ["yes"]}, {"member": "Ben", "keys": ["no"]}],
-        )
+        self.assertEqual(content["named"], sorted(
+            [{"member_id": self.anna.pk, "keys": ["yes"]},
+             {"member_id": self.ben.pk, "keys": ["no"]}],
+            key=lambda n: n["member_id"],
+        ))
 
     def test_secret_texts_sorted_per_group(self):
         ballot = self.closed(self.q2, [
             (self.bert, {"text": "zwei"}), (self.anna, {"text": "eins"}),
             (self.ben, {"text": "drei"}),
         ])
-        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result")
-        self.assertEqual(content["texts"], [
-            {"group": "Gruppe A", "texts": ["eins", "zwei"]},
-            {"group": "Gruppe B", "texts": ["drei"]},
-        ])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result", "R")
+        self.assertEqual(content["texts"], sorted([
+            {"group_id": self.ga.pk, "texts": ["eins", "zwei"]},
+            {"group_id": self.gb.pk, "texts": ["drei"]},
+        ], key=lambda t: t["group_id"]))
 
     def test_finding_and_reset_append_links(self):
         ballot = self.closed()
         ballots.set_finding(ballot, "adopted")
         finding = SealLink.objects.get(kind="finding")
         self.assertEqual(
-            seals.content(Ballot.objects.get(pk=ballot.pk), "finding"),
+            seals.content(Ballot.objects.get(pk=ballot.pk), "finding", finding.reference),
             {"reference": finding.reference, "finding": "adopted"},
         )
         ballots.reset_ballot(ballot, "Zählfehler")
         discard = SealLink.objects.get(kind="discard")
-        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard")
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard", discard.reference)
         self.assertEqual(
             content, {"reference": discard.reference, "reason": "reset", "comment": "Zählfehler"},
         )
@@ -2836,7 +2843,7 @@ class SealTests(BallotBase):
             ballots.abort_stale(self.meeting)
         link = SealLink.objects.get()
         self.assertEqual((link.kind, link.ballot_id), ("discard", ballot.pk))
-        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard")
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard", link.reference)
         self.assertEqual(content["reason"], "restart")
         self.assertEqual(link.hash, self.expected_hash(link, Ballot.objects.get(pk=ballot.pk)))
 
@@ -2869,3 +2876,27 @@ class SealTests(BallotBase):
             ballots.close_ballot(ballot)
         link = SealLink.objects.get(room=other)
         self.assertEqual((link.seq, link.previous), (1, ""))
+
+    def test_content_survives_renames_and_relabelling(self):
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        link = SealLink.objects.get()
+        self.assertTrue(link.reference.endswith("-TOP1"))
+
+        def recomputed():
+            fresh = Ballot.objects.get(pk=ballot.pk)
+            return seals.digest(seals.content(fresh, "result", link.reference))
+
+        self.assertEqual(recomputed(), link.content_hash)
+        CommitteeMember.objects.filter(pk=self.anna.pk).update(name="Anna Neu")
+        CommitteeGroup.objects.filter(pk=self.ga.pk).update(name_de="Umbenannt", name_en="Renamed")
+        self.assertEqual(recomputed(), link.content_hash)
+        # A second resolution in the same TOP: "1" becomes "1a".
+        section = Section.objects.create(question_set=self.meeting, title_de="TOP", position=0)
+        Question.objects.filter(pk=self.q1.pk).update(section=section)
+        Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Zweiter",
+            position=1, section=section,
+        )
+        self.assertEqual(agenda.labels(self.meeting)[self.q1.pk], "1a")
+        self.assertTrue(seals.reference(Ballot.objects.get(pk=ballot.pk)).endswith("TOP1a"))
+        self.assertEqual(recomputed(), link.content_hash)

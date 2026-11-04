@@ -15,8 +15,8 @@ from django.utils import timezone
 
 from rooms.models import Question, Room
 
-from . import agenda, eligibility
-from .models import Ballot, BallotText, CommitteeGroup, MeetingControl, SealLink
+from . import agenda
+from .models import Ballot, BallotText, MeetingControl, SealLink
 
 HASH_VERSION = 1
 
@@ -69,48 +69,22 @@ def _iso(value) -> str | None:
 
 
 def _result_content(ballot: Ballot, ref: str) -> dict:
-    from .payloads import group_name  # payloads imports ballots, which imports us
-
-    meeting = ballot.question.question_set
-    groups = {g.pk: g for g in CommitteeGroup.objects.filter(room_id=meeting.room_id)}
-    names = {pk: group_name(g) for pk, g in groups.items()}
+    """Ids only (groups, members, items): renaming a group or member, or
+    relabelling the agenda after the close, must not change the hash."""
     result = ballot.result or {"groups": [], "total": {}, "voted": 0, "tally_sum": 0}
-
-    labels = agenda.labels(meeting)
-    numbers = eligibility.numbers(meeting)
-    bundled = sorted(
-        ballot.items.select_related("version"), key=lambda i: numbers.get(i.question_id, 0),
-    )
-    seats = list(ballot.seats.select_related("member"))
+    seats = list(ballot.seats.all())
     seat_groups = {s.member_id: s.group_id for s in seats}
-
-    named = []
-    if not ballot.secret:
-        named = sorted(
-            (
-                {"member": v.member.name, "keys": list(v.answer.get("keys", []))}
-                for v in ballot.named_votes.select_related("member")
-            ),
-            key=lambda n: (n["member"], n["keys"]),
-        )
+    votes = [] if ballot.secret else list(ballot.named_votes.all())
 
     texts_by_group: dict[int, list[str]] = {}
     if ballot.question.kind == Question.Kind.OPEN_TEXT:
         if ballot.secret:
             rows = BallotText.objects.filter(ballot=ballot).values_list("group_id", "text")
         else:
-            rows = (
-                (seat_groups.get(v.member_id), v.answer.get("text"))
-                for v in ballot.named_votes.all()
-            )
+            rows = ((seat_groups.get(v.member_id), v.answer.get("text")) for v in votes)
         for group_id, text in rows:
             if text:
                 texts_by_group.setdefault(group_id, []).append(text)
-    texts = [
-        {"group": names.get(g["group"], ""), "texts": sorted(texts_by_group[g["group"]])}
-        for g in result["groups"]
-        if g["group"] in texts_by_group
-    ]
 
     return {
         "reference": ref,
@@ -118,36 +92,44 @@ def _result_content(ballot: Ballot, ref: str) -> dict:
         "round": ballot.round,
         "version": _version(ballot.version),
         "items": [
-            {"reference_label": labels.get(i.question_id, ""), "version": _version(i.version)}
-            for i in bundled
+            {"question_id": i.question_id, "version": _version(i.version)}
+            for i in sorted(ballot.items.select_related("version"), key=lambda i: i.question_id)
         ],
-        "groups": [
-            {
-                "name": names.get(g["group"], ""),
-                "eligible": g["eligible"],
-                "voted": g["voted"],
-                "counts": g["counts"],
-            }
-            for g in result["groups"]
-        ],
+        "groups": sorted(
+            (
+                {
+                    "group_id": g["group"],
+                    "eligible": g["eligible"],
+                    "voted": g["voted"],
+                    "counts": g["counts"],
+                }
+                for g in result["groups"]
+            ),
+            key=lambda g: g["group_id"],
+        ),
         "total": result["total"],
         "voted": result["voted"],
         "tally_sum": result["tally_sum"],
-        "voters": sorted(
-            f"{s.member.name} ({names.get(s.group_id, '')})" for s in seats if s.voted
+        "voters": sorted(s.member_id for s in seats if s.voted),
+        "named": sorted(
+            (
+                {"member_id": v.member_id, "keys": list(v.answer.get("keys", []))}
+                for v in votes
+            ),
+            key=lambda n: n["member_id"],
         ),
-        "named": named,
-        "texts": texts,
+        "texts": [
+            {"group_id": gid, "texts": sorted(texts)}
+            for gid, texts in sorted(texts_by_group.items(), key=lambda kv: kv[0] or 0)
+        ],
         "opened_at": _iso(ballot.opened_at),
         "closed_at": _iso(ballot.closed_at),
     }
 
 
-def content(ballot: Ballot, kind: str, ref: str | None = None) -> dict:
-    """What a link of `kind` seals. `ref` defaults to the current reference;
-    a verifier passes the stored one."""
-    if ref is None:
-        ref = reference(ballot)
+def content(ballot: Ballot, kind: str, ref: str) -> dict:
+    """What a link of `kind` seals. `ref` is the link's stored reference —
+    never recomputed for verification (the agenda may change later)."""
     if kind == SealLink.Kind.RESULT:
         return _result_content(ballot, ref)
     if kind == SealLink.Kind.FINDING:
