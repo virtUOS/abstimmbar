@@ -289,7 +289,7 @@ export default function MeetingPanel({
           message={
             meeting.trial
               ? t(
-                  "All votes, attendances and versions of the test run are deleted. The agenda stays.",
+                  "All votes, attendance and versions of the test run will be deleted. The agenda returns to its state before the test run.",
                 )
               : t("End the meeting? All personal links become invalid afterwards.")
           }

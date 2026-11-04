@@ -189,6 +189,10 @@ class MeetingControl(models.Model):
     ended_at = models.DateTimeField(null=True, blank=True)
     # Test run: nothing is sealed, "end" wipes the meeting back to a draft.
     trial = models.BooleanField(default=False)
+    # Agenda at the start of a test run: {"questions": {id: position},
+    # "sections": {id: position}} (JSON keys are strings). Its end deletes
+    # items added since and restores the texts from version 1.
+    trial_snapshot = models.JSONField(null=True, blank=True)
 
 
 class Ballot(models.Model):

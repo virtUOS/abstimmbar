@@ -1582,6 +1582,7 @@
   "Test run": "Testlauf",
   "End test run": "Testlauf beenden",
   "Nothing is recorded in a test run. Everything is reset when it ends.": "Im Testlauf wird nichts protokolliert. Beim Beenden wird alles zurückgesetzt.",
-  "All votes, attendances and versions of the test run are deleted. The agenda stays.": "Alle Stimmen, Anwesenheiten und Fassungen des Testlaufs werden gelöscht. Die Tagesordnung bleibt.",
-  "Test run – nothing is recorded.": "Testlauf – nichts wird protokolliert."
+  "All votes, attendance and versions of the test run will be deleted. The agenda returns to its state before the test run.": "Alle Stimmen, Anwesenheiten und Fassungen des Testlaufs werden gelöscht. Die Tagesordnung wird auf den Stand vor dem Testlauf zurückgesetzt.",
+  "Test run – nothing is recorded.": "Testlauf – nichts wird protokolliert.",
+  "Findings are not recorded in a test run.": "In einem Testlauf werden keine Feststellungen protokolliert."
 }

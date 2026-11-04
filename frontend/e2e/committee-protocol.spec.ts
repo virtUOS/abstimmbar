@@ -183,10 +183,13 @@ test('test run leaves no trace', async ({ page, browser, trackRoom }) => {
   await expect(consolePage.getByTestId('beamer-progress')).toHaveText('1 von 1 haben abgestimmt');
   await item.getByRole('button', { name: 'Abstimmung schließen' }).click();
   await expect(consolePage.getByTestId('beamer-result')).toBeVisible();
+  // A test run records no findings.
+  await expect(item.getByRole('group', { name: 'Feststellung' })).toHaveCount(0);
   await consolePage.close();
 
   // 3. Ending the test run resets the meeting to "Planned".
   await page.getByRole('button', { name: 'Testlauf beenden' }).click();
+  await expect(page.getByRole('dialog')).toContainText('auf den Stand vor dem Testlauf zurückgesetzt');
   await page.getByRole('dialog').getByRole('button', { name: 'Testlauf beenden' }).click();
   await expect(page.getByRole('button', { name: 'Sitzung beginnen' })).toBeVisible();
   await expect(page.getByText('Geplant', { exact: true }).first()).toBeVisible();

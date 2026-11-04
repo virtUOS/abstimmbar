@@ -440,28 +440,31 @@ export default function MeetingAgenda({
                   })}
                 </p>
               )}
-            <div role="group" aria-label={t("Finding")} className="flex flex-wrap items-center gap-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                {t("Finding")}
-              </span>
-              {(
-                [
-                  ["adopted", t("Adopted")],
-                  ["rejected", t("Rejected")],
-                  ["", t("Leave open")],
-                ] as const
-              ).map(([value, label]) => (
-                <Button
-                  key={value || "open"}
-                  variant={ballot.finding === value ? "primary" : "ghost"}
-                  aria-pressed={ballot.finding === value}
-                  disabled={busy}
-                  onClick={() => void act(() => api.setBallotFinding(setId, ballot.id, value))}
-                >
-                  {label}
-                </Button>
-              ))}
-            </div>
+            {/* A test run records no findings (backend code "trial"). */}
+            {!data.trial && (
+              <div role="group" aria-label={t("Finding")} className="flex flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                  {t("Finding")}
+                </span>
+                {(
+                  [
+                    ["adopted", t("Adopted")],
+                    ["rejected", t("Rejected")],
+                    ["", t("Leave open")],
+                  ] as const
+                ).map(([value, label]) => (
+                  <Button
+                    key={value || "open"}
+                    variant={ballot.finding === value ? "primary" : "ghost"}
+                    aria-pressed={ballot.finding === value}
+                    disabled={busy}
+                    onClick={() => void act(() => api.setBallotFinding(setId, ballot.id, value))}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </div>
+            )}
           </div>
         )}
         {texts && ballot && (

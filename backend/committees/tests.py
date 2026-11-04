@@ -3355,6 +3355,74 @@ class TrialTests(MeetingFixture, ApiBase):
         ballot = self.run_vote()
         self.assertEqual(SealLink.objects.filter(ballot=ballot, kind="result").count(), 1)
 
+    def test_trial_end_restores_agenda(self):
+        s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=0)
+        Question.objects.filter(pk=self.q1.pk).update(section=s1, text_en="Motion")
+        q2 = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="Wahl", position=2,
+        )
+        a = AnswerOption.objects.create(question=q2, text_de="A", text_en="A", position=0)
+        b = AnswerOption.objects.create(question=q2, text_de="B", position=1)
+        dora = self.member("Dora", self.ga, role="deputy", rank=1)
+        self.start()
+        r = self.client.patch(
+            f"/api/questions/{self.q1.pk}/",
+            {"text": {"de": "Geändert", "en": "Changed"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        r = self.client.patch(
+            f"/api/questions/{q2.pk}/",
+            {"options": [
+                {"id": a.pk, "text": {"de": "A2", "en": "A2"}},
+                {"text": {"de": "C"}},
+            ]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertFalse(AnswerOption.objects.filter(pk=b.pk).exists())
+        sub_item = services.add_resolution(self.meeting, "Änderung", s1, named=False)
+        new_top = services.add_resolution(self.meeting, "Neuer TOP", None, named=False)
+        new_section = Section.objects.create(
+            question_set=self.meeting, title_de="Neu", position=10,
+        )
+        MeetingSubstitution.objects.create(
+            meeting=self.meeting, absent=self.anna, deputy=dora, from_question=sub_item,
+        )
+        MeetingInvite.objects.filter(member=self.ben).update(
+            removed_at=timezone.now(), removed_after=new_top,
+        )
+        self.run_vote()
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(self.url("end"))
+        self.assertEqual(r.status_code, 200, r.content)
+
+        self.assertEqual(
+            set(self.meeting.questions.values_list("pk", flat=True)), {self.q1.pk, q2.pk},
+        )
+        self.assertFalse(Section.objects.filter(pk=new_section.pk).exists())
+        self.assertEqual(list(self.meeting.sections.values_list("pk", flat=True)), [s1.pk])
+        self.q1.refresh_from_db()
+        self.assertEqual((self.q1.text_de, self.q1.text_en), ("Beschluss", "Motion"))
+        self.assertEqual(
+            list(q2.options.values_list("pk", "text_de", "text_en")),
+            [(a.pk, "A", "A"), (b.pk, "B", "")],
+        )
+        self.assertEqual(
+            dict(self.meeting.questions.values_list("pk", "position")),
+            {self.q1.pk: 1, q2.pk: 2},
+        )
+        self.assertIsNone(MeetingSubstitution.objects.get().from_question_id)
+        self.assertIsNone(MeetingControl.objects.get(meeting=self.meeting).trial_snapshot)
+        self.assertFalse(MotionVersion.objects.exists())
+
+        self.start(trial=False)
+        self.assertIsNone(MeetingControl.objects.get(meeting=self.meeting).trial_snapshot)
+        self.assertEqual(
+            self.q1.motion_versions.get().text_de, "Beschluss",
+        )
+        ballot = self.run_vote(dora)  # Anna is substituted from the start now
+        self.assertEqual(SealLink.objects.filter(ballot=ballot, kind="result").count(), 1)
+
     def test_trial_finding_rejected(self):
         self.start()
         ballot = self.run_vote()
