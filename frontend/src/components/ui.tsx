@@ -226,8 +226,11 @@ export function ConfirmDialog({
   onCancel,
   confirmLabel,
   confirmVariant = "danger",
+  extra,
 }: {
   message: string;
+  /** Additional button between Cancel and the confirm button. */
+  extra?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
   confirmLabel?: string;
@@ -253,10 +256,11 @@ export function ConfirmDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <p className="text-slate-700 dark:text-slate-200">{message}</p>
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>
             {t("Cancel")}
           </Button>
+          {extra}
           <Button variant={confirmVariant} onClick={onConfirm}>
             {confirmLabel ?? t("Delete")}
           </Button>

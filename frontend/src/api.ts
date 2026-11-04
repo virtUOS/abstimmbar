@@ -249,6 +249,8 @@ export interface MeetingSummary {
   ended_at: string | null;
   /** The requesting user is a voting member of a voting group (by email). */
   chair_is_member: boolean;
+  /** A running test run: nothing is recorded, ending resets the meeting. */
+  trial: boolean;
 }
 
 /** Kind of an agenda item a ballot can run on. */
@@ -316,6 +318,8 @@ export interface MeetingTop {
 /** Snapshot of a running meeting as the beamer and ballot pages see it. */
 export interface MeetingPublic {
   meeting: { id: number; title: string; state: MeetingState };
+  /** Test run: nothing is recorded. */
+  trial: boolean;
   item: MeetingItem | null;
   /** TOP of the shown item, or the shown TOP when no vote is shown. */
   top: MeetingTop | null;
@@ -1262,8 +1266,11 @@ export const api = {
   getMeeting: (setId: number) => request<MeetingSummary>(`/api/meetings/${setId}/`),
   getMeetingProtocol: (setId: number) =>
     request<MeetingProtocol>(`/api/meetings/${setId}/protocol/`),
-  startMeeting: (setId: number) =>
-    request<MeetingSummary>(`/api/meetings/${setId}/start/`, { method: "POST" }),
+  startMeeting: (setId: number, trial = false) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/start/`, {
+      method: "POST",
+      ...(trial ? { body: JSON.stringify({ trial: true }) } : {}),
+    }),
   endMeeting: (setId: number) =>
     request<MeetingSummary>(`/api/meetings/${setId}/end/`, { method: "POST" }),
   /** Create the missing personal links (never deletes any). */

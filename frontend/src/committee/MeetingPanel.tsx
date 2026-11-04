@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Copy,
   Download,
+  FlaskConical,
   KeyRound,
   Pencil,
   Play,
@@ -150,6 +151,7 @@ export default function MeetingPanel({
   const [dateDraft, setDateDraft] = useState(toLocalInput(set.scheduled_at));
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmStart, setConfirmStart] = useState(false);
+  const [confirmTrial, setConfirmTrial] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -233,9 +235,9 @@ export default function MeetingPanel({
 
   /** Start the meeting and open the console in a new tab. The tab is
    *  opened right away (inside the click) so no popup blocker stops it. */
-  async function begin() {
+  async function begin(trial = false) {
     const tab = window.open("", "_blank");
-    const ok = await run(() => api.startMeeting(set.id), setStateError);
+    const ok = await run(() => api.startMeeting(set.id, trial), setStateError);
     if (!tab) return;
     if (ok) tab.location.href = `/sets/${set.id}/meeting`;
     else tab.close();
@@ -284,8 +286,14 @@ export default function MeetingPanel({
 
       {confirmEnd && (
         <ConfirmDialog
-          message={t("End the meeting? All personal links become invalid afterwards.")}
-          confirmLabel={t("End meeting")}
+          message={
+            meeting.trial
+              ? t(
+                  "All votes, attendances and versions of the test run are deleted. The agenda stays.",
+                )
+              : t("End the meeting? All personal links become invalid afterwards.")
+          }
+          confirmLabel={meeting.trial ? t("End test run") : t("End meeting")}
           onConfirm={() => {
             setConfirmEnd(false);
             void run(() => api.endMeeting(set.id), setStateError);
@@ -300,11 +308,35 @@ export default function MeetingPanel({
           })}
           confirmLabel={t("Start now")}
           confirmVariant="primary"
+          extra={
+            <Button
+              variant="secondary"
+              data-testid="start-trial-from-dialog"
+              onClick={() => {
+                setConfirmStart(false);
+                void begin(true);
+              }}
+            >
+              {t("Start test run")}
+            </Button>
+          }
           onConfirm={() => {
             setConfirmStart(false);
             void begin();
           }}
           onCancel={() => setConfirmStart(false)}
+        />
+      )}
+      {confirmTrial && (
+        <ConfirmDialog
+          message={t("Nothing is recorded in a test run. Everything is reset when it ends.")}
+          confirmLabel={t("Start test run")}
+          confirmVariant="primary"
+          onConfirm={() => {
+            setConfirmTrial(false);
+            void begin(true);
+          }}
+          onCancel={() => setConfirmTrial(false)}
         />
       )}
 
@@ -316,7 +348,7 @@ export default function MeetingPanel({
               data-testid="meeting-state"
               className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATE_BADGE[state]}`}
             >
-              {t(STATE_LABEL[state])}
+              {t(meeting.trial && state === "started" ? "Test run" : STATE_LABEL[state])}
             </span>
             <span className="inline-flex min-w-0 items-center gap-1.5 text-base font-semibold sm:text-lg text-slate-900 dark:text-slate-100">
               <CalendarClock aria-hidden className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />
@@ -352,6 +384,18 @@ export default function MeetingPanel({
                 {t("Start meeting")}
               </Button>
             )}
+            {state === "draft" && (
+              <Button
+                variant="secondary"
+                disabled={busy}
+                data-testid="start-trial"
+                onClick={() => setConfirmTrial(true)}
+                className="inline-flex items-center gap-1.5"
+              >
+                <FlaskConical aria-hidden className="h-4 w-4" />
+                {t("Start test run")}
+              </Button>
+            )}
             {state === "started" && (
               <Link
                 to={`/sets/${set.id}/meeting`}
@@ -369,7 +413,7 @@ export default function MeetingPanel({
                 className="inline-flex items-center gap-1.5 border border-red-200 dark:border-red-900"
               >
                 <SquareStop aria-hidden className="h-4 w-4" />
-                {t("End meeting")}
+                {meeting.trial ? t("End test run") : t("End meeting")}
               </Button>
             )}
           </div>

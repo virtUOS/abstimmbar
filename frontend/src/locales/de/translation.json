@@ -1577,5 +1577,11 @@
   "Fingerprint": "Fingerabdruck",
   "Verification: Abstimmbar → Room → Check seal": "Prüfung: Abstimmbar → Raum → Siegel prüfen",
   "Vote: {{start}}–{{end}}": "Abstimmung: {{start}}–{{end}}",
-  "Fingerprint of the finding": "Fingerabdruck der Feststellung"
+  "Fingerprint of the finding": "Fingerabdruck der Feststellung",
+  "Start test run": "Testlauf starten",
+  "Test run": "Testlauf",
+  "End test run": "Testlauf beenden",
+  "Nothing is recorded in a test run. Everything is reset when it ends.": "Im Testlauf wird nichts protokolliert. Beim Beenden wird alles zurückgesetzt.",
+  "All votes, attendances and versions of the test run are deleted. The agenda stays.": "Alle Stimmen, Anwesenheiten und Fassungen des Testlaufs werden gelöscht. Die Tagesordnung bleibt.",
+  "Test run – nothing is recorded.": "Testlauf – nichts wird protokolliert."
 }
