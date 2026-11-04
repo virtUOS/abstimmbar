@@ -3058,8 +3058,31 @@ class ProtocolTests(BallotBase):
         )
         self.assertIsNotNone(item["opened_at"])
         self.assertIsNotNone(item["closed_at"])
-        # No member names anywhere in a secret item.
-        self.assertNotIn("Anna", json.dumps(item))
+        self.assertEqual(
+            item["voters"],
+            [{"name": "Anna", "group": "Gruppe A"}, {"name": "Ben", "group": "Gruppe B"}],
+        )
+
+    def test_secret_voters_without_choices(self):
+        self.closed(answers=[(self.anna, {"choice": "yes"})])
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual(item["voters"], [{"name": "Anna", "group": "Gruppe A"}])
+        self.assertEqual(item["named_votes"], [])
+        # Anna's name appears only in the voter list, never next to a choice.
+        rest = {k: v for k, v in item.items() if k != "voters"}
+        self.assertNotIn("Anna", json.dumps(rest))
+        self.assertNotIn("Bert", json.dumps(item))
+
+    def test_named_follows_voted_ballot(self):
+        self.closed()  # secret ballot
+        self.q1.named_vote = True
+        self.q1.save(update_fields=["named_vote"])
+        self.end()
+        items = self.items(self.protocol())
+        self.assertFalse(items["1"]["named"])
+        self.assertEqual(items["1"]["voters"], [{"name": "Anna", "group": "Gruppe A"}])
+        self.assertEqual(items["2"]["voters"], [])
 
     def test_named_votes_listed(self):
         self.q1.named_vote = True
@@ -3141,6 +3164,7 @@ class ProtocolTests(BallotBase):
         self.assertEqual(items["3"]["text"], "Drei")
         self.assertEqual(items["3"]["finding"], "adopted")
         self.assertEqual(items["3"]["fingerprint"], items["1"]["fingerprint"])
+        self.assertEqual(items["3"]["voters"], [{"name": "Anna", "group": "Gruppe A"}])
 
     def test_attendance_left_after_and_substitution(self):
         services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)

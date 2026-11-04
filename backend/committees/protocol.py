@@ -18,6 +18,7 @@ from . import agenda
 from .models import (
     Ballot,
     BallotItem,
+    BallotSeat,
     CommitteeGroup,
     MeetingControl,
     MeetingSubstitution,
@@ -94,6 +95,15 @@ def _result(ballot: Ballot, names: dict[int, str]) -> dict:
         "tally_sum": result["tally_sum"],
         "count_check_ok": result["voted"] == result["tally_sum"],
     }
+
+
+def _voters(ballot: Ballot, names, order) -> list[dict]:
+    """Who voted (§ 9.1) — for a secret ballot only *that* they voted."""
+    seats = sorted(
+        (s for s in ballot.seats.all() if s.voted),
+        key=lambda s: (order.get(s.group_id, 0), s.group_id, s.member.name, s.member_id),
+    )
+    return [{"name": s.member.name, "group": names.get(s.group_id, "")} for s in seats]
 
 
 def _named_votes(ballot: Ballot, names, order) -> list[dict]:
@@ -182,7 +192,8 @@ def _ballots_by_question(meeting: QuestionSet) -> dict[int, list[tuple[Ballot, M
         .prefetch_related(
             Prefetch("items", queryset=BallotItem.objects.select_related("version")),
             Prefetch("named_votes", queryset=NamedVote.objects.select_related("member")),
-            "seats", "texts", "seal_links",
+            Prefetch("seats", queryset=BallotSeat.objects.select_related("member")),
+            "texts", "seal_links",
         )
         .order_by("round", "pk")
     )
@@ -205,7 +216,7 @@ def _item(question, label, entries, labels, positions, names, order) -> dict:
     item = {
         "label": label,
         "kind": question.kind,
-        "named": question.named_vote,
+        "named": question.named_vote,  # the voted ballot's, below
         "text": _version_text(version, question),
         "version": version.number if version else None,
         "version_changed": bool(
@@ -220,6 +231,7 @@ def _item(question, label, entries, labels, positions, names, order) -> dict:
         "result": None,
         "options": _options(question.kind, version),
         "finding": None,
+        "voters": [],
         "named_votes": [],
         "texts": [],
         "opened_at": None,
@@ -242,6 +254,8 @@ def _item(question, label, entries, labels, positions, names, order) -> dict:
         ],
         result=_result(ballot, names),
         finding=ballot.finding,
+        named=not ballot.secret,
+        voters=_voters(ballot, names, order),
         named_votes=_named_votes(ballot, names, order),
         texts=_texts(ballot, question.kind, names, order),
         opened_at=_iso(ballot.opened_at),
