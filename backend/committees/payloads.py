@@ -60,9 +60,33 @@ def _wording(question: Question) -> tuple[str, int | None, list[dict]]:
 def _shown_ballot(question: Question) -> Ballot | None:
     """The open or the most recently closed (not discarded) ballot."""
     return (
-        question.ballots.exclude(status=Ballot.Status.DISCARDED)
-        .order_by("-round").first()
+        ballots.ballots_for(question).exclude(status=Ballot.Status.DISCARDED)
+        .order_by("-round", "-pk").first()
     )
+
+
+def _bundle(meeting, ballot: Ballot | None, question: Question, tops) -> list[dict]:
+    """The other items of an en bloc ballot (lead included when another of
+    its items is shown), in agenda order, with the wording voted on."""
+    if ballot is None:
+        return []
+    entries = [(i.question_id, i.version) for i in ballot.items.select_related("version")]
+    if not entries:
+        return []
+    entries.append((ballot.question_id, ballot.version))
+    numbers = eligibility.numbers(meeting)
+    entries = sorted(
+        (e for e in entries if e[0] != question.pk), key=lambda e: numbers.get(e[0], 0),
+    )
+    return [
+        {
+            "id": qid,
+            "label": _label(agenda.top_of(meeting, qid, tops), qid),
+            "text": _canonical({"de": version.text_de, "en": version.text_en}),
+            "version": version.number,
+        }
+        for qid, version in entries
+    ]
 
 
 def _texts(ballot: Ballot, group_order: dict[int, int]) -> list[dict]:
@@ -201,7 +225,7 @@ def _public(meeting: QuestionSet, names, order) -> dict:
         "changed": (number or 0) > 1,
         "named": question.named_vote,
         "options": options,
-        "bundle": [],
+        "bundle": _bundle(meeting, ballot, question, tops),
         "ballot": _ballot_payload(ballot, question, names, order) if ballot else None,
     }
     return payload
@@ -249,11 +273,23 @@ def public_payload(meeting: QuestionSet) -> dict:
 def _items(meeting: QuestionSet, tops: list) -> list[dict]:
     labels = agenda.labels(meeting)
     top_numbers = {qid: t.number for t in tops for qid in t.question_ids}
+    # Every ballot counts for its lead and for each item bundled into it.
+    statuses: dict[int, list[str]] = {}
+    bundle_lead: dict[int, int] = {}
+    for ballot in Ballot.objects.filter(
+        question__question_set_id=meeting.pk,
+    ).prefetch_related("items"):
+        bundled = [i.question_id for i in ballot.items.all()]
+        for qid in (ballot.question_id, *bundled):
+            statuses.setdefault(qid, []).append(ballot.status)
+        if ballot.status != Ballot.Status.DISCARDED:
+            for qid in bundled:
+                bundle_lead[qid] = ballot.question_id
     items = []
     for question in eligibility.agenda(meeting):
         text, version, _ = _wording(question)
-        statuses = list(question.ballots.values_list("status", flat=True))
-        live = [s for s in statuses if s != Ballot.Status.DISCARDED]
+        own = statuses.get(question.pk, [])
+        live = [s for s in own if s != Ballot.Status.DISCARDED]
         items.append({
             "id": question.pk,
             "label": labels.get(question.pk, ""),
@@ -266,7 +302,8 @@ def _items(meeting: QuestionSet, tops: list) -> list[dict]:
                 Ballot.Status.OPEN if Ballot.Status.OPEN in live
                 else Ballot.Status.CLOSED if live else None
             ),
-            "discarded": len(statuses) - len(live),
+            "discarded": len(own) - len(live),
+            "bundle_lead": bundle_lead.get(question.pk),
         })
     return items
 

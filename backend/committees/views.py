@@ -436,6 +436,12 @@ class MeetingViewSet(viewsets.GenericViewSet):
         if meeting.meeting_state != QuestionSet.MeetingState.STARTED:
             raise ValidationError({"detail": "The meeting is not running.", "code": "not_started"})
         open_ballot = ballots.open_ballot_of(meeting)
+        if (
+            open_ballot is not None and question is not None
+            and open_ballot.items.filter(question=question).exists()
+        ):
+            # An item of the open en bloc vote: the beamer shows its lead.
+            question = open_ballot.question
         if open_ballot is not None and (
             question is None or open_ballot.question_id != question.pk
         ):
@@ -454,6 +460,23 @@ class MeetingViewSet(viewsets.GenericViewSet):
         question = get_object_or_404(meeting.questions, pk=question_id)
         try:
             ballots.open_ballot(meeting, question)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting, status.HTTP_201_CREATED)
+
+    def open_bundle(self, request, pk=None):
+        meeting = self.get_object()
+        ids = request.data.get("questions")
+        if (
+            not isinstance(ids, list)
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)
+        ):
+            raise ValidationError({"detail": "Invalid items.", "code": "invalid"})
+        found = {q.pk: q for q in meeting.questions.filter(pk__in=ids)}
+        if set(ids) - set(found):
+            raise Http404
+        try:
+            ballots.open_bundle(meeting, [found[i] for i in ids])
         except DjangoValidationError as exc:
             raise _coded(exc) from exc
         return self._console(meeting, status.HTTP_201_CREATED)

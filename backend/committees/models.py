@@ -236,6 +236,26 @@ class Ballot(models.Model):
         ]
 
 
+class BallotItem(models.Model):
+    """A further agenda item voted on en bloc with the ballot's lead item
+    (``Ballot.question``, which has no row here). The result applies to all."""
+
+    ballot = models.ForeignKey(Ballot, on_delete=models.CASCADE, related_name="items")
+    question = models.ForeignKey(
+        "rooms.Question", on_delete=models.RESTRICT, related_name="bundled_in",
+    )
+    version = models.ForeignKey(
+        MotionVersion, on_delete=models.RESTRICT, related_name="+",
+    )
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["ballot", "question"], name="unique_ballot_item",
+            ),
+        ]
+
+
 class BallotSeat(models.Model):
     """Participation mark of an eligible voter. Deliberately without any
     timestamp (§ 8): the order of marks must not reveal who cast which vote."""

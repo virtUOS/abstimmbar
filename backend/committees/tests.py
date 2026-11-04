@@ -2417,3 +2417,163 @@ class AddResolutionTests(BallotBase):
     def test_non_owner_forbidden(self):
         resp = self.foreign.post(self.url(), {"text": "X", "named": False}, format="json")
         self.assertIn(resp.status_code, (403, 404))
+
+
+class BundleTests(BallotBase):
+    """En bloc ballot: one vote over several resolutions."""
+
+    def setUp(self):
+        super().setUp()
+        # Outline: S1 (q1 "1a", q2 open_text "1b", r2 "1c"), r3 "2", rn named "3".
+        self.s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=0)
+        Question.objects.filter(pk__in=[self.q1.pk, self.q2.pk]).update(section=self.s1)
+        self.r2 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Zwei", position=3,
+            section=self.s1,
+        )
+        self.r3 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Drei", position=4,
+        )
+        self.rn = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Namentlich", position=5,
+            named_vote=True,
+        )
+        for q in (self.q1, self.q2):
+            q.refresh_from_db()
+
+    def url(self, suffix):
+        return f"/api/meetings/{self.meeting.pk}/{suffix}"
+
+    def bundle(self):
+        return ballots.open_bundle(self.meeting, [self.r3, self.q1, self.r2])
+
+    def test_bundle_vote_counts_once_for_all(self):
+        b = self.bundle()
+        self.assertEqual(b.question, self.q1)
+        self.assertTrue(b.secret)
+        self.assertEqual({i.question_id for i in b.items.all()}, {self.r2.pk, self.r3.pk})
+        for item in b.items.all():
+            self.assertEqual(item.version, versions.current(item.question))
+        self.assertEqual(b.seats.count(), 3)
+        self.vote(self.anna, b, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            b = ballots.close_ballot(b)
+        self.assertEqual(b.result["total"]["counts"], {"yes": 1, "no": 0, "abstain": 0})
+        for q in (self.q1, self.r2, self.r3):
+            self.assertEqual(ballots.ballots_for(q).get().status, Ballot.Status.CLOSED)
+
+    def test_bundled_item_cannot_open_alone(self):
+        b = self.bundle()
+        self.assertCode("other_open", ballots.open_ballot, self.meeting, self.r2)
+        ballots.close_ballot(b)
+        self.assertCode("already_voted_on", ballots.open_ballot, self.meeting, self.r2)
+        self.assertCode("already_voted_on", ballots.open_ballot, self.meeting, self.q1)
+
+    def test_reset_frees_all_items(self):
+        b = self.bundle()
+        ballots.close_ballot(b)
+        ballots.reset_ballot(b, "Fehler")
+        single = ballots.open_ballot(self.meeting, self.r2)
+        self.assertEqual(single.question, self.r2)
+        self.assertEqual(single.round, 2)
+        ballots.close_ballot(single)
+        again = ballots.open_bundle(self.meeting, [self.q1, self.r3])
+        self.assertEqual(again.round, 2)
+
+    def test_bundle_errors(self):
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1])
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1, self.q1])
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1, self.q2])
+        self.assertCode("mixed_named", ballots.open_bundle, self.meeting, [self.q1, self.rn])
+        other = QuestionSet.objects.create(
+            room=self.room, title="Andere", type=QuestionSet.SetType.MEETING,
+        )
+        foreign = Question.objects.create(question_set=other, kind="resolution", text_de="F")
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1, foreign])
+        single = ballots.open_ballot(self.meeting, self.r3)
+        self.assertCode("other_open", ballots.open_bundle, self.meeting, [self.q1, self.r2])
+        ballots.close_ballot(single)
+        self.assertCode(
+            "already_voted_on", ballots.open_bundle, self.meeting, [self.q1, self.r3],
+        )
+        services.end_meeting(self.meeting)
+        self.assertCode("not_started", ballots.open_bundle, self.meeting, [self.q1, self.r2])
+        self.assertFalse(Ballot.objects.filter(question=self.q1).exists())
+
+    def test_payload_bundle_texts(self):
+        from . import payloads
+
+        self.bundle()
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual(item["id"], self.q1.pk)
+        self.assertEqual(item["label"], "1a")
+        self.assertEqual(item["bundle"], [
+            {"id": self.r2.pk, "label": "1c", "text": "Zwei", "version": 1},
+            {"id": self.r3.pk, "label": "2", "text": "Drei", "version": 1},
+        ])
+        self.assertEqual(payloads.preview_payload(self.r2)["item"]["bundle"], [])
+
+    def test_console_status_for_bundled(self):
+        from . import payloads
+
+        b = self.bundle()
+        items = {i["id"]: i for i in payloads.manager_payload(self.meeting)["items"]}
+        self.assertEqual(items[self.r2.pk]["ballot_status"], "open")
+        self.assertEqual(items[self.r2.pk]["bundle_lead"], self.q1.pk)
+        self.assertEqual(items[self.r3.pk]["bundle_lead"], self.q1.pk)
+        self.assertIsNone(items[self.q1.pk]["bundle_lead"])
+        self.assertIsNone(items[self.q2.pk]["bundle_lead"])
+        self.assertIsNone(items[self.q2.pk]["ballot_status"])
+        ballots.close_ballot(b)
+        ballots.reset_ballot(b, "")
+        items = {i["id"]: i for i in payloads.manager_payload(self.meeting)["items"]}
+        self.assertIsNone(items[self.r2.pk]["ballot_status"])
+        self.assertEqual(items[self.r2.pk]["discarded"], 1)
+        self.assertIsNone(items[self.r2.pk]["bundle_lead"])
+
+    def test_bundled_item_is_locked(self):
+        self.assertIsNone(versions.lock_reason(self.r2))
+        b = self.bundle()
+        self.assertEqual(versions.lock_reason(self.r2), "A vote on this item is open.")
+        ballots.close_ballot(b)
+        self.assertIn("voted on", versions.lock_reason(self.r2))
+
+    def test_show_bundled_item_shows_lead(self):
+        self.bundle()
+        resp = self.client.post(self.url("show/"), {"question": self.r3.pk}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["item"]["id"], self.q1.pk)
+        resp = self.client.post(self.url("show/"), {"question": self.rn.pk}, format="json")
+        self.assertEqual(resp.data["code"], "vote_open")
+
+    def test_api_bundles_endpoint(self):
+        resp = self.client.post(
+            self.url("bundles/"), {"questions": [self.q1.pk, self.rn.pk]}, format="json",
+        )
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "mixed_named"))
+        for body in ({}, {"questions": "x"}, {"questions": [self.q1.pk, "x"]}):
+            resp = self.client.post(self.url("bundles/"), body, format="json")
+            self.assertEqual((resp.status_code, resp.data["code"]), (400, "invalid"), body)
+        resp = self.client.post(
+            self.url("bundles/"), {"questions": [self.r2.pk, 999999]}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.post(
+            self.url("bundles/"), {"questions": [self.r2.pk, self.q1.pk]}, format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data["open_ballot"], Ballot.objects.get(question=self.q1).pk)
+        self.assertEqual(resp.data["item"]["id"], self.q1.pk)
+        resp = self.foreign.post(
+            self.url("bundles/"), {"questions": [self.r3.pk, self.rn.pk]}, format="json",
+        )
+        self.assertIn(resp.status_code, (403, 404))
+
+    def test_delete_room_with_closed_bundle(self):
+        b = self.bundle()
+        ballots.close_ballot(b)
+        services.end_meeting(self.meeting)
+        resp = self.client.delete(f"/api/rooms/{self.room.pk}/")
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Ballot.objects.exists())
+        self.assertFalse(Question.objects.filter(pk=self.r2.pk).exists())
