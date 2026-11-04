@@ -391,8 +391,8 @@ def invite_state(invite: MeetingInvite, question: Question | None = None) -> str
 def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
     """Whether a removal applies at `question` (default: the item currently
     shown). Removed without an item: always. Removed after an item: only
-    once the agenda is past it — up to and including that item (and while
-    no item is shown) the member is still there, as in eligibility. An
+    once the meeting is past it (eligibility.course) — up to and including
+    that item (and while no item is shown) the member is still there. An
     item that left the agenda counts as removal from the start (§ 5.4,
     see eligibility._present)."""
     if invite.removed_at is None:
@@ -400,8 +400,8 @@ def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
     after = invite.removed_after_id
     if after is None:
         return True
-    agenda_numbers = eligibility.numbers(invite.meeting)
-    if after not in agenda_numbers:
+    order = eligibility.course(invite.meeting)
+    if after not in order:
         return True
     if question is not None:
         current = question.pk
@@ -410,9 +410,9 @@ def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
             MeetingControl.objects.filter(meeting_id=invite.meeting_id)
             .values_list("current_question_id", flat=True).first()
         )
-    if current is None:
+    if current is None or current not in order:
         return False
-    return agenda_numbers.get(current, 0) > agenda_numbers[after]
+    return order[current] > order[after]
 
 
 def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:

@@ -1363,7 +1363,7 @@ class EligibilityTests(MeetingFixture, TestCase):
 
     def test_agenda_and_numbers(self):
         self.assertEqual(eligibility.agenda(self.meeting), [self.q1, self.q2, self.q3])
-        self.assertEqual(eligibility.number_of(self.meeting, self.q3), 3)
+        self.assertEqual(eligibility.numbers(self.meeting)[self.q3.pk], 3)
 
     def test_observers_and_deputies_hold_no_seat(self):
         self.assertEqual(self.voters(self.q1), ["Anna", "Bert", "Ben"])
@@ -1980,6 +1980,60 @@ class RemovedAfterItemTests(BallotBase):
         Question.objects.filter(pk=self.q2.pk).update(question_set=other)
         self.assertEqual(services.invite_state(self.invite(self.bert)), "removed")
         self.assertNotIn(self.bert, eligibility.eligible_voters(self.meeting, self.q1))
+
+
+class CourseTests(EligibilityTests):
+    """Eligibility follows the meeting's actual course: items already voted
+    on in the order they were opened, the rest in agenda order."""
+
+    def vote_on(self, question):
+        ballot = ballots.open_ballot(self.meeting, question)
+        ballots.close_ballot(ballot)
+        return ballot
+
+    def test_out_of_order_departure_stays_gone(self):
+        # TOP 3 is called before TOP 2; Bert leaves after TOP 3.
+        self.vote_on(self.q3)
+        services.remove_invite(self.invite(self.bert), after_question=self.q3)
+        self.assertNotIn("Bert", self.voters(self.q2))
+        self.assertIn("Bert", self.voters(self.q3))
+
+    def test_planned_departure_not_yet_reached(self):
+        # Bert will leave after TOP 3; TOP 2 is still before it.
+        self.vote_on(self.q1)
+        services.remove_invite(self.invite(self.bert), after_question=self.q3)
+        self.assertIn("Bert", self.voters(self.q2))
+
+    def test_resolution_added_to_earlier_top_after_departure(self):
+        self.vote_on(self.q1)
+        self.vote_on(self.q2)
+        services.remove_invite(self.invite(self.bert), after_question=self.q2)
+        late = services.add_resolution(self.meeting, "Nachtrag", None, False)
+        Question.objects.filter(pk=late.pk).update(position=0)
+        self.assertNotIn("Bert", self.voters(late))
+
+    def test_substitution_keeps_seat_for_later_item_on_earlier_top(self):
+        self.vote_on(self.q1)
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)
+        self.enter_all()
+        self.vote_on(self.q2)
+        late = services.add_resolution(self.meeting, "Nachtrag", None, False)
+        Question.objects.filter(pk=late.pk).update(position=0)
+        self.assertEqual(self.voters(late), ["Bert", "Dora", "Ben"])
+
+    def test_reset_revote_keeps_its_place(self):
+        first = self.vote_on(self.q1)
+        self.vote_on(self.q2)
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        ballots.reset_ballot(first, "Fehler")
+        self.assertIn("Bert", self.voters(self.q1))
+        self.assertNotIn("Bert", self.voters(self.q3))
+
+    def test_invite_state_follows_course(self):
+        self.vote_on(self.q3)
+        services.remove_invite(self.invite(self.bert), after_question=self.q3)
+        self.assertEqual(services.invite_state(self.invite(self.bert), self.q2), "removed")
+        self.assertEqual(services.invite_state(self.invite(self.bert), self.q3), "active")
 
 
 class DeputyPresenceTests(EligibilityTests):
