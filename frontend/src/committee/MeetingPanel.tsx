@@ -33,8 +33,10 @@ import {
   type MeetingSummary,
   type Question,
   type QuestionSet,
+  type Section,
 } from "../api";
 import { Button, ConfirmDialog, Field, Select, ToggleSwitch } from "../components/ui";
+import { agendaLabels } from "./agendaLabels";
 import { MeetingDateInput, STATE_BADGE, STATE_LABEL } from "./MeetingList";
 
 const INVITE_STATE_LABEL: Record<InviteState, string> = {
@@ -125,9 +127,12 @@ function Collapsible({
 export default function MeetingPanel({
   set,
   questions,
+  sections,
   onSetChange,
 }: {
   set: QuestionSet;
+  /** The meeting's TOPs (sections), for the item labels. */
+  sections: Section[];
   /** The meeting's agenda items (for "from/after item"). */
   questions: Question[];
   onSetChange: (set: QuestionSet) => void;
@@ -174,11 +179,23 @@ export default function MeetingPanel({
   const groupById = new Map(groups.map((group) => [group.id, group]));
   const memberById = new Map(members.map((member) => [member.id, member]));
   const agenda = [...questions].sort((a, b) => a.position - b.position);
+  const labels = agendaLabels([
+    ...sections.map((s) => ({ pos: s.position, row: { kind: "section" as const, id: s.id } })),
+    ...questions.map((q) => ({
+      pos: q.position,
+      row: { kind: "question" as const, id: q.id, section: q.section },
+    })),
+  ].sort(
+    (a, b) =>
+      a.pos - b.pos ||
+      Number(a.row.kind === "question") - Number(b.row.kind === "question") ||
+      a.row.id - b.row.id,
+  ).map((e) => e.row)).questions;
   const itemNumber = (questionId: number | null) =>
-    questionId === null ? null : agenda.findIndex((q) => q.id === questionId) + 1 || null;
-  const itemLabel = (question: Question, index: number) => {
+    questionId === null ? null : labels.get(questionId) ?? null;
+  const itemLabel = (question: Question, _index: number) => {
     const text = stripHtml(localizedText(question.text)).trim();
-    const label = t("Item {{number}}", { number: index + 1 });
+    const label = t("Item {{number}}", { number: labels.get(question.id) ?? "" });
     return text ? `${label}: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}` : label;
   };
   const longDate = (iso: string) =>
@@ -708,7 +725,7 @@ function SubstitutionSection({
   memberById: Map<number, CommitteeMember>;
   agenda: Question[];
   itemLabel: (question: Question, index: number) => string;
-  itemNumber: (questionId: number | null) => number | null;
+  itemNumber: (questionId: number | null) => string | null;
   readOnly: boolean;
   busy: boolean;
   error: string;

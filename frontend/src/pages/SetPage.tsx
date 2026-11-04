@@ -26,6 +26,7 @@ import AiReviewPanel from "../components/AiReviewPanel";
 import FileDropzone from "../components/FileDropzone";
 import HomeCrumb from "../components/HomeCrumb";
 import MeetingPanel from "../committee/MeetingPanel";
+import { agendaLabels } from "../committee/agendaLabels";
 import SortableOutline from "../components/SortableOutline";
 import TranslatableField from "../components/TranslatableField";
 import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
@@ -400,7 +401,14 @@ function buildRows(questions: Question[], sections: SectionType[]): OutlineRow[]
       row: { kind: "question" as const, id: `q-${question.id}`, question },
     })),
   ];
-  merged.sort((a, b) => a.pos - b.pos);
+  // Equal positions: sections first, then by id (as committees/agenda.py).
+  merged.sort(
+    (a, b) =>
+      a.pos - b.pos ||
+      Number(a.row.kind === "question") - Number(b.row.kind === "question") ||
+      (a.row.kind === "section" ? a.row.section.id : (a.row as { question: Question }).question.id) -
+        (b.row.kind === "section" ? b.row.section.id : (b.row as { question: Question }).question.id),
+  );
   return merged.map((entry) => entry.row);
 }
 
@@ -948,6 +956,13 @@ export default function SetPage() {
   }, [reviewOpen, reviewJob?.id, reviewJob?.status]);
 
   const rows = buildRows(questions ?? [], sections);
+  const agenda = agendaLabels(
+    rows.map((row) =>
+      row.kind === "section"
+        ? { kind: "section" as const, id: row.section.id }
+        : { kind: "question" as const, id: row.question.id, section: row.question.section },
+    ),
+  );
 
   async function persistOutline(newRows: OutlineRow[]) {
     const newSections: SectionType[] = [];
@@ -1806,7 +1821,7 @@ export default function SetPage() {
       )}
 
       {isMeeting && (
-        <MeetingPanel set={set} questions={questions} onSetChange={setSet} />
+        <MeetingPanel set={set} questions={questions} sections={sections} onSetChange={setSet} />
       )}
 
       {generateOpen && (
@@ -1941,20 +1956,20 @@ export default function SetPage() {
         <div className="flex flex-wrap items-center gap-2">
           {/* Authoring actions surfaced next to "Neue Frage" (#21, #23).
               Easy mode (#52): sections are a Pro feature. */}
-          <ProOnly easyMode={easyMode}>
+          <ProOnly easyMode={easyMode || isMeeting}>
             <Button
               variant={editingSections ? "primary" : "secondary"}
               aria-pressed={editingSections}
-              disabled={questions.length === 0}
+              disabled={!isMeeting && questions.length === 0}
               title={
-                questions.length === 0
+                !isMeeting && questions.length === 0
                   ? t("Create a question first — sections group existing questions.")
                   : undefined
               }
               onClick={() => setEditingSections((value) => !value)}
               className="inline-flex items-center gap-1.5"
             >
-              <ListTree aria-hidden className="h-4 w-4" />{t("Sections")}
+              <ListTree aria-hidden className="h-4 w-4" />{isMeeting ? t("TOPs") : t("Sections")}
             </Button>
           </ProOnly>
           {aiVisible && (
@@ -2014,9 +2029,11 @@ export default function SetPage() {
 
       {rows.length === 0 ? (
         <EmptyState icon={CircleHelp} title={t("No questions yet")}>
-          {t(
-            "Create the first question above — Single Choice starts with three empty answer fields.",
-          )}
+          {isMeeting
+            ? t("Create agenda items (TOPs) with “TOPs”; a TOP may also have no vote.")
+            : t(
+                "Create the first question above — Single Choice starts with three empty answer fields.",
+              )}
           <div className="mx-auto mt-4 flex max-w-sm flex-col items-center gap-3">
             <Button
               variant="primary"
@@ -2056,7 +2073,7 @@ export default function SetPage() {
                   onClick={() => void insertSectionAt(index)}
                   className="mb-2 w-full rounded-lg border border-dashed border-slate-300 py-1 text-xs text-slate-400 hover:border-brand-500 hover:text-brand-700 dark:border-slate-700 dark:hover:text-brand-300"
                 >
-                  + {t("Section here")}
+                  {isMeeting ? t("+ TOP here") : `+ ${t("Section here")}`}
                 </button>
               );
               if (row.kind === "section") {
@@ -2065,9 +2082,15 @@ export default function SetPage() {
                     {insertBar}
                     <div className="flex items-center gap-2 pt-2">
                       {handle}
-                      <span className="text-brand-700 dark:text-brand-300" aria-hidden>
-                        §
-                      </span>
+                      {isMeeting ? (
+                        <span className="shrink-0 text-sm font-semibold text-brand-700 dark:text-brand-300">
+                          {t("TOP {{number}}", { number: agenda.sections.get(row.section.id) })}
+                        </span>
+                      ) : (
+                        <span className="text-brand-700 dark:text-brand-300" aria-hidden>
+                          §
+                        </span>
+                      )}
                       {editingSections ? (
                         <>
                           <SectionTitleField
@@ -2130,6 +2153,14 @@ export default function SetPage() {
                       className="min-w-0 flex-1"
                     >
                       <span className="flex items-center gap-2">
+                        {isMeeting && agenda.questions.has(question.id) && (
+                          <span
+                            data-testid="vote-label"
+                            className="shrink-0 rounded-md bg-slate-100 px-1.5 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                          >
+                            {agenda.questions.get(question.id)}
+                          </span>
+                        )}
                         {paired && (
                           <span className="shrink-0 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-700 dark:bg-brand-950 dark:text-brand-300">
                             {question.is_after ? t("After") : t("Before")}

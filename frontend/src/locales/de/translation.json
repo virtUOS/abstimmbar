@@ -1506,5 +1506,9 @@
   "Links: {{links}} · connected: {{connected}}": "Links: {{links}} · verbunden: {{connected}}",
   "Links: {{links}}": "Links: {{links}}",
   "On the beamer": "Auf dem Beamer",
-  "Show on the beamer": "Auf dem Beamer anzeigen"
+  "Show on the beamer": "Auf dem Beamer anzeigen",
+  "TOP {{number}}": "TOP {{number}}",
+  "TOPs": "TOPs",
+  "+ TOP here": "+ TOP hier",
+  "Create agenda items (TOPs) with “TOPs”; a TOP may also have no vote.": "Legen Sie Tagesordnungspunkte (TOPs) über „TOPs“ an; ein TOP kann auch ohne Abstimmung sein."
 }
