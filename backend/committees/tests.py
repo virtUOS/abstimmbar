@@ -3001,3 +3001,212 @@ class VerifyTests(BallotBase):
         self.assertEqual(self.verify(self.ref(), room=self.room).status_code, 200)
         r = self.client.get("/api/committee-seals/verify/", {"room": 99999, "reference": "x"})
         self.assertEqual(r.status_code, 404)
+
+
+class ProtocolTests(BallotBase):
+    closed = SealTests.closed
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/protocol/"
+
+    def end(self):
+        services.end_meeting(self.meeting)
+
+    def protocol(self):
+        r = self.client.get(self.url())
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def items(self, data):
+        return {i["label"]: i for top in data["tops"] for i in top["items"]}
+
+    def test_requires_ended_meeting(self):
+        r = self.client.get(self.url())
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "not_ended")
+        self.assertEqual(self.foreign.get(self.url()).status_code, 404)
+
+    def test_secret_result_and_voters(self):
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        ballots.set_finding(ballot, "adopted")
+        self.end()
+        data = self.protocol()
+        self.assertEqual(data["committee"], "R")
+        self.assertEqual(data["title"], "Sitzung")
+        self.assertIsNotNone(data["started_at"])
+        self.assertIsNotNone(data["ended_at"])
+        present = [(p["name"], p["group"]) for p in data["attendance"]["present"]]
+        self.assertIn(("Anna", "Gruppe A"), present)
+        self.assertNotIn("Olga", [p["name"] for p in data["attendance"]["present"]])
+        self.assertEqual(data["attendance"]["observers"], ["Olga"])
+        item = self.items(data)["1"]
+        self.assertEqual(item["status"], "voted")
+        self.assertEqual(item["kind"], "resolution")
+        self.assertFalse(item["named"])
+        self.assertEqual(item["text"], "Beschluss")
+        self.assertEqual(item["result"]["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
+        groups = {g["name"]: g for g in item["result"]["groups"]}
+        self.assertEqual(groups["Gruppe A"]["eligible"], 2)
+        self.assertEqual(groups["Gruppe A"]["voted"], 1)
+        self.assertTrue(item["result"]["count_check_ok"])
+        self.assertEqual(item["named_votes"], [])
+        self.assertEqual(item["finding"], "adopted")
+        self.assertEqual(
+            item["options"],
+            [{"key": "yes", "text": "yes"}, {"key": "no", "text": "no"},
+             {"key": "abstain", "text": "abstain"}],
+        )
+        self.assertIsNotNone(item["opened_at"])
+        self.assertIsNotNone(item["closed_at"])
+        # No member names anywhere in a secret item.
+        self.assertNotIn("Anna", json.dumps(item))
+
+    def test_named_votes_listed(self):
+        self.q1.named_vote = True
+        self.q1.save(update_fields=["named_vote"])
+        self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertTrue(item["named"])
+        self.assertEqual(item["named_votes"], [
+            {"member": "Anna", "group": "Gruppe A", "keys": ["yes"]},
+            {"member": "Ben", "group": "Gruppe B", "keys": ["no"]},
+        ])
+
+    def test_free_texts_by_group(self):
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        self.end()
+        item = self.items(self.protocol())["2"]
+        self.assertEqual(item["texts"], [{"group": "Gruppe A", "text": "Hallo"}])
+        self.assertEqual(
+            item["options"], [{"key": "text", "text": "text"}, {"key": "abstain", "text": "abstain"}],
+        )
+
+    def test_choice_options_use_version_text(self):
+        q = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="Wahl", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=q, text_de="Rot", text_en="Red", position=1)
+        versions.sync(q)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"option": o1.pk})
+        ballots.close_ballot(ballot)
+        self.end()
+        item = self.items(self.protocol())["3"]
+        self.assertEqual(
+            item["options"],
+            [{"key": f"opt:{o1.pk}", "text": "Rot"}, {"key": "abstain", "text": "abstain"}],
+        )
+
+    def test_reset_note_without_old_result(self):
+        first = self.closed(answers=[(self.anna, {"choice": "no"})])
+        ballots.reset_ballot(first, "Fehler")
+        self.closed()
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual(
+            item["rounds_discarded"], [{"round": 1, "reason": "reset", "comment": "Fehler"}],
+        )
+        self.assertEqual(item["result"]["total"]["counts"], {"yes": 1, "no": 0, "abstain": 0})
+        self.assertTrue(item["reference"].endswith("-W2"))
+
+    def test_version_changed_note(self):
+        r = self.client.patch(
+            f"/api/questions/{self.q1.pk}/", {"text": {"de": "Beschluss neu"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.q1.refresh_from_db()
+        self.closed()
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual((item["version"], item["text"]), (2, "Beschluss neu"))
+        self.assertTrue(item["version_changed"])
+        self.assertFalse(self.items(self.protocol())["2"]["version_changed"])
+
+    def test_en_bloc_items_each_show_result(self):
+        r3 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Drei", position=3,
+        )
+        versions.sync(r3)
+        bundle = ballots.open_bundle(self.meeting, [self.q1, r3])
+        self.vote(self.anna, bundle, {"choice": "yes"})
+        ballots.close_ballot(bundle)
+        ballots.set_finding(bundle, "adopted")
+        self.end()
+        items = self.items(self.protocol())
+        self.assertEqual(items["1"]["result"], items["3"]["result"])
+        self.assertEqual(items["1"]["bundle_with"], ["3"])
+        self.assertEqual(items["3"]["bundle_with"], ["1"])
+        self.assertEqual(items["3"]["status"], "voted")
+        self.assertEqual(items["3"]["text"], "Drei")
+        self.assertEqual(items["3"]["finding"], "adopted")
+        self.assertEqual(items["3"]["fingerprint"], items["1"]["fingerprint"])
+
+    def test_attendance_left_after_and_substitution(self):
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)
+        self.meeting.invites.filter(entered_at__isnull=True).update(entered_at=timezone.now())
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        self.end()
+        attendance = self.protocol()["attendance"]
+        present = {p["name"]: p for p in attendance["present"]}
+        self.assertEqual(present["Bert"]["left_after"], "1")
+        self.assertIsNone(present["Ben"]["left_after"])
+        self.assertIn("Dora", present)
+        self.assertEqual(
+            attendance["substitutions"],
+            [{"deputy": "Dora", "absent": "Anna", "group": "Gruppe A", "from_label": "2"}],
+        )
+
+    def test_not_voted_item(self):
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual(item["status"], "not_voted")
+        self.assertIsNone(item["result"])
+        self.assertIsNone(item["fingerprint"])
+        self.assertIsNone(item["reference"])
+        self.assertEqual(item["version"], 1)
+        self.assertEqual(item["text"], "Beschluss")
+
+    def test_top_without_vote(self):
+        Section.objects.create(
+            question_set=self.meeting, title_de="Verschiedenes", position=9,
+        )
+        self.end()
+        tops = self.protocol()["tops"]
+        self.assertEqual(
+            [(t["number"], t["title"], t["items"]) for t in tops[2:]],
+            [(3, "Verschiedenes", [])],
+        )
+
+    def test_fingerprint_matches_seal_link(self):
+        ballot = self.closed()
+        ballots.set_finding(ballot, "rejected")
+        self.end()
+        item = self.items(self.protocol())["1"]
+        result_link = SealLink.objects.get(ballot=ballot, kind="result")
+        finding_link = SealLink.objects.get(ballot=ballot, kind="finding")
+        self.assertEqual(item["fingerprint"], result_link.hash)
+        self.assertEqual(item["reference"], result_link.reference)
+        self.assertEqual(item["finding_fingerprint"], finding_link.hash)
+
+    def test_query_count_does_not_grow_with_items(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from . import protocol
+
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        self.end()
+        with CaptureQueriesContext(connection) as small:
+            protocol.build(QuestionSet.objects.get(pk=self.meeting.pk))
+        for n in range(3, 8):
+            Question.objects.create(
+                question_set=self.meeting, kind="resolution", text_de=f"Q{n}", position=n,
+            )
+        with CaptureQueriesContext(connection) as large:
+            protocol.build(QuestionSet.objects.get(pk=self.meeting.pk))
+        self.assertEqual(
+            len(small), len(large),
+            [q["sql"][:80] for q in small.captured_queries],
+        )

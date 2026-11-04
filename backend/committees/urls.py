@@ -44,6 +44,7 @@ urlpatterns = [
         "substitutions/<int:sub_id>/",
     ),
     _meeting("control", {"get": "control"}, "control/"),
+    _meeting("protocol", {"get": "protocol"}, "protocol/"),
     _meeting("show", {"post": "show"}, "show/"),
     _meeting("item-add", {"post": "add_item"}, "items/"),
     _meeting("bundle-open", {"post": "open_bundle"}, "bundles/"),
