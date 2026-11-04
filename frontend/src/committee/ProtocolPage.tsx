@@ -211,7 +211,7 @@ export default function ProtocolPage() {
                     {top.description && (
                       <RichText
                         html={top.description}
-                        className="mt-0.5 text-sm text-slate-600 dark:text-slate-400"
+                        className="protocol-rich mt-0.5 text-sm text-slate-600 dark:text-slate-400"
                       />
                     )}
                   </div>

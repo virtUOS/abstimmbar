@@ -97,8 +97,14 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   // 3. A deputy for "Andere".
   await bulk.getByLabel('Rolle').selectOption({ label: 'Stellvertretung' });
   await bulk.getByLabel('E-Mail-Liste').fill('vera@example.org');
+  // Wait for the POST itself: under parallel load the status may still
+  // show the previous step's summary for a while.
+  const deputyAdded = page.waitForResponse(
+    (r) => r.url().includes('/api/committee-members/bulk/') && r.request().method() === 'POST',
+  );
   await bulk.getByRole('button', { name: 'Mitglieder hinzufügen' }).click();
-  await expect(bulk.getByRole('status')).toContainText('1 angelegt, 0 übersprungen');
+  expect((await deputyAdded).ok()).toBeTruthy();
+  await expect(bulk.getByRole('status')).toContainText('1 angelegt, 0 übersprungen', { timeout: 15_000 });
 
   // With members, the panel starts collapsed and shows a summary.
   await page.reload();
