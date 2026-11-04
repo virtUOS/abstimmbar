@@ -2022,11 +2022,14 @@ class CourseTests(EligibilityTests):
         self.assertEqual(self.voters(late), ["Bert", "Dora", "Ben"])
 
     def test_reset_revote_keeps_its_place(self):
-        first = self.vote_on(self.q1)
-        self.vote_on(self.q2)
+        # TOP 2 was voted before TOP 1; Bert left after TOP 1. A re-vote of
+        # TOP 2 keeps its earlier place, so Bert may vote again.
+        first = self.vote_on(self.q2)
+        self.vote_on(self.q1)
         services.remove_invite(self.invite(self.bert), after_question=self.q1)
         ballots.reset_ballot(first, "Fehler")
-        self.assertIn("Bert", self.voters(self.q1))
+        again = ballots.open_ballot(self.meeting, self.q2)
+        self.assertTrue(again.seats.filter(member=self.bert).exists())
         self.assertNotIn("Bert", self.voters(self.q3))
 
     def test_invite_state_follows_course(self):
