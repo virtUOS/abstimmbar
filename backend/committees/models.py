@@ -181,6 +181,10 @@ class MeetingControl(models.Model):
         "rooms.Question", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="+",
     )
+    current_section = models.ForeignKey(
+        "rooms.Section", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
 

@@ -175,7 +175,7 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
             <div className="grid gap-4">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full bg-brand-100 px-3 py-1 text-sm font-semibold text-brand-900 dark:bg-brand-900/40 dark:text-brand-100">
-                  {t("Item {{number}}", { number: item.number })}
+                  {t("Item {{number}}", { number: item.label })}
                 </span>
                 {item.version !== null && (
                   <span

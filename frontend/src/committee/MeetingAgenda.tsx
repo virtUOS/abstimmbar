@@ -240,7 +240,7 @@ export default function MeetingAgenda({
                 className="flex min-w-0 items-start gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
               >
                 <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                  {t("Item {{number}}", { number: item.number })}
+                  {t("Item {{number}}", { number: item.label })}
                 </span>
                 <span className="line-clamp-2 min-w-0 break-words text-sm text-slate-800 dark:text-slate-200">
                   {text}

@@ -420,7 +420,19 @@ class MeetingViewSet(viewsets.GenericViewSet):
 
     def show(self, request, pk=None):
         meeting = self.get_object()
+        has_question = "question" in request.data
+        has_section = "section" in request.data
+        if has_question == has_section:
+            raise ValidationError(
+                {"detail": "Give either a question or a section.", "code": "invalid"},
+            )
         question = self._question(meeting, request.data.get("question"), "question")
+        section = None
+        if has_section:
+            try:
+                section = get_object_or_404(meeting.sections, pk=int(request.data.get("section")))
+            except (TypeError, ValueError):
+                raise ValidationError({"section": "Invalid TOP."}) from None
         if meeting.meeting_state != QuestionSet.MeetingState.STARTED:
             raise ValidationError({"detail": "The meeting is not running.", "code": "not_started"})
         open_ballot = ballots.open_ballot_of(meeting)
@@ -432,7 +444,8 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise ValidationError({"detail": "Another vote is still open.", "code": "vote_open"})
         control, _ = MeetingControl.objects.get_or_create(meeting=meeting)
         control.current_question = question
-        control.save(update_fields=["current_question"])
+        control.current_section = question.section if question is not None else section
+        control.save(update_fields=["current_question", "current_section"])
         live.notify(meeting)
         return self._console(meeting)
 

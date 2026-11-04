@@ -219,7 +219,8 @@ export interface MeetingBallot {
 /** The shown agenda item; content in the canonical language only. */
 export interface MeetingItem {
   id: number;
-  number: number;
+  /** Vote label: the TOP number ("3") or TOP number plus letter ("3b"). */
+  label: string;
   kind: MeetingItemKind;
   /** Sanitized HTML. */
   text: string;
@@ -227,18 +228,31 @@ export interface MeetingItem {
   changed: boolean;
   named: boolean;
   options: { id: number; text: string }[];
+  bundle: { id: number; label: string; text: string; version: number | null }[];
   ballot: MeetingBallot | null;
+}
+
+/** An agenda item (TOP); content in the canonical language only. */
+export interface MeetingTop {
+  number: number;
+  section: number | null;
+  title: string;
+  description: string;
 }
 
 /** Snapshot of a running meeting as the beamer and ballot pages see it. */
 export interface MeetingPublic {
   meeting: { id: number; title: string; state: MeetingState };
   item: MeetingItem | null;
+  /** TOP of the shown item, or the shown TOP when no vote is shown. */
+  top: MeetingTop | null;
 }
 
 export interface MeetingAgendaItem {
   id: number;
-  number: number;
+  label: string;
+  /** Number of the TOP this vote belongs to. */
+  top: number;
   kind: MeetingItemKind;
   text: string;
   version: number | null;
@@ -264,6 +278,7 @@ export interface MeetingAttendance {
 /** The console's snapshot: the public one plus agenda and attendance. */
 export interface MeetingManager extends MeetingPublic {
   items: MeetingAgendaItem[];
+  tops: (MeetingTop & { items: number[] })[];
   attendance: MeetingAttendance[];
   /** Texts of the shown, closed free-text ballot (released or not). */
   texts: MeetingText[] | null;

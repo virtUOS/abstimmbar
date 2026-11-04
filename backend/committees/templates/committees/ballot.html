@@ -193,7 +193,7 @@
 
   function itemHead(item) {
     const badges = el("div", { class: "badges" });
-    badges.appendChild(el("span", { class: "badge" }, fill(S.item, { number: item.number })));
+    badges.appendChild(el("span", { class: "badge" }, fill(S.item, { number: item.label })));
     if (item.version) {
       let label = fill(S.version, { number: item.version });
       if (item.changed) label += " · " + S.changed;

@@ -12,7 +12,7 @@ from django.utils import translation
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import ballots, eligibility, versions
+from . import agenda, ballots, eligibility, versions
 from .models import Ballot, BallotText, CommitteeGroup, CommitteeMember, MeetingControl
 from .presence import presence
 
@@ -139,11 +139,34 @@ def _context(meeting: QuestionSet):
     return names, order
 
 
-def _current_question(meeting: QuestionSet) -> Question | None:
-    control = MeetingControl.objects.select_related("current_question").filter(
+def _control(meeting: QuestionSet) -> MeetingControl | None:
+    return MeetingControl.objects.select_related("current_question").filter(
         meeting=meeting,
     ).first()
+
+
+def _current_question(meeting: QuestionSet) -> Question | None:
+    control = _control(meeting)
     return control.current_question if control else None
+
+
+def _label(top: "agenda.Top | None", question_id: int) -> str:
+    if top is None:
+        return ""
+    if len(top.question_ids) == 1:
+        return str(top.number)
+    return f"{top.number}{agenda.suffix(top.question_ids.index(question_id))}"
+
+
+def _top_payload(top: "agenda.Top | None") -> dict | None:
+    if top is None:
+        return None
+    return {
+        "number": top.number,
+        "section": top.section_id,
+        "title": top.title,
+        "description": top.description,
+    }
 
 
 def _public(meeting: QuestionSet, names, order) -> dict:
@@ -154,21 +177,31 @@ def _public(meeting: QuestionSet, names, order) -> dict:
             "state": meeting.meeting_state,
         },
         "item": None,
+        "top": None,
     }
-    question = _current_question(meeting)
+    control = _control(meeting)
+    question = control.current_question if control else None
+    tops = agenda.tops(meeting)
     if question is None:
+        if control is not None and control.current_section_id is not None:
+            payload["top"] = _top_payload(
+                agenda.top_by_section(meeting, control.current_section_id, tops),
+            )
         return payload
+    top = agenda.top_of(meeting, question.pk, tops)
+    payload["top"] = _top_payload(top)
     text, number, options = _wording(question)
     ballot = _shown_ballot(question)
     payload["item"] = {
         "id": question.pk,
-        "number": eligibility.number_of(meeting, question),
+        "label": _label(top, question.pk),
         "kind": question.kind,
         "text": text,
         "version": number,
         "changed": (number or 0) > 1,
         "named": question.named_vote,
         "options": options,
+        "bundle": [],
         "ballot": _ballot_payload(ballot, question, names, order) if ballot else None,
     }
     return payload
@@ -179,6 +212,7 @@ def preview_payload(question: Question) -> dict:
     for the editor's ballot preview; nothing is stored."""
     meeting = question.question_set
     text, number, options = _wording(question)
+    top = agenda.top_of(meeting, question.pk)
     return {
         "meeting": {
             "id": meeting.pk,
@@ -187,19 +221,21 @@ def preview_payload(question: Question) -> dict:
         },
         "item": {
             "id": question.pk,
-            "number": eligibility.number_of(meeting, question),
+            "label": _label(top, question.pk),
             "kind": question.kind,
             "text": text,
             "version": number,
             "changed": (number or 0) > 1,
             "named": question.named_vote,
             "options": options,
+            "bundle": [],
             "ballot": {
                 "id": 0, "status": Ballot.Status.OPEN, "round": 1,
                 "progress": {"voted": 0, "eligible": 0, "groups": []},
                 "result": None, "texts": None,
             },
         },
+        "top": _top_payload(top),
     }
 
 
@@ -210,15 +246,18 @@ def public_payload(meeting: QuestionSet) -> dict:
     return _public(meeting, *_context(meeting))
 
 
-def _items(meeting: QuestionSet) -> list[dict]:
+def _items(meeting: QuestionSet, tops: list) -> list[dict]:
+    labels = agenda.labels(meeting)
+    top_numbers = {qid: t.number for t in tops for qid in t.question_ids}
     items = []
-    for number, question in enumerate(eligibility.agenda(meeting), start=1):
+    for question in eligibility.agenda(meeting):
         text, version, _ = _wording(question)
         statuses = list(question.ballots.values_list("status", flat=True))
         live = [s for s in statuses if s != Ballot.Status.DISCARDED]
         items.append({
             "id": question.pk,
-            "number": number,
+            "label": labels.get(question.pk, ""),
+            "top": top_numbers.get(question.pk),
             "kind": question.kind,
             "text": text,
             "version": version,
@@ -263,6 +302,7 @@ def manager_payload(meeting: QuestionSet) -> dict:
     meeting.refresh_from_db(fields=["meeting_state"])
     names, order = _context(meeting)
     payload = _public(meeting, names, order)
+    tops = agenda.tops(meeting)
     texts = None
     question = _current_question(meeting)
     if question is not None and question.kind == Question.Kind.OPEN_TEXT:
@@ -273,7 +313,11 @@ def manager_payload(meeting: QuestionSet) -> dict:
         question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
     ).values_list("pk", flat=True).first()
     payload.update(
-        items=_items(meeting),
+        items=_items(meeting, tops),
+        tops=[
+            {**_top_payload(t), "items": list(t.question_ids)}
+            for t in tops
+        ],
         attendance=_attendance(meeting, names, order),
         texts=texts,
         open_ballot=open_ballot,

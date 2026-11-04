@@ -163,7 +163,8 @@ def open_ballot(meeting: QuestionSet, question: Question) -> Ballot:
     if secret:
         secret_tally.start(ballot.pk)
     MeetingControl.objects.update_or_create(
-        meeting=meeting, defaults={"current_question": question},
+        meeting=meeting,
+        defaults={"current_question": question, "current_section_id": question.section_id},
     )
     _notify(meeting)
     return ballot
