@@ -7,10 +7,12 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.db.models import F, Q
+from django.conf import settings
+from django.db.models import F, Max, Q
+from django.utils.html import escape
 from django.utils import timezone
 
-from rooms.models import Question, QuestionSet, Room
+from rooms.models import Question, QuestionSet, Room, Section
 
 from . import eligibility, versions
 from .presence import presence
@@ -423,3 +425,48 @@ def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:
     if invite is None:
         return None, "unknown"
     return invite, invite_state(invite)
+
+
+@transaction.atomic
+def add_resolution(
+    meeting: QuestionSet, text: str, section: Section | None, named: bool,
+) -> Question:
+    """The chair adds a resolution to the running meeting.
+
+    Inserted after the last vote of ``section`` (after its header when it is
+    empty); without a section it becomes a new TOP at the end of the agenda.
+    """
+    # Same meeting row lock as open_ballot / _transition.
+    current = (
+        QuestionSet.objects.select_for_update()
+        .values_list("meeting_state", flat=True).get(pk=meeting.pk)
+    )
+    meeting.meeting_state = current
+    if current != State.STARTED:
+        raise ValidationError("The meeting is not running.", code="not_started")
+    text = (text or "").strip()
+    if not text:
+        raise ValidationError("The text must not be empty.", code="invalid")
+    if section is not None and section.question_set_id != meeting.pk:
+        raise ValidationError("The TOP does not belong to this meeting.", code="invalid")
+
+    if section is None:
+        last = max(
+            meeting.questions.aggregate(m=Max("position"))["m"] or 0,
+            meeting.sections.aggregate(m=Max("position"))["m"] or 0,
+        )
+        position = last + 1
+    else:
+        last_q = meeting.questions.filter(section=section).aggregate(m=Max("position"))["m"]
+        position = (last_q if last_q is not None else section.position) + 1
+        meeting.questions.filter(position__gte=position).update(position=F("position") + 1)
+        meeting.sections.filter(position__gte=position).update(position=F("position") + 1)
+
+    lang = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+    question = Question.objects.create(
+        question_set=meeting, section=section, kind=Question.Kind.RESOLUTION,
+        named_vote=named, position=position, **{f"text_{lang}": f"<p>{escape(text)}</p>"},
+    )
+    versions.sync(question)
+    _notify(meeting)
+    return question

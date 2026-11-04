@@ -458,6 +458,25 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise _coded(exc) from exc
         return self._console(meeting, status.HTTP_201_CREATED)
 
+    def add_item(self, request, pk=None):
+        meeting = self.get_object()
+        text = request.data.get("text")
+        named = request.data.get("named", False)
+        if not isinstance(text, str) or not isinstance(named, bool):
+            raise ValidationError({"detail": "Invalid item.", "code": "invalid"})
+        section = None
+        raw = request.data.get("section")
+        if raw is not None:
+            try:
+                section = get_object_or_404(meeting.sections, pk=int(raw))
+            except (TypeError, ValueError):
+                raise ValidationError({"detail": "Invalid TOP.", "code": "invalid"}) from None
+        try:
+            services.add_resolution(meeting, text, section, named)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting, status.HTTP_201_CREATED)
+
     def close_ballot(self, request, pk=None, ballot_id=None):
         meeting = self.get_object()
         try:

@@ -2318,3 +2318,102 @@ class ShowTopTests(BallotBase):
         )
         self.assertEqual([i["label"] for i in data["items"]], ["1a", "1b"])
         self.assertEqual([i["top"] for i in data["items"]], [1, 1])
+
+
+class AddResolutionTests(BallotBase):
+    def setUp(self):
+        super().setUp()
+        # S1(1) q1(2) S2(3) q2(4)
+        self.s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=1)
+        self.s2 = Section.objects.create(question_set=self.meeting, title_de="Zwei", position=3)
+        Question.objects.filter(pk=self.q1.pk).update(section=self.s1, position=2)
+        Question.objects.filter(pk=self.q2.pk).update(section=self.s2, position=4)
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/items/"
+
+    def test_add_into_top_becomes_next_subitem(self):
+        with mock.patch("committees.live.broadcast_meeting") as broadcast:
+            with self.captureOnCommitCallbacks(execute=True) as callbacks:
+                q = services.add_resolution(
+                    self.meeting, "Änderungsantrag", self.s1, named=False,
+                )
+        self.assertTrue(callbacks)
+        broadcast.assert_called()
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1a", q.pk: "1b", self.q2.pk: "2"},
+        )
+        self.assertEqual(q.text_de, "<p>Änderungsantrag</p>")
+        self.assertEqual(q.kind, Question.Kind.RESOLUTION)
+        self.assertFalse(q.named_vote)
+        self.assertEqual(versions.current(q).number, 1)
+        self.s2.refresh_from_db()
+        self.assertEqual(self.s2.position, 4)
+
+    def test_named_flag(self):
+        q = services.add_resolution(self.meeting, "X", self.s1, named=True)
+        self.assertTrue(q.named_vote)
+
+    def test_add_into_empty_top(self):
+        s3 = Section.objects.create(question_set=self.meeting, title_de="Drei", position=5)
+        q = services.add_resolution(self.meeting, "Neu", s3, named=False)
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1", self.q2.pk: "2", q.pk: "3"},
+        )
+
+    def test_add_into_empty_top_shifts_following_rows(self):
+        s3 = Section.objects.create(question_set=self.meeting, title_de="Drei", position=3)
+        self.s2.position = 4
+        self.s2.save()
+        Question.objects.filter(pk=self.q2.pk).update(position=5)
+        q = services.add_resolution(self.meeting, "Neu", s3, named=False)
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1", q.pk: "2", self.q2.pk: "3"},
+        )
+
+    def test_add_without_section_is_new_top_at_end(self):
+        q = services.add_resolution(self.meeting, "Ende", None, named=False)
+        self.assertIsNone(q.section_id)
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1", self.q2.pk: "2", q.pk: "3"},
+        )
+
+    def test_text_is_escaped(self):
+        q = services.add_resolution(self.meeting, "  <b>x</b> ", self.s1, named=False)
+        self.assertEqual(q.text_de, "<p>&lt;b&gt;x&lt;/b&gt;</p>")
+
+    def test_api_creates_and_returns_console(self):
+        resp = self.client.post(
+            self.url(), {"text": "Antrag", "section": self.s1.pk, "named": True}, format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertIn("items", resp.data)
+        self.assertTrue(Question.objects.get(text_de="<p>Antrag</p>").named_vote)
+
+    def test_draft_and_ended_rejected(self):
+        for state in ("draft", "ended"):
+            QuestionSet.objects.filter(pk=self.meeting.pk).update(meeting_state=state)
+            resp = self.client.post(
+                self.url(), {"text": "X", "section": self.s1.pk, "named": False}, format="json",
+            )
+            self.assertEqual(resp.status_code, 400)
+            self.assertEqual(resp.data["code"], "not_started")
+
+    def test_empty_text_rejected(self):
+        resp = self.client.post(
+            self.url(), {"text": "   ", "section": self.s1.pk, "named": False}, format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["code"], "invalid")
+
+    def test_foreign_section_404(self):
+        other = QuestionSet.objects.create(room=self.room, title="Andere")
+        foreign = Section.objects.create(question_set=other, title_de="F", position=1)
+        resp = self.client.post(
+            self.url(), {"text": "X", "section": foreign.pk, "named": False}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_non_owner_forbidden(self):
+        resp = self.foreign.post(self.url(), {"text": "X", "named": False}, format="json")
+        self.assertIn(resp.status_code, (403, 404))
