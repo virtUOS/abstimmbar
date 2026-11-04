@@ -128,6 +128,58 @@ export interface SealVerification {
   fingerprint_matches: boolean | null;
 }
 
+/** Protocol of an ended meeting (`GET /api/meetings/<id>/protocol/`). */
+export interface ProtocolCounts {
+  eligible: number;
+  voted: number;
+  counts: Record<string, number>;
+}
+
+export interface ProtocolItem {
+  label: string;
+  kind: string;
+  named: boolean;
+  text: string;
+  version: number | null;
+  version_changed: boolean;
+  status: "voted" | "not_voted";
+  bundle_with: string[];
+  rounds_discarded: { round: number; reason: "reset" | "restart"; comment: string }[];
+  result: {
+    groups: (ProtocolCounts & { name: string })[];
+    total: ProtocolCounts;
+    voted: number;
+    tally_sum: number;
+    count_check_ok: boolean;
+  } | null;
+  /** Display order of the count keys; fixed keys carry `text === key`. */
+  options: { key: string; text: string }[];
+  finding: "adopted" | "rejected" | "" | null;
+  named_votes: { member: string; group: string; keys: string[] }[];
+  voters: { name: string; group: string }[];
+  texts: { group: string; text: string }[];
+  opened_at: string | null;
+  closed_at: string | null;
+  reference: string | null;
+  fingerprint: string | null;
+  finding_fingerprint: string | null;
+}
+
+export interface MeetingProtocol {
+  id: number;
+  committee: string;
+  title: string;
+  scheduled_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  attendance: {
+    present: { name: string; group: string; left: boolean; left_after: string | null }[];
+    substitutions: { deputy: string; absent: string; group: string; from_label: string | null }[];
+    observers: string[];
+  };
+  tops: { number: number; title: string; description: string; items: ProtocolItem[] }[];
+}
+
 /** Seeded starting point for a committee room's groups. */
 export interface CommitteeTemplate {
   id: number;
@@ -1208,6 +1260,8 @@ export const api = {
 
   // --- committee meetings: lifecycle, personal links, substitutions ---
   getMeeting: (setId: number) => request<MeetingSummary>(`/api/meetings/${setId}/`),
+  getMeetingProtocol: (setId: number) =>
+    request<MeetingProtocol>(`/api/meetings/${setId}/protocol/`),
   startMeeting: (setId: number) =>
     request<MeetingSummary>(`/api/meetings/${setId}/start/`, { method: "POST" }),
   endMeeting: (setId: number) =>

@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { CalendarClock, ChartColumnDecreasing, Trash2 } from "lucide-react";
+import { CalendarClock, ChartColumnDecreasing, FileText, Trash2 } from "lucide-react";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import type { MeetingState, QuestionSet } from "../api";
 import { Button, Select } from "../components/ui";
@@ -134,6 +134,16 @@ function MeetingCards({
               </Link>
             </div>
             <div className="relative z-10 mt-3 flex items-center justify-end gap-1 border-t border-slate-100 pt-2 dark:border-slate-800">
+              {set.meeting_state === "ended" && (
+                <Link
+                  to={`/sets/${set.id}/protocol`}
+                  aria-label={t("Protocol of {{title}}", { title })}
+                  title={t("View protocol")}
+                  className="inline-flex items-center rounded-lg px-2 py-1.5 text-brand-700 hover:bg-brand-50 dark:text-brand-300 dark:hover:bg-brand-950"
+                >
+                  <FileText aria-hidden className="h-4 w-4" />
+                </Link>
+              )}
               {set.has_results && (
                 <Link
                   to={`/sets/${set.id}/results`}

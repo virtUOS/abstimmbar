@@ -17,6 +17,7 @@ import ResultsPage from "./pages/ResultsPage";
 import RoomPage from "./pages/RoomPage";
 import SetPage from "./pages/SetPage";
 import SharedPage from "./pages/SharedPage";
+import ProtocolPage from "./committee/ProtocolPage";
 import SealCheckPage from "./committee/SealCheckPage";
 import MeetingConsole, { MeetingBeamerWindow } from "./committee/MeetingConsole";
 import { TranslationFormProvider } from "@basicbar/ui";
@@ -45,6 +46,7 @@ const router = createBrowserRouter([
               { path: "rooms/:roomId", element: <RoomPage /> },
               { path: "rooms/:roomId/seals", element: <SealCheckPage /> },
               { path: "sets/:setId", element: <SetPage /> },
+              { path: "sets/:setId/protocol", element: <ProtocolPage /> },
               { path: "sets/:setId/results", element: <ResultsPage /> },
               { path: "sets/:setId/questions/:questionId", element: <QuestionPage /> },
               { path: "shared/:token", element: <SharedPage /> },

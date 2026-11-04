@@ -60,3 +60,15 @@
 @media (prefers-reduced-motion: reduce) {
   .pro-just-enabled [data-pro-only] > * { animation: none; }
 }
+
+/* Printing (committee protocol, #committees): app chrome carries print:hidden;
+   the rest is black on white even when the app is in dark mode. */
+@media print {
+  html, body, #root > div { background: #fff !important; color: #000 !important; }
+  .protocol-sheet, .protocol-sheet * {
+    color: #000 !important;
+    background: transparent !important;
+    border-color: #999 !important;
+  }
+  .protocol-sheet a { text-decoration: none !important; }
+}

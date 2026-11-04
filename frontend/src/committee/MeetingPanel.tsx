@@ -404,7 +404,14 @@ export default function MeetingPanel({
             {meeting.ended_at
               ? t("The meeting ended on {{date}}.", { date: longDate(meeting.ended_at) })
               : t("The meeting has ended.")}{" "}
-            {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}
+            {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}{" "}
+            <Link
+              to={`/sets/${meeting.id}/protocol`}
+              data-testid="protocol-link"
+              className="font-medium text-brand-700 underline dark:text-brand-300"
+            >
+              {t("View protocol")}
+            </Link>
           </p>
         )}
         <ErrorText text={stateError} />
