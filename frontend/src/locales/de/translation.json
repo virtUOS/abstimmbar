@@ -1510,5 +1510,6 @@
   "TOP {{number}}": "TOP {{number}}",
   "TOPs": "TOPs",
   "+ TOP here": "+ TOP hier",
-  "Create agenda items (TOPs) with “TOPs”; a TOP may also have no vote.": "Legen Sie Tagesordnungspunkte (TOPs) über „TOPs“ an; ein TOP kann auch ohne Abstimmung sein."
+  "Create agenda items (TOPs) with “TOPs”; a TOP may also have no vote.": "Legen Sie Tagesordnungspunkte (TOPs) über „TOPs“ an; ein TOP kann auch ohne Abstimmung sein.",
+  "+ TOP at the end": "+ TOP am Ende"
 }

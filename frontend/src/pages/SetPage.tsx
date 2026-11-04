@@ -2308,7 +2308,7 @@ export default function SetPage() {
               onClick={() => void insertSectionAt(rows.length)}
               className="mt-2 w-full rounded-lg border border-dashed border-slate-300 py-1.5 text-sm text-slate-400 hover:border-brand-500 hover:text-brand-700 dark:border-slate-700 dark:hover:text-brand-300"
             >
-              + {t("Section at the end")}
+              {isMeeting ? t("+ TOP at the end") : `+ ${t("Section at the end")}`}
             </button>
           )}
         </>
