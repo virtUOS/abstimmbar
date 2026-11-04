@@ -309,3 +309,41 @@ class BallotText(models.Model):
         CommitteeGroup, on_delete=models.RESTRICT, related_name="+",
     )
     text = models.TextField()
+
+
+class SealLink(models.Model):
+    """One link of a room's seal chain (§ 9): the hash of a ballot result,
+    finding or discard, chained to the previous link of the same room. A
+    deleted meeting leaves its links as placeholders (``deleted_at`` set,
+    ballot cleared, hashes kept) so the chain stays verifiable."""
+
+    class Kind(models.TextChoices):
+        RESULT = "result", "Result"
+        FINDING = "finding", "Finding"
+        DISCARD = "discard", "Discard"
+
+    room = models.ForeignKey(
+        "rooms.Room", on_delete=models.CASCADE, related_name="seal_links",
+    )
+    seq = models.PositiveIntegerField()
+    kind = models.CharField(max_length=10, choices=Kind.choices)
+    reference = models.CharField(max_length=80)
+    ballot = models.ForeignKey(
+        Ballot, null=True, blank=True, on_delete=models.SET_NULL, related_name="seal_links",
+    )
+    # Plain id, not a FK: survives the deletion of the meeting.
+    meeting_id = models.PositiveIntegerField(null=True, blank=True)
+    content_hash = models.CharField(max_length=64)
+    previous = models.CharField(max_length=64, blank=True)
+    hash = models.CharField(max_length=64, unique=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering: ClassVar = ["seq"]
+        constraints: ClassVar = [
+            models.UniqueConstraint(fields=["room", "seq"], name="unique_seal_seq"),
+        ]
+
+    def __str__(self):
+        return f"{self.reference} #{self.seq} ({self.kind})"

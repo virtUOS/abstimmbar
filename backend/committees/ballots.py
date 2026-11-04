@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from rooms.models import Question, QuestionSet
 
-from . import eligibility, tally, versions
+from . import eligibility, seals, tally, versions
 from .models import (
     Ballot,
     BallotItem,
@@ -116,6 +116,11 @@ def abort_stale(meeting: QuestionSet) -> None:
             discarded_at=now,
         )
         BallotSeat.objects.filter(ballot_id__in=ids).delete()
+        for discarded in (
+            Ballot.objects.filter(pk__in=ids).select_related("question__question_set")
+            .order_by("pk")
+        ):
+            seals.append(discarded, "discard")
         for pk in ids:
             transaction.on_commit(lambda pk=pk: secret_tally.discard(pk))
         if ids:
@@ -342,6 +347,7 @@ def close_ballot(ballot: Ballot) -> Ballot:
     ballot.status = Ballot.Status.CLOSED
     ballot.closed_at = timezone.now()
     ballot.save(update_fields=["result", "status", "closed_at"])
+    seals.append(ballot, "result")
     if ballot.secret:
         pk = ballot.pk
         transaction.on_commit(lambda: secret_tally.discard(pk))
@@ -371,6 +377,7 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
     ballot.save(update_fields=[
         "result", "status", "discard_reason", "discard_comment", "discarded_at",
     ])
+    seals.append(ballot, "discard")
     pk = ballot.pk
     transaction.on_commit(lambda: secret_tally.discard(pk))
     _notify(ballot.question.question_set)
@@ -405,7 +412,7 @@ def set_finding(ballot: Ballot, finding: str) -> Ballot:
     ballot = locked
     ballot.finding = finding
     ballot.save(update_fields=["finding"])
-    # Task 2 appends the seal hook here (seals.on_finding(ballot)).
+    seals.append(ballot, "finding")
     _notify(ballot.question.question_set)
     return ballot
 

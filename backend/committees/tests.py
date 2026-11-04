@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 
 from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
-from . import agenda, ballots, eligibility, payloads, services, versions
+from . import agenda, ballots, eligibility, payloads, seals, services, versions
 from .models import (
     Ballot,
     BallotSeat,
@@ -25,6 +25,7 @@ from .models import (
     MeetingInvite,
     MeetingSubstitution,
     NamedVote,
+    SealLink,
 )
 from .services import parse_member_list
 
@@ -2700,3 +2701,171 @@ class BundleTests(BallotBase):
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(Ballot.objects.exists())
         self.assertFalse(Question.objects.filter(pk=self.r2.pk).exists())
+
+
+class SealTests(BallotBase):
+    RESULT_KEYS = frozenset({
+        "reference", "secret", "round", "version", "items", "groups", "total",
+        "voted", "tally_sum", "voters", "named", "texts", "opened_at", "closed_at",
+    })
+
+    def closed(self, question=None, answers=None):
+        ballot = ballots.open_ballot(self.meeting, question or self.q1)
+        for member, answer in (answers or [(self.anna, {"choice": "yes"})]):
+            self.vote(member, ballot, answer)
+        with self.captureOnCommitCallbacks(execute=True):
+            return ballots.close_ballot(ballot)
+
+    def expected_hash(self, link, ballot):
+        content = seals.content(ballot, link.kind)
+        return seals.digest({
+            "v": 1, "seq": link.seq, "kind": link.kind, "reference": link.reference,
+            "content_hash": seals.digest(content), "previous": link.previous,
+        })
+
+    def test_close_appends_result_link(self):
+        ballot = self.closed()
+        link = SealLink.objects.get()
+        self.assertEqual((link.kind, link.seq, link.previous), ("result", 1, ""))
+        self.assertEqual(link.room_id, self.room.pk)
+        self.assertEqual(link.meeting_id, self.meeting.pk)
+        self.assertEqual(link.ballot_id, ballot.pk)
+        ballot = Ballot.objects.get(pk=ballot.pk)
+        content = seals.content(ballot, "result")
+        self.assertEqual(link.content_hash, seals.digest(content))
+        self.assertEqual(link.hash, self.expected_hash(link, ballot))
+        self.assertEqual(len(link.hash), 64)
+        self.assertEqual(
+            seals.canonical({"b": 1, "a": "ä"}), '{"a":"ä","b":1}'.encode(),
+        )
+
+    def test_chain_links_previous(self):
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        links = list(SealLink.objects.all())
+        self.assertEqual([link.seq for link in links], [1, 2])
+        self.assertEqual(links[1].previous, links[0].hash)
+
+    def test_reference_format(self):
+        import datetime
+        from zoneinfo import ZoneInfo
+
+        section = Section.objects.create(question_set=self.meeting, title_de="TOP", position=0)
+        Question.objects.filter(pk__in=[self.q1.pk, self.q2.pk]).update(section=section)
+        self.meeting.scheduled_at = datetime.datetime(
+            2026, 11, 4, 0, 30, tzinfo=ZoneInfo("Europe/Berlin"),
+        )
+        self.meeting.save(update_fields=["scheduled_at"])
+        ballot = self.closed()
+        self.assertEqual(seals.reference(ballot), f"G{self.meeting.pk}-20261104-TOP1a")
+        self.assertEqual(SealLink.objects.get().reference, f"G{self.meeting.pk}-20261104-TOP1a")
+        ballots.reset_ballot(ballot, "Fehler")
+        second = self.closed()
+        self.assertEqual(seals.reference(second), f"G{self.meeting.pk}-20261104-TOP1a-W2")
+
+    def test_reference_falls_back_to_start(self):
+        ballot = self.closed()
+        started = timezone.localtime(self.meeting.meeting_control.started_at)
+        self.assertEqual(
+            seals.reference(ballot),
+            f"G{self.meeting.pk}-{started:%Y%m%d}-TOP1",
+        )
+
+    def test_secret_content_has_no_choices_per_person(self):
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result")
+        self.assertEqual(set(content), self.RESULT_KEYS)
+        self.assertTrue(content["secret"])
+        self.assertEqual(content["named"], [])
+        self.assertEqual(content["voters"], ["Anna (Gruppe A)", "Ben (Gruppe B)"])
+        self.assertEqual(content["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
+        self.assertEqual([g["name"] for g in content["groups"]], ["Gruppe A", "Gruppe B"])
+
+    def test_named_content_lists_choices(self):
+        self.q1.named_vote = True
+        self.q1.save()
+        ballot = self.closed(answers=[(self.ben, {"choice": "no"}), (self.anna, {"choice": "yes"})])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result")
+        self.assertEqual(set(content), self.RESULT_KEYS)
+        self.assertEqual(
+            content["named"],
+            [{"member": "Anna", "keys": ["yes"]}, {"member": "Ben", "keys": ["no"]}],
+        )
+
+    def test_secret_texts_sorted_per_group(self):
+        ballot = self.closed(self.q2, [
+            (self.bert, {"text": "zwei"}), (self.anna, {"text": "eins"}),
+            (self.ben, {"text": "drei"}),
+        ])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result")
+        self.assertEqual(content["texts"], [
+            {"group": "Gruppe A", "texts": ["eins", "zwei"]},
+            {"group": "Gruppe B", "texts": ["drei"]},
+        ])
+
+    def test_finding_and_reset_append_links(self):
+        ballot = self.closed()
+        ballots.set_finding(ballot, "adopted")
+        finding = SealLink.objects.get(kind="finding")
+        self.assertEqual(
+            seals.content(Ballot.objects.get(pk=ballot.pk), "finding"),
+            {"reference": finding.reference, "finding": "adopted"},
+        )
+        ballots.reset_ballot(ballot, "Zählfehler")
+        discard = SealLink.objects.get(kind="discard")
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard")
+        self.assertEqual(
+            content, {"reference": discard.reference, "reason": "reset", "comment": "Zählfehler"},
+        )
+        self.assertEqual(discard.content_hash, seals.digest(content))
+        self.assertEqual(
+            list(SealLink.objects.values_list("kind", flat=True)),
+            ["result", "finding", "discard"],
+        )
+
+    def test_reset_open_ballot_appends_discard(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.reset_ballot(ballot, "")
+        self.assertEqual(list(SealLink.objects.values_list("kind", flat=True)), ["discard"])
+
+    def test_restart_abort_appends_discard(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with mock.patch("committees.tally.EPOCH", "other"):
+            ballots.abort_stale(self.meeting)
+        link = SealLink.objects.get()
+        self.assertEqual((link.kind, link.ballot_id), ("discard", ballot.pk))
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard")
+        self.assertEqual(content["reason"], "restart")
+        self.assertEqual(link.hash, self.expected_hash(link, Ballot.objects.get(pk=ballot.pk)))
+
+    def test_delete_meeting_keeps_placeholders(self):
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        before = list(SealLink.objects.values_list("hash", "previous", "content_hash"))
+        services.end_meeting(self.meeting)
+        self.meeting.delete()
+        links = list(SealLink.objects.all())
+        self.assertEqual(len(links), 2)
+        self.assertTrue(all(link.deleted_at is not None for link in links))
+        self.assertTrue(all(link.ballot is None for link in links))
+        self.assertEqual(
+            [(link.hash, link.previous, link.content_hash) for link in links], before,
+        )
+
+    def test_chain_is_per_room(self):
+        self.closed()
+        other = make_room(title="Other")
+        fixture = MeetingFixture()
+        fixture.make_fixture(room=other)
+        question = Question.objects.create(
+            question_set=fixture.meeting, kind="resolution", text_de="B", position=1,
+        )
+        fixture.member("Xena", fixture.ga)
+        services.start_meeting(fixture.meeting)
+        ballot = ballots.open_ballot(fixture.meeting, question)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.close_ballot(ballot)
+        link = SealLink.objects.get(room=other)
+        self.assertEqual((link.seq, link.previous), (1, ""))
