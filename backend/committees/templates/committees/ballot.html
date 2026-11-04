@@ -165,7 +165,7 @@
     const item = snap.item;
     if (!item) {
       if (snap.top) {
-        view.appendChild(el("h2", { class: "top-title" }, fill(S.topTitle, { number: snap.top.number, title: snap.top.title || "" })));
+        view.appendChild(el("h2", { class: "top-title" }, snap.top.title ? fill(S.topTitle, { number: snap.top.number, title: snap.top.title }) : fill(S.top, { label: snap.top.number })));
         const desc = el("div", { class: "question-text" });
         desc.innerHTML = snap.top.description || ""; // sanitized when authored
         view.appendChild(desc);
