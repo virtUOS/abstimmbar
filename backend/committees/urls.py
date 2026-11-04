@@ -43,6 +43,8 @@ urlpatterns = [
     ),
     _meeting("control", {"get": "control"}, "control/"),
     _meeting("show", {"post": "show"}, "show/"),
+    _meeting("item-add", {"post": "add_item"}, "items/"),
+    _meeting("bundle-open", {"post": "open_bundle"}, "bundles/"),
     _meeting("item-open", {"post": "open_item"}, "items/<int:question_id>/open/"),
     _meeting("ballot-close", {"post": "close_ballot"}, "ballots/<int:ballot_id>/close/"),
     _meeting("ballot-reset", {"post": "reset_ballot"}, "ballots/<int:ballot_id>/reset/"),

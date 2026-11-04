@@ -752,3 +752,18 @@ msgstr "Gesamt"
 #: committees/views.py
 msgid "Answers"
 msgstr "Antworten"
+
+msgid "Preview: this is how members see the ballot. Nothing you enter here is stored."
+msgstr "Vorschau: So sehen Mitglieder den Stimmzettel. Ihre Eingaben hier werden nicht gespeichert."
+
+msgid "Try again"
+msgstr "Noch einmal"
+
+msgid "TOP {label}"
+msgstr "TOP {label}"
+
+msgid "TOP {number}: {title}"
+msgstr "TOP {number}: {title}"
+
+msgid "One vote for all of these resolutions."
+msgstr "Eine Stimme für alle diese Beschlüsse."

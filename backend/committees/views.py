@@ -9,10 +9,11 @@ from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, ProtectedError, RestrictedError
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from rest_framework import mixins, status, viewsets
@@ -419,10 +420,28 @@ class MeetingViewSet(viewsets.GenericViewSet):
 
     def show(self, request, pk=None):
         meeting = self.get_object()
+        has_question = "question" in request.data
+        has_section = "section" in request.data
+        if has_question == has_section:
+            raise ValidationError(
+                {"detail": "Give either a question or a section.", "code": "invalid"},
+            )
         question = self._question(meeting, request.data.get("question"), "question")
+        section = None
+        if has_section:
+            try:
+                section = get_object_or_404(meeting.sections, pk=int(request.data.get("section")))
+            except (TypeError, ValueError):
+                raise ValidationError({"section": "Invalid TOP."}) from None
         if meeting.meeting_state != QuestionSet.MeetingState.STARTED:
             raise ValidationError({"detail": "The meeting is not running.", "code": "not_started"})
         open_ballot = ballots.open_ballot_of(meeting)
+        if (
+            open_ballot is not None and question is not None
+            and open_ballot.items.filter(question=question).exists()
+        ):
+            # An item of the open en bloc vote: the beamer shows its lead.
+            question = open_ballot.question
         if open_ballot is not None and (
             question is None or open_ballot.question_id != question.pk
         ):
@@ -431,7 +450,8 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise ValidationError({"detail": "Another vote is still open.", "code": "vote_open"})
         control, _ = MeetingControl.objects.get_or_create(meeting=meeting)
         control.current_question = question
-        control.save(update_fields=["current_question"])
+        control.current_section = question.section if question is not None else section
+        control.save(update_fields=["current_question", "current_section"])
         live.notify(meeting)
         return self._console(meeting)
 
@@ -440,6 +460,42 @@ class MeetingViewSet(viewsets.GenericViewSet):
         question = get_object_or_404(meeting.questions, pk=question_id)
         try:
             ballots.open_ballot(meeting, question)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting, status.HTTP_201_CREATED)
+
+    def open_bundle(self, request, pk=None):
+        meeting = self.get_object()
+        ids = request.data.get("questions")
+        if (
+            not isinstance(ids, list)
+            or not all(isinstance(i, int) and not isinstance(i, bool) for i in ids)
+        ):
+            raise ValidationError({"detail": "Invalid items.", "code": "invalid"})
+        found = {q.pk: q for q in meeting.questions.filter(pk__in=ids)}
+        if set(ids) - set(found):
+            raise Http404
+        try:
+            ballots.open_bundle(meeting, [found[i] for i in ids])
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting, status.HTTP_201_CREATED)
+
+    def add_item(self, request, pk=None):
+        meeting = self.get_object()
+        text = request.data.get("text")
+        named = request.data.get("named", False)
+        if not isinstance(text, str) or not isinstance(named, bool):
+            raise ValidationError({"detail": "Invalid item.", "code": "invalid"})
+        section = None
+        raw = request.data.get("section")
+        if raw is not None:
+            try:
+                section = get_object_or_404(meeting.sections, pk=int(raw))
+            except (TypeError, ValueError):
+                raise ValidationError({"detail": "Invalid TOP.", "code": "invalid"}) from None
+        try:
+            services.add_resolution(meeting, text, section, named)
         except DjangoValidationError as exc:
             raise _coded(exc) from exc
         return self._console(meeting, status.HTTP_201_CREATED)
@@ -491,7 +547,9 @@ def _localized(obj, base, lang):
 BALLOT_STRINGS = {
     "notStarted": _("The meeting has not started yet. This page updates by itself."),
     "waitVote": _("Please wait for the next vote."),
-    "item": _("Item {number}"),
+    "top": _("TOP {label}"),
+    "topTitle": _("TOP {number}: {title}"),
+    "bundle": _("One vote for all of these resolutions."),
     "version": _("Version {number}"),
     "changed": _("changed"),
     "hintTap": _("One tap casts your vote immediately and for good."),
@@ -514,6 +572,7 @@ BALLOT_STRINGS = {
     "result": _("Result"),
     "total": _("Total"),
     "answers": _("Answers"),
+    "again": _("Try again"),
 }
 
 
@@ -552,6 +611,40 @@ def entry_page(request, token):
         )
     response["Cache-Control"] = "no-store"
     response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@xframe_options_exempt
+def ballot_preview(request, question_id):
+    """Owner-only preview of the ballot for one agenda item, as members see
+    it (the editor's "Preview" tab). Inert: votes stay in the page."""
+    question = get_object_or_404(
+        Question.objects.select_related("question_set__room"),
+        pk=question_id, question_set__type=QuestionSet.SetType.MEETING,
+    )
+    room = question.question_set.room
+    if not (
+        request.user.is_authenticated
+        and managed_committee_rooms(request.user).filter(pk=room.pk).exists()
+    ):
+        raise Http404
+    meeting = question.question_set
+    lang = (translation.get_language() or "").split("-")[0]
+    context = {
+        "invalid": False, "state": "active", "preview": True,
+        "strings": BALLOT_STRINGS,
+        "config": {
+            "token": "", "observer": False, "state": "active", "preview": True,
+            "snapshot": payloads.preview_payload(question),
+        },
+        "room_title": _localized(room, "title", lang),
+        "meeting_title": _localized(meeting, "title", lang),
+        "scheduled_at": meeting.scheduled_at,
+    }
+    response = render(request, "committees/ballot.html", context)
+    # Frame only in our own app (SPA editor), dev cross-origin included.
+    response["Content-Security-Policy"] = f"frame-ancestors 'self' {settings.FRONTEND_BASE_URL}"
+    response["Cache-Control"] = "no-store"
     return response
 
 

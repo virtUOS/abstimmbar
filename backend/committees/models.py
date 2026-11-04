@@ -181,6 +181,12 @@ class MeetingControl(models.Model):
         "rooms.Question", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="+",
     )
+    current_section = models.ForeignKey(
+        "rooms.Section", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    started_at = models.DateTimeField(null=True, blank=True)
+    ended_at = models.DateTimeField(null=True, blank=True)
 
 
 class Ballot(models.Model):
@@ -226,6 +232,26 @@ class Ballot(models.Model):
             models.UniqueConstraint(
                 fields=["question"], condition=Q(status="open"),
                 name="one_open_ballot_per_question",
+            ),
+        ]
+
+
+class BallotItem(models.Model):
+    """A further agenda item voted on en bloc with the ballot's lead item
+    (``Ballot.question``, which has no row here). The result applies to all."""
+
+    ballot = models.ForeignKey(Ballot, on_delete=models.CASCADE, related_name="items")
+    question = models.ForeignKey(
+        "rooms.Question", on_delete=models.RESTRICT, related_name="bundled_in",
+    )
+    version = models.ForeignKey(
+        MotionVersion, on_delete=models.RESTRICT, related_name="+",
+    )
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["ballot", "question"], name="unique_ballot_item",
             ),
         ]
 

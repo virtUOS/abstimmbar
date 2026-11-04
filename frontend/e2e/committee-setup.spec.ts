@@ -124,7 +124,18 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   // "substituted"); the deputy only gets a link once substituting.
   await page.getByRole('button', { name: 'Links erzeugen' }).click();
 
-  // Substitution: the suggested deputy for Anna is Vera.
+  // The meeting head: status, date as text (changed behind the pencil).
+  await expect(page.getByTestId('meeting-date')).toContainText('15. Januar 2030');
+  await page.getByRole('button', { name: 'Datum und Uhrzeit ändern' }).click();
+  await page.getByLabel('Uhrzeit').selectOption('11:00');
+  await page.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(page.getByTestId('meeting-date')).toContainText('11:00');
+  // demo is no member of the room: the chair cannot vote.
+  await expect(page.getByRole('switch', { name: 'Sitzungsleitung stimmt mit' })).toBeDisabled();
+  await expect(page.getByText(/Nicht verfügbar: Sie sind in diesem Raum kein stimmberechtigtes Mitglied/)).toBeVisible();
+
+  // Substitution (on demand): the suggested deputy for Anna is Vera.
+  await page.getByRole('button', { name: '+ Vertretung' }).click();
   await page.getByLabel('Abwesendes Mitglied').selectOption({ label: 'Anna Muster' });
   const deputySelect = page.getByRole('combobox', { name: /^Stellvertretung/ });
   await expect(deputySelect).toHaveValue(/\d+/);
@@ -154,9 +165,18 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await entry.goto(veraInvite.url);
   await expect(entry.getByText('Die Sitzung hat noch nicht begonnen')).toBeVisible();
 
+  // Far from the scheduled date: starting asks first, then opens the
+  // console in a new tab.
   await page.getByRole('button', { name: 'Sitzung beginnen' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Die Sitzung ist für');
+  const consoleTab = page.context().waitForEvent('page');
+  await page.getByRole('dialog').getByRole('button', { name: 'Jetzt beginnen' }).click();
+  const consolePage = await consoleTab;
+  await expect(consolePage).toHaveURL(/\/sets\/\d+\/meeting$/);
+  await consolePage.close();
   // The badge is always shown; wait for the started state's end button.
   await expect(page.getByRole('button', { name: 'Sitzung beenden' })).toBeVisible();
+  await expect(page.getByText(/^Begonnen um/)).toBeVisible();
   await entry.reload();
   await expect(entry.getByText('Bitte warten Sie auf die nächste Abstimmung.')).toBeVisible();
 
@@ -164,6 +184,8 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await page.getByRole('button', { name: 'Sitzung beenden' }).click();
   await page.getByRole('dialog').getByRole('button', { name: 'Sitzung beenden' }).click();
   await expect(page.getByRole('button', { name: 'Sitzung beenden' })).toHaveCount(0);
+  await expect(page.getByTestId('meeting-ended-note')).toContainText('nicht mehr gültig');
+  await expect(page.getByRole('button', { name: /Neue Frage/ })).toHaveCount(0);
   await entry.reload();
   await expect(entry.getByText('Dieser Link ist nicht (mehr) gültig')).toBeVisible();
   await guest.close();

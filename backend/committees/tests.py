@@ -9,12 +9,12 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase
-from django.utils import timezone
+from django.utils import timezone, translation
 from rest_framework.test import APIClient
 
-from rooms.models import AnswerOption, Question, QuestionSet, Room
+from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
-from . import ballots, eligibility, services, versions
+from . import agenda, ballots, eligibility, services, versions
 from .models import (
     Ballot,
     BallotSeat,
@@ -730,6 +730,30 @@ class MeetingApiTests(MeetingFixture, ApiBase):
         self.assertEqual(r.json()["meeting_state"], "ended")
         self.assertEqual(self.client.post(self.base + "end/").status_code, 400)
 
+    def test_start_and_end_times(self):
+        data = self.client.get(self.base).json()
+        self.assertIsNone(data["started_at"])
+        self.assertIsNone(data["ended_at"])
+        started = self.client.post(self.base + "start/").json()
+        self.assertIsNotNone(started["started_at"])
+        self.assertIsNone(started["ended_at"])
+        ended = self.client.post(self.base + "end/").json()
+        self.assertEqual(ended["started_at"], started["started_at"])
+        self.assertIsNotNone(ended["ended_at"])
+
+    def test_chair_is_member(self):
+        self.user.email = "Chair@Uni.de"
+        self.user.save()
+        self.assertFalse(self.client.get(self.base).json()["chair_is_member"])
+        self.member("Chair", self.obs_group, email="chair@uni.de")
+        self.assertFalse(self.client.get(self.base).json()["chair_is_member"])
+        CommitteeMember.objects.all().delete()
+        self.member("Chair", self.ga, role="deputy", email="chair@uni.de")
+        self.assertFalse(self.client.get(self.base).json()["chair_is_member"])
+        CommitteeMember.objects.all().delete()
+        self.member("Chair", self.ga, email="chair@uni.de")
+        self.assertTrue(self.client.get(self.base).json()["chair_is_member"])
+
     def test_csv(self):
         self.member("=cmd", self.ga, email="x@uni.de")
         self.member("Bert", self.obs_group)
@@ -935,6 +959,44 @@ class EntryPageAcceptLanguageTests(TestCase):
     def test_unknown_token_uses_accept_language(self):
         r = self.client.get("/g/nope/", HTTP_ACCEPT_LANGUAGE="en")
         self.assertContains(r, "This link is not valid (any more).", status_code=404)
+
+
+class BallotPreviewTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q = Question.objects.create(
+            question_set=self.meeting, kind=Question.Kind.RESOLUTION,
+            text_de="<p>Der Antrag wird angenommen.</p>", position=0,
+        )
+        self.url = f"/g/preview/{self.q.pk}/"
+
+    def test_owner_sees_ballot_preview(self):
+        self.client.force_login(self.user)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        config = r.context["config"]
+        self.assertTrue(config["preview"])
+        item = config["snapshot"]["item"]
+        self.assertEqual(item["kind"], "resolution")
+        self.assertEqual(item["label"], "1")
+        self.assertNotIn("number", item)
+        self.assertEqual(item["ballot"]["status"], "open")
+        self.assertIn("Der Antrag wird angenommen.", item["text"])
+        self.assertIn("frame-ancestors", r["Content-Security-Policy"])
+        self.assertNotIn("X-Frame-Options", r)
+
+    def test_foreign_user_and_anonymous_404(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_non_meeting_question_404(self):
+        qs = QuestionSet.objects.create(room=self.room, title="X")
+        q = Question.objects.create(question_set=qs, kind=Question.Kind.SINGLE_CHOICE, position=0)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f"/g/preview/{q.pk}/").status_code, 404)
 
 
 class BallotPageTests(MeetingFixture, TestCase):
@@ -1301,7 +1363,7 @@ class EligibilityTests(MeetingFixture, TestCase):
 
     def test_agenda_and_numbers(self):
         self.assertEqual(eligibility.agenda(self.meeting), [self.q1, self.q2, self.q3])
-        self.assertEqual(eligibility.number_of(self.meeting, self.q3), 3)
+        self.assertEqual(eligibility.numbers(self.meeting)[self.q3.pk], 3)
 
     def test_observers_and_deputies_hold_no_seat(self):
         self.assertEqual(self.voters(self.q1), ["Anna", "Bert", "Ben"])
@@ -1636,7 +1698,7 @@ class PayloadTests(BallotBase):
             self.assertEqual(item_ballot["progress"]["eligible"], 3)
         public, manager = self.payloads()
         self.assertEqual(manager["open_ballot"], ballot.pk)
-        self.assertEqual(public["item"]["number"], 1)
+        self.assertEqual(public["item"]["label"], "1")
         self.assertEqual(public["item"]["text"], "Beschluss")
         groups = public["item"]["ballot"]["progress"]["groups"]
         self.assertEqual(
@@ -1920,6 +1982,63 @@ class RemovedAfterItemTests(BallotBase):
         self.assertNotIn(self.bert, eligibility.eligible_voters(self.meeting, self.q1))
 
 
+class CourseTests(EligibilityTests):
+    """Eligibility follows the meeting's actual course: items already voted
+    on in the order they were opened, the rest in agenda order."""
+
+    def vote_on(self, question):
+        ballot = ballots.open_ballot(self.meeting, question)
+        ballots.close_ballot(ballot)
+        return ballot
+
+    def test_out_of_order_departure_stays_gone(self):
+        # TOP 3 is called before TOP 2; Bert leaves after TOP 3.
+        self.vote_on(self.q3)
+        services.remove_invite(self.invite(self.bert), after_question=self.q3)
+        self.assertNotIn("Bert", self.voters(self.q2))
+        self.assertIn("Bert", self.voters(self.q3))
+
+    def test_planned_departure_not_yet_reached(self):
+        # Bert will leave after TOP 3; TOP 2 is still before it.
+        self.vote_on(self.q1)
+        services.remove_invite(self.invite(self.bert), after_question=self.q3)
+        self.assertIn("Bert", self.voters(self.q2))
+
+    def test_resolution_added_to_earlier_top_after_departure(self):
+        self.vote_on(self.q1)
+        self.vote_on(self.q2)
+        services.remove_invite(self.invite(self.bert), after_question=self.q2)
+        late = services.add_resolution(self.meeting, "Nachtrag", None, False)
+        Question.objects.filter(pk=late.pk).update(position=0)
+        self.assertNotIn("Bert", self.voters(late))
+
+    def test_substitution_keeps_seat_for_later_item_on_earlier_top(self):
+        self.vote_on(self.q1)
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)
+        self.enter_all()
+        self.vote_on(self.q2)
+        late = services.add_resolution(self.meeting, "Nachtrag", None, False)
+        Question.objects.filter(pk=late.pk).update(position=0)
+        self.assertEqual(self.voters(late), ["Bert", "Dora", "Ben"])
+
+    def test_reset_revote_keeps_its_place(self):
+        # TOP 2 was voted before TOP 1; Bert left after TOP 1. A re-vote of
+        # TOP 2 keeps its earlier place, so Bert may vote again.
+        first = self.vote_on(self.q2)
+        self.vote_on(self.q1)
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        ballots.reset_ballot(first, "Fehler")
+        again = ballots.open_ballot(self.meeting, self.q2)
+        self.assertTrue(again.seats.filter(member=self.bert).exists())
+        self.assertNotIn("Bert", self.voters(self.q3))
+
+    def test_invite_state_follows_course(self):
+        self.vote_on(self.q3)
+        services.remove_invite(self.invite(self.bert), after_question=self.q3)
+        self.assertEqual(services.invite_state(self.invite(self.bert), self.q2), "removed")
+        self.assertEqual(services.invite_state(self.invite(self.bert), self.q3), "active")
+
+
 class DeputyPresenceTests(EligibilityTests):
     """Deferred Task-4 cases: a seat held by a deputy is empty when the
     deputy is not present — the absent member never falls back in."""
@@ -2102,3 +2221,427 @@ class ReferencedEditTests(BallotBase):
         services.end_meeting(self.meeting)
         resp = self.client.patch(url, {"group": self.gb.pk}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
+
+
+class AgendaOutlineTests(MeetingFixture, TestCase):
+    def setUp(self):
+        self.make_fixture()
+
+    def _q(self, text, position, section=None):
+        return Question.objects.create(
+            question_set=self.meeting, kind=Question.Kind.RESOLUTION,
+            text=text, position=position, section=section,
+        )
+
+    def _outline(self):
+        # q1 (no section) | S1 "Bericht" (empty) | S2 "Haushalt": q2, q3 | S3: q4
+        self.q1 = self._q("Q1", 0)
+        self.s1 = Section.objects.create(
+            question_set=self.meeting, title_de="Bericht", position=1,
+        )
+        self.s2 = Section.objects.create(
+            question_set=self.meeting, title_de="Haushalt", position=2,
+        )
+        self.q2 = self._q("Q2", 3, self.s2)
+        self.q3 = self._q("Q3", 4, self.s2)
+        self.s3 = Section.objects.create(
+            question_set=self.meeting, title_de="Drittes", position=5,
+        )
+        self.q4 = self._q("Q4", 6, self.s3)
+
+    def test_tops_and_labels(self):
+        self._outline()
+        tops = agenda.tops(self.meeting)
+        self.assertEqual([t.number for t in tops], [1, 2, 3, 4])
+        self.assertEqual(tops[1].title, "Bericht")
+        self.assertEqual(tops[1].question_ids, ())
+        self.assertIsNone(tops[0].section_id)
+        self.assertEqual(
+            agenda.labels(self.meeting),
+            {self.q1.pk: "1", self.q2.pk: "3a", self.q3.pk: "3b", self.q4.pk: "4"},
+        )
+        self.assertEqual(agenda.top_of(self.meeting, self.q3.pk).number, 3)
+        self.assertEqual(agenda.top_by_section(self.meeting, self.s1.pk).number, 2)
+        self.assertIsNone(agenda.top_of(self.meeting, 0))
+
+    def test_reorder_relabels(self):
+        self._outline()
+        self.q3.section = self.s3
+        self.q3.position = 6
+        self.q3.save()
+        self.q4.position = 7
+        self.q4.save()
+        self.assertEqual(
+            agenda.labels(self.meeting),
+            {self.q1.pk: "1", self.q2.pk: "3", self.q3.pk: "4a", self.q4.pk: "4b"},
+        )
+
+    def test_suffix(self):
+        self.assertEqual(
+            [agenda.suffix(i) for i in (0, 25, 26, 27)], ["a", "z", "aa", "ab"],
+        )
+
+    def test_description_is_canonical_language(self):
+        s = Section.objects.create(
+            question_set=self.meeting, title_de="T", position=1,
+            description_de="Beschreibung", description_en="Description",
+        )
+        with translation.override("en"):
+            top = agenda.top_by_section(self.meeting, s.pk, agenda.tops(self.meeting))
+        self.assertEqual(top.description, "Beschreibung")
+
+
+class ShowTopTests(BallotBase):
+    """TOP labels in the payloads; showing a TOP without a vote."""
+
+    def setUp(self):
+        super().setUp()
+        # Outline: S1 "Haushalt" (q1, q2), S2 "Bericht" (no vote).
+        self.s1 = Section.objects.create(
+            question_set=self.meeting, title_de="Haushalt", position=0,
+        )
+        self.s_empty = Section.objects.create(
+            question_set=self.meeting, title_de="Bericht", position=3,
+        )
+        Question.objects.filter(pk__in=[self.q1.pk, self.q2.pk]).update(section=self.s1)
+        self.q1.refresh_from_db()
+        self.q2.refresh_from_db()
+        self.url = f"/api/meetings/{self.meeting.pk}/show/"
+
+    def post(self, data):
+        return self.client.post(self.url, data, format="json")
+
+    def test_item_carries_label_and_top(self):
+        from . import payloads
+
+        self.assertEqual(self.post({"question": self.q2.pk}).status_code, 200)
+        data = payloads.public_payload(self.meeting)
+        self.assertEqual(data["item"]["label"], "1b")
+        self.assertEqual(data["item"]["bundle"], [])
+        self.assertNotIn("number", data["item"])
+        self.assertEqual(
+            data["top"],
+            {"number": 1, "section": self.s1.pk, "title": "Haushalt", "description": ""},
+        )
+
+    def test_show_top_without_vote(self):
+        r = self.post({"section": self.s_empty.pk})
+        self.assertEqual(r.status_code, 200)
+        self.assertIsNone(r.json()["item"])
+        self.assertEqual(r.json()["top"]["title"], "Bericht")
+        self.assertEqual(r.json()["top"]["number"], 2)
+        control = self.meeting.meeting_control
+        control.refresh_from_db()
+        self.assertIsNone(control.current_question)
+        self.assertEqual(control.current_section, self.s_empty)
+
+    def test_show_question_sets_section(self):
+        self.post({"section": self.s_empty.pk})
+        self.post({"question": self.q1.pk})
+        control = self.meeting.meeting_control
+        control.refresh_from_db()
+        self.assertEqual(control.current_section, self.s1)
+
+    def test_open_ballot_sets_section(self):
+        ballots.open_ballot(self.meeting, self.q1)
+        self.meeting.meeting_control.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_control.current_section, self.s1)
+
+    def test_show_top_blocked_while_vote_open(self):
+        ballots.open_ballot(self.meeting, self.q1)
+        r = self.post({"section": self.s_empty.pk})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["code"], "vote_open")
+
+    def test_show_needs_exactly_one_target(self):
+        for data in ({}, {"question": self.q1.pk, "section": self.s1.pk}):
+            r = self.post(data)
+            self.assertEqual(r.status_code, 400)
+            self.assertEqual(r.data["code"], "invalid")
+
+    def test_section_of_other_meeting_404(self):
+        other_set = QuestionSet.objects.create(
+            room=self.room, title="Andere", type=QuestionSet.SetType.MEETING,
+        )
+        foreign = Section.objects.create(question_set=other_set, title_de="X", position=0)
+        self.assertEqual(self.post({"section": foreign.pk}).status_code, 404)
+
+    def test_console_tops(self):
+        from . import payloads
+
+        data = payloads.manager_payload(self.meeting)
+        self.assertEqual(
+            [t["items"] for t in data["tops"]], [[self.q1.pk, self.q2.pk], []],
+        )
+        self.assertEqual([i["label"] for i in data["items"]], ["1a", "1b"])
+        self.assertEqual([i["top"] for i in data["items"]], [1, 1])
+
+
+class AddResolutionTests(BallotBase):
+    def setUp(self):
+        super().setUp()
+        # S1(1) q1(2) S2(3) q2(4)
+        self.s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=1)
+        self.s2 = Section.objects.create(question_set=self.meeting, title_de="Zwei", position=3)
+        Question.objects.filter(pk=self.q1.pk).update(section=self.s1, position=2)
+        Question.objects.filter(pk=self.q2.pk).update(section=self.s2, position=4)
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/items/"
+
+    def test_add_into_top_becomes_next_subitem(self):
+        with mock.patch("committees.live.broadcast_meeting") as broadcast:
+            with self.captureOnCommitCallbacks(execute=True) as callbacks:
+                q = services.add_resolution(
+                    self.meeting, "Änderungsantrag", self.s1, named=False,
+                )
+        self.assertTrue(callbacks)
+        broadcast.assert_called()
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1a", q.pk: "1b", self.q2.pk: "2"},
+        )
+        self.assertEqual(q.text_de, "<p>Änderungsantrag</p>")
+        self.assertEqual(q.kind, Question.Kind.RESOLUTION)
+        self.assertFalse(q.named_vote)
+        self.assertEqual(versions.current(q).number, 1)
+        self.s2.refresh_from_db()
+        self.assertEqual(self.s2.position, 4)
+
+    def test_named_flag(self):
+        q = services.add_resolution(self.meeting, "X", self.s1, named=True)
+        self.assertTrue(q.named_vote)
+
+    def test_add_into_empty_top(self):
+        s3 = Section.objects.create(question_set=self.meeting, title_de="Drei", position=5)
+        q = services.add_resolution(self.meeting, "Neu", s3, named=False)
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1", self.q2.pk: "2", q.pk: "3"},
+        )
+
+    def test_add_into_empty_top_shifts_following_rows(self):
+        s3 = Section.objects.create(question_set=self.meeting, title_de="Drei", position=3)
+        self.s2.position = 4
+        self.s2.save()
+        Question.objects.filter(pk=self.q2.pk).update(position=5)
+        q = services.add_resolution(self.meeting, "Neu", s3, named=False)
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1", q.pk: "2", self.q2.pk: "3"},
+        )
+
+    def test_add_without_section_is_new_top_at_end(self):
+        q = services.add_resolution(self.meeting, "Ende", None, named=False)
+        self.assertIsNone(q.section_id)
+        self.assertEqual(
+            agenda.labels(self.meeting), {self.q1.pk: "1", self.q2.pk: "2", q.pk: "3"},
+        )
+
+    def test_text_is_escaped(self):
+        q = services.add_resolution(self.meeting, "  <b>x</b> ", self.s1, named=False)
+        self.assertEqual(q.text_de, "<p>&lt;b&gt;x&lt;/b&gt;</p>")
+
+    def test_text_length_is_capped(self):
+        services.add_resolution(self.meeting, "x" * 1000, self.s1, named=False)
+        with self.assertRaises(ValidationError) as ctx:
+            services.add_resolution(self.meeting, "x" * 1001, self.s1, named=False)
+        self.assertEqual(ctx.exception.code, "invalid")
+        resp = self.client.post(
+            self.url(), {"text": "x" * 1001, "section": self.s1.pk, "named": False}, format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["code"], "invalid")
+
+    def test_api_creates_and_returns_console(self):
+        resp = self.client.post(
+            self.url(), {"text": "Antrag", "section": self.s1.pk, "named": True}, format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertIn("items", resp.data)
+        self.assertTrue(Question.objects.get(text_de="<p>Antrag</p>").named_vote)
+
+    def test_draft_and_ended_rejected(self):
+        for state in ("draft", "ended"):
+            QuestionSet.objects.filter(pk=self.meeting.pk).update(meeting_state=state)
+            resp = self.client.post(
+                self.url(), {"text": "X", "section": self.s1.pk, "named": False}, format="json",
+            )
+            self.assertEqual(resp.status_code, 400)
+            self.assertEqual(resp.data["code"], "not_started")
+
+    def test_empty_text_rejected(self):
+        resp = self.client.post(
+            self.url(), {"text": "   ", "section": self.s1.pk, "named": False}, format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["code"], "invalid")
+
+    def test_foreign_section_404(self):
+        other = QuestionSet.objects.create(room=self.room, title="Andere")
+        foreign = Section.objects.create(question_set=other, title_de="F", position=1)
+        resp = self.client.post(
+            self.url(), {"text": "X", "section": foreign.pk, "named": False}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)
+
+    def test_non_owner_forbidden(self):
+        resp = self.foreign.post(self.url(), {"text": "X", "named": False}, format="json")
+        self.assertIn(resp.status_code, (403, 404))
+
+
+class BundleTests(BallotBase):
+    """En bloc ballot: one vote over several resolutions."""
+
+    def setUp(self):
+        super().setUp()
+        # Outline: S1 (q1 "1a", q2 open_text "1b", r2 "1c"), r3 "2", rn named "3".
+        self.s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=0)
+        Question.objects.filter(pk__in=[self.q1.pk, self.q2.pk]).update(section=self.s1)
+        self.r2 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Zwei", position=3,
+            section=self.s1,
+        )
+        self.r3 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Drei", position=4,
+        )
+        self.rn = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Namentlich", position=5,
+            named_vote=True,
+        )
+        for q in (self.q1, self.q2):
+            q.refresh_from_db()
+
+    def url(self, suffix):
+        return f"/api/meetings/{self.meeting.pk}/{suffix}"
+
+    def bundle(self):
+        return ballots.open_bundle(self.meeting, [self.r3, self.q1, self.r2])
+
+    def test_bundle_vote_counts_once_for_all(self):
+        b = self.bundle()
+        self.assertEqual(b.question, self.q1)
+        self.assertTrue(b.secret)
+        self.assertEqual({i.question_id for i in b.items.all()}, {self.r2.pk, self.r3.pk})
+        for item in b.items.all():
+            self.assertEqual(item.version, versions.current(item.question))
+        self.assertEqual(b.seats.count(), 3)
+        self.vote(self.anna, b, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            b = ballots.close_ballot(b)
+        self.assertEqual(b.result["total"]["counts"], {"yes": 1, "no": 0, "abstain": 0})
+        for q in (self.q1, self.r2, self.r3):
+            self.assertEqual(ballots.ballots_for(q).get().status, Ballot.Status.CLOSED)
+
+    def test_bundled_item_cannot_open_alone(self):
+        b = self.bundle()
+        self.assertCode("other_open", ballots.open_ballot, self.meeting, self.r2)
+        ballots.close_ballot(b)
+        self.assertCode("already_voted_on", ballots.open_ballot, self.meeting, self.r2)
+        self.assertCode("already_voted_on", ballots.open_ballot, self.meeting, self.q1)
+
+    def test_reset_frees_all_items(self):
+        b = self.bundle()
+        ballots.close_ballot(b)
+        ballots.reset_ballot(b, "Fehler")
+        single = ballots.open_ballot(self.meeting, self.r2)
+        self.assertEqual(single.question, self.r2)
+        self.assertEqual(single.round, 2)
+        ballots.close_ballot(single)
+        again = ballots.open_bundle(self.meeting, [self.q1, self.r3])
+        self.assertEqual(again.round, 2)
+
+    def test_bundle_errors(self):
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1])
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1, self.q1])
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1, self.q2])
+        self.assertCode("mixed_named", ballots.open_bundle, self.meeting, [self.q1, self.rn])
+        other = QuestionSet.objects.create(
+            room=self.room, title="Andere", type=QuestionSet.SetType.MEETING,
+        )
+        foreign = Question.objects.create(question_set=other, kind="resolution", text_de="F")
+        self.assertCode("invalid", ballots.open_bundle, self.meeting, [self.q1, foreign])
+        single = ballots.open_ballot(self.meeting, self.r3)
+        self.assertCode("other_open", ballots.open_bundle, self.meeting, [self.q1, self.r2])
+        ballots.close_ballot(single)
+        self.assertCode(
+            "already_voted_on", ballots.open_bundle, self.meeting, [self.q1, self.r3],
+        )
+        services.end_meeting(self.meeting)
+        self.assertCode("not_started", ballots.open_bundle, self.meeting, [self.q1, self.r2])
+        self.assertFalse(Ballot.objects.filter(question=self.q1).exists())
+
+    def test_payload_bundle_texts(self):
+        from . import payloads
+
+        self.bundle()
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual(item["id"], self.q1.pk)
+        self.assertEqual(item["label"], "1a")
+        self.assertEqual(item["bundle"], [
+            {"id": self.r2.pk, "label": "1c", "text": "Zwei", "version": 1},
+            {"id": self.r3.pk, "label": "2", "text": "Drei", "version": 1},
+        ])
+        self.assertEqual(payloads.preview_payload(self.r2)["item"]["bundle"], [])
+
+    def test_console_status_for_bundled(self):
+        from . import payloads
+
+        b = self.bundle()
+        items = {i["id"]: i for i in payloads.manager_payload(self.meeting)["items"]}
+        self.assertEqual(items[self.r2.pk]["ballot_status"], "open")
+        self.assertEqual(items[self.r2.pk]["bundle_lead"], self.q1.pk)
+        self.assertEqual(items[self.r3.pk]["bundle_lead"], self.q1.pk)
+        self.assertIsNone(items[self.q1.pk]["bundle_lead"])
+        self.assertIsNone(items[self.q2.pk]["bundle_lead"])
+        self.assertIsNone(items[self.q2.pk]["ballot_status"])
+        ballots.close_ballot(b)
+        ballots.reset_ballot(b, "")
+        items = {i["id"]: i for i in payloads.manager_payload(self.meeting)["items"]}
+        self.assertIsNone(items[self.r2.pk]["ballot_status"])
+        self.assertEqual(items[self.r2.pk]["discarded"], 1)
+        self.assertIsNone(items[self.r2.pk]["bundle_lead"])
+
+    def test_bundled_item_is_locked(self):
+        self.assertIsNone(versions.lock_reason(self.r2))
+        b = self.bundle()
+        self.assertEqual(versions.lock_reason(self.r2), "A vote on this item is open.")
+        ballots.close_ballot(b)
+        self.assertIn("voted on", versions.lock_reason(self.r2))
+
+    def test_show_bundled_item_shows_lead(self):
+        self.bundle()
+        resp = self.client.post(self.url("show/"), {"question": self.r3.pk}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.data["item"]["id"], self.q1.pk)
+        resp = self.client.post(self.url("show/"), {"question": self.rn.pk}, format="json")
+        self.assertEqual(resp.data["code"], "vote_open")
+
+    def test_api_bundles_endpoint(self):
+        resp = self.client.post(
+            self.url("bundles/"), {"questions": [self.q1.pk, self.rn.pk]}, format="json",
+        )
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "mixed_named"))
+        for body in ({}, {"questions": "x"}, {"questions": [self.q1.pk, "x"]}):
+            resp = self.client.post(self.url("bundles/"), body, format="json")
+            self.assertEqual((resp.status_code, resp.data["code"]), (400, "invalid"), body)
+        resp = self.client.post(
+            self.url("bundles/"), {"questions": [self.r2.pk, 999999]}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)
+        resp = self.client.post(
+            self.url("bundles/"), {"questions": [self.r2.pk, self.q1.pk]}, format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.data["open_ballot"], Ballot.objects.get(question=self.q1).pk)
+        self.assertEqual(resp.data["item"]["id"], self.q1.pk)
+        resp = self.foreign.post(
+            self.url("bundles/"), {"questions": [self.r3.pk, self.rn.pk]}, format="json",
+        )
+        self.assertIn(resp.status_code, (403, 404))
+
+    def test_delete_room_with_closed_bundle(self):
+        b = self.bundle()
+        ballots.close_ballot(b)
+        services.end_meeting(self.meeting)
+        resp = self.client.delete(f"/api/rooms/{self.room.pk}/")
+        self.assertEqual(resp.status_code, 204)
+        self.assertFalse(Ballot.objects.exists())
+        self.assertFalse(Question.objects.filter(pk=self.r2.pk).exists())

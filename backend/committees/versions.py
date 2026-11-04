@@ -58,8 +58,11 @@ def sync(question) -> MotionVersion | None:
 
 
 def lock_reason(question) -> str | None:
-    """``question_lock_checks`` hook: no edits while a vote is open/counted."""
-    statuses = set(question.ballots.values_list("status", flat=True))
+    """``question_lock_checks`` hook: no edits while a vote is open/counted
+    (also for an item voted on en bloc with another)."""
+    from .ballots import ballots_for  # ballots imports this module
+
+    statuses = set(ballots_for(question).values_list("status", flat=True))
     if Ballot.Status.OPEN in statuses:
         return "A vote on this item is open."
     if Ballot.Status.CLOSED in statuses:

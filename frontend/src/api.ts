@@ -177,6 +177,10 @@ export interface MeetingSummary {
   chair_votes: boolean;
   invites: MeetingInvite[];
   substitutions: MeetingSubstitution[];
+  started_at: string | null;
+  ended_at: string | null;
+  /** The requesting user is a voting member of a voting group (by email). */
+  chair_is_member: boolean;
 }
 
 /** Kind of an agenda item a ballot can run on. */
@@ -215,7 +219,8 @@ export interface MeetingBallot {
 /** The shown agenda item; content in the canonical language only. */
 export interface MeetingItem {
   id: number;
-  number: number;
+  /** Vote label: the TOP number ("3") or TOP number plus letter ("3b"). */
+  label: string;
   kind: MeetingItemKind;
   /** Sanitized HTML. */
   text: string;
@@ -223,18 +228,31 @@ export interface MeetingItem {
   changed: boolean;
   named: boolean;
   options: { id: number; text: string }[];
+  bundle: { id: number; label: string; text: string; version: number | null }[];
   ballot: MeetingBallot | null;
+}
+
+/** An agenda item (TOP); content in the canonical language only. */
+export interface MeetingTop {
+  number: number;
+  section: number | null;
+  title: string;
+  description: string;
 }
 
 /** Snapshot of a running meeting as the beamer and ballot pages see it. */
 export interface MeetingPublic {
   meeting: { id: number; title: string; state: MeetingState };
   item: MeetingItem | null;
+  /** TOP of the shown item, or the shown TOP when no vote is shown. */
+  top: MeetingTop | null;
 }
 
 export interface MeetingAgendaItem {
   id: number;
-  number: number;
+  label: string;
+  /** Number of the TOP this vote belongs to. */
+  top: number;
   kind: MeetingItemKind;
   text: string;
   version: number | null;
@@ -242,6 +260,8 @@ export interface MeetingAgendaItem {
   ballot_status: null | "open" | "closed";
   /** Number of discarded (reset/aborted) ballots. */
   discarded: number;
+  /** Bundled into the en bloc vote led by this item (question id). */
+  bundle_lead: number | null;
 }
 
 export interface MeetingAttendance {
@@ -260,6 +280,7 @@ export interface MeetingAttendance {
 /** The console's snapshot: the public one plus agenda and attendance. */
 export interface MeetingManager extends MeetingPublic {
   items: MeetingAgendaItem[];
+  tops: (MeetingTop & { items: number[] })[];
   attendance: MeetingAttendance[];
   /** Texts of the shown, closed free-text ballot (released or not). */
   texts: MeetingText[] | null;
@@ -1200,6 +1221,27 @@ export const api = {
     request<MeetingManager>(`/api/meetings/${setId}/show/`, {
       method: "POST",
       body: JSON.stringify({ question: questionId }),
+    }),
+  /** Show a TOP (section) on the beamer without a vote. */
+  showTop: (setId: number, sectionId: number) =>
+    request<MeetingManager>(`/api/meetings/${setId}/show/`, {
+      method: "POST",
+      body: JSON.stringify({ section: sectionId }),
+    }),
+  /** Add a resolution during the meeting (section null = a new TOP at the end). */
+  addMeetingResolution: (
+    setId: number,
+    data: { text: string; section: number | null; named: boolean },
+  ) =>
+    request<MeetingManager>(`/api/meetings/${setId}/items/`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  /** One vote en bloc over several resolutions. */
+  openBundle: (setId: number, questionIds: number[]) =>
+    request<MeetingManager>(`/api/meetings/${setId}/bundles/`, {
+      method: "POST",
+      body: JSON.stringify({ questions: questionIds }),
     }),
   openBallot: (setId: number, questionId: number) =>
     request<MeetingManager>(`/api/meetings/${setId}/items/${questionId}/open/`, {

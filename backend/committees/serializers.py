@@ -12,6 +12,7 @@ from .models import (
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
+    MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
 )
@@ -112,10 +113,38 @@ class MeetingSubstitutionSerializer(serializers.ModelSerializer):
 class MeetingSerializer(serializers.ModelSerializer):
     invites = serializers.SerializerMethodField()
     substitutions = serializers.SerializerMethodField()
+    started_at = serializers.SerializerMethodField()
+    ended_at = serializers.SerializerMethodField()
+    chair_is_member = serializers.SerializerMethodField()
 
     class Meta:
         model = QuestionSet
-        fields: ClassVar = ["id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions"]
+        fields: ClassVar = [
+            "id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions",
+            "started_at", "ended_at", "chair_is_member",
+        ]
+
+    def _control(self, obj):
+        if not hasattr(obj, "_control_cache"):
+            obj._control_cache = MeetingControl.objects.filter(meeting=obj).first()
+        return obj._control_cache
+
+    def get_started_at(self, obj):
+        control = self._control(obj)
+        return control and serializers.DateTimeField().to_representation(control.started_at)
+
+    def get_ended_at(self, obj):
+        control = self._control(obj)
+        return control and serializers.DateTimeField().to_representation(control.ended_at)
+
+    def get_chair_is_member(self, obj):
+        """Whether the requesting user (the chair) is a voting member of a
+        voting group of the room — the precondition for "chair votes too"."""
+        email = getattr(self.context["request"].user, "email", "")
+        return bool(email) and CommitteeMember.objects.filter(
+            room_id=obj.room_id, email__iexact=email,
+            role=CommitteeMember.Role.VOTING, group__is_observer=False,
+        ).exists()
 
     def get_invites(self, obj):
         invites = list(obj.invites.select_related("member").order_by(

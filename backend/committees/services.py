@@ -7,10 +7,12 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.db.models import F, Q
+from django.conf import settings
+from django.db.models import F, Max, Q
+from django.utils.html import escape
 from django.utils import timezone
 
-from rooms.models import Question, QuestionSet, Room
+from rooms.models import Question, QuestionSet, Room, Section
 
 from . import eligibility, versions
 from .presence import presence
@@ -315,6 +317,9 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 @transaction.atomic
 def start_meeting(meeting: QuestionSet) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
+    MeetingControl.objects.update_or_create(
+        meeting_id=meeting.pk, defaults={"started_at": timezone.now()},
+    )
     ensure_invites(meeting)
     # Members whose ballot page is already open (connected while the meeting
     # was a draft) have entered: the stream's enter() was a no-op then.
@@ -340,6 +345,9 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
     ).exists():
         raise ValidationError("A vote is still open.", code="vote_open")
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
+    MeetingControl.objects.update_or_create(
+        meeting_id=meeting.pk, defaults={"ended_at": timezone.now()},
+    )
     _notify(meeting)
     return meeting
 
@@ -383,8 +391,8 @@ def invite_state(invite: MeetingInvite, question: Question | None = None) -> str
 def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
     """Whether a removal applies at `question` (default: the item currently
     shown). Removed without an item: always. Removed after an item: only
-    once the agenda is past it — up to and including that item (and while
-    no item is shown) the member is still there, as in eligibility. An
+    once the meeting is past it (eligibility.course) — up to and including
+    that item (and while no item is shown) the member is still there. An
     item that left the agenda counts as removal from the start (§ 5.4,
     see eligibility._present)."""
     if invite.removed_at is None:
@@ -392,8 +400,8 @@ def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
     after = invite.removed_after_id
     if after is None:
         return True
-    agenda_numbers = eligibility.numbers(invite.meeting)
-    if after not in agenda_numbers:
+    order = eligibility.course(invite.meeting)
+    if after not in order:
         return True
     if question is not None:
         current = question.pk
@@ -402,9 +410,9 @@ def _removed_for(invite: MeetingInvite, question: Question | None) -> bool:
             MeetingControl.objects.filter(meeting_id=invite.meeting_id)
             .values_list("current_question_id", flat=True).first()
         )
-    if current is None:
+    if current is None or current not in order:
         return False
-    return agenda_numbers.get(current, 0) > agenda_numbers[after]
+    return order[current] > order[after]
 
 
 def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:
@@ -417,3 +425,50 @@ def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:
     if invite is None:
         return None, "unknown"
     return invite, invite_state(invite)
+
+
+@transaction.atomic
+def add_resolution(
+    meeting: QuestionSet, text: str, section: Section | None, named: bool,
+) -> Question:
+    """The chair adds a resolution to the running meeting.
+
+    Inserted after the last vote of ``section`` (after its header when it is
+    empty); without a section it becomes a new TOP at the end of the agenda.
+    """
+    # Same meeting row lock as open_ballot / _transition.
+    current = (
+        QuestionSet.objects.select_for_update()
+        .values_list("meeting_state", flat=True).get(pk=meeting.pk)
+    )
+    meeting.meeting_state = current
+    if current != State.STARTED:
+        raise ValidationError("The meeting is not running.", code="not_started")
+    text = (text or "").strip()
+    if not text:
+        raise ValidationError("The text must not be empty.", code="invalid")
+    if len(text) > 1000:
+        raise ValidationError("The text is too long.", code="invalid")
+    if section is not None and section.question_set_id != meeting.pk:
+        raise ValidationError("The TOP does not belong to this meeting.", code="invalid")
+
+    if section is None:
+        last = max(
+            meeting.questions.aggregate(m=Max("position"))["m"] or 0,
+            meeting.sections.aggregate(m=Max("position"))["m"] or 0,
+        )
+        position = last + 1
+    else:
+        last_q = meeting.questions.filter(section=section).aggregate(m=Max("position"))["m"]
+        position = (last_q if last_q is not None else section.position) + 1
+        meeting.questions.filter(position__gte=position).update(position=F("position") + 1)
+        meeting.sections.filter(position__gte=position).update(position=F("position") + 1)
+
+    lang = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+    question = Question.objects.create(
+        question_set=meeting, section=section, kind=Question.Kind.RESOLUTION,
+        named_vote=named, position=position, **{f"text_{lang}": f"<p>{escape(text)}</p>"},
+    )
+    versions.sync(question)
+    _notify(meeting)
+    return question

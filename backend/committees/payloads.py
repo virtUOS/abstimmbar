@@ -12,7 +12,7 @@ from django.utils import translation
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import ballots, eligibility, versions
+from . import agenda, ballots, eligibility, versions
 from .models import Ballot, BallotText, CommitteeGroup, CommitteeMember, MeetingControl
 from .presence import presence
 
@@ -60,9 +60,33 @@ def _wording(question: Question) -> tuple[str, int | None, list[dict]]:
 def _shown_ballot(question: Question) -> Ballot | None:
     """The open or the most recently closed (not discarded) ballot."""
     return (
-        question.ballots.exclude(status=Ballot.Status.DISCARDED)
-        .order_by("-round").first()
+        ballots.ballots_for(question).exclude(status=Ballot.Status.DISCARDED)
+        .order_by("-round", "-pk").first()
     )
+
+
+def _bundle(meeting, ballot: Ballot | None, question: Question, tops) -> list[dict]:
+    """The other items of an en bloc ballot (lead included when another of
+    its items is shown), in agenda order, with the wording voted on."""
+    if ballot is None:
+        return []
+    entries = [(i.question_id, i.version) for i in ballot.items.select_related("version")]
+    if not entries:
+        return []
+    entries.append((ballot.question_id, ballot.version))
+    numbers = eligibility.numbers(meeting)
+    entries = sorted(
+        (e for e in entries if e[0] != question.pk), key=lambda e: numbers.get(e[0], 0),
+    )
+    return [
+        {
+            "id": qid,
+            "label": _label(agenda.top_of(meeting, qid, tops), qid),
+            "text": _canonical({"de": version.text_de, "en": version.text_en}),
+            "version": version.number,
+        }
+        for qid, version in entries
+    ]
 
 
 def _texts(ballot: Ballot, group_order: dict[int, int]) -> list[dict]:
@@ -139,11 +163,34 @@ def _context(meeting: QuestionSet):
     return names, order
 
 
-def _current_question(meeting: QuestionSet) -> Question | None:
-    control = MeetingControl.objects.select_related("current_question").filter(
+def _control(meeting: QuestionSet) -> MeetingControl | None:
+    return MeetingControl.objects.select_related("current_question").filter(
         meeting=meeting,
     ).first()
+
+
+def _current_question(meeting: QuestionSet) -> Question | None:
+    control = _control(meeting)
     return control.current_question if control else None
+
+
+def _label(top: "agenda.Top | None", question_id: int) -> str:
+    if top is None:
+        return ""
+    if len(top.question_ids) == 1:
+        return str(top.number)
+    return f"{top.number}{agenda.suffix(top.question_ids.index(question_id))}"
+
+
+def _top_payload(top: "agenda.Top | None") -> dict | None:
+    if top is None:
+        return None
+    return {
+        "number": top.number,
+        "section": top.section_id,
+        "title": top.title,
+        "description": top.description,
+    }
 
 
 def _public(meeting: QuestionSet, names, order) -> dict:
@@ -154,24 +201,66 @@ def _public(meeting: QuestionSet, names, order) -> dict:
             "state": meeting.meeting_state,
         },
         "item": None,
+        "top": None,
     }
-    question = _current_question(meeting)
+    control = _control(meeting)
+    question = control.current_question if control else None
+    tops = agenda.tops(meeting)
     if question is None:
+        if control is not None and control.current_section_id is not None:
+            payload["top"] = _top_payload(
+                agenda.top_by_section(meeting, control.current_section_id, tops),
+            )
         return payload
+    top = agenda.top_of(meeting, question.pk, tops)
+    payload["top"] = _top_payload(top)
     text, number, options = _wording(question)
     ballot = _shown_ballot(question)
     payload["item"] = {
         "id": question.pk,
-        "number": eligibility.number_of(meeting, question),
+        "label": _label(top, question.pk),
         "kind": question.kind,
         "text": text,
         "version": number,
         "changed": (number or 0) > 1,
         "named": question.named_vote,
         "options": options,
+        "bundle": _bundle(meeting, ballot, question, tops),
         "ballot": _ballot_payload(ballot, question, names, order) if ballot else None,
     }
     return payload
+
+
+def preview_payload(question: Question) -> dict:
+    """A snapshot with `question` on the beamer and an empty open ballot —
+    for the editor's ballot preview; nothing is stored."""
+    meeting = question.question_set
+    text, number, options = _wording(question)
+    top = agenda.top_of(meeting, question.pk)
+    return {
+        "meeting": {
+            "id": meeting.pk,
+            "title": _canonical(translated_map(meeting, "title")),
+            "state": QuestionSet.MeetingState.STARTED,
+        },
+        "item": {
+            "id": question.pk,
+            "label": _label(top, question.pk),
+            "kind": question.kind,
+            "text": text,
+            "version": number,
+            "changed": (number or 0) > 1,
+            "named": question.named_vote,
+            "options": options,
+            "bundle": [],
+            "ballot": {
+                "id": 0, "status": Ballot.Status.OPEN, "round": 1,
+                "progress": {"voted": 0, "eligible": 0, "groups": []},
+                "result": None, "texts": None,
+            },
+        },
+        "top": _top_payload(top),
+    }
 
 
 def public_payload(meeting: QuestionSet) -> dict:
@@ -181,15 +270,30 @@ def public_payload(meeting: QuestionSet) -> dict:
     return _public(meeting, *_context(meeting))
 
 
-def _items(meeting: QuestionSet) -> list[dict]:
+def _items(meeting: QuestionSet, tops: list) -> list[dict]:
+    labels = agenda.labels(meeting)
+    top_numbers = {qid: t.number for t in tops for qid in t.question_ids}
+    # Every ballot counts for its lead and for each item bundled into it.
+    statuses: dict[int, list[str]] = {}
+    bundle_lead: dict[int, int] = {}
+    for ballot in Ballot.objects.filter(
+        question__question_set_id=meeting.pk,
+    ).prefetch_related("items"):
+        bundled = [i.question_id for i in ballot.items.all()]
+        for qid in (ballot.question_id, *bundled):
+            statuses.setdefault(qid, []).append(ballot.status)
+        if ballot.status != Ballot.Status.DISCARDED:
+            for qid in bundled:
+                bundle_lead[qid] = ballot.question_id
     items = []
-    for number, question in enumerate(eligibility.agenda(meeting), start=1):
+    for question in eligibility.agenda(meeting):
         text, version, _ = _wording(question)
-        statuses = list(question.ballots.values_list("status", flat=True))
-        live = [s for s in statuses if s != Ballot.Status.DISCARDED]
+        own = statuses.get(question.pk, [])
+        live = [s for s in own if s != Ballot.Status.DISCARDED]
         items.append({
             "id": question.pk,
-            "number": number,
+            "label": labels.get(question.pk, ""),
+            "top": top_numbers.get(question.pk),
             "kind": question.kind,
             "text": text,
             "version": version,
@@ -198,7 +302,8 @@ def _items(meeting: QuestionSet) -> list[dict]:
                 Ballot.Status.OPEN if Ballot.Status.OPEN in live
                 else Ballot.Status.CLOSED if live else None
             ),
-            "discarded": len(statuses) - len(live),
+            "discarded": len(own) - len(live),
+            "bundle_lead": bundle_lead.get(question.pk),
         })
     return items
 
@@ -234,6 +339,7 @@ def manager_payload(meeting: QuestionSet) -> dict:
     meeting.refresh_from_db(fields=["meeting_state"])
     names, order = _context(meeting)
     payload = _public(meeting, names, order)
+    tops = agenda.tops(meeting)
     texts = None
     question = _current_question(meeting)
     if question is not None and question.kind == Question.Kind.OPEN_TEXT:
@@ -244,7 +350,11 @@ def manager_payload(meeting: QuestionSet) -> dict:
         question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
     ).values_list("pk", flat=True).first()
     payload.update(
-        items=_items(meeting),
+        items=_items(meeting, tops),
+        tops=[
+            {**_top_payload(t), "items": list(t.question_ids)}
+            for t in tops
+        ],
         attendance=_attendance(meeting, names, order),
         texts=texts,
         open_ballot=open_ballot,

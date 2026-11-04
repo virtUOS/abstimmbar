@@ -1150,7 +1150,11 @@ export default function QuestionPage() {
           <iframe
             key={previewNonce}
             title={t("Preview")}
-            src={`${API_BASE_URL}/question-preview/${question.id}/?theme=${previewTheme}`}
+            src={
+              isMeeting
+                ? `${API_BASE_URL}/g/preview/${question.id}/?theme=${previewTheme}`
+                : `${API_BASE_URL}/question-preview/${question.id}/?theme=${previewTheme}`
+            }
             className="h-[640px] w-full bg-white dark:bg-slate-950"
           />
         </div>

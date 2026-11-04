@@ -10,7 +10,7 @@ import secrets
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Max, Q, QuerySet
 from django.utils import timezone
 
 from rooms.models import Question, QuestionSet
@@ -18,6 +18,7 @@ from rooms.models import Question, QuestionSet
 from . import eligibility, tally, versions
 from .models import (
     Ballot,
+    BallotItem,
     BallotSeat,
     BallotText,
     CommitteeGroup,
@@ -132,41 +133,97 @@ def open_ballot_of(meeting: QuestionSet) -> Ballot | None:
     return _meeting_ballots(meeting).filter(status=Ballot.Status.OPEN).first()
 
 
-@transaction.atomic
-def open_ballot(meeting: QuestionSet, question: Question) -> Ballot:
-    abort_stale(meeting)
+def ballots_for(question: Question) -> QuerySet[Ballot]:
+    """Ballots led by `question` or bundling it en bloc."""
+    return Ballot.objects.filter(Q(question=question) | Q(items__question=question)).distinct()
+
+
+def _lock_running(meeting: QuestionSet) -> None:
+    """Lock the meeting row (serializes opening) and check it is running."""
     state = (
         QuestionSet.objects.select_for_update()
         .values_list("meeting_state", flat=True).get(pk=meeting.pk)
     )
-    if question.question_set_id != meeting.pk:
-        raise ValidationError("The item does not belong to this meeting.", code="invalid")
     if state != QuestionSet.MeetingState.STARTED:
         raise ValidationError("The meeting is not running.", code="not_started")
+
+
+def _check_free(meeting: QuestionSet, questions: list[Question]) -> None:
     if _meeting_ballots(meeting).filter(status=Ballot.Status.OPEN).exists():
         raise ValidationError("Another vote is still open.", code="other_open")
-    if question.ballots.filter(status=Ballot.Status.CLOSED).exists():
-        raise ValidationError(
-            "This item has been voted on. Reset the vote first.", code="already_voted_on",
-        )
-    versions.sync(question)
-    last_round = question.ballots.aggregate(m=Max("round"))["m"] or 0
-    secret = not question.named_vote
+    for question in questions:
+        if ballots_for(question).filter(status=Ballot.Status.CLOSED).exists():
+            raise ValidationError(
+                "This item has been voted on. Reset the vote first.", code="already_voted_on",
+            )
+
+
+def _start(meeting: QuestionSet, lead: Question, others: list[Question]) -> Ballot:
+    """Create the ballot on `lead` (plus `others` en bloc) with its seats,
+    start a secret tally and put the lead on the beamer."""
+    for question in (lead, *others):
+        versions.sync(question)
+    last_round = max(
+        (ballots_for(q).aggregate(m=Max("round"))["m"] or 0) for q in (lead, *others)
+    )
+    secret = not lead.named_vote
     ballot = Ballot.objects.create(
-        question=question, version=versions.current(question), round=last_round + 1,
+        question=lead, version=versions.current(lead), round=last_round + 1,
         secret=secret, epoch=tally.EPOCH if secret else "",
     )
+    BallotItem.objects.bulk_create([
+        BallotItem(ballot=ballot, question=q, version=versions.current(q)) for q in others
+    ])
     BallotSeat.objects.bulk_create([
         BallotSeat(ballot=ballot, member=m, group_id=m.group_id)
-        for m in eligibility.eligible_voters(meeting, question)
+        for m in eligibility.eligible_voters(meeting, lead)
     ])
     if secret:
         secret_tally.start(ballot.pk)
     MeetingControl.objects.update_or_create(
-        meeting=meeting, defaults={"current_question": question},
+        meeting=meeting,
+        defaults={"current_question": lead, "current_section_id": lead.section_id},
     )
     _notify(meeting)
     return ballot
+
+
+@transaction.atomic
+def open_ballot(meeting: QuestionSet, question: Question) -> Ballot:
+    abort_stale(meeting)
+    if question.question_set_id != meeting.pk:
+        raise ValidationError("The item does not belong to this meeting.", code="invalid")
+    _lock_running(meeting)
+    _check_free(meeting, [question])
+    return _start(meeting, question, [])
+
+
+@transaction.atomic
+def open_bundle(meeting: QuestionSet, questions: list[Question]) -> Ballot:
+    """One vote en bloc over several resolutions; the first on the agenda
+    leads (eligibility, beamer), the result applies to all of them."""
+    abort_stale(meeting)
+    distinct = list({q.pk: q for q in questions}.values())
+    if len(distinct) < 2:
+        raise ValidationError("Choose at least two items.", code="invalid")
+    for question in distinct:
+        if question.question_set_id != meeting.pk:
+            raise ValidationError(
+                "The item does not belong to this meeting.", code="invalid",
+            )
+        if question.kind != Question.Kind.RESOLUTION:
+            raise ValidationError(
+                "Only resolutions can be voted on en bloc.", code="invalid",
+            )
+    if len({q.named_vote for q in distinct}) > 1:
+        raise ValidationError(
+            "Secret and roll-call items cannot be voted on together.", code="mixed_named",
+        )
+    _lock_running(meeting)
+    numbers = eligibility.numbers(meeting)
+    distinct.sort(key=lambda q: numbers[q.pk])
+    _check_free(meeting, distinct)
+    return _start(meeting, distinct[0], distinct[1:])
 
 
 def _locked(ballot_id: int) -> Ballot | None:
