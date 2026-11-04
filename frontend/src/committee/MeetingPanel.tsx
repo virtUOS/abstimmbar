@@ -193,9 +193,10 @@ export default function MeetingPanel({
   ).map((e) => e.row)).questions;
   const itemNumber = (questionId: number | null) =>
     questionId === null ? null : labels.get(questionId) ?? null;
-  const itemLabel = (question: Question, _index: number) => {
+  const itemLabel = (question: Question) => {
     const text = stripHtml(localizedText(question.text)).trim();
-    const label = t("Item {{number}}", { number: labels.get(question.id) ?? "" });
+    const number = labels.get(question.id);
+    const label = number ? t("Item {{number}}", { number }) : "";
     return text ? `${label}: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}` : label;
   };
   const longDate = (iso: string) =>
@@ -490,7 +491,7 @@ function InviteSection({
   meeting: MeetingSummary;
   groupById: Map<number, CommitteeGroup>;
   agenda: Question[];
-  itemLabel: (question: Question, index: number) => string;
+  itemLabel: (question: Question) => string;
   busy: boolean;
   error: string;
   onGenerate: () => void;
@@ -615,9 +616,9 @@ function InviteSection({
                                 onChange={(event) => setRemoveAfter(event.target.value)}
                               >
                                 <option value="">{t("Right away")}</option>
-                                {agenda.map((question, index) => (
+                                {agenda.map((question) => (
                                   <option key={question.id} value={question.id}>
-                                    {t("after {{item}}", { item: itemLabel(question, index) })}
+                                    {t("after {{item}}", { item: itemLabel(question) })}
                                   </option>
                                 ))}
                               </Select>
@@ -724,7 +725,7 @@ function SubstitutionSection({
   groupById: Map<number, CommitteeGroup>;
   memberById: Map<number, CommitteeMember>;
   agenda: Question[];
-  itemLabel: (question: Question, index: number) => string;
+  itemLabel: (question: Question) => string;
   itemNumber: (questionId: number | null) => string | null;
   readOnly: boolean;
   busy: boolean;
@@ -880,9 +881,9 @@ function SubstitutionSection({
               <Field label={t("From agenda item")}>
                 <Select value={fromItem} onChange={(event) => setFromItem(event.target.value)}>
                   <option value="">{t("Whole meeting")}</option>
-                  {agenda.map((question, index) => (
+                  {agenda.map((question) => (
                     <option key={question.id} value={question.id}>
-                      {itemLabel(question, index)}
+                      {itemLabel(question)}
                     </option>
                   ))}
                 </Select>

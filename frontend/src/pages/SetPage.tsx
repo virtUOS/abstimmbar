@@ -1956,7 +1956,7 @@ export default function SetPage() {
         <div className="flex flex-wrap items-center gap-2">
           {/* Authoring actions surfaced next to "Neue Frage" (#21, #23).
               Easy mode (#52): sections are a Pro feature. */}
-          <ProOnly easyMode={easyMode || isMeeting}>
+          <ProOnly easyMode={easyMode && !isMeeting}>
             <Button
               variant={editingSections ? "primary" : "secondary"}
               aria-pressed={editingSections}
@@ -2034,6 +2034,15 @@ export default function SetPage() {
             : t(
                 "Create the first question above — Single Choice starts with three empty answer fields.",
               )}
+          {isMeeting && editingSections && (
+            <button
+              type="button"
+              onClick={() => void insertSectionAt(0)}
+              className="mx-auto mt-4 block w-full max-w-sm rounded-lg border border-dashed border-slate-300 py-1.5 text-sm text-slate-400 hover:border-brand-500 hover:text-brand-700 dark:border-slate-700 dark:hover:text-brand-300"
+            >
+              {t("+ TOP here")}
+            </button>
+          )}
           <div className="mx-auto mt-4 flex max-w-sm flex-col items-center gap-3">
             <Button
               variant="primary"
