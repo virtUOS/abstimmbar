@@ -187,6 +187,8 @@ class MeetingControl(models.Model):
     )
     started_at = models.DateTimeField(null=True, blank=True)
     ended_at = models.DateTimeField(null=True, blank=True)
+    # Test run: nothing is sealed, "end" wipes the meeting back to a draft.
+    trial = models.BooleanField(default=False)
 
 
 class Ballot(models.Model):

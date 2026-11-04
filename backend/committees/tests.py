@@ -22,8 +22,10 @@ from .models import (
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
+    MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
+    MotionVersion,
     NamedVote,
     SealLink,
 )
@@ -3234,3 +3236,105 @@ class ProtocolTests(BallotBase):
             len(small), len(large),
             [q["sql"][:80] for q in small.captured_queries],
         )
+
+
+class TrialTests(MeetingFixture, ApiBase):
+    """Test run: a started meeting that leaves no trace (Decisions 8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q1 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Beschluss", position=1,
+        )
+        self.anna = self.member("Anna", self.ga)
+        self.ben = self.member("Ben", self.gb)
+
+    def url(self, action):
+        return f"/api/meetings/{self.meeting.pk}/{action}/"
+
+    def start(self, trial=True):
+        r = self.client.post(self.url("start"), {"trial": trial}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        return r
+
+    def invite(self, member):
+        return MeetingInvite.objects.select_related("meeting", "member").get(
+            meeting=self.meeting, member=member,
+        )
+
+    def run_vote(self, voter=None):
+        self.meeting.invites.update(entered_at=timezone.now())
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        ballots.cast_vote(self.invite(voter or self.anna), ballot.pk, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            return ballots.close_ballot(ballot)
+
+    def test_trial_start_and_vote_without_seal(self):
+        r = self.start()
+        self.assertTrue(r.json()["trial"])
+        self.run_vote()
+        self.assertFalse(SealLink.objects.exists())
+        self.meeting.refresh_from_db()
+        self.assertTrue(payloads.manager_payload(self.meeting)["trial"])
+        self.assertTrue(payloads.public_payload(self.meeting)["trial"])
+
+    def test_trial_end_resets_everything(self):
+        dora = self.member("Dora", self.ga, role="deputy", rank=1)
+        MeetingSubstitution.objects.create(
+            meeting=self.meeting, absent=self.anna, deputy=dora,
+        )
+        self.start()
+        ballot = self.run_vote(dora)
+        MeetingInvite.objects.filter(member=self.ben).update(
+            removed_at=timezone.now(), removed_after=self.q1,
+        )
+        ballots.secret_tally.start(987654)
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(self.url("end"))
+        self.assertEqual(r.status_code, 200, r.content)
+        self.meeting.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_state, "draft")
+        self.assertFalse(Ballot.objects.exists())
+        self.assertFalse(BallotSeat.objects.exists())
+        self.assertFalse(MotionVersion.objects.exists())
+        for invite in self.meeting.invites.all():
+            self.assertIsNone(invite.entered_at)
+            self.assertIsNone(invite.removed_at)
+            self.assertIsNone(invite.removed_after)
+        control = MeetingControl.objects.get(meeting=self.meeting)
+        self.assertFalse(control.trial)
+        self.assertIsNone(control.started_at)
+        self.assertIsNone(control.ended_at)
+        self.assertEqual(MeetingSubstitution.objects.count(), 1)
+        self.assertFalse(r.json()["trial"])
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
+
+    def test_real_start_after_trial(self):
+        self.start()
+        self.run_vote()
+        self.client.post(self.url("end"))
+        self.start(trial=False)
+        self.assertEqual(list(self.q1.motion_versions.values_list("number", flat=True)), [1])
+        ballot = self.run_vote()
+        self.assertEqual(SealLink.objects.filter(ballot=ballot, kind="result").count(), 1)
+
+    def test_trial_finding_rejected(self):
+        self.start()
+        ballot = self.run_vote()
+        r = self.client.post(
+            self.url(f"ballots/{ballot.pk}/finding"), {"finding": "adopted"}, format="json",
+        )
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "trial"))
+
+    def test_trial_protocol_400(self):
+        self.start()
+        r = self.client.get(self.url("protocol"))
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "not_ended"))
+
+    def test_trial_end_with_open_vote_blocked(self):
+        self.start()
+        self.meeting.invites.update(entered_at=timezone.now())
+        ballots.open_ballot(self.meeting, self.q1)
+        r = self.client.post(self.url("end"))
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "vote_open"))

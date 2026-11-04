@@ -207,6 +207,7 @@ def _public(meeting: QuestionSet, names, order) -> dict:
         "top": None,
     }
     control = _control(meeting)
+    payload["trial"] = bool(control and control.trial)
     question = control.current_question if control else None
     tops = agenda.tops(meeting)
     if question is None:

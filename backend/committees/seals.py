@@ -152,8 +152,10 @@ def link_hash(seq: int, kind: str, ref: str, content_hash: str, previous: str) -
 
 
 def _skip(ballot: Ballot) -> bool:
-    """Links that must not be sealed (trial meetings, Task 6). None yet."""
-    return False
+    """Links that must not be sealed: a test run leaves no trace."""
+    return MeetingControl.objects.filter(
+        meeting_id=ballot.question.question_set_id, trial=True,
+    ).exists()
 
 
 @transaction.atomic

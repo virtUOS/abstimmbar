@@ -310,7 +310,7 @@ class MeetingViewSet(viewsets.GenericViewSet):
     def start(self, request, pk=None):
         meeting = self.get_object()
         try:
-            services.start_meeting(meeting)
+            services.start_meeting(meeting, trial=request.data.get("trial") is True)
         except DjangoValidationError as exc:
             raise _detail(exc) from exc
         return self._respond(meeting)
@@ -320,7 +320,7 @@ class MeetingViewSet(viewsets.GenericViewSet):
         try:
             services.end_meeting(meeting)
         except DjangoValidationError as exc:
-            raise _detail(exc) from exc
+            raise _coded(exc) from exc
         return self._respond(meeting)
 
     def invites(self, request, pk=None):

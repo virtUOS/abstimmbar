@@ -24,6 +24,7 @@ from .models import (
     MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
+    MotionVersion,
 )
 
 _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
@@ -315,10 +316,10 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 
 
 @transaction.atomic
-def start_meeting(meeting: QuestionSet) -> QuestionSet:
+def start_meeting(meeting: QuestionSet, trial: bool = False) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
     MeetingControl.objects.update_or_create(
-        meeting_id=meeting.pk, defaults={"started_at": timezone.now()},
+        meeting_id=meeting.pk, defaults={"started_at": timezone.now(), "trial": trial},
     )
     ensure_invites(meeting)
     # Members whose ballot page is already open (connected while the meeting
@@ -344,9 +345,36 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
         question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
     ).exists():
         raise ValidationError("A vote is still open.", code="vote_open")
+    if MeetingControl.objects.filter(meeting_id=meeting.pk, trial=True).exists():
+        return _reset_trial(meeting)
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
     MeetingControl.objects.update_or_create(
         meeting_id=meeting.pk, defaults={"ended_at": timezone.now()},
+    )
+    _notify(meeting)
+    return meeting
+
+
+def _reset_trial(meeting: QuestionSet) -> QuestionSet:
+    """End of a test run: wipe ballots, motion versions, attendance and the
+    control state; substitutions and agenda items stay."""
+    from . import ballots  # ballots imports this module
+
+    _transition(meeting, State.STARTED, State.DRAFT, "Only a running meeting can be ended.")
+    ballot_ids = list(
+        Ballot.objects.filter(question__question_set_id=meeting.pk)
+        .values_list("pk", flat=True),
+    )
+    Ballot.objects.filter(pk__in=ballot_ids).delete()  # seats, votes, texts, items cascade
+    MotionVersion.objects.filter(question__question_set_id=meeting.pk).delete()
+    for pk in ballot_ids:
+        transaction.on_commit(lambda pk=pk: ballots.secret_tally.discard(pk))
+    MeetingInvite.objects.filter(meeting_id=meeting.pk).update(
+        entered_at=None, removed_at=None, removed_after=None,
+    )
+    MeetingControl.objects.filter(meeting_id=meeting.pk).update(
+        started_at=None, ended_at=None, current_question=None, current_section=None,
+        trial=False,
     )
     _notify(meeting)
     return meeting

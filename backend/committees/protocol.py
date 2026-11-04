@@ -272,6 +272,8 @@ def build(meeting: QuestionSet) -> dict:
     otherwise."""
     if meeting.meeting_state != QuestionSet.MeetingState.ENDED:
         raise ValidationError("The meeting has not ended.", code="not_ended")
+    if MeetingControl.objects.filter(meeting_id=meeting.pk, trial=True).exists():
+        raise ValidationError("A test run has no protocol.", code="not_ended")
     groups = list(CommitteeGroup.objects.filter(room_id=meeting.room_id))
     names = {g.pk: group_name(g) for g in groups}
     order = {g.pk: g.position for g in groups}

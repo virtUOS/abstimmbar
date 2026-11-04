@@ -406,6 +406,10 @@ def set_finding(ballot: Ballot, finding: str) -> Ballot:
     )
     if state not in (QuestionSet.MeetingState.STARTED, QuestionSet.MeetingState.ENDED):
         raise ValidationError("The meeting has not started.", code="not_started")
+    if MeetingControl.objects.filter(
+        meeting_id=ballot.question.question_set_id, trial=True,
+    ).exists():
+        raise ValidationError("Findings are not recorded in a test run.", code="trial")
     locked = _locked(ballot.pk)
     if locked is None or locked.status != Ballot.Status.CLOSED:
         raise ValidationError("The vote is not closed.", code="not_closed")

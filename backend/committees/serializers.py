@@ -116,13 +116,18 @@ class MeetingSerializer(serializers.ModelSerializer):
     started_at = serializers.SerializerMethodField()
     ended_at = serializers.SerializerMethodField()
     chair_is_member = serializers.SerializerMethodField()
+    trial = serializers.SerializerMethodField()
 
     class Meta:
         model = QuestionSet
         fields: ClassVar = [
             "id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions",
-            "started_at", "ended_at", "chair_is_member",
+            "started_at", "ended_at", "chair_is_member", "trial",
         ]
+
+    def get_trial(self, obj):
+        control = self._control(obj)
+        return bool(control and control.trial)
 
     def _control(self, obj):
         if not hasattr(obj, "_control_cache"):
