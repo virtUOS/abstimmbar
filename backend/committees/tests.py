@@ -12,9 +12,9 @@ from django.test import TestCase
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from rooms.models import AnswerOption, Question, QuestionSet, Room
+from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
-from . import ballots, eligibility, services, versions
+from . import agenda, ballots, eligibility, services, versions
 from .models import (
     Ballot,
     BallotSeat,
@@ -2163,3 +2163,62 @@ class ReferencedEditTests(BallotBase):
         services.end_meeting(self.meeting)
         resp = self.client.patch(url, {"group": self.gb.pk}, format="json")
         self.assertEqual(resp.status_code, 200, resp.content)
+
+
+class AgendaOutlineTests(MeetingFixture, TestCase):
+    def setUp(self):
+        self.make_fixture()
+
+    def _q(self, text, position, section=None):
+        return Question.objects.create(
+            question_set=self.meeting, kind=Question.Kind.RESOLUTION,
+            text=text, position=position, section=section,
+        )
+
+    def _outline(self):
+        # q1 (no section) | S1 "Bericht" (empty) | S2 "Haushalt": q2, q3 | S3: q4
+        self.q1 = self._q("Q1", 0)
+        self.s1 = Section.objects.create(
+            question_set=self.meeting, title_de="Bericht", position=1,
+        )
+        self.s2 = Section.objects.create(
+            question_set=self.meeting, title_de="Haushalt", position=2,
+        )
+        self.q2 = self._q("Q2", 3, self.s2)
+        self.q3 = self._q("Q3", 4, self.s2)
+        self.s3 = Section.objects.create(
+            question_set=self.meeting, title_de="Drittes", position=5,
+        )
+        self.q4 = self._q("Q4", 6, self.s3)
+
+    def test_tops_and_labels(self):
+        self._outline()
+        tops = agenda.tops(self.meeting)
+        self.assertEqual([t.number for t in tops], [1, 2, 3, 4])
+        self.assertEqual(tops[1].title, "Bericht")
+        self.assertEqual(tops[1].question_ids, ())
+        self.assertIsNone(tops[0].section_id)
+        self.assertEqual(
+            agenda.labels(self.meeting),
+            {self.q1.pk: "1", self.q2.pk: "3a", self.q3.pk: "3b", self.q4.pk: "4"},
+        )
+        self.assertEqual(agenda.top_of(self.meeting, self.q3.pk).number, 3)
+        self.assertEqual(agenda.top_by_section(self.meeting, self.s1.pk).number, 2)
+        self.assertIsNone(agenda.top_of(self.meeting, 0))
+
+    def test_reorder_relabels(self):
+        self._outline()
+        self.q3.section = self.s3
+        self.q3.position = 6
+        self.q3.save()
+        self.q4.position = 7
+        self.q4.save()
+        self.assertEqual(
+            agenda.labels(self.meeting),
+            {self.q1.pk: "1", self.q2.pk: "3", self.q3.pk: "4a", self.q4.pk: "4b"},
+        )
+
+    def test_suffix(self):
+        self.assertEqual(
+            [agenda.suffix(i) for i in (0, 25, 26, 27)], ["a", "z", "aa", "ab"],
+        )
