@@ -315,6 +315,9 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 @transaction.atomic
 def start_meeting(meeting: QuestionSet) -> QuestionSet:
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
+    MeetingControl.objects.update_or_create(
+        meeting_id=meeting.pk, defaults={"started_at": timezone.now()},
+    )
     ensure_invites(meeting)
     # Members whose ballot page is already open (connected while the meeting
     # was a draft) have entered: the stream's enter() was a no-op then.
@@ -340,6 +343,9 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
     ).exists():
         raise ValidationError("A vote is still open.", code="vote_open")
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
+    MeetingControl.objects.update_or_create(
+        meeting_id=meeting.pk, defaults={"ended_at": timezone.now()},
+    )
     _notify(meeting)
     return meeting
 

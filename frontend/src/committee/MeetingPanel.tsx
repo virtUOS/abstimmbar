@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-/** Committee meetings (Gremien-Raum): the meeting's date and chair-votes
- *  switch, its lifecycle (start/end), the personal links of the members and
- *  the substitutions. Shown on the set page above the agenda (the questions);
- *  an ended meeting is read-only. */
+/** Committee meetings (Gremien-Raum): status, date and lifecycle
+ *  (start/end) on top, then the chair-votes switch, the personal links of
+ *  the members and the substitutions (both collapsible). Shown on the set
+ *  page above the agenda (the questions); an ended meeting is read-only. */
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
-import { Check, Copy, Download, KeyRound, Play, Presentation, SquareStop, Trash2, UserRoundCheck } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  ChevronDown,
+  Copy,
+  Download,
+  KeyRound,
+  Pencil,
+  Play,
+  Presentation,
+  SquareStop,
+  Trash2,
+  UserRoundCheck,
+} from "lucide-react";
 import { localizedText, stripHtml } from "@basicbar/ui";
 import {
   api,
@@ -42,6 +55,10 @@ const INVITE_STATE_BADGE: Record<InviteState, string> = {
   removed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
 
+/** Starting this much earlier or later than scheduled asks first. */
+const EARLY_MS = 15 * 60_000;
+const LATE_MS = 60 * 60_000;
+
 /** ISO timestamp → `datetime-local` value in the browser's time zone. */
 function toLocalInput(iso: string | null): string {
   if (!iso) return "";
@@ -53,9 +70,56 @@ function toLocalInput(iso: string | null): string {
   );
 }
 
+function offSchedule(iso: string | null): boolean {
+  if (!iso) return false;
+  const delta = Date.now() - new Date(iso).getTime();
+  return delta < -EARLY_MS || delta > LATE_MS;
+}
+
 function ErrorText({ text }: { text: string }) {
   if (!text) return null;
   return <p role="alert" className="text-sm text-danger">{text}</p>;
+}
+
+/** Heading of a collapsible block; the summary shows while it is closed. */
+function Collapsible({
+  id,
+  icon,
+  title,
+  summary,
+  open,
+  onToggle,
+}: {
+  id: string;
+  icon?: React.ReactNode;
+  title: string;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <h3 className="font-medium text-slate-900 dark:text-slate-100">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={id}
+        onClick={onToggle}
+        className="flex w-full flex-wrap items-center gap-x-1.5 text-left"
+      >
+        {icon}
+        {title}
+        {!open && summary && (
+          <span className="ml-1 text-sm font-normal text-slate-500 dark:text-slate-400">
+            {summary}
+          </span>
+        )}
+        <ChevronDown
+          aria-hidden
+          className={`ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
+        />
+      </button>
+    </h3>
+  );
 }
 
 export default function MeetingPanel({
@@ -68,7 +132,7 @@ export default function MeetingPanel({
   questions: Question[];
   onSetChange: (set: QuestionSet) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [meeting, setMeeting] = useState<MeetingSummary | null>(null);
   const [groups, setGroups] = useState<CommitteeGroup[]>([]);
   const [members, setMembers] = useState<CommitteeMember[]>([]);
@@ -77,8 +141,10 @@ export default function MeetingPanel({
   const [stateError, setStateError] = useState("");
   const [linksError, setLinksError] = useState("");
   const [subError, setSubError] = useState("");
+  const [editingDate, setEditingDate] = useState(false);
   const [dateDraft, setDateDraft] = useState(toLocalInput(set.scheduled_at));
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [confirmStart, setConfirmStart] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -115,6 +181,12 @@ export default function MeetingPanel({
     const label = t("Item {{number}}", { number: index + 1 });
     return text ? `${label}: ${text.length > 60 ? `${text.slice(0, 60)}…` : text}` : label;
   };
+  const longDate = (iso: string) =>
+    new Intl.DateTimeFormat(i18n.language, { dateStyle: "full", timeStyle: "short" }).format(new Date(iso));
+  const shortTime = (iso: string) =>
+    new Intl.DateTimeFormat(i18n.language, { timeStyle: "short" }).format(new Date(iso));
+  // The chair can only vote with a member entry of their own.
+  const chairToggleBlocked = !meeting.chair_is_member && !meeting.chair_votes;
 
   /** Run a meeting action; refresh the summary (and the set's state). */
   async function run(
@@ -141,7 +213,17 @@ export default function MeetingPanel({
     }
   }
 
-  async function saveSettings(patch: Partial<QuestionSet>) {
+  /** Start the meeting and open the console in a new tab. The tab is
+   *  opened right away (inside the click) so no popup blocker stops it. */
+  async function begin() {
+    const tab = window.open("", "_blank");
+    const ok = await run(() => api.startMeeting(set.id), setStateError);
+    if (!tab) return;
+    if (ok) tab.location.href = `/sets/${set.id}/meeting`;
+    else tab.close();
+  }
+
+  async function saveSettings(patch: Partial<QuestionSet>): Promise<boolean> {
     setSettingsError("");
     try {
       const updated = await api.updateQuestionSet(set.id, patch);
@@ -153,29 +235,32 @@ export default function MeetingPanel({
           chair_votes: updated.chair_votes,
         },
       );
+      return true;
     } catch (err) {
       setSettingsError(t(requestError(err)));
+      return false;
     }
   }
 
-  function saveDate() {
+  async function saveDate() {
     if (!dateDraft) {
       setSettingsError(t("Please enter the date of the meeting."));
       return;
     }
-    if (dateDraft === toLocalInput(set.scheduled_at)) return;
-    void saveSettings({ scheduled_at: new Date(dateDraft).toISOString() });
+    if (dateDraft === toLocalInput(set.scheduled_at)) {
+      setEditingDate(false);
+      return;
+    }
+    if (await saveSettings({ scheduled_at: new Date(dateDraft).toISOString() }))
+      setEditingDate(false);
   }
 
   return (
     <section
       aria-labelledby="meeting-panel-heading"
-      className="mb-8 grid min-w-0 gap-6 rounded-2xl border border-slate-200 p-4 dark:border-slate-800"
+      className="mb-8 grid min-w-0 gap-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-800"
     >
-      <h2
-        id="meeting-panel-heading"
-        className="font-semibold text-slate-900 dark:text-slate-100"
-      >
+      <h2 id="meeting-panel-heading" className="sr-only">
         {t("Meeting")}
       </h2>
 
@@ -190,75 +275,144 @@ export default function MeetingPanel({
           onCancel={() => setConfirmEnd(false)}
         />
       )}
-
-      {/* Date and chair-votes switch: only before the meeting starts. */}
-      <div className="grid gap-3">
-        <MeetingDateInput
-          value={dateDraft}
-          disabled={state !== "draft"}
-          onChange={setDateDraft}
-          onBlur={saveDate}
+      {confirmStart && meeting.scheduled_at && (
+        <ConfirmDialog
+          message={t("The meeting is scheduled for {{date}}. Start it now anyway?", {
+            date: longDate(meeting.scheduled_at),
+          })}
+          confirmLabel={t("Start now")}
+          confirmVariant="primary"
+          onConfirm={() => {
+            setConfirmStart(false);
+            void begin();
+          }}
+          onCancel={() => setConfirmStart(false)}
         />
-        <div>
-          <ToggleSwitch
-            checked={meeting.chair_votes}
-            disabled={state !== "draft"}
-            onChange={(checked) => void saveSettings({ chair_votes: checked })}
-            label={t("Chair votes too")}
-          />
-          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
-            {t("The chair then needs their own member entry and votes on their own device.")}
-          </p>
-        </div>
-        <ErrorText text={settingsError} />
-      </div>
+      )}
 
-      {/* Status and lifecycle. */}
+      {/* Status, date and lifecycle first: what the chair needs at a glance. */}
       <div className="grid gap-2">
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-sm text-slate-700 dark:text-slate-300">
-            {t("Status")}:{" "}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <span
               data-testid="meeting-state"
               className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATE_BADGE[state]}`}
             >
               {t(STATE_LABEL[state])}
             </span>
-          </span>
-          {state === "draft" && (
-            <Button
-              variant="primary"
-              disabled={busy}
-              onClick={() => void run(() => api.startMeeting(set.id), setStateError)}
-              className="inline-flex items-center gap-1.5"
-            >
-              <Play aria-hidden className="h-4 w-4" />
-              {t("Start meeting")}
-            </Button>
-          )}
-          {state === "started" && (
-            <Link
-              to={`/sets/${set.id}/meeting`}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
-            >
-              <Presentation aria-hidden className="h-4 w-4" />
-              {t("Lead meeting")}
-            </Link>
-          )}
-          {state === "started" && (
-            <Button
-              variant="danger"
-              disabled={busy}
-              onClick={() => setConfirmEnd(true)}
-              className="inline-flex items-center gap-1.5 border border-red-200 dark:border-red-900"
-            >
-              <SquareStop aria-hidden className="h-4 w-4" />
-              {t("End meeting")}
-            </Button>
-          )}
+            <span className="inline-flex min-w-0 items-center gap-1.5 text-base font-semibold sm:text-lg text-slate-900 dark:text-slate-100">
+              <CalendarClock aria-hidden className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />
+              <span data-testid="meeting-date" className="break-words">
+                {meeting.scheduled_at ? longDate(meeting.scheduled_at) : t("No date yet")}
+              </span>
+            </span>
+            {state === "draft" && !editingDate && (
+              <Button
+                variant="ghost"
+                aria-label={t("Change date and time")}
+                title={t("Change date and time")}
+                onClick={() => {
+                  setDateDraft(toLocalInput(set.scheduled_at));
+                  setEditingDate(true);
+                }}
+              >
+                <Pencil aria-hidden className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {state === "draft" && (
+              <Button
+                variant="primary"
+                disabled={busy}
+                onClick={() =>
+                  offSchedule(meeting.scheduled_at) ? setConfirmStart(true) : void begin()
+                }
+                className="inline-flex items-center gap-1.5"
+              >
+                <Play aria-hidden className="h-4 w-4" />
+                {t("Start meeting")}
+              </Button>
+            )}
+            {state === "started" && (
+              <Link
+                to={`/sets/${set.id}/meeting`}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+              >
+                <Presentation aria-hidden className="h-4 w-4" />
+                {t("Lead meeting")}
+              </Link>
+            )}
+            {state === "started" && (
+              <Button
+                variant="danger"
+                disabled={busy}
+                onClick={() => setConfirmEnd(true)}
+                className="inline-flex items-center gap-1.5 border border-red-200 dark:border-red-900"
+              >
+                <SquareStop aria-hidden className="h-4 w-4" />
+                {t("End meeting")}
+              </Button>
+            )}
+          </div>
         </div>
+        {editingDate && (
+          <div className="flex flex-wrap items-end gap-2">
+            <MeetingDateInput value={dateDraft} onChange={setDateDraft} />
+            <Button variant="primary" onClick={() => void saveDate()}>
+              {t("Save")}
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setEditingDate(false);
+                setSettingsError("");
+              }}
+            >
+              {t("Cancel")}
+            </Button>
+          </div>
+        )}
+        {state === "started" && meeting.started_at && (
+          <p className="text-sm text-slate-600 dark:text-slate-400">
+            {t("Started at {{time}}.", { time: shortTime(meeting.started_at) })}
+          </p>
+        )}
+        {ended && (
+          <p
+            data-testid="meeting-ended-note"
+            className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300"
+          >
+            {meeting.ended_at
+              ? t("The meeting ended on {{date}}.", { date: longDate(meeting.ended_at) })
+              : t("The meeting has ended.")}{" "}
+            {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}
+          </p>
+        )}
         <ErrorText text={stateError} />
       </div>
+
+      {/* Chair-votes switch: only before the meeting starts. */}
+      {state === "draft" ? (
+        <div>
+          <ToggleSwitch
+            checked={meeting.chair_votes}
+            disabled={chairToggleBlocked}
+            onChange={(checked) => void saveSettings({ chair_votes: checked })}
+            label={t("Chair votes too")}
+          />
+          <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+            {meeting.chair_is_member
+              ? t("The chair then needs their own member entry and votes on their own device.")
+              : t("Not available: you are not a voting member of any group in this room. Add yourself under “Groups and members” with your email address.")}
+          </p>
+        </div>
+      ) : (
+        meeting.chair_votes && (
+          <p className="text-sm text-slate-600 dark:text-slate-400">{t("The chair votes too.")}</p>
+        )
+      )}
+      <ErrorText text={settingsError} />
 
       <InviteSection
         meeting={meeting}
@@ -335,6 +489,9 @@ function InviteSection({
   const ended = meeting.meeting_state === "ended";
   const invites = meeting.invites;
   const hasValid = invites.some((invite) => invite.state === "waiting" || invite.state === "active");
+  // Closed once links exist: the table is long and the agenda below matters more.
+  const [open, setOpen] = useState(invites.length === 0);
+  const connected = invites.filter((invite) => invite.state === "active").length;
 
   async function copy(invite: MeetingInvite) {
     try {
@@ -350,10 +507,22 @@ function InviteSection({
 
   return (
     <div className="grid min-w-0 gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-      <h3 className="flex items-center gap-1.5 font-medium text-slate-900 dark:text-slate-100">
-        <KeyRound aria-hidden className="h-4 w-4" />
-        {t("Personal links")}
-      </h3>
+      <Collapsible
+        id="meeting-links-body"
+        icon={<KeyRound aria-hidden className="h-4 w-4" />}
+        title={t("Personal links")}
+        summary={
+          invites.length === 0
+            ? ""
+            : meeting.meeting_state === "started"
+              ? t("Links: {{links}} · connected: {{connected}}", { links: invites.length, connected })
+              : t("Links: {{links}}", { links: invites.length })
+        }
+        open={open}
+        onToggle={() => setOpen((value) => !value)}
+      />
+      {open && (
+      <div id="meeting-links-body" className="grid min-w-0 gap-3">
       {!ended && (
         <div className="flex flex-wrap items-center gap-2">
           <Button disabled={busy} onClick={onGenerate}>
@@ -509,6 +678,8 @@ function InviteSection({
           </table>
         </div>
       )}
+      </div>
+      )}
       <ErrorText text={error || copyError} />
     </div>
   );
@@ -552,6 +723,7 @@ function SubstitutionSection({
   // Latest picked absent member: a slow suggestion for an earlier pick must
   // not overwrite the deputy of the current one.
   const pickedRef = useRef("");
+  const [adding, setAdding] = useState(false);
   const subs = meeting.substitutions;
   const usedAbsent = new Set(subs.map((sub) => sub.absent));
   const usedDeputy = new Set(subs.map((sub) => sub.deputy));
@@ -596,20 +768,40 @@ function SubstitutionSection({
       deputy: Number(deputyId),
       from_question: fromItem ? Number(fromItem) : null,
     });
-    if (ok) {
-      pickedRef.current = "";
-      setAbsentId("");
-      setDeputyId("");
-      setFromItem("");
-    }
+    if (ok) cancel();
   }
+
+  function cancel() {
+    pickedRef.current = "";
+    setAbsentId("");
+    setDeputyId("");
+    setFromItem("");
+    setAdding(false);
+    setError("");
+  }
+
+  // Nothing to show on an ended meeting without substitutions.
+  if (readOnly && subs.length === 0) return null;
 
   return (
     <div className="grid min-w-0 gap-3 border-t border-slate-100 pt-4 dark:border-slate-800">
-      <h3 className="font-medium text-slate-900 dark:text-slate-100">{t("Substitution")}</h3>
-      {subs.length === 0 ? (
-        <p className="text-sm text-slate-500 dark:text-slate-400">{t("No substitutions.")}</p>
-      ) : (
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="font-medium text-slate-900 dark:text-slate-100">
+          {t("Substitution")}
+          {subs.length === 0 && !adding && (
+            <span className="ml-1.5 text-sm font-normal text-slate-500 dark:text-slate-400">
+              {t("No substitutions.")}
+            </span>
+          )}
+        </h3>
+        {!readOnly && !adding && (
+          <Button onClick={() => setAdding(true)} className="inline-flex items-center gap-1.5">
+            <span className="text-base leading-none">+</span>
+            {t("Substitution")}
+          </Button>
+        )}
+      </div>
+      {subs.length > 0 && (
         <ul className="divide-y divide-slate-100 text-sm dark:divide-slate-800">
           {subs.map((sub) => {
             const number = itemNumber(sub.from_question);
@@ -644,7 +836,7 @@ function SubstitutionSection({
           })}
         </ul>
       )}
-      {!readOnly && (
+      {!readOnly && adding && (
         <div className="grid gap-3 sm:grid-cols-3">
           <Field label={t("Absent member")}>
             <Select value={absentId} onChange={(event) => void pickAbsent(event.target.value)}>
@@ -682,21 +874,26 @@ function SubstitutionSection({
           )}
         </div>
       )}
-      {!readOnly && absent && deputyOptions.length === 0 && (
+      {!readOnly && adding && absent && deputyOptions.length === 0 && (
         <p className="text-sm text-amber-700 dark:text-amber-400">
           {groupHasDeputies
             ? t("All deputies of this group are already assigned.")
             : t("No deputy is set up for this group. Add the person to the room as a deputy.")}
         </p>
       )}
-      {!readOnly && absent && deputyOptions.length > 0 && (
-        <div>
-          <Button
-            variant="primary"
-            disabled={busy || !deputyId}
-            onClick={() => void add()}
-          >
-            {t("Add substitution")}
+      {!readOnly && adding && (
+        <div className="flex gap-2">
+          {absent && deputyOptions.length > 0 && (
+            <Button
+              variant="primary"
+              disabled={busy || !deputyId}
+              onClick={() => void add()}
+            >
+              {t("Add substitution")}
+            </Button>
+          )}
+          <Button variant="ghost" onClick={cancel}>
+            {t("Cancel")}
           </Button>
         </div>
       )}

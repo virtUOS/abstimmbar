@@ -1396,6 +1396,8 @@ export default function SetPage() {
   // Meetings hide the set options that only apply to the anonymous flows
   // (answer reveal, sharing/licence, JSON export, AI generation).
   const isMeeting = set.type === "meeting";
+  // An ended meeting is read-only: no authoring actions on its agenda.
+  const meetingEnded = isMeeting && set.meeting_state === "ended";
 
   // Plain local const (not `set.self_check_token`) so it narrows cleanly to
   // `string` inside closures below (#75 phase 3).
@@ -1935,6 +1937,7 @@ export default function SetPage() {
             </>
           )}
         </div>
+        {!meetingEnded && (
         <div className="flex flex-wrap items-center gap-2">
           {/* Authoring actions surfaced next to "Neue Frage" (#21, #23).
               Easy mode (#52): sections are a Pro feature. */}
@@ -1974,6 +1977,7 @@ export default function SetPage() {
             />
           </div>
         </div>
+        )}
       </div>
 
       {/* Recording mode (#53): opt-in before presenting (Pro only). A

@@ -54,12 +54,20 @@ test('secret resolution: vote, close, reset, observer', async ({ page, browser, 
   const meeting = await api('post', '/api/question-sets/', {
     room: room.id, type: 'meeting', title: 'E2E Sitzung', scheduled_at: '2030-01-15T10:00:00Z',
   });
-  await api('post', '/api/questions/', {
+  const resolution = await api('post', '/api/questions/', {
     question_set: meeting.id, kind: 'resolution', text: { de: 'Der Antrag wird angenommen.' },
   });
   await api('post', '/api/questions/', {
     question_set: meeting.id, kind: 'open_text', text: { de: 'Anmerkungen?' },
   });
+  // The editor's preview shows the ballot; a vote there stays in the page.
+  await page.goto(`${API_BASE_URL}/g/preview/${resolution.id}/`);
+  await expect(page.getByText('Vorschau: So sehen Mitglieder den Stimmzettel.', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Ja', exact: true }).click();
+  await expect(page.getByText('Ihre Stimme ist abgegeben.')).toBeVisible();
+  await page.getByRole('button', { name: 'Noch einmal' }).click();
+  await expect(page.getByRole('button', { name: 'Enthaltung', exact: true })).toBeVisible();
+
   await api('post', `/api/meetings/${meeting.id}/start/`);
   await api('post', `/api/meetings/${meeting.id}/invites/`);
   const summary = await api('get', `/api/meetings/${meeting.id}/`);

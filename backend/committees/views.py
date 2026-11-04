@@ -9,10 +9,11 @@ from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Count, ProtectedError, RestrictedError
-from django.http import HttpResponse, JsonResponse
+from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.utils import translation
 from django.utils.translation import gettext_lazy as _
+from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 from rest_framework import mixins, status, viewsets
@@ -514,6 +515,7 @@ BALLOT_STRINGS = {
     "result": _("Result"),
     "total": _("Total"),
     "answers": _("Answers"),
+    "again": _("Try again"),
 }
 
 
@@ -552,6 +554,40 @@ def entry_page(request, token):
         )
     response["Cache-Control"] = "no-store"
     response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+@xframe_options_exempt
+def ballot_preview(request, question_id):
+    """Owner-only preview of the ballot for one agenda item, as members see
+    it (the editor's "Preview" tab). Inert: votes stay in the page."""
+    question = get_object_or_404(
+        Question.objects.select_related("question_set__room"),
+        pk=question_id, question_set__type=QuestionSet.SetType.MEETING,
+    )
+    room = question.question_set.room
+    if not (
+        request.user.is_authenticated
+        and managed_committee_rooms(request.user).filter(pk=room.pk).exists()
+    ):
+        raise Http404
+    meeting = question.question_set
+    lang = (translation.get_language() or "").split("-")[0]
+    context = {
+        "invalid": False, "state": "active", "preview": True,
+        "strings": BALLOT_STRINGS,
+        "config": {
+            "token": "", "observer": False, "state": "active", "preview": True,
+            "snapshot": payloads.preview_payload(question),
+        },
+        "room_title": _localized(room, "title", lang),
+        "meeting_title": _localized(meeting, "title", lang),
+        "scheduled_at": meeting.scheduled_at,
+    }
+    response = render(request, "committees/ballot.html", context)
+    # Frame only in our own app (SPA editor), dev cross-origin included.
+    response["Content-Security-Policy"] = f"frame-ancestors 'self' {settings.FRONTEND_BASE_URL}"
+    response["Cache-Control"] = "no-store"
     return response
 
 

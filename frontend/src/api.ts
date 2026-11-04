@@ -177,6 +177,10 @@ export interface MeetingSummary {
   chair_votes: boolean;
   invites: MeetingInvite[];
   substitutions: MeetingSubstitution[];
+  started_at: string | null;
+  ended_at: string | null;
+  /** The requesting user is a voting member of a voting group (by email). */
+  chair_is_member: boolean;
 }
 
 /** Kind of an agenda item a ballot can run on. */

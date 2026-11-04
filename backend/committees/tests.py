@@ -730,6 +730,30 @@ class MeetingApiTests(MeetingFixture, ApiBase):
         self.assertEqual(r.json()["meeting_state"], "ended")
         self.assertEqual(self.client.post(self.base + "end/").status_code, 400)
 
+    def test_start_and_end_times(self):
+        data = self.client.get(self.base).json()
+        self.assertIsNone(data["started_at"])
+        self.assertIsNone(data["ended_at"])
+        started = self.client.post(self.base + "start/").json()
+        self.assertIsNotNone(started["started_at"])
+        self.assertIsNone(started["ended_at"])
+        ended = self.client.post(self.base + "end/").json()
+        self.assertEqual(ended["started_at"], started["started_at"])
+        self.assertIsNotNone(ended["ended_at"])
+
+    def test_chair_is_member(self):
+        self.user.email = "Chair@Uni.de"
+        self.user.save()
+        self.assertFalse(self.client.get(self.base).json()["chair_is_member"])
+        self.member("Chair", self.obs_group, email="chair@uni.de")
+        self.assertFalse(self.client.get(self.base).json()["chair_is_member"])
+        CommitteeMember.objects.all().delete()
+        self.member("Chair", self.ga, role="deputy", email="chair@uni.de")
+        self.assertFalse(self.client.get(self.base).json()["chair_is_member"])
+        CommitteeMember.objects.all().delete()
+        self.member("Chair", self.ga, email="chair@uni.de")
+        self.assertTrue(self.client.get(self.base).json()["chair_is_member"])
+
     def test_csv(self):
         self.member("=cmd", self.ga, email="x@uni.de")
         self.member("Bert", self.obs_group)
@@ -935,6 +959,43 @@ class EntryPageAcceptLanguageTests(TestCase):
     def test_unknown_token_uses_accept_language(self):
         r = self.client.get("/g/nope/", HTTP_ACCEPT_LANGUAGE="en")
         self.assertContains(r, "This link is not valid (any more).", status_code=404)
+
+
+class BallotPreviewTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q = Question.objects.create(
+            question_set=self.meeting, kind=Question.Kind.RESOLUTION,
+            text_de="<p>Der Antrag wird angenommen.</p>", position=0,
+        )
+        self.url = f"/g/preview/{self.q.pk}/"
+
+    def test_owner_sees_ballot_preview(self):
+        self.client.force_login(self.user)
+        r = self.client.get(self.url)
+        self.assertEqual(r.status_code, 200)
+        config = r.context["config"]
+        self.assertTrue(config["preview"])
+        item = config["snapshot"]["item"]
+        self.assertEqual(item["kind"], "resolution")
+        self.assertEqual(item["number"], 1)
+        self.assertEqual(item["ballot"]["status"], "open")
+        self.assertIn("Der Antrag wird angenommen.", item["text"])
+        self.assertIn("frame-ancestors", r["Content-Security-Policy"])
+        self.assertNotIn("X-Frame-Options", r)
+
+    def test_foreign_user_and_anonymous_404(self):
+        self.client.force_login(self.other)
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+        self.client.logout()
+        self.assertEqual(self.client.get(self.url).status_code, 404)
+
+    def test_non_meeting_question_404(self):
+        qs = QuestionSet.objects.create(room=self.room, title="X")
+        q = Question.objects.create(question_set=qs, kind=Question.Kind.SINGLE_CHOICE, position=0)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(f"/g/preview/{q.pk}/").status_code, 404)
 
 
 class BallotPageTests(MeetingFixture, TestCase):

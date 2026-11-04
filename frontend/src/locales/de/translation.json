@@ -1493,5 +1493,18 @@
   "A room is required.": "Ein Raum ist erforderlich.",
   "A template is required.": "Eine Vorlage ist erforderlich.",
   "The room cannot be changed.": "Der Raum kann nicht geändert werden.",
-  "Question type not allowed in this set type.": "Dieser Fragetyp ist in diesem Set-Typ nicht erlaubt."
+  "Question type not allowed in this set type.": "Dieser Fragetyp ist in diesem Set-Typ nicht erlaubt.",
+  "The meeting is scheduled for {{date}}. Start it now anyway?": "Die Sitzung ist für {{date}} geplant. Trotzdem jetzt beginnen?",
+  "Start now": "Jetzt beginnen",
+  "No date yet": "Noch kein Termin",
+  "Change date and time": "Datum und Uhrzeit ändern",
+  "Started at {{time}}.": "Begonnen um {{time}} Uhr.",
+  "The meeting ended on {{date}}.": "Die Sitzung wurde am {{date}} beendet.",
+  "The personal links are no longer valid; agenda, links and substitutions can no longer be changed.": "Die persönlichen Links sind nicht mehr gültig; Tagesordnung, Links und Vertretungen lassen sich nicht mehr ändern.",
+  "Not available: you are not a voting member of any group in this room. Add yourself under “Groups and members” with your email address.": "Nicht verfügbar: Sie sind in diesem Raum kein stimmberechtigtes Mitglied einer Gruppe. Tragen Sie sich unter „Gruppen und Mitglieder“ mit Ihrer E-Mail-Adresse ein.",
+  "The chair votes too.": "Die Sitzungsleitung stimmt mit.",
+  "Links: {{links}} · connected: {{connected}}": "Links: {{links}} · verbunden: {{connected}}",
+  "Links: {{links}}": "Links: {{links}}",
+  "On the beamer": "Auf dem Beamer",
+  "Show on the beamer": "Auf dem Beamer anzeigen"
 }

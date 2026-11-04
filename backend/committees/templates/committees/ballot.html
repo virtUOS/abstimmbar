@@ -50,7 +50,8 @@
 <h1>{{ meeting_title }}</h1>
 {% if scheduled_at %}<p class="soft">{{ scheduled_at|date:"DATETIME_FORMAT" }}</p>{% endif %}
 <p class="who" id="who">
-{% if is_observer %}{% trans "You are taking part as an observer. You cannot vote." %}
+{% if preview %}{% trans "Preview: this is how members see the ballot. Nothing you enter here is stored." %}
+{% elif is_observer %}{% trans "You are taking part as an observer. You cannot vote." %}
 {% else %}{% blocktrans with name=member.name group=group_name %}You are voting as {{ name }} ({{ group }}).{% endblocktrans %}{% endif %}
 </p>
 <p class="conn" id="conn" role="status" hidden></p>
@@ -70,6 +71,7 @@
   const CONFIG = JSON.parse(document.getElementById("ballot-config").textContent);
   const BASE = "/g/" + encodeURIComponent(CONFIG.token) + "/";
   const OBSERVER = CONFIG.observer;
+  const PREVIEW = !!CONFIG.preview; // editor preview: no stream, votes stay here
   const view = document.getElementById("view");
   const conn = document.getElementById("conn");
   const fill = (text, values) => text.replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
@@ -210,6 +212,12 @@
     box.appendChild(icon);
     box.appendChild(el("p", {}, S.voted));
     view.appendChild(box);
+    if (PREVIEW) {
+      view.appendChild(button(S.again, "", () => {
+        me = { ...me, voted: false };
+        render();
+      }));
+    }
   }
 
   // --- ballot ---------------------------------------------------------------
@@ -283,6 +291,11 @@
 
   async function cast(ballotId, answer) {
     if (busy) return;
+    if (PREVIEW) {
+      me = { ...me, voted: true };
+      render();
+      return;
+    }
     busy = true;
     error = false;
     // Disable right away, before any await: a double tap must not send twice.
@@ -474,6 +487,12 @@
     connect();
   }
 
+  if (PREVIEW) {
+    me = { state: "active", ballot: 0, eligible: true, voted: false };
+    snap = CONFIG.snapshot;
+    render();
+    return;
+  }
   connect();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") ensureLive();

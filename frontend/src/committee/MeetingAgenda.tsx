@@ -226,7 +226,15 @@ export default function MeetingAgenda({
               <button
                 type="button"
                 disabled={busy || !running || showBlocked}
-                title={running && showBlocked ? t("Another vote is still open.") : undefined}
+                title={
+                  !running
+                    ? undefined
+                    : showBlocked
+                      ? t("Another vote is still open.")
+                      : current
+                        ? undefined
+                        : t("Show on the beamer")
+                }
                 aria-current={current ? "true" : undefined}
                 onClick={() => void act(() => api.showItem(setId, item.id))}
                 className="flex min-w-0 items-start gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
@@ -237,7 +245,12 @@ export default function MeetingAgenda({
                 <span className="line-clamp-2 min-w-0 break-words text-sm text-slate-800 dark:text-slate-200">
                   {text}
                 </span>
-                {current && <Eye aria-hidden className="ml-auto h-4 w-4 shrink-0 text-brand-700 dark:text-brand-400" />}
+                {current && (
+                  <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-full bg-brand-100 px-2 py-0.5 text-xs font-semibold text-brand-800 dark:bg-brand-900/50 dark:text-brand-300">
+                    <Eye aria-hidden className="h-3.5 w-3.5" />
+                    {t("On the beamer")}
+                  </span>
+                )}
               </button>
               {item.ballot_status === "open" && (
                 <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">

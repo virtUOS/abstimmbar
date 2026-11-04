@@ -174,6 +174,35 @@ def _public(meeting: QuestionSet, names, order) -> dict:
     return payload
 
 
+def preview_payload(question: Question) -> dict:
+    """A snapshot with `question` on the beamer and an empty open ballot —
+    for the editor's ballot preview; nothing is stored."""
+    meeting = question.question_set
+    text, number, options = _wording(question)
+    return {
+        "meeting": {
+            "id": meeting.pk,
+            "title": _canonical(translated_map(meeting, "title")),
+            "state": QuestionSet.MeetingState.STARTED,
+        },
+        "item": {
+            "id": question.pk,
+            "number": eligibility.number_of(meeting, question),
+            "kind": question.kind,
+            "text": text,
+            "version": number,
+            "changed": (number or 0) > 1,
+            "named": question.named_vote,
+            "options": options,
+            "ballot": {
+                "id": 0, "status": Ballot.Status.OPEN, "round": 1,
+                "progress": {"voted": 0, "eligible": 0, "groups": []},
+                "result": None, "texts": None,
+            },
+        },
+    }
+
+
 def public_payload(meeting: QuestionSet) -> dict:
     """What the beamer and every ballot page see."""
     ballots.abort_stale(meeting)
