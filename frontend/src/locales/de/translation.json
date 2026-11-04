@@ -1528,5 +1528,10 @@
   "Give either a question or a section.": "Geben Sie entweder eine Abstimmung oder einen TOP an.",
   "One vote for all of these resolutions.": "Eine Stimme für alle diese Beschlüsse.",
   "+ Resolution as new TOP": "+ Beschluss als neuer TOP",
-  "The text is too long.": "Der Text ist zu lang."
+  "The text is too long.": "Der Text ist zu lang.",
+  "Finding": "Feststellung",
+  "Adopted": "Angenommen",
+  "Rejected": "Abgelehnt",
+  "Leave open": "Offen lassen",
+  "Count check failed: {{voted}} marked as voted, {{tally}} ballots counted.": "Zählprobe auffällig: {{voted}} als abgestimmt vermerkt, {{tally}} Stimmzettel gezählt."
 }

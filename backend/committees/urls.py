@@ -48,6 +48,7 @@ urlpatterns = [
     _meeting("item-open", {"post": "open_item"}, "items/<int:question_id>/open/"),
     _meeting("ballot-close", {"post": "close_ballot"}, "ballots/<int:ballot_id>/close/"),
     _meeting("ballot-reset", {"post": "reset_ballot"}, "ballots/<int:ballot_id>/reset/"),
+    _meeting("ballot-finding", {"post": "finding"}, "ballots/<int:ballot_id>/finding/"),
     _meeting(
         "ballot-release-texts", {"post": "release_texts"},
         "ballots/<int:ballot_id>/release-texts/",

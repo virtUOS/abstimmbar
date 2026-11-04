@@ -390,6 +390,27 @@ def release_texts(ballot: Ballot) -> Ballot:
 
 
 @transaction.atomic
+def set_finding(ballot: Ballot, finding: str) -> Ballot:
+    """The chair's finding (adopted/rejected, "" = left open) on a closed ballot."""
+    if finding not in Ballot.Finding.values and finding != "":
+        raise _invalid()
+    state = QuestionSet.objects.values_list("meeting_state", flat=True).get(
+        pk=ballot.question.question_set_id,
+    )
+    if state not in (QuestionSet.MeetingState.STARTED, QuestionSet.MeetingState.ENDED):
+        raise ValidationError("The meeting has not started.", code="not_started")
+    locked = _locked(ballot.pk)
+    if locked is None or locked.status != Ballot.Status.CLOSED:
+        raise ValidationError("The vote is not closed.", code="not_closed")
+    ballot = locked
+    ballot.finding = finding
+    ballot.save(update_fields=["finding"])
+    # Task 2 appends the seal hook here (seals.on_finding(ballot)).
+    _notify(ballot.question.question_set)
+    return ballot
+
+
+@transaction.atomic
 def enter(invite: MeetingInvite) -> None:
     """The member opens their link in a running meeting: mark them entered
     and, during an open vote they hold a seat for, give them a place."""

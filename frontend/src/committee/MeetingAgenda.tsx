@@ -428,6 +428,42 @@ export default function MeetingAgenda({
             )}
           </div>
         )}
+        {ballot && ballot.status === "closed" && (
+          <div className="grid gap-2">
+            {ballot.result &&
+              ballot.result.voted !== null &&
+              ballot.result.voted !== ballot.result.tally_sum && (
+                <p role="alert" data-testid="count-check-warning" className="text-sm text-danger">
+                  {t("Count check failed: {{voted}} marked as voted, {{tally}} ballots counted.", {
+                    voted: ballot.result.voted,
+                    tally: ballot.result.tally_sum,
+                  })}
+                </p>
+              )}
+            <div role="group" aria-label={t("Finding")} className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {t("Finding")}
+              </span>
+              {(
+                [
+                  ["adopted", t("Adopted")],
+                  ["rejected", t("Rejected")],
+                  ["", t("Leave open")],
+                ] as const
+              ).map(([value, label]) => (
+                <Button
+                  key={value || "open"}
+                  variant={ballot.finding === value ? "primary" : "ghost"}
+                  aria-pressed={ballot.finding === value}
+                  disabled={busy}
+                  onClick={() => void act(() => api.setBallotFinding(setId, ballot.id, value))}
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
         {texts && ballot && (
           <div className="grid gap-2 border-t border-slate-200 pt-2 text-sm dark:border-slate-700">
             <h3 className="font-medium text-slate-700 dark:text-slate-300">{t("Answers")}</h3>

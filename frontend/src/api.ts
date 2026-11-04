@@ -211,7 +211,12 @@ export interface MeetingBallot {
   result: null | {
     groups: { id: number; name: string; counts: MeetingCounts }[];
     total: { counts: MeetingCounts };
+    /** Seats marked as voted vs. ballots counted (should agree). */
+    voted: number | null;
+    tally_sum: number | null;
   };
+  /** The chair's finding on a closed ballot ("" = left open). */
+  finding: "" | "adopted" | "rejected";
   /** Released free texts (closed free-text ballots only). */
   texts: MeetingText[] | null;
 }
@@ -1255,6 +1260,11 @@ export const api = {
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/reset/`, {
       method: "POST",
       body: JSON.stringify({ comment }),
+    }),
+  setBallotFinding: (setId: number, ballotId: number, finding: "" | "adopted" | "rejected") =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/finding/`, {
+      method: "POST",
+      body: JSON.stringify({ finding }),
     }),
   releaseTexts: (setId: number, ballotId: number) =>
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/release-texts/`, {

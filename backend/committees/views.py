@@ -519,6 +519,17 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise _coded(exc) from exc
         return self._console(meeting)
 
+    def finding(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        value = request.data.get("finding")
+        if not isinstance(value, str):
+            raise ValidationError({"detail": "Invalid answer.", "code": "invalid"})
+        try:
+            ballots.set_finding(self._ballot(meeting, ballot_id), value)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
     def release_texts(self, request, pk=None, ballot_id=None):
         meeting = self.get_object()
         try:

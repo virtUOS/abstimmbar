@@ -135,6 +135,8 @@ def _result(ballot: Ballot, names: dict[int, str]) -> dict | None:
             for g in ballot.result["groups"]
         ],
         "total": {"counts": ballot.result["total"]["counts"]},
+        "voted": ballot.result.get("voted"),
+        "tally_sum": ballot.result.get("tally_sum"),
     }
 
 
@@ -150,6 +152,7 @@ def _ballot_payload(ballot, question, names, order) -> dict:
         "round": ballot.round,
         "progress": _progress(ballot, names, order),
         "result": _result(ballot, names),
+        "finding": ballot.finding,
         "texts": _texts(ballot, order) if released else None,
     }
 
@@ -256,7 +259,7 @@ def preview_payload(question: Question) -> dict:
             "ballot": {
                 "id": 0, "status": Ballot.Status.OPEN, "round": 1,
                 "progress": {"voted": 0, "eligible": 0, "groups": []},
-                "result": None, "texts": None,
+                "result": None, "finding": "", "texts": None,
             },
         },
         "top": _top_payload(top),

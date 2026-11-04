@@ -201,6 +201,10 @@ class Ballot(models.Model):
         RESET = "reset", "Reset"
         RESTART = "restart", "Restart"
 
+    class Finding(models.TextChoices):
+        ADOPTED = "adopted", "Adopted"
+        REJECTED = "rejected", "Rejected"
+
     question = models.ForeignKey(
         "rooms.Question", on_delete=models.CASCADE, related_name="ballots",
     )
@@ -222,6 +226,7 @@ class Ballot(models.Model):
     )
     discard_comment = models.TextField(blank=True)
     discarded_at = models.DateTimeField(null=True, blank=True)
+    finding = models.CharField(max_length=10, choices=Finding.choices, blank=True)
 
     class Meta:
         ordering: ClassVar = ["round"]

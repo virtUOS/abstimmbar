@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 
 from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
-from . import agenda, ballots, eligibility, services, versions
+from . import agenda, ballots, eligibility, payloads, services, versions
 from .models import (
     Ballot,
     BallotSeat,
@@ -1908,6 +1908,61 @@ class BallotApiTests(BallotBase):
         self.assertEqual(resp.status_code, 200)
         resp = self.client.post(self.url(f"ballots/{bid}/release-texts/"))
         self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
+
+
+class FindingTests(BallotBase):
+    def url(self, ballot):
+        return f"/api/meetings/{self.meeting.pk}/ballots/{ballot.pk}/finding/"
+
+    def closed(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            return ballots.close_ballot(ballot)
+
+    def post(self, ballot, value):
+        return self.client.post(self.url(ballot), {"finding": value}, format="json")
+
+    def test_set_finding_on_closed_ballot(self):
+        ballot = self.closed()
+        self.assertEqual(self.post(ballot, "adopted").status_code, 200)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.finding, "adopted")
+        resp = self.post(ballot, "")
+        self.assertEqual(resp.status_code, 200)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.finding, "")
+
+    def test_finding_needs_closed_ballot(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        resp = self.post(ballot, "adopted")
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
+        ballots.reset_ballot(ballot, "")
+        resp = self.post(ballot, "adopted")
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
+
+    def test_finding_invalid_value(self):
+        ballot = self.closed()
+        resp = self.post(ballot, "maybe")
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "invalid"))
+
+    def test_finding_after_end_allowed(self):
+        ballot = self.closed()
+        services.end_meeting(self.meeting)
+        self.assertEqual(self.post(ballot, "rejected").status_code, 200)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.finding, "rejected")
+
+    def test_finding_in_public_payload(self):
+        ballot = self.closed()
+        self.post(ballot, "adopted")
+        self.client.post(
+            f"/api/meetings/{self.meeting.pk}/show/", {"question": self.q1.pk}, format="json",
+        )
+        public = payloads.public_payload(self.meeting)
+        self.assertEqual(public["item"]["ballot"]["finding"], "adopted")
+        self.assertEqual(public["item"]["ballot"]["result"]["voted"], 1)
+        self.assertEqual(public["item"]["ballot"]["result"]["tally_sum"], 1)
 
 
 class StatusTests(BallotBase):

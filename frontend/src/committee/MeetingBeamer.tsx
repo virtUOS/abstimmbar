@@ -260,6 +260,18 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
               </section>
             )}
             {ballot?.status === "closed" && <Result item={item} ballot={ballot} />}
+            {ballot?.status === "closed" && ballot.finding && (
+              <p
+                data-testid="beamer-finding"
+                className={`inline-flex w-fit rounded-full px-4 py-1.5 text-xl font-semibold md:text-2xl ${
+                  ballot.finding === "adopted"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                    : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                }`}
+              >
+                {ballot.finding === "adopted" ? t("Adopted") : t("Rejected")}
+              </p>
+            )}
             {ballot?.texts && ballot.texts.length > 0 && (
               <section className="grid gap-3">
                 <h2 className="text-lg font-semibold text-slate-500 dark:text-slate-400">
