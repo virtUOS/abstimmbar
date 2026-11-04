@@ -447,6 +447,8 @@ def add_resolution(
     text = (text or "").strip()
     if not text:
         raise ValidationError("The text must not be empty.", code="invalid")
+    if len(text) > 1000:
+        raise ValidationError("The text is too long.", code="invalid")
     if section is not None and section.question_set_id != meeting.pk:
         raise ValidationError("The TOP does not belong to this meeting.", code="invalid")
 

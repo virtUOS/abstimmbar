@@ -1527,5 +1527,6 @@
   "The TOP does not belong to this meeting.": "Der TOP gehört nicht zu dieser Sitzung.",
   "Give either a question or a section.": "Geben Sie entweder eine Abstimmung oder einen TOP an.",
   "One vote for all of these resolutions.": "Eine Stimme für alle diese Beschlüsse.",
-  "+ Resolution as new TOP": "+ Beschluss als neuer TOP"
+  "+ Resolution as new TOP": "+ Beschluss als neuer TOP",
+  "The text is too long.": "Der Text ist zu lang."
 }

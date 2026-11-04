@@ -2382,6 +2382,17 @@ class AddResolutionTests(BallotBase):
         q = services.add_resolution(self.meeting, "  <b>x</b> ", self.s1, named=False)
         self.assertEqual(q.text_de, "<p>&lt;b&gt;x&lt;/b&gt;</p>")
 
+    def test_text_length_is_capped(self):
+        services.add_resolution(self.meeting, "x" * 1000, self.s1, named=False)
+        with self.assertRaises(ValidationError) as ctx:
+            services.add_resolution(self.meeting, "x" * 1001, self.s1, named=False)
+        self.assertEqual(ctx.exception.code, "invalid")
+        resp = self.client.post(
+            self.url(), {"text": "x" * 1001, "section": self.s1.pk, "named": False}, format="json",
+        )
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(resp.data["code"], "invalid")
+
     def test_api_creates_and_returns_console(self):
         resp = self.client.post(
             self.url(), {"text": "Antrag", "section": self.s1.pk, "named": True}, format="json",

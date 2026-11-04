@@ -185,6 +185,7 @@ function ResolutionForm({
           value={text}
           onChange={(event) => setText(event.target.value)}
           rows={3}
+          maxLength={1000}
           autoFocus
           className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
         />
@@ -356,12 +357,12 @@ export default function MeetingAgenda({
             }
             aria-current={current ? "true" : undefined}
             onClick={() => void act(() => api.showItem(setId, item.id))}
-            className="flex min-w-0 flex-1 items-start gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+            className="flex min-w-0 flex-1 flex-wrap items-start gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
           >
             <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
               {t("TOP {{number}}", { number: item.label })}
             </span>
-            <span className="line-clamp-2 min-w-0 break-words text-sm text-slate-800 dark:text-slate-200">
+            <span className="line-clamp-2 min-w-[8rem] flex-1 break-words text-sm text-slate-800 dark:text-slate-200">
               {text}
             </span>
             {current && beamerBadge}
@@ -506,11 +507,11 @@ export default function MeetingAgenda({
                 }
                 aria-current={topShown ? "true" : undefined}
                 onClick={() => void act(() => api.showTop(setId, section))}
-                className={`flex min-w-0 items-start gap-2 rounded-lg px-2 py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
+                className={`flex min-w-0 flex-wrap items-start gap-2 rounded-lg px-2 py-1 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
                   topShown ? "bg-brand-50 dark:bg-brand-950/40" : ""
                 }`}
               >
-                <span className="min-w-0 break-words text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <span className="min-w-[8rem] flex-1 break-words text-sm font-semibold text-slate-900 dark:text-slate-100">
                   {title
                     ? `${t("TOP {{number}}", { number: top.number })} · ${title}`
                     : t("TOP {{number}}", { number: top.number })}
