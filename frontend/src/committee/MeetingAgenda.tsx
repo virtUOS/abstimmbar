@@ -178,7 +178,7 @@ function ResolutionForm({
   const [text, setText] = useState("");
   const [named, setNamed] = useState(false);
   return (
-    <div data-testid="resolution-form" className="grid gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+    <div data-testid="resolution-form" className="grid w-full gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
       <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
         {t("Resolution text")}
         <textarea
@@ -204,6 +204,93 @@ function ResolutionForm({
         </Button>
       </div>
     </div>
+  );
+}
+
+/** The chair's note on a TOP for the protocol: shown as text with a pencil
+ *  to edit, or a "+ Note" button; saving empty text deletes it. */
+function TopNote({
+  text,
+  editable,
+  busy,
+  onSave,
+  addExtra,
+}: {
+  text: string;
+  editable: boolean;
+  busy: boolean;
+  onSave: (text: string) => Promise<boolean>;
+  /** Rendered next to the "+ Note" button (the section's "+ Resolution"). */
+  addExtra?: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(text);
+  if (open)
+    return (
+      <div data-testid="note-form" className="grid gap-2 rounded-xl border border-slate-200 p-3 dark:border-slate-800">
+        <label className="grid gap-1 text-sm font-medium text-slate-700 dark:text-slate-300">
+          {t("Note for the minutes")}
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={3}
+            maxLength={2000}
+            autoFocus
+            className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+          />
+        </label>
+        <div className="flex flex-wrap justify-end gap-2">
+          <Button variant="ghost" onClick={() => setOpen(false)}>
+            {t("Cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            disabled={busy}
+            onClick={() => void onSave(draft.trim()).then((ok) => ok && setOpen(false))}
+          >
+            {t("Save")}
+          </Button>
+        </div>
+      </div>
+    );
+  function edit() {
+    setDraft(text);
+    setOpen(true);
+  }
+  return (
+    <>
+      {text && (
+        <div data-testid="top-note" className="flex min-w-0 items-start gap-2 text-sm text-slate-700 dark:text-slate-300">
+          <p className="min-w-0 flex-1 whitespace-pre-line break-words">
+            <span className="font-semibold">{t("Note")}: </span>
+            {text}
+          </p>
+          {editable && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={edit}
+              aria-label={t("Edit note")}
+              className="shrink-0 rounded p-1 text-slate-500 hover:text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:hover:text-slate-100"
+            >
+              <Pencil aria-hidden className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      )}
+      {editable && (
+        <div className="flex flex-wrap gap-1.5">
+          {addExtra}
+          {!text && (
+            <Button variant="ghost" disabled={busy} onClick={edit} className="justify-self-start">
+              {t("+ Note")}
+            </Button>
+          )}
+        </div>
+      )}
+      {!editable && !text && addExtra}
+    </>
   );
 }
 
@@ -276,6 +363,17 @@ export default function MeetingAgenda({
   function toggleSelecting() {
     setSelecting(!selecting);
     setPicked([]);
+  }
+
+  const noteText = (target: { section: number } | { question: number }) =>
+    data.notes?.find((note) =>
+      "section" in target ? note.section === target.section : note.question === target.question,
+    )?.text ?? "";
+  // Standalone-question TOPs: the note belongs to the question.
+  const soloTop = new Set(data.tops.filter((top) => top.section === null).flatMap((top) => top.items));
+
+  function saveNote(target: { section: number } | { question: number }) {
+    return async (text: string) => act(() => api.setMeetingNote(setId, target, text));
   }
 
   function addButton(section: number | null) {
@@ -428,6 +526,15 @@ export default function MeetingAgenda({
             )}
           </div>
         )}
+        {soloTop.has(item.id) && (running || noteText({ question: item.id })) && (
+          <TopNote
+            key={noteText({ question: item.id })}
+            text={noteText({ question: item.id })}
+            editable={running}
+            busy={busy}
+            onSave={saveNote({ question: item.id })}
+          />
+        )}
         {ballot && ballot.status === "closed" && (
           <div className="grid gap-2">
             {ballot.result &&
@@ -558,7 +665,16 @@ export default function MeetingAgenda({
                 {topShown && beamerBadge}
               </button>
               {items.length > 0 && <ol className="grid gap-2 pl-2">{items.map(renderItem)}</ol>}
-              <div className="grid pl-2">{addButton(section)}</div>
+              <div className="grid gap-2 pl-2">
+                <TopNote
+                  key={noteText({ section })}
+                  text={noteText({ section })}
+                  editable={running}
+                  busy={busy}
+                  onSave={saveNote({ section })}
+                  addExtra={addButton(section)}
+                />
+              </div>
             </li>
           );
         })}

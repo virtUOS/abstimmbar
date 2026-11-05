@@ -1605,5 +1605,9 @@
   "Signal tone": "Signalton",
   "Signal tone when a vote closes automatically": "Signalton, wenn eine Abstimmung automatisch schließt",
   "Everyone has voted – the vote was closed automatically.": "Alle haben abgestimmt – die Abstimmung wurde automatisch geschlossen.",
-  "The meeting has not begun yet.": "Die Sitzung hat noch nicht begonnen."
+  "The meeting has not begun yet.": "Die Sitzung hat noch nicht begonnen.",
+  "+ Note": "+ Notiz",
+  "Note": "Notiz",
+  "Edit note": "Notiz bearbeiten",
+  "Note for the minutes": "Notiz für das Protokoll"
 }

@@ -177,7 +177,7 @@ export interface MeetingProtocol {
     substitutions: { deputy: string; absent: string; group: string; from_label: string | null }[];
     observers: string[];
   };
-  tops: { number: number; title: string; description: string; items: ProtocolItem[] }[];
+  tops: { number: number; title: string; description: string; note?: string; items: ProtocolItem[] }[];
 }
 
 /** Seeded starting point for a committee room's groups. */
@@ -364,6 +364,8 @@ export interface MeetingManager extends MeetingPublic {
   /** Texts of the shown, closed free-text ballot (released or not). */
   texts: MeetingText[] | null;
   open_ballot: number | null;
+  /** The chair's notes per TOP: a section's, or a sectionless TOP's question. */
+  notes?: { section: number | null; question: number | null; text: string }[];
 }
 
 /** A person from my own rooms, offered when adding committee members. */
@@ -1331,6 +1333,16 @@ export const api = {
     request<MeetingManager>(`/api/meetings/${setId}/items/`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+  /** Set (or, with empty text, clear) the protocol note of a TOP. */
+  setMeetingNote: (
+    setId: number,
+    target: { section: number } | { question: number },
+    text: string,
+  ) =>
+    request<MeetingManager>(`/api/meetings/${setId}/notes/`, {
+      method: "PUT",
+      body: JSON.stringify({ ...target, text }),
     }),
   /** One vote en bloc over several resolutions. */
   openBundle: (setId: number, questionIds: number[]) =>
