@@ -771,6 +771,9 @@ msgstr "TOP {number}: {title}"
 msgid "One vote for all of these resolutions."
 msgstr "Eine Stimme für alle diese Beschlüsse."
 
+msgid "[Image]"
+msgstr "[Bild]"
+
 msgid "Page %(page)s of %(pages)s"
 msgstr "Seite %(page)s von %(pages)s"
 

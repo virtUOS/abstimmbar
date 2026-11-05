@@ -21,10 +21,13 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 MARGIN = 20 * MM
+BOTTOM = 18 * MM
+MAX_HEADING_CHARS = 300  # longer "headings" are body text: keepWithNext on a block taller than a page hangs the build
 INLINE_TAGS = {"strong": "b", "b": "b", "em": "i", "i": "i", "u": "u", "s": "strike", "del": "strike",
                "strike": "strike"}
 HEADINGS = {"h1": "h1", "h2": "h2", "h3": "h3"}
 SKIP_CONTENT = {"script", "style"}
+TABLE_TAGS = {"table", "thead", "tbody", "tfoot", "tr"}
 
 
 def safe_text(text: str) -> str:
@@ -84,6 +87,8 @@ class _HtmlToFlowables(HTMLParser):
         self.hrefs = []
         self.skip = 0
         self.has_text = False
+        self.cells = 0          # cells already seen in the current table row
+        self.pre = 0
 
     # -- paragraph handling
     def _flush(self):
@@ -98,6 +103,8 @@ class _HtmlToFlowables(HTMLParser):
     def _paragraph(self, markup):
         depth = len(self.lists)
         style = self.styles[self.block]
+        if self.block in HEADINGS.values() and len(re.sub(r"<[^>]*>", "", markup)) > MAX_HEADING_CHARS:
+            style = self.styles["bold"]
         if self.bullet is not None:
             style = ParagraphStyle("li", parent=style, leftIndent=12 * depth + 4, bulletIndent=12 * (depth - 1))
         try:
@@ -119,6 +126,19 @@ class _HtmlToFlowables(HTMLParser):
             self.hrefs.append(dict(attrs).get("href") or "")
         elif tag == "br":
             self.buf += "<br/>"
+        elif tag == "img":
+            self.buf += escape(_("[Image]"))
+            self.has_text = True
+        elif tag in ("td", "th"):
+            if self.cells:
+                self.buf += " | "
+            self.cells += 1
+        elif tag in TABLE_TAGS:
+            self._flush()
+            self.cells = 0
+        elif tag == "pre":
+            self._flush()
+            self.pre += 1
         elif tag in ("ul", "ol"):
             self._flush()
             self.lists.append([tag, 0])
@@ -163,6 +183,11 @@ class _HtmlToFlowables(HTMLParser):
             self.bullet = None
             if self.lists:
                 self.lists.pop()
+        elif tag in TABLE_TAGS or tag == "pre":
+            self._flush()
+            self.cells = 0
+            if tag == "pre":
+                self.pre = max(0, self.pre - 1)
         elif tag in ("li", "p", "div") or tag in HEADINGS or tag == "blockquote":
             self._flush()
             if tag in HEADINGS or tag == "blockquote":
@@ -172,6 +197,11 @@ class _HtmlToFlowables(HTMLParser):
         if self.skip:
             return
         if not self.open and not self.buf.strip() and not data.strip():
+            return
+        if self.pre:
+            self.buf += _markup(data)
+            if data.strip():
+                self.has_text = True
             return
         self.buf += escape(safe_text(data))
         if data.strip():
@@ -234,7 +264,8 @@ class PdfDocument:
         self._story.extend(flowables)
 
     def heading(self, text: str, level: int = 1):
-        self._add(Paragraph(_markup(text), self.styles[f"h{min(max(level, 1), 3)}"]))
+        key = f"h{min(max(level, 1), 3)}" if len(str(text)) <= MAX_HEADING_CHARS else "bold"
+        self._add(Paragraph(_markup(text), self.styles[key]))
 
     def paragraph(self, text: str, *, style: str = "normal"):
         self._add(Paragraph(_markup(text), self.styles[style]))
@@ -284,6 +315,9 @@ class PdfDocument:
         """Light grey framed block. Rendered as a one-cell table, so it cannot split across pages."""
         inner = self._collect(builder)
         box = Table([[inner]], colWidths=[A4[0] - 2 * MARGIN])
+        if box.wrap(A4[0] - 2 * MARGIN, A4[1])[1] > A4[1] - MARGIN - BOTTOM - 4 * MM:
+            self._add(*inner, Spacer(1, 2 * MM))  # too tall for one page: a one-cell table cannot split
+            return
         box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f3f3f3")),
                                  ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#aaaaaa")),
                                  ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
@@ -293,7 +327,7 @@ class PdfDocument:
     def render(self) -> bytes:
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN,
-                                topMargin=MARGIN, bottomMargin=18 * MM, title=safe_text(self.title),
+                                topMargin=MARGIN, bottomMargin=BOTTOM, title=safe_text(self.title),
                                 pageCompression=1 if self.compress else 0)
         doc.build(list(self._story), canvasmaker=_numbered_canvas(self.footer_left))
         return buffer.getvalue()

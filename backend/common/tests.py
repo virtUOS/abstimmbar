@@ -982,3 +982,62 @@ class PdfFrameTests(SimpleTestCase):
         self.assertRegex(text, "[\u2022\x7f]\\s*Alpha")
         self.assertRegex(text, r"1\.\s*Xaver")
         self.assertRegex(text, r"2\.\s*Yvonne")
+
+
+class PdfFrameRobustnessTests(SimpleTestCase):
+    """Inputs that used to hang or crash the render, and rich() fallbacks."""
+
+    _texts = PdfFrameTests._texts
+
+    def _render_guarded(self, doc, seconds=20):
+        import signal
+
+        def boom(*_):
+            raise AssertionError("PDF render hangs")
+        old = signal.signal(signal.SIGALRM, boom)
+        signal.alarm(seconds)
+        try:
+            return doc.render()
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+
+    def test_heading_taller_than_a_page_does_not_hang(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t")
+        doc.heading("big " * 700, 2)
+        doc.paragraph("danach")
+        text = "\n".join(self._texts(self._render_guarded(doc)))
+        self.assertIn("danach", text)
+
+    def test_rich_heading_taller_than_a_page_does_not_hang(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t")
+        doc.rich("<h1>" + "word " * 800 + "</h1><p>danach</p>")
+        text = "\n".join(self._texts(self._render_guarded(doc)))
+        self.assertIn("danach", text)
+
+    def test_rich_img_table_and_pre(self):
+        from .pdf import PdfDocument
+        html = ('<p>vor <img src="x.png"> nach</p>'
+                "<table><tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></table>"
+                "<pre>zeile1\nzeile2</pre>")
+        with translation.override("de"):
+            doc = PdfDocument("t")
+            doc.rich(html)  # the placeholder is translated while the HTML is converted
+            text = "\n".join(self._texts(doc.render()))
+        self.assertIn("[Bild]", text)
+        self.assertIn("A1 | B1", text)
+        self.assertIn("A2 | B2", text)
+        self.assertRegex(text, r"zeile1\s*\nzeile2")
+        with translation.override("en"):
+            doc2 = PdfDocument("t")
+            doc2.rich('<img src="x.png">')
+            self.assertIn("[Image]", "\n".join(self._texts(doc2.render())))
+
+    def test_box_taller_than_a_page_falls_back(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t")
+        doc.box(lambda d: [d.paragraph(f"Boxzeile {i}") for i in range(80)])
+        text = "\n".join(self._texts(self._render_guarded(doc)))
+        self.assertIn("Boxzeile 79", text)
