@@ -3377,6 +3377,16 @@ class ProtocolPdfTests(BallotBase):
         self.assertIn("Attendance", text)
         self.assertIn("Page 1 of", text)
 
+    def test_lang_param_overrides_browser_language(self):
+        self.scenario()
+        r = self.client.get(self.url() + "?lang=de", HTTP_ACCEPT_LANGUAGE="en")
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protokoll-'))
+        self.assertIn("Anwesenheit", self.text(r))
+        r = self.client.get(self.url() + "?lang=en", HTTP_ACCEPT_LANGUAGE="de")
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protocol-'))
+        r = self.client.get(self.url() + "?lang=xx", HTTP_ACCEPT_LANGUAGE="en")
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protocol-'))
+
     def test_filename_uses_scheduled_date(self):
         from datetime import datetime
         from zoneinfo import ZoneInfo

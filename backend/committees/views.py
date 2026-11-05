@@ -440,12 +440,19 @@ class MeetingViewSet(viewsets.GenericViewSet):
 
     def protocol_pdf(self, request, pk=None):
         meeting = self.get_object()
+        # The SPA passes its UI language explicitly (a plain link download carries
+        # only the cookie/Accept-Language, which may differ from the chosen language).
+        lang = request.query_params.get("lang", "")
+        if lang not in ("de", "en"):
+            lang = translation.get_language() or "en"
         try:
-            content = protocol_pdf.render(meeting)
+            with translation.override(lang):
+                content = protocol_pdf.render(meeting)
+                filename = protocol_pdf.filename(meeting)
         except DjangoValidationError as exc:
             raise _coded(exc) from exc
         response = HttpResponse(content, content_type="application/pdf")
-        response["Content-Disposition"] = f'attachment; filename="{protocol_pdf.filename(meeting)}"'
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
         response["Cache-Control"] = "no-store"
         return response
 
