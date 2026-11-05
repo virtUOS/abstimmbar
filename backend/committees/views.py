@@ -26,7 +26,7 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import ballots, live, payloads, protocol, seals, services
+from . import ballots, live, payloads, protocol, protocol_pdf, seals, services
 from .models import (
     Ballot,
     BallotSeat,
@@ -437,6 +437,24 @@ class MeetingViewSet(viewsets.GenericViewSet):
             return Response(protocol.build(self.get_object()))
         except DjangoValidationError as exc:
             raise _coded(exc) from exc
+
+    def protocol_pdf(self, request, pk=None):
+        meeting = self.get_object()
+        # The SPA passes its UI language explicitly (a plain link download carries
+        # only the cookie/Accept-Language, which may differ from the chosen language).
+        lang = request.query_params.get("lang", "")
+        if lang not in ("de", "en"):
+            lang = translation.get_language() or "en"
+        try:
+            with translation.override(lang):
+                content = protocol_pdf.render(meeting)
+                filename = protocol_pdf.filename(meeting)
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        response = HttpResponse(content, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="{filename}"'
+        response["Cache-Control"] = "no-store"
+        return response
 
     def show(self, request, pk=None):
         meeting = self.get_object()

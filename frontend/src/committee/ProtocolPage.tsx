@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
-import { Printer, ShieldCheck } from "lucide-react";
+import { Download, Printer, ShieldCheck } from "lucide-react";
 import { RichText } from "@basicbar/ui";
 import {
   api,
@@ -112,14 +112,25 @@ export default function ProtocolPage() {
                   {t("Protocol")}: {protocol.title}
                 </h1>
               </div>
-              <Button
-                variant="secondary"
-                className="inline-flex shrink-0 items-center gap-1.5 print:hidden"
-                onClick={() => window.print()}
-              >
-                <Printer aria-hidden className="h-4 w-4" />
-                {t("Print / save as PDF")}
-              </Button>
+              <div className="flex shrink-0 flex-wrap items-center gap-2 print:hidden">
+                <a
+                  href={api.meetingProtocolPdfUrl(Number(setId), i18n.language)}
+                  download
+                  data-testid="protocol-pdf"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 hover:bg-brand-500"
+                >
+                  <Download aria-hidden className="h-4 w-4" />
+                  {t("Download PDF")}
+                </a>
+                <Button
+                  variant="secondary"
+                  className="inline-flex items-center gap-1.5"
+                  onClick={() => window.print()}
+                >
+                  <Printer aria-hidden className="h-4 w-4" />
+                  {t("Print")}
+                </Button>
+              </div>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-400">
               {[

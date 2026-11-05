@@ -3293,6 +3293,120 @@ class ProtocolTests(BallotBase):
         )
 
 
+class ProtocolPdfTests(BallotBase):
+    closed = SealTests.closed
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/protocol.pdf"
+
+    def end(self):
+        services.end_meeting(self.meeting)
+
+    def text(self, response):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        reader = PdfReader(BytesIO(response.content))
+        return "\n".join(page.extract_text() for page in reader.pages)
+
+    def scenario(self):
+        """Secret result + finding, reset round, en bloc pair, named vote, TOP without vote,
+        a legacy item without seal."""
+        first = self.closed(answers=[(self.anna, {"choice": "no"})])
+        ballots.reset_ballot(first, "Fehler")
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        ballots.set_finding(ballot, "adopted")
+        self.q2.named_vote = True
+        self.q2.save(update_fields=["named_vote"])
+        self.closed(self.q2, [(self.anna, {"text": "Hallo Welt"})])
+        legacy = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Altfall", position=3,
+        )
+        versions.sync(legacy)
+        old = ballots.open_ballot(self.meeting, legacy)
+        self.vote(self.anna, old, {"choice": "yes"})
+        ballots.close_ballot(old)
+        SealLink.objects.filter(ballot=old).delete()
+        r4 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Vier", position=4,
+        )
+        r5 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Fuenf", position=5,
+        )
+        for q in (r4, r5):
+            versions.sync(q)
+        bundle = ballots.open_bundle(self.meeting, [r4, r5])
+        self.vote(self.anna, bundle, {"choice": "yes"})
+        ballots.close_ballot(bundle)
+        never = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Nie", position=6,
+        )
+        versions.sync(never)
+        Section.objects.create(question_set=self.meeting, title_de="Verschiedenes", position=9)
+        self.end()
+        return ballot
+
+    def test_download_german(self):
+        ballot = self.scenario()
+        r = self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r["Content-Type"], "application/pdf")
+        self.assertTrue(r.content.startswith(b"%PDF"))
+        self.assertEqual(r["Cache-Control"], "no-store")
+        self.assertRegex(
+            r["Content-Disposition"], r'^attachment; filename="Protokoll-sitzung(-\d{4}-\d{2}-\d{2})?\.pdf"$',
+        )
+        text = self.text(r)
+        for expected in (
+            "Sitzung", "Anwesenheit", "TOP 1", "Feststellung: angenommen",
+            "Abstimmung wiederholt (Durchgang 1)", "En bloc abgestimmt mit TOP",
+            "Namentliche Abstimmung", "Kennung", "Kein Siegel", "Verschiedenes", "Seite 1 von",
+            "Beobachtende", "Hallo Welt", "Ja:", "Nicht abgestimmt",
+        ):
+            self.assertIn(expected, text)
+        fingerprint = SealLink.objects.get(ballot=ballot, kind="result").hash
+        self.assertIn(fingerprint[:16], text)
+
+    def test_english(self):
+        self.scenario()
+        r = self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="en")
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protocol-sitzung'))
+        text = self.text(r)
+        self.assertIn("Attendance", text)
+        self.assertIn("Page 1 of", text)
+
+    def test_lang_param_overrides_browser_language(self):
+        self.scenario()
+        r = self.client.get(self.url() + "?lang=de", HTTP_ACCEPT_LANGUAGE="en")
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protokoll-'))
+        self.assertIn("Anwesenheit", self.text(r))
+        r = self.client.get(self.url() + "?lang=en", HTTP_ACCEPT_LANGUAGE="de")
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protocol-'))
+        r = self.client.get(self.url() + "?lang=xx", HTTP_ACCEPT_LANGUAGE="en")
+        self.assertTrue(r["Content-Disposition"].startswith('attachment; filename="Protocol-'))
+
+    def test_filename_uses_scheduled_date(self):
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+
+        self.meeting.scheduled_at = datetime(2030, 1, 15, 11, 0, tzinfo=ZoneInfo("Europe/Berlin"))
+        self.meeting.save(update_fields=["scheduled_at"])
+        self.end()
+        r = self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de")
+        self.assertIn("Protokoll-sitzung-2030-01-15.pdf", r["Content-Disposition"])
+        self.assertIn("15. Januar 2030, 11:00", self.text(r))
+
+    def test_requires_ended_meeting_and_manager(self):
+        r = self.client.get(self.url())
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "not_ended")
+        self.assertEqual(self.foreign.get(self.url()).status_code, 404)
+        self.end()
+        self.assertEqual(self.foreign.get(self.url()).status_code, 404)
+
+
 class TrialTests(MeetingFixture, ApiBase):
     """Test run: a started meeting that leaves no trace (Decisions 8)."""
 

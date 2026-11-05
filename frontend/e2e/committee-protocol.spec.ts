@@ -141,6 +141,16 @@ test('protocol and seal: finding, repeated vote, verification', async ({ page, b
   const fingerprint = fingerprintText.replace(/^Fingerabdruck:\s*/, '').replace(/\s+/g, '');
   expect(fingerprint).toMatch(/^[0-9a-f]{64}$/);
 
+  // 4b. The PDF download: served as a PDF, and the link triggers a download.
+  const pdfLink = page.getByTestId('protocol-pdf');
+  const href = (await pdfLink.getAttribute('href'))!;
+  expect(href).toContain('lang=de');
+  const pdf = await page.request.get(href);
+  expect(pdf.headers()['content-type']).toContain('application/pdf');
+  expect((await pdf.body()).subarray(0, 4).toString()).toBe('%PDF');
+  const [download] = await Promise.all([page.waitForEvent('download'), pdfLink.click()]);
+  expect(download.suggestedFilename()).toMatch(/^Protokoll-/);
+
   // 5. The seal check, via the room's check page.
   await page.goto(`/rooms/${room.id}/seals`);
   await page.getByLabel('Kennung', { exact: true }).fill(reference);

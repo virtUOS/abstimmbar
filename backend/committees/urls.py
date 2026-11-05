@@ -45,6 +45,7 @@ urlpatterns = [
     ),
     _meeting("control", {"get": "control"}, "control/"),
     _meeting("protocol", {"get": "protocol"}, "protocol/"),
+    _meeting("protocol-pdf", {"get": "protocol_pdf"}, "protocol.pdf"),
     _meeting("show", {"post": "show"}, "show/"),
     _meeting("item-add", {"post": "add_item"}, "items/"),
     _meeting("bundle-open", {"post": "open_bundle"}, "bundles/"),

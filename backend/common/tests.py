@@ -902,3 +902,164 @@ class SecretKeyGuardTests(SimpleTestCase):
     def test_prod_with_secret_key_imports(self):
         result = self._import_settings(DJANGO_DEBUG="0", DJANGO_SECRET_KEY="x" * 50)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PdfFrameTests(SimpleTestCase):
+    """The generic reportlab frame used for downloadable documents."""
+
+    RICH = ('<p>Eins <strong>fett</strong></p><ul><li>A</li><li>B</li></ul><ol><li>X</li></ol>'
+            '<p><a href="https://x.org">Link</a> 😀 αβ</p>')
+
+    def _texts(self, data):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+        return [page.extract_text() for page in PdfReader(BytesIO(data)).pages]
+
+    def test_safe_text_replaces_unencodable_characters(self):
+        from .pdf import safe_text
+        self.assertEqual(safe_text("a😀"), "a?")
+        self.assertEqual(safe_text("Grüße „x“ – ok"), "Grüße „x“ – ok")
+        self.assertEqual(safe_text("αβ\n x"), "??\n x")
+
+    def test_extended_latin_renders_with_bundled_font(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t", footer_left="Dvořák")
+        doc.paragraph("Şahin Łukasz Dvořák → € ğ ı ß")
+        doc.rich("<p><b>Şahin</b> <i>Łukasz</i> Greek αβ emoji 😀</p>")
+        data = doc.render()
+        text = "\n".join(self._texts(data))
+        for needle in ("Şahin Łukasz Dvořák → € ğ ı ß", "Greek ?? emoji ?"):
+            self.assertIn(needle, text)
+        self.assertIn(b"PlusJakartaSans", data)
+
+    def test_render_document_with_all_flowables(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("Titel", footer_left="Links")
+        doc.heading("Überschrift")
+        doc.heading("Unter", level=2)
+        for style in ("normal", "small", "bold", "muted"):
+            doc.paragraph(f"Absatz {style} <b>&", style=style)
+        doc.rich(self.RICH)
+        doc.bullets(["Punkt 1", "Punkt 2"])
+        doc.table([["Kopf", "Wert"], ["a", "1"]], col_widths=[40, 40])
+        doc.spacer()
+        doc.keep_together(lambda d: (d.paragraph("zusammen"), d.paragraph("bleibt")))
+        doc.box(lambda d: d.paragraph("Siegelblock"))
+        for i in range(200):
+            doc.paragraph(f"Zeile {i}")
+        with translation.override("de"):
+            data = doc.render()
+        self.assertTrue(data.startswith(b"%PDF"))
+        pages = self._texts(data)
+        self.assertGreater(len(pages), 1)
+        text = "\n".join(pages)
+        for needle in ("fett", "A", "B", "X", "Link", "https://x.org", "Siegelblock", "Punkt 2", "Links"):
+            self.assertIn(needle, text)
+        self.assertIn("Seite 1 von", pages[0])
+        self.assertIn(f"Seite {len(pages)} von {len(pages)}", pages[-1])
+
+    def test_english_footer(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("T")
+        doc.paragraph("x")
+        with translation.override("en"):
+            data = doc.render()
+        self.assertIn("Page 1 of 1", self._texts(data)[0])
+
+    def test_html_to_flowables_survives_messy_html(self):
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        from .pdf import html_to_flowables
+        styles = getSampleStyleSheet()
+        messy = ('<h1>H</h1><blockquote>Zitat</blockquote><p><b>a<i>b</b>c</i> <u>u</u> <s>s</s> <del>d</del></p>'
+                 '<ul><li>eins<ul><li>innen</li></ul></li></ul><div><span>lose</span></div>'
+                 '<script>x</script><p>1 < 2 & 3</p></b></p><br>Rest')
+        flowables = html_to_flowables(messy, styles)
+        self.assertTrue(flowables)
+        from .pdf import PdfDocument
+        doc = PdfDocument("T")
+        doc.rich(messy)
+        text = "\n".join(self._texts(doc.render()))
+        for needle in ("Zitat", "innen", "lose", "Rest", "1 < 2 & 3"):
+            self.assertIn(needle, text)
+
+    def test_tiptap_list_items_keep_bullet_and_numbers(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("T")
+        doc.rich("<ul><li><p>Alpha</p></li></ul><ol><li><p>Xaver</p></li><li><p>Yvonne</p></li></ol>"
+                 "<p><b></b></p>")
+        text = "\n".join(self._texts(doc.render()))
+        # the bullet glyph is extracted as U+2022 or a control char depending on the font encoding
+        self.assertRegex(text, "[\u2022\x7f]\\s*Alpha")
+        self.assertRegex(text, r"1\.\s*Xaver")
+        self.assertRegex(text, r"2\.\s*Yvonne")
+
+
+class PdfFrameRobustnessTests(SimpleTestCase):
+    """Inputs that used to hang or crash the render, and rich() fallbacks."""
+
+    _texts = PdfFrameTests._texts
+
+    def _render_guarded(self, doc, seconds=20):
+        import signal
+
+        def boom(*_):
+            raise AssertionError("PDF render hangs")
+        old = signal.signal(signal.SIGALRM, boom)
+        signal.alarm(seconds)
+        try:
+            return doc.render()
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old)
+
+    def test_heading_taller_than_a_page_does_not_hang(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t")
+        doc.heading("big " * 700, 2)
+        doc.paragraph("danach")
+        text = "\n".join(self._texts(self._render_guarded(doc)))
+        self.assertIn("danach", text)
+
+    def test_rich_heading_taller_than_a_page_does_not_hang(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t")
+        doc.rich("<h1>" + "word " * 800 + "</h1><p>danach</p>")
+        text = "\n".join(self._texts(self._render_guarded(doc)))
+        self.assertIn("danach", text)
+
+    def test_multiline_headings_do_not_hang(self):
+        from .pdf import PdfDocument
+        for build in (lambda d: d.heading("x\n" * 40, 1),
+                      lambda d: d.heading("\n" * 299, 1),
+                      lambda d: d.rich("<h1>" + "<br>" * 400 + "x</h1>"),
+                      lambda d: d.heading("big " * 700, 3)):
+            doc = PdfDocument("t")
+            build(doc)
+            self.assertTrue(self._render_guarded(doc).startswith(b"%PDF"))
+
+    def test_rich_img_table_and_pre(self):
+        from .pdf import PdfDocument
+        html = ('<p>vor <img src="x.png"> nach</p>'
+                "<table><tr><td>A1</td><td>B1</td></tr><tr><td>A2</td><td>B2</td></tr></table>"
+                "<pre>zeile1\nzeile2</pre>")
+        with translation.override("de"):
+            doc = PdfDocument("t")
+            doc.rich(html)  # the placeholder is translated while the HTML is converted
+            text = "\n".join(self._texts(doc.render()))
+        self.assertIn("[Bild]", text)
+        self.assertIn("A1 | B1", text)
+        self.assertIn("A2 | B2", text)
+        self.assertRegex(text, r"zeile1\s*\nzeile2")
+        with translation.override("en"):
+            doc2 = PdfDocument("t")
+            doc2.rich('<img src="x.png">')
+            self.assertIn("[Image]", "\n".join(self._texts(doc2.render())))
+
+    def test_box_taller_than_a_page_falls_back(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t")
+        doc.box(lambda d: [d.paragraph(f"Boxzeile {i}") for i in range(80)])
+        text = "\n".join(self._texts(self._render_guarded(doc)))
+        self.assertIn("Boxzeile 79", text)

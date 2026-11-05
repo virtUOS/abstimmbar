@@ -1279,6 +1279,9 @@ export const api = {
   /** CSV of the currently valid (waiting/active) links. */
   meetingInvitesCsvUrl: (setId: number) =>
     `${API_BASE_URL}/api/meetings/${setId}/invites.csv`,
+  /** Protocol as PDF; the UI language is passed explicitly (plain link download). */
+  meetingProtocolPdfUrl: (setId: number, lang: string) =>
+    `${API_BASE_URL}/api/meetings/${setId}/protocol.pdf?lang=${lang.startsWith("de") ? "de" : "en"}`,
   suggestDeputy: (setId: number, absentId: number) =>
     request<{ deputy: MeetingInvite["member"] | null }>(
       `/api/meetings/${setId}/substitutions/suggest/?absent=${absentId}`,
