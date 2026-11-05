@@ -6,6 +6,7 @@
 Deliberately free of app imports (only Django, stdlib and reportlab): it is meant to move into
 the shared basicbar packages later (ADR-0008).
 """
+import re
 from collections.abc import Callable
 from html.parser import HTMLParser
 from io import BytesIO
@@ -15,11 +16,11 @@ from django.utils.translation import gettext as _
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.units import mm
+from reportlab.lib.units import mm as MM
 from reportlab.pdfgen import canvas
 from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-MARGIN = 20 * mm
+MARGIN = 20 * MM
 INLINE_TAGS = {"strong": "b", "b": "b", "em": "i", "i": "i", "u": "u", "s": "strike", "del": "strike",
                "strike": "strike"}
 HEADINGS = {"h1": "h1", "h2": "h2", "h3": "h3"}
@@ -82,15 +83,17 @@ class _HtmlToFlowables(HTMLParser):
         self.bullet = None
         self.hrefs = []
         self.skip = 0
+        self.has_text = False
 
     # -- paragraph handling
     def _flush(self):
-        text = self.buf
-        closing = "".join(f"</{t}>" for t in reversed(self.open))
-        if text.strip() and text.strip() != "<br/>":
-            self.out.append(self._paragraph(text + closing))
+        if self.has_text:
+            closing = "".join(f"</{t}>" for t in reversed(self.open))
+            self.out.append(self._paragraph(self.buf + closing))
+            # the bullet belongs to the first paragraph of the item only (TipTap: <li><p>..</p></li>)
+            self.bullet = None
         self.buf = "".join(f"<{t}>" for t in self.open)
-        self.bullet = None
+        self.has_text = False
 
     def _paragraph(self, markup):
         depth = len(self.lists)
@@ -100,9 +103,7 @@ class _HtmlToFlowables(HTMLParser):
         try:
             return Paragraph(markup, style, bulletText=self.bullet)
         except Exception:  # never let one broken fragment kill the document
-            plain = escape(safe_text(markup.replace("<br/>", " ")))
-            import re
-            plain = re.sub(r"&lt;/?[a-z]+&gt;", "", plain)
+            plain = re.sub(r"<[^>]*>", "", markup.replace("<br/>", " "))  # already escaped
             return Paragraph(plain, style, bulletText=self.bullet)
 
     def handle_starttag(self, tag, attrs):
@@ -159,6 +160,7 @@ class _HtmlToFlowables(HTMLParser):
                     self.buf += escape(safe_text(f" ({href})"))
         elif tag in ("ul", "ol"):
             self._flush()
+            self.bullet = None
             if self.lists:
                 self.lists.pop()
         elif tag in ("li", "p", "div") or tag in HEADINGS or tag == "blockquote":
@@ -172,6 +174,8 @@ class _HtmlToFlowables(HTMLParser):
         if not self.open and not self.buf.strip() and not data.strip():
             return
         self.buf += escape(safe_text(data))
+        if data.strip():
+            self.has_text = True
 
     def result(self):
         self.close()
@@ -207,8 +211,8 @@ def _numbered_canvas(footer_left: str):
                 width, _height = self._pagesize
                 self.setFont("Helvetica", 8)
                 self.setFillColor(colors.HexColor("#555555"))
-                self.drawString(MARGIN, 10 * mm, left)
-                self.drawRightString(width - MARGIN, 10 * mm,
+                self.drawString(MARGIN, 10 * MM, left)
+                self.drawRightString(width - MARGIN, 10 * MM,
                                      safe_text(page_label % {"page": self._pageNumber, "pages": count}))
                 super().showPage()
             super().save()
@@ -255,10 +259,10 @@ class PdfDocument:
         if header:
             style.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")))
         table.setStyle(TableStyle(style))
-        self._add(table, Spacer(1, 2 * mm))
+        self._add(table, Spacer(1, 2 * MM))
 
-    def spacer(self, mm_: float = 3):
-        self._add(Spacer(1, mm_ * mm))
+    def spacer(self, mm: float = 3):
+        self._add(Spacer(1, mm * MM))
 
     def _collect(self, builder: Callable[["PdfDocument"], None]) -> list:
         outer, self._story = self._story, []
@@ -272,18 +276,19 @@ class PdfDocument:
         self._add(KeepTogether(self._collect(builder)))
 
     def box(self, builder: Callable[["PdfDocument"], None]):
+        """Light grey framed block. Rendered as a one-cell table, so it cannot split across pages."""
         inner = self._collect(builder)
         box = Table([[inner]], colWidths=[A4[0] - 2 * MARGIN])
         box.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f3f3f3")),
                                  ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#aaaaaa")),
                                  ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
                                  ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 4)]))
-        self._add(box, Spacer(1, 2 * mm))
+        self._add(box, Spacer(1, 2 * MM))
 
     def render(self) -> bytes:
         buffer = BytesIO()
         doc = SimpleDocTemplate(buffer, pagesize=A4, leftMargin=MARGIN, rightMargin=MARGIN,
-                                topMargin=MARGIN, bottomMargin=18 * mm, title=safe_text(self.title),
+                                topMargin=MARGIN, bottomMargin=18 * MM, title=safe_text(self.title),
                                 pageCompression=1 if self.compress else 0)
         doc.build(list(self._story), canvasmaker=_numbered_canvas(self.footer_left))
         return buffer.getvalue()

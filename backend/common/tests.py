@@ -971,3 +971,14 @@ class PdfFrameTests(SimpleTestCase):
         text = "\n".join(self._texts(doc.render()))
         for needle in ("Zitat", "innen", "lose", "Rest", "1 < 2 & 3"):
             self.assertIn(needle, text)
+
+    def test_tiptap_list_items_keep_bullet_and_numbers(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("T")
+        doc.rich("<ul><li><p>Alpha</p></li></ul><ol><li><p>Xaver</p></li><li><p>Yvonne</p></li></ol>"
+                 "<p><b></b></p>")
+        text = "\n".join(self._texts(doc.render()))
+        # the bullet glyph is extracted as U+2022 or a control char depending on the font encoding
+        self.assertRegex(text, "[\u2022\x7f]\\s*Alpha")
+        self.assertRegex(text, r"1\.\s*Xaver")
+        self.assertRegex(text, r"2\.\s*Yvonne")
