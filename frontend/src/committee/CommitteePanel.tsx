@@ -559,7 +559,7 @@ function BulkAddForm({
 
   /** Both the search pick and the pasted list go through the bulk import,
    *  so validation and the created/skipped report are the same. */
-  async function add(lines: string): Promise<boolean> {
+  async function add(lines: string, onSaved?: () => void): Promise<boolean> {
     setError("");
     setResult(null);
     setBusy(true);
@@ -571,6 +571,9 @@ function BulkAddForm({
         text: lines,
       });
       setResult(data);
+      // Clear the input together with the report, before the list reloads:
+      // otherwise the next entry typed meanwhile would be wiped.
+      onSaved?.();
       await onAdded();
       return true;
     } catch (err) {
@@ -583,7 +586,7 @@ function BulkAddForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await add(text)) setText("");
+    await add(text, () => setText(""));
   }
 
   function pick(person: KnownPerson) {
