@@ -902,3 +902,72 @@ class SecretKeyGuardTests(SimpleTestCase):
     def test_prod_with_secret_key_imports(self):
         result = self._import_settings(DJANGO_DEBUG="0", DJANGO_SECRET_KEY="x" * 50)
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PdfFrameTests(SimpleTestCase):
+    """The generic reportlab frame used for downloadable documents."""
+
+    RICH = ('<p>Eins <strong>fett</strong></p><ul><li>A</li><li>B</li></ul><ol><li>X</li></ol>'
+            '<p><a href="https://x.org">Link</a> 😀 αβ</p>')
+
+    def _texts(self, data):
+        from io import BytesIO
+
+        from pypdf import PdfReader
+        return [page.extract_text() for page in PdfReader(BytesIO(data)).pages]
+
+    def test_safe_text_replaces_unencodable_characters(self):
+        from .pdf import safe_text
+        self.assertEqual(safe_text("a😀"), "a?")
+        self.assertEqual(safe_text("Grüße „x“ – ok"), "Grüße „x“ – ok")
+
+    def test_render_document_with_all_flowables(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("Titel", footer_left="Links")
+        doc.heading("Überschrift")
+        doc.heading("Unter", level=2)
+        for style in ("normal", "small", "bold", "muted"):
+            doc.paragraph(f"Absatz {style} <b>&", style=style)
+        doc.rich(self.RICH)
+        doc.bullets(["Punkt 1", "Punkt 2"])
+        doc.table([["Kopf", "Wert"], ["a", "1"]], col_widths=[40, 40])
+        doc.spacer()
+        doc.keep_together(lambda d: (d.paragraph("zusammen"), d.paragraph("bleibt")))
+        doc.box(lambda d: d.paragraph("Siegelblock"))
+        for i in range(200):
+            doc.paragraph(f"Zeile {i}")
+        with translation.override("de"):
+            data = doc.render()
+        self.assertTrue(data.startswith(b"%PDF"))
+        pages = self._texts(data)
+        self.assertGreater(len(pages), 1)
+        text = "\n".join(pages)
+        for needle in ("fett", "A", "B", "X", "Link", "https://x.org", "Siegelblock", "Punkt 2", "Links"):
+            self.assertIn(needle, text)
+        self.assertIn("Seite 1 von", pages[0])
+        self.assertIn(f"Seite {len(pages)} von {len(pages)}", pages[-1])
+
+    def test_english_footer(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("T")
+        doc.paragraph("x")
+        with translation.override("en"):
+            data = doc.render()
+        self.assertIn("Page 1 of 1", self._texts(data)[0])
+
+    def test_html_to_flowables_survives_messy_html(self):
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        from .pdf import html_to_flowables
+        styles = getSampleStyleSheet()
+        messy = ('<h1>H</h1><blockquote>Zitat</blockquote><p><b>a<i>b</b>c</i> <u>u</u> <s>s</s> <del>d</del></p>'
+                 '<ul><li>eins<ul><li>innen</li></ul></li></ul><div><span>lose</span></div>'
+                 '<script>x</script><p>1 < 2 & 3</p></b></p><br>Rest')
+        flowables = html_to_flowables(messy, styles)
+        self.assertTrue(flowables)
+        from .pdf import PdfDocument
+        doc = PdfDocument("T")
+        doc.rich(messy)
+        text = "\n".join(self._texts(doc.render()))
+        for needle in ("Zitat", "innen", "lose", "Rest", "1 < 2 & 3"):
+            self.assertIn(needle, text)

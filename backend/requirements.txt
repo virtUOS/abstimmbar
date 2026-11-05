@@ -28,3 +28,5 @@ django-modeltranslation==0.20.6
 pypdf==6.21.1
 python-pptx==1.0.2
 odfpy==1.4.1
+# PDF generation for downloadable documents (ADR-0008); same pin as Kalkulierbar.
+reportlab==4.4.4
