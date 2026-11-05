@@ -14,11 +14,13 @@ import {
   ChevronDown,
   Copy,
   Download,
+  FileText,
   FlaskConical,
   KeyRound,
   Pencil,
   Play,
   Presentation,
+  ShieldCheck,
   SquareStop,
   Trash2,
   UserRoundCheck,
@@ -459,22 +461,51 @@ export default function MeetingPanel({
           </p>
         )}
         {ended && (
-          <p
-            data-testid="meeting-ended-note"
-            className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300"
-          >
-            {meeting.ended_at
-              ? t("The meeting ended on {{date}}.", { date: longDate(meeting.ended_at) })
-              : t("The meeting has ended.")}{" "}
-            {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}{" "}
-            <Link
-              to={`/sets/${meeting.id}/protocol`}
-              data-testid="protocol-link"
-              className="font-medium text-brand-700 underline dark:text-brand-300"
+          <div className="grid gap-3">
+            <p
+              data-testid="meeting-ended-note"
+              className="text-sm text-slate-600 dark:text-slate-400"
             >
-              {t("View protocol")}
-            </Link>
-          </p>
+              {meeting.ended_at
+                ? t("The meeting ended on {{date}}.", { date: longDate(meeting.ended_at) })
+                : t("The meeting has ended.")}{" "}
+              {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}
+            </p>
+            <div
+              data-testid="protocol-card"
+              className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-900 dark:bg-brand-950/30"
+            >
+              <span
+                aria-hidden
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-sm dark:bg-slate-900 dark:text-brand-300"
+              >
+                <FileText className="h-5 w-5" />
+              </span>
+              <div className="min-w-[10rem] flex-1">
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{t("Protocol")}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  {t("Results, attendance and seals of this meeting — ready to print or save as PDF.")}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to={`/sets/${meeting.id}/protocol`}
+                  data-testid="protocol-link"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+                >
+                  <FileText aria-hidden className="h-4 w-4" />
+                  {t("View protocol")}
+                </Link>
+                <Link
+                  to={`/rooms/${set.room}/seals`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <ShieldCheck aria-hidden className="h-4 w-4" />
+                  {t("Check seal")}
+                </Link>
+              </div>
+            </div>
+          </div>
         )}
         <ErrorText text={stateError} />
       </div>
