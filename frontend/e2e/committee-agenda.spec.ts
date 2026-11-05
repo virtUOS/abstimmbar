@@ -150,7 +150,12 @@ test('agenda: TOPs, spontaneous resolution, en bloc vote', async ({ page, browse
   await expect(top3.getByTestId('top-note')).toBeVisible();
   await top3.getByRole('button', { name: 'Notiz bearbeiten' }).click();
   await top3.getByLabel('Notiz für das Protokoll').fill('');
+  // Wait for the server to delete the note before the meeting ends.
+  const cleared = page.waitForResponse(
+    (r) => r.url().includes(`/api/meetings/${meeting.id}/notes/`) && r.request().method() === 'PUT',
+  );
   await top3.getByRole('button', { name: 'Speichern', exact: true }).click();
+  expect((await cleared).ok()).toBeTruthy();
   await expect(top3.getByTestId('top-note')).toHaveCount(0);
 
   await anna.context.close();
