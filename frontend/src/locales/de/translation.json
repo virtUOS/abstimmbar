@@ -1574,7 +1574,6 @@
   "Finding: adopted": "Feststellung: angenommen",
   "Finding: rejected": "Feststellung: abgelehnt",
   "Fingerprint": "Fingerabdruck",
-  "Verification: Abstimmbar → Room → Check seal": "Prüfung: Abstimmbar → Raum → Siegel prüfen",
   "Vote: {{start}}–{{end}}": "Abstimmung: {{start}}–{{end}}",
   "Fingerprint of the finding": "Fingerabdruck der Feststellung",
   "Start test run": "Testlauf starten",
@@ -1587,5 +1586,18 @@
   "More meeting actions": "Weitere Sitzungsaktionen",
   "The meeting can only start once the agenda has at least one TOP with a vote. Add a vote with “New question”.": "Die Sitzung kann erst beginnen, wenn die Tagesordnung mindestens einen TOP mit einer Abstimmung hat. Fügen Sie eine Abstimmung über „Neue Frage“ hinzu.",
   "Editing TOPs: use “+ TOP here” to insert a TOP, click a name to rename it, drag by the handle to move it. Drag votes below the matching TOP.": "TOPs bearbeiten: Mit „+ TOP hier“ einen TOP einfügen, Namen anklicken zum Umbenennen, per Griff verschieben. Abstimmungen unter den passenden TOP ziehen.",
-  "Results, attendance and seals of this meeting — ready to print or save as PDF.": "Ergebnisse, Anwesenheit und Siegel dieser Sitzung – zum Drucken oder als PDF speichern."
+  "Results, attendance and seals of this meeting — ready to print or save as PDF.": "Ergebnisse, Anwesenheit und Siegel dieser Sitzung – zum Drucken oder als PDF speichern.",
+  "What does this page do?": "Wozu dient diese Seite?",
+  "When a vote is closed, Abstimmbar seals its result: it computes a fingerprint from the result and links it to the previous seal of this room, like a chain. Every later change to a stored result changes its fingerprint — so you can check whether a result in a protocol is still exactly what was decided.": "Wenn eine Abstimmung geschlossen wird, versiegelt Abstimmbar ihr Ergebnis: Es berechnet daraus einen Fingerabdruck und verknüpft ihn mit dem vorigen Siegel dieses Raums – wie eine Kette. Jede spätere Änderung an einem gespeicherten Ergebnis verändert seinen Fingerabdruck. So lässt sich prüfen, ob ein Ergebnis im Protokoll noch genau dem entspricht, was beschlossen wurde.",
+  "Take the reference of a vote from the protocol, e.g. “G42-20261104-TOP3a” (in the protocol you can also click it).": "Übernehmen Sie die Kennung einer Abstimmung aus dem Protokoll, z. B. „G42-20261104-TOP3a“ (im Protokoll können Sie sie auch anklicken).",
+  "Optional: enter the fingerprint printed next to it — at least the first 16 characters. This also checks that the printed protocol matches the stored result.": "Optional: Geben Sie den daneben stehenden Fingerabdruck ein – mindestens die ersten 16 Zeichen. Dann wird auch geprüft, ob das gedruckte Protokoll zum gespeicherten Ergebnis passt.",
+  "Click “Check”.": "Klicken Sie auf „Prüfen“.",
+  "What the results mean:": "Was die Ergebnisse bedeuten:",
+  "“Matches the seal”: the stored result is unchanged.": "„Stimmt mit dem Siegel überein“: Das gespeicherte Ergebnis ist unverändert.",
+  "“Changed after sealing”: the stored data no longer matches — please inform the administrators.": "„Nach dem Versiegeln verändert“: Die gespeicherten Daten passen nicht mehr – bitte informieren Sie die Administration.",
+  "“Discarded”: the vote was reset and repeated; the repeated vote has its own reference ending in “-W2”.": "„Verworfen“: Die Abstimmung wurde zurückgesetzt und wiederholt; die Wiederholung hat eine eigene Kennung mit der Endung „-W2“.",
+  "“Chain intact”: no seal of this room has been removed or altered.": "„Kette intakt“: Kein Siegel dieses Raums wurde entfernt oder verändert.",
+  "Seal": "Siegel",
+  "Every result in this protocol is sealed. With its reference and fingerprint, anyone managing the room can check under Abstimmbar → Room → “Check seal” whether the result was changed afterwards.": "Jedes Ergebnis in diesem Protokoll ist versiegelt. Mit Kennung und Fingerabdruck können die Verwaltenden des Raums unter Abstimmbar → Raum → „Siegel prüfen“ nachprüfen, ob das Ergebnis nachträglich verändert wurde.",
+  "No seal: this vote was closed before seals were introduced.": "Kein Siegel: Diese Abstimmung wurde geschlossen, bevor es Siegel gab."
 }

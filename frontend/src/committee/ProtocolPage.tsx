@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router";
-import { Printer } from "lucide-react";
+import { Printer, ShieldCheck } from "lucide-react";
 import { RichText } from "@basicbar/ui";
 import {
   api,
@@ -224,7 +224,7 @@ export default function ProtocolPage() {
           </section>
 
           <p className="border-t border-slate-200 pt-3 text-xs text-slate-500 dark:border-slate-800 dark:text-slate-400">
-            {t("Verification: Abstimmbar → Room → Check seal")}
+            {t("Every result in this protocol is sealed. With its reference and fingerprint, anyone managing the room can check under Abstimmbar → Room → “Check seal” whether the result was changed afterwards.")}
           </p>
         </article>
       )}
@@ -347,8 +347,20 @@ function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null
               {item.finding === "adopted" ? t("Finding: adopted") : t("Finding: rejected")}
             </p>
           )}
+          {!item.reference && item.result && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {t("No seal: this vote was closed before seals were introduced.")}
+            </p>
+          )}
           {item.reference && (
-            <div className={`grid gap-0.5 border-t border-slate-100 pt-2 text-xs dark:border-slate-800 ${muted}`}>
+            <div
+              data-testid="protocol-seal"
+              className="grid gap-0.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 break-inside-avoid dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
+            >
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                <ShieldCheck aria-hidden className="h-4 w-4" />
+                {t("Seal")}
+              </p>
               <p>
                 {t("Reference")}:{" "}
                 {roomId ? (
@@ -362,18 +374,18 @@ function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null
                   <span className="font-mono">{item.reference}</span>
                 )}
               </p>
+              {item.fingerprint && (
+                <p>
+                  {t("Fingerprint")}:{" "}
+                  <span className="break-all font-mono">{fingerprintBlocks(item.fingerprint)}</span>
+                </p>
+              )}
               {item.finding_fingerprint && (
                 <p>
                   {t("Fingerprint of the finding")}:{" "}
                   <span className="break-all font-mono">
                     {fingerprintBlocks(item.finding_fingerprint)}
                   </span>
-                </p>
-              )}
-              {item.fingerprint && (
-                <p>
-                  {t("Fingerprint")}:{" "}
-                  <span className="break-all font-mono">{fingerprintBlocks(item.fingerprint)}</span>
                 </p>
               )}
             </div>
