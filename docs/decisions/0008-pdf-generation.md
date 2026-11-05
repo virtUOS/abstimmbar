@@ -13,9 +13,14 @@ bestehen. ADR-0001 verlangt für jede neue Dependency eine Begründung.
 
 1. **reportlab** (`reportlab==4.4.4`, wie in Kalkulierbar, dort ADR-0031):
    reine Python-Bibliothek ohne Systempakete oder Headless-Browser, erzeugt
-   das PDF serverseitig und deterministisch; eingebaute Helvetica genügt
-   (WinAnsi deckt Deutsch inkl. „“ – ab; Zeichen außerhalb werden durch „?“
-   ersetzt, statt das Rendern abzubrechen).
+   das PDF serverseitig und deterministisch.
+   **Schrift: gebündelte Plus Jakarta Sans** (SIL Open Font License 1.1;
+   TTFs und `OFL.txt` in `backend/common/fonts/`, im Image enthalten). Die
+   eingebaute Helvetica (WinAnsi) scheiterte an Namen wie „Şahin“, „Łukasz“,
+   „Dvořák“. Abgedeckt ist lateinische Schrift inkl. Erweiterungen sowie
+   „ „ “ – › • → €“; **nicht** abgedeckt sind Griechisch, Kyrillisch, CJK und
+   Emoji – solche Zeichen werden durch „?“ ersetzt (`safe_text` prüft gegen die
+   Zeichentabelle der Schrift), statt das Rendern abzubrechen.
 2. **Generischer Rahmen in `backend/common/pdf.py`** (`PdfDocument`,
    `html_to_flowables`, `safe_text`): Überschriften, Absätze, Editor-HTML,
    Listen, Tabellen, Kästen und eine Fußzeile „Seite x von y“ (zweiphasiger

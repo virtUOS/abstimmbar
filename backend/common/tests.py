@@ -920,6 +920,18 @@ class PdfFrameTests(SimpleTestCase):
         from .pdf import safe_text
         self.assertEqual(safe_text("a😀"), "a?")
         self.assertEqual(safe_text("Grüße „x“ – ok"), "Grüße „x“ – ok")
+        self.assertEqual(safe_text("αβ\n x"), "??\n x")
+
+    def test_extended_latin_renders_with_bundled_font(self):
+        from .pdf import PdfDocument
+        doc = PdfDocument("t", footer_left="Dvořák")
+        doc.paragraph("Şahin Łukasz Dvořák → € ğ ı ß")
+        doc.rich("<p><b>Şahin</b> <i>Łukasz</i> Greek αβ emoji 😀</p>")
+        data = doc.render()
+        text = "\n".join(self._texts(data))
+        for needle in ("Şahin Łukasz Dvořák → € ğ ı ß", "Greek ?? emoji ?"):
+            self.assertIn(needle, text)
+        self.assertIn(b"PlusJakartaSans", data)
 
     def test_render_document_with_all_flowables(self):
         from .pdf import PdfDocument

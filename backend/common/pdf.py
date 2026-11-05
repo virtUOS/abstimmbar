@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
-"""Generic PDF frame for downloadable documents (reportlab, built-in Helvetica).
+"""Generic PDF frame for downloadable documents (reportlab, bundled Plus Jakarta Sans).
 
 Deliberately free of app imports (only Django, stdlib and reportlab): it is meant to move into
 the shared basicbar packages later (ADR-0008).
 """
 import re
+from pathlib import Path
 from collections.abc import Callable
 from html.parser import HTMLParser
 from io import BytesIO
@@ -17,6 +18,8 @@ from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm as MM
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas
 from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
@@ -29,9 +32,30 @@ SKIP_CONTENT = {"script", "style"}
 TABLE_TAGS = {"table", "thead", "tbody", "tfoot", "tr"}
 
 
+FONT = "PlusJakartaSans"
+FONT_BOLD = FONT + "-Bold"
+FONT_DIR = Path(__file__).resolve().parent / "fonts"
+_FONT_FILES = {FONT: "Regular", FONT_BOLD: "Bold", FONT + "-Italic": "Italic", FONT + "-BoldItalic": "BoldItalic"}
+_covered: set[int] = set()
+
+
+def _register_fonts():
+    """Register the bundled TTFs once (idempotent) and remember which code points the font has."""
+    if _covered:
+        return
+    for name, style in _FONT_FILES.items():
+        pdfmetrics.registerFont(TTFont(name, FONT_DIR / f"PlusJakartaSans-{style}.ttf"))
+    pdfmetrics.registerFontFamily(FONT, normal=FONT, bold=FONT_BOLD, italic=FONT + "-Italic",
+                                  boldItalic=FONT + "-BoldItalic")
+    _covered.update(pdfmetrics.getFont(FONT).face.charToGlyph)
+
+
+_register_fonts()
+
+
 def safe_text(text: str) -> str:
-    """Helvetica covers WinAnsi (cp1252) only; everything else becomes "?"."""
-    return str(text).encode("cp1252", errors="replace").decode("cp1252")
+    """Characters the bundled font lacks (Greek, Cyrillic, CJK, emoji, ...) become "?"."""
+    return "".join(c if c.isspace() or ord(c) in _covered else "?" for c in str(text))
 
 
 def _markup(text: str) -> str:
@@ -40,21 +64,21 @@ def _markup(text: str) -> str:
 
 def make_styles() -> dict:
     base = getSampleStyleSheet()["Normal"]
-    normal = ParagraphStyle("n", parent=base, fontName="Helvetica", fontSize=10, leading=13.5, spaceAfter=3)
+    normal = ParagraphStyle("n", parent=base, fontName=FONT, fontSize=10, leading=13.5, spaceAfter=3)
     styles = {
         "normal": normal,
         "small": ParagraphStyle("s", parent=normal, fontSize=8.5, leading=11),
-        "bold": ParagraphStyle("b", parent=normal, fontName="Helvetica-Bold"),
+        "bold": ParagraphStyle("b", parent=normal, fontName=FONT_BOLD),
         "muted": ParagraphStyle("m", parent=normal, fontSize=8.5, leading=11, textColor=colors.HexColor("#666666")),
-        "h1": ParagraphStyle("h1", parent=normal, fontName="Helvetica-Bold", fontSize=18, leading=22,
+        "h1": ParagraphStyle("h1", parent=normal, fontName=FONT_BOLD, fontSize=18, leading=22,
                              spaceBefore=4, spaceAfter=6),
-        "h2": ParagraphStyle("h2", parent=normal, fontName="Helvetica-Bold", fontSize=15, leading=18,
+        "h2": ParagraphStyle("h2", parent=normal, fontName=FONT_BOLD, fontSize=15, leading=18,
                              spaceBefore=14, spaceAfter=5),
-        "h3": ParagraphStyle("h3", parent=normal, fontName="Helvetica-Bold", fontSize=12, leading=15,
+        "h3": ParagraphStyle("h3", parent=normal, fontName=FONT_BOLD, fontSize=12, leading=15,
                              spaceBefore=8, spaceAfter=2),
         "quote": ParagraphStyle("q", parent=normal, leftIndent=10, textColor=colors.HexColor("#444444")),
         "cell": ParagraphStyle("c", parent=normal, fontSize=9, leading=11.5, spaceAfter=0),
-        "cell_head": ParagraphStyle("ch", parent=normal, fontName="Helvetica-Bold", fontSize=9, leading=11.5,
+        "cell_head": ParagraphStyle("ch", parent=normal, fontName=FONT_BOLD, fontSize=9, leading=11.5,
                                     spaceAfter=0),
     }
     return styles
@@ -236,7 +260,7 @@ def _numbered_canvas(footer_left: str):
             for state in self._pages:
                 self.__dict__.update(state)
                 width, _height = self._pagesize
-                self.setFont("Helvetica", 8)
+                self.setFont(FONT, 8)
                 self.setFillColor(colors.HexColor("#555555"))
                 self.drawString(MARGIN, 10 * MM, left)
                 self.drawRightString(width - MARGIN, 10 * MM,

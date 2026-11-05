@@ -203,10 +203,9 @@ def render(meeting: QuestionSet) -> bytes:
             _item(doc, item)
     doc.spacer(mm=2)
     doc.paragraph(
-        # Helvetica has no arrow glyph
         _("Every result in this protocol is sealed. With its reference and fingerprint, anyone "
           "managing the room can check under Abstimmbar → Room → “Check seal” whether the result "
-          "was changed afterwards.").replace("→", "›"),
+          "was changed afterwards."),
         style="muted",
     )
     return doc.render()
