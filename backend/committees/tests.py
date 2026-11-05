@@ -3339,6 +3339,10 @@ class ProtocolPdfTests(BallotBase):
         bundle = ballots.open_bundle(self.meeting, [r4, r5])
         self.vote(self.anna, bundle, {"choice": "yes"})
         ballots.close_ballot(bundle)
+        never = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Nie", position=6,
+        )
+        versions.sync(never)
         Section.objects.create(question_set=self.meeting, title_de="Verschiedenes", position=9)
         self.end()
         return ballot
@@ -3358,7 +3362,7 @@ class ProtocolPdfTests(BallotBase):
             "Sitzung", "Anwesenheit", "TOP 1", "Feststellung: angenommen",
             "Abstimmung wiederholt (Durchgang 1)", "En bloc abgestimmt mit TOP",
             "Namentliche Abstimmung", "Kennung", "Kein Siegel", "Verschiedenes", "Seite 1 von",
-            "Beobachtende", "Hallo Welt", "Ja:",
+            "Beobachtende", "Hallo Welt", "Ja:", "Nicht abgestimmt",
         ):
             self.assertIn(expected, text)
         fingerprint = SealLink.objects.get(ballot=ballot, kind="result").hash

@@ -9,7 +9,7 @@ from datetime import datetime
 
 from django.utils import formats, timezone
 from django.utils.text import slugify
-from django.utils.translation import get_language, gettext as _
+from django.utils.translation import get_language, gettext as _, gettext_lazy
 
 from common.i18n_fields import translated_map
 from common.pdf import PdfDocument
@@ -19,7 +19,10 @@ from . import protocol
 from .models import MeetingControl
 from .payloads import _canonical
 
-FIXED_KEYS = {"yes": "Yes", "no": "No", "abstain": "Abstention", "text": "Answers"}
+FIXED_KEYS = {
+    "yes": gettext_lazy("Yes"), "no": gettext_lazy("No"),
+    "abstain": gettext_lazy("Abstention"), "text": gettext_lazy("Answers"),
+}
 
 
 def _local(value: str | None):
@@ -51,15 +54,14 @@ def _fingerprint(hash_: str) -> str:
 
 
 def _label(item: dict, key: str) -> str:
-    if key == "abstain":
-        return _("Abstention")
     if key in FIXED_KEYS:
-        return _(FIXED_KEYS[key])
+        return str(FIXED_KEYS[key])
     return next((o["text"] for o in item["options"] if o["key"] == key), key)
 
 
 def _item(doc: PdfDocument, item: dict) -> None:
     def build(doc: PdfDocument) -> None:
+        doc.rule()
         doc.paragraph(_("TOP %(number)s") % {"number": item["label"]}, style="bold")
         doc.rich(item["text"])
         if item["version_changed"] and item["version"]:
@@ -194,7 +196,7 @@ def render(meeting: QuestionSet) -> bytes:
     doc.heading(_("Agenda"), 2)
     for top in data["tops"]:
         if top["title"]:
-            doc.heading(_("TOP %(number)s") % {"number": top["number"]} + f": {top['title']}", 3)
+            doc.heading(_("TOP %(number)s") % {"number": top["number"]} + f" – {top['title']}", 3)
             if top["description"]:
                 doc.rich(top["description"])
         for item in top["items"]:
@@ -204,7 +206,7 @@ def render(meeting: QuestionSet) -> bytes:
         # Helvetica has no arrow glyph
         _("Every result in this protocol is sealed. With its reference and fingerprint, anyone "
           "managing the room can check under Abstimmbar → Room → “Check seal” whether the result "
-          "was changed afterwards.").replace("→", ">"),
+          "was changed afterwards.").replace("→", "›"),
         style="muted",
     )
     return doc.render()

@@ -18,7 +18,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm as MM
 from reportlab.pdfgen import canvas
-from reportlab.platypus import KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 MARGIN = 20 * MM
 INLINE_TAGS = {"strong": "b", "b": "b", "em": "i", "i": "i", "u": "u", "s": "strike", "del": "strike",
@@ -46,10 +46,10 @@ def make_styles() -> dict:
         "muted": ParagraphStyle("m", parent=normal, fontSize=8.5, leading=11, textColor=colors.HexColor("#666666")),
         "h1": ParagraphStyle("h1", parent=normal, fontName="Helvetica-Bold", fontSize=18, leading=22,
                              spaceBefore=4, spaceAfter=6, keepWithNext=1),
-        "h2": ParagraphStyle("h2", parent=normal, fontName="Helvetica-Bold", fontSize=13, leading=16,
-                             spaceBefore=10, spaceAfter=4, keepWithNext=1),
-        "h3": ParagraphStyle("h3", parent=normal, fontName="Helvetica-Bold", fontSize=11, leading=14,
-                             spaceBefore=6, spaceAfter=2, keepWithNext=1),
+        "h2": ParagraphStyle("h2", parent=normal, fontName="Helvetica-Bold", fontSize=15, leading=18,
+                             spaceBefore=14, spaceAfter=5, keepWithNext=1),
+        "h3": ParagraphStyle("h3", parent=normal, fontName="Helvetica-Bold", fontSize=12, leading=15,
+                             spaceBefore=8, spaceAfter=2, keepWithNext=1),
         "quote": ParagraphStyle("q", parent=normal, leftIndent=10, textColor=colors.HexColor("#444444")),
         "cell": ParagraphStyle("c", parent=normal, fontSize=9, leading=11.5, spaceAfter=0),
         "cell_head": ParagraphStyle("ch", parent=normal, fontName="Helvetica-Bold", fontSize=9, leading=11.5,
@@ -260,6 +260,11 @@ class PdfDocument:
             style.append(("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")))
         table.setStyle(TableStyle(style))
         self._add(table, Spacer(1, 2 * MM))
+
+    def rule(self):
+        """Thin horizontal separator line."""
+        self._add(HRFlowable(width="100%", thickness=0.5, color=colors.HexColor("#c8c8c8"),
+                             spaceBefore=2 * MM, spaceAfter=2 * MM))
 
     def spacer(self, mm: float = 3):
         self._add(Spacer(1, mm * MM))
