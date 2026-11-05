@@ -317,6 +317,13 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 
 @transaction.atomic
 def start_meeting(meeting: QuestionSet, trial: bool = False) -> QuestionSet:
+    # A meeting without anything to vote on is not a committee session in
+    # Abstimmbar's sense (we are no committee management system).
+    if not meeting.questions.exists():
+        raise ValidationError(
+            "Add at least one agenda item with a vote before starting.",
+            code="empty_agenda",
+        )
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
     snapshot = None
     if trial:

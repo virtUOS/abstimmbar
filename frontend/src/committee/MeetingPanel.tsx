@@ -36,7 +36,15 @@ import {
   type QuestionSet,
   type Section,
 } from "../api";
-import { Button, ConfirmDialog, Field, Select, ToggleSwitch } from "../components/ui";
+import {
+  Button,
+  ConfirmDialog,
+  Field,
+  MenuItem,
+  MoreMenu,
+  Select,
+  ToggleSwitch,
+} from "../components/ui";
 import { agendaLabels } from "./agendaLabels";
 import { MeetingDateInput, STATE_BADGE, STATE_LABEL } from "./MeetingList";
 
@@ -125,6 +133,9 @@ function Collapsible({
   );
 }
 
+const EMPTY_AGENDA_HINT =
+  "The meeting can only start once the agenda has at least one TOP with a vote. Add a vote with “New question”.";
+
 export default function MeetingPanel({
   set,
   questions,
@@ -139,6 +150,8 @@ export default function MeetingPanel({
   onSetChange: (set: QuestionSet) => void;
 }) {
   const { t, i18n } = useTranslation();
+  // Nothing to vote on: not a meeting Abstimmbar can run (the backend refuses too).
+  const emptyAgenda = questions.length === 0;
   const [meeting, setMeeting] = useState<MeetingSummary | null>(null);
   const [groups, setGroups] = useState<CommitteeGroup[]>([]);
   const [members, setMembers] = useState<CommitteeMember[]>([]);
@@ -374,7 +387,8 @@ export default function MeetingPanel({
             {state === "draft" && (
               <Button
                 variant="primary"
-                disabled={busy}
+                disabled={busy || emptyAgenda}
+                title={emptyAgenda ? t(EMPTY_AGENDA_HINT) : undefined}
                 onClick={() =>
                   offSchedule(meeting.scheduled_at) ? setConfirmStart(true) : void begin()
                 }
@@ -384,17 +398,13 @@ export default function MeetingPanel({
                 {t("Start meeting")}
               </Button>
             )}
-            {state === "draft" && (
-              <Button
-                variant="secondary"
-                disabled={busy}
-                data-testid="start-trial"
-                onClick={() => setConfirmTrial(true)}
-                className="inline-flex items-center gap-1.5"
-              >
-                <FlaskConical aria-hidden className="h-4 w-4" />
-                {t("Start test run")}
-              </Button>
+            {state === "draft" && !emptyAgenda && !busy && (
+              <MoreMenu label={t("More meeting actions")} align="left">
+                <MenuItem onClick={() => setConfirmTrial(true)}>
+                  <FlaskConical aria-hidden className="h-4 w-4" />
+                  <span data-testid="start-trial">{t("Start test run")}</span>
+                </MenuItem>
+              </MoreMenu>
             )}
             {state === "started" && (
               <Link
@@ -418,6 +428,14 @@ export default function MeetingPanel({
             )}
           </div>
         </div>
+        {state === "draft" && emptyAgenda && (
+          <p
+            data-testid="start-blocked-hint"
+            className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            {t(EMPTY_AGENDA_HINT)}
+          </p>
+        )}
         {editingDate && (
           <div className="flex flex-wrap items-end gap-2">
             <MeetingDateInput value={dateDraft} onChange={setDateDraft} />

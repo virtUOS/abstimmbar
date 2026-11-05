@@ -425,9 +425,17 @@ class MeetingFixture:
         )
 
 
+def add_vote(meeting):
+    """A meeting can only start with at least one item to vote on."""
+    return Question.objects.create(
+        question_set=meeting, kind="resolution", text_de="Antrag", position=1,
+    )
+
+
 class MeetingServiceTests(MeetingFixture, TestCase):
     def setUp(self):
         self.make_fixture()
+        add_vote(self.meeting)
 
     def test_start_marks_connected_invites_entered(self):
         from .presence import presence
@@ -680,6 +688,7 @@ class MeetingApiTests(MeetingFixture, ApiBase):
     def setUp(self):
         super().setUp()
         self.make_fixture(room=self.room)
+        add_vote(self.meeting)
         self.base = f"/api/meetings/{self.meeting.pk}/"
 
     def test_foreign_user_404(self):
@@ -732,6 +741,16 @@ class MeetingApiTests(MeetingFixture, ApiBase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["meeting_state"], "ended")
         self.assertEqual(self.client.post(self.base + "end/").status_code, 400)
+
+    def test_start_needs_an_item_with_a_vote(self):
+        self.meeting.questions.all().delete()
+        Section.objects.create(question_set=self.meeting, title_de="Bericht", position=1)
+        for body in ({}, {"trial": True}):
+            r = self.client.post(self.base + "start/", body, format="json")
+            self.assertEqual(r.status_code, 400)
+            self.assertEqual(r.json()["code"], "empty_agenda")
+        self.meeting.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_state, "draft")
 
     def test_start_and_end_times(self):
         data = self.client.get(self.base).json()
