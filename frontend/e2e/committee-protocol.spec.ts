@@ -95,8 +95,8 @@ test('protocol and seal: finding, repeated vote, verification', async ({ page, b
   await first.getByRole('button', { name: 'Abstimmung öffnen' }).click();
   await expect(page.getByTestId('beamer-progress')).toHaveText('0 von 2 haben abgestimmt');
   await voteYes(anna);
-  await voteYes(ben);
-  await first.getByRole('button', { name: 'Abstimmung schließen' }).click();
+  // Ben is the last voter: the vote closes automatically.
+  await ben.p.getByRole('button', { name: 'Ja', exact: true }).click();
   await expect(page.getByTestId('beamer-result')).toBeVisible();
   await expect(page.getByTestId('beamer-finding')).toHaveCount(0);
   await first.getByRole('group', { name: 'Feststellung' }).getByRole('button', { name: 'Angenommen' }).click();
@@ -115,8 +115,7 @@ test('protocol and seal: finding, repeated vote, verification', async ({ page, b
   await second.getByRole('button', { name: 'Abstimmung öffnen' }).click();
   await expect(anna.p.getByRole('button', { name: 'Ja', exact: true })).toBeVisible();
   await voteYes(anna);
-  await voteYes(ben);
-  await second.getByRole('button', { name: 'Abstimmung schließen' }).click();
+  await ben.p.getByRole('button', { name: 'Ja', exact: true }).click();
   await expect(page.getByTestId('beamer-result')).toBeVisible();
 
   // 3. End the meeting; the room overview links to the protocol.
@@ -189,9 +188,7 @@ test('test run leaves no trace', async ({ page, browser, trackRoom }) => {
   await item.getByRole('button', { name: 'Abstimmung öffnen' }).click();
   await annaPage.reload();
   await annaPage.getByRole('button', { name: 'Ja', exact: true }).click();
-  await expect(annaPage.getByText('Ihre Stimme ist abgegeben.')).toBeVisible();
-  await expect(consolePage.getByTestId('beamer-progress')).toHaveText('1 von 1 haben abgestimmt');
-  await item.getByRole('button', { name: 'Abstimmung schließen' }).click();
+  // The only voter closes the vote automatically.
   await expect(consolePage.getByTestId('beamer-result')).toBeVisible();
   // A test run records no findings.
   await expect(item.getByRole('group', { name: 'Feststellung' })).toHaveCount(0);

@@ -124,8 +124,7 @@ test('agenda: TOPs, spontaneous resolution, en bloc vote', async ({ page, browse
 
   // 7. Anna votes yes; closing the vote closes both resolutions.
   await anna.p.getByRole('button', { name: 'Ja', exact: true }).click();
-  await expect(anna.p.getByText('Ihre Stimme ist abgegeben.')).toBeVisible();
-  await page.getByRole('button', { name: 'Abstimmung schließen' }).click();
+  // The only voter closes the vote automatically.
   await expect(page.getByTestId('beamer-result').first()).toBeVisible();
   await expect(items.nth(0)).toContainText('Der Haushalt wird genehmigt.');
   await expect(page.getByRole('button', { name: 'Abstimmung schließen' })).toHaveCount(0);

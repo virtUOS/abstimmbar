@@ -227,6 +227,8 @@ class Ballot(models.Model):
     closed_at = models.DateTimeField(null=True, blank=True)
     result = models.JSONField(null=True, blank=True)
     texts_released = models.BooleanField(default=False)
+    # Closed because every seat holder had voted (a closing mode, not sealed).
+    closed_automatically = models.BooleanField(default=False)
     discard_reason = models.CharField(
         max_length=10, choices=DiscardReason.choices, blank=True,
     )

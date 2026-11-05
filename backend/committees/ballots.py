@@ -271,6 +271,11 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
         NamedVote.objects.create(
             ballot=ballot, member_id=invite.member_id, answer={"keys": keys, "text": text},
         )
+    if not ballot.seats.filter(voted=False).exists():
+        # Everyone has voted: close under the lock already held (the close
+        # notifies immediately, so the final state is never debounced away).
+        close_ballot(ballot, automatic=True)
+        return
     # Progress only (voted/eligible); a burst of votes becomes one event.
     _notify(invite.meeting, debounce=True)
 
@@ -304,7 +309,7 @@ def _collect(ballot: Ballot) -> tuple[dict[int, dict], int]:
 
 
 @transaction.atomic
-def close_ballot(ballot: Ballot) -> Ballot:
+def close_ballot(ballot: Ballot, *, automatic: bool = False) -> Ballot:
     abort_stale(ballot.question.question_set)
     locked = _locked(ballot.pk)
     if locked is None or locked.status != Ballot.Status.OPEN:
@@ -346,7 +351,8 @@ def close_ballot(ballot: Ballot) -> Ballot:
     }
     ballot.status = Ballot.Status.CLOSED
     ballot.closed_at = timezone.now()
-    ballot.save(update_fields=["result", "status", "closed_at"])
+    ballot.closed_automatically = automatic
+    ballot.save(update_fields=["result", "status", "closed_at", "closed_automatically"])
     seals.append(ballot, "result")
     if ballot.secret:
         pk = ballot.pk

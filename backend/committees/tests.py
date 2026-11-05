@@ -1607,9 +1607,12 @@ class BallotFlowTests(BallotBase):
         self.assertEqual(ballot.status, Ballot.Status.OPEN)
         self.assertIsNone(ballot.result)
         self.assertTrue(ballots.secret_tally.has(ballot.pk))
-        self.vote(self.bert, ballot, {"choice": "abstain"})
+        # The last vote closes the ballot automatically.
         with self.captureOnCommitCallbacks(execute=True):
-            result = ballots.close_ballot(ballot).result
+            self.vote(self.bert, ballot, {"choice": "abstain"})
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        result = ballot.result
         self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 1, "abstain": 1})
         self.assertEqual((result["voted"], result["tally_sum"]), (3, 3))
         self.assertFalse(ballots.secret_tally.has(ballot.pk))
@@ -1637,13 +1640,12 @@ class BallotFlowTests(BallotBase):
         ballot = ballots.open_ballot(self.meeting, self.q2)
         self.vote(self.anna, ballot, {"text": "  Erstens  "})
         self.vote(self.ben, ballot, {"text": "Zweitens"})
-        self.vote(self.bert, ballot, {"choice": "abstain"})
         self.assertEqual(BallotText.objects.count(), 0)
         ballot = ballots.close_ballot(ballot)
         self.assertEqual(
             sorted(BallotText.objects.values_list("text", flat=True)), ["Erstens", "Zweitens"],
         )
-        self.assertEqual(ballot.result["total"]["counts"], {"text": 2, "abstain": 1})
+        self.assertEqual(ballot.result["total"]["counts"], {"text": 2, "abstain": 0})
         self.assertTrue(ballots.release_texts(ballot).texts_released)
         resolution = ballots.close_ballot(ballots.open_ballot(self.meeting, self.q1))
         self.assertCode("invalid", ballots.release_texts, resolution)
@@ -1697,6 +1699,85 @@ def _keys(value):
     if isinstance(value, list):
         return {k for v in value for k in _keys(v)}
     return set()
+
+
+class AutoCloseTests(BallotBase):
+    def vote_all(self, ballot, upto=None):
+        members = [seat.member for seat in ballot.seats.select_related("member")]
+        for member in members[:upto]:
+            self.vote(member, ballot, {"choice": "yes"})
+        return members
+
+    def test_secret_closes_when_all_voted(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        with self.captureOnCommitCallbacks(execute=True):
+            members = self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertTrue(ballot.closed_automatically)
+        self.assertEqual(ballot.result["total"]["counts"]["yes"], len(members))
+        self.assertEqual(ballot.result["voted"], len(members))
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
+        self.assertEqual(SealLink.objects.filter(kind="result", ballot=ballot).count(), 1)
+        self.assertTrue(payloads.manager_payload(self.meeting)["item"]["ballot"]["closed_automatically"])
+
+    def test_named_closes_when_all_voted(self):
+        self.q1.named_vote = True
+        self.q1.save()
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        members = self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertTrue(ballot.closed_automatically)
+        self.assertEqual(ballot.result["total"]["counts"]["yes"], len(members))
+
+    def test_partial_stays_open(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote_all(ballot, upto=ballot.seats.count() - 1)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.OPEN)
+        self.assertFalse(ballot.closed_automatically)
+
+    def test_manual_close_is_not_automatic(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        ballots.close_ballot(ballot)
+        ballot.refresh_from_db()
+        self.assertFalse(ballot.closed_automatically)
+
+    def test_latecomer_cannot_vote_after_auto_close(self):
+        MeetingInvite.objects.filter(meeting=self.meeting, member=self.bert).update(
+            entered_at=None,
+        )
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        ballots.enter(self.invite(self.bert))
+        self.assertFalse(ballot.seats.filter(member=self.bert).exists())
+        self.assertCode("closed", self.vote, self.bert, ballot, {"choice": "yes"})
+
+    def test_last_two_votes_close_exactly_once(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        members = [seat.member for seat in ballot.seats.select_related("member")]
+        for member in members[:-2]:
+            self.vote(member, ballot, {"choice": "yes"})
+        self.vote(members[-2], ballot, {"choice": "no"})
+        self.vote(members[-1], ballot, {"choice": "yes"})
+        # A would-be simultaneous voter arriving afterwards sees it closed.
+        self.assertCode("closed", self.vote, members[-1], ballot, {"choice": "yes"})
+        self.assertEqual(SealLink.objects.filter(kind="result", ballot=ballot).count(), 1)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.result["voted"], len(members))
+
+    def test_trial_auto_closes_without_seal(self):
+        MeetingControl.objects.update_or_create(meeting=self.meeting, defaults={"trial": True})
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertTrue(ballot.closed_automatically)
+        self.assertFalse(SealLink.objects.exists())
 
 
 class PayloadTests(BallotBase):
@@ -2735,7 +2816,10 @@ class SealTests(BallotBase):
         for member, answer in (answers or [(self.anna, {"choice": "yes"})]):
             self.vote(member, ballot, answer)
         with self.captureOnCommitCallbacks(execute=True):
-            return ballots.close_ballot(ballot)
+            ballot.refresh_from_db()
+            if ballot.status == Ballot.Status.OPEN:
+                return ballots.close_ballot(ballot)
+        return ballot
 
     def expected_hash(self, link, ballot):
         content = seals.content(ballot, link.kind, link.reference)

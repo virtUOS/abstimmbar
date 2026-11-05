@@ -153,6 +153,7 @@ def _ballot_payload(ballot, question, names, order) -> dict:
         "progress": _progress(ballot, names, order),
         "result": _result(ballot, names),
         "finding": ballot.finding,
+        "closed_automatically": ballot.closed_automatically,
         "texts": _texts(ballot, order) if released else None,
     }
 
