@@ -1604,5 +1604,6 @@
   "To the meeting": "Zur Sitzung",
   "Signal tone": "Signalton",
   "Signal tone when a vote closes automatically": "Signalton, wenn eine Abstimmung automatisch schließt",
-  "Everyone has voted – the vote was closed automatically.": "Alle haben abgestimmt – die Abstimmung wurde automatisch geschlossen."
+  "Everyone has voted – the vote was closed automatically.": "Alle haben abgestimmt – die Abstimmung wurde automatisch geschlossen.",
+  "The meeting has not begun yet.": "Die Sitzung hat noch nicht begonnen."
 }

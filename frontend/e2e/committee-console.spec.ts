@@ -124,3 +124,43 @@ test('auto-close signal; console and beamer close with the meeting', async ({ pa
   await expect(direct.getByText('Die Sitzung ist beendet.')).toBeVisible();
   await expect(direct.getByRole('link', { name: 'Zur Sitzung' })).toHaveAttribute('href', `/sets/${meeting.id}`);
 });
+
+test('a draft meeting opened directly is not closed and does not announce an end', async ({ page, context, trackRoom }) => {
+  await login(page);
+  const headers = { 'X-CSRFToken': (await csrfToken(page.request)) ?? '' };
+  const api = async (method: 'get' | 'post', path: string, data?: unknown) => {
+    const response = await page.request[method](`${API_BASE_URL}${path}`, { headers, data });
+    expect(response.ok(), `${method} ${path}: ${response.status()}`).toBeTruthy();
+    return response.json();
+  };
+  const room = await api('post', '/api/rooms/', { title: 'E2E Gremium Entwurf', kind: 'committee' });
+  trackRoom(room.id);
+  const meeting = await api('post', '/api/question-sets/', {
+    room: room.id, type: 'meeting', title: 'E2E Entwurf', scheduled_at: '2030-01-15T10:00:00Z',
+  });
+  await api('post', '/api/questions/', {
+    question_set: meeting.id, kind: 'resolution', text: { de: 'Antrag' },
+  });
+
+  // The meeting page stays put: no reload, no "ended" note.
+  await page.goto(`/sets/${meeting.id}`);
+  await expect(page.getByRole('button', { name: 'Sitzung beginnen' })).toBeVisible();
+  await page.evaluate(() => { (window as unknown as { __marker: number }).__marker = 1; });
+
+  for (const path of [`/sets/${meeting.id}/meeting`, `/sets/${meeting.id}/meeting/beamer`]) {
+    const other = await context.newPage();
+    await other.addInitScript(() => {
+      (window as unknown as { __closes: number }).__closes = 0;
+      window.close = () => { (window as unknown as { __closes: number }).__closes += 1; };
+    });
+    await other.goto(path);
+    await expect(other.getByText('Die Sitzung hat noch nicht begonnen.')).toBeVisible();
+    await expect(other.getByRole('link', { name: 'Zur Sitzung' })).toBeVisible();
+    await other.waitForTimeout(600);
+    expect(await other.evaluate(() => (window as unknown as { __closes: number }).__closes)).toBe(0);
+    expect(other.isClosed()).toBe(false);
+  }
+  await page.waitForTimeout(600);
+  expect(await page.evaluate(() => (window as unknown as { __marker?: number }).__marker)).toBe(1);
+  await expect(page.getByTestId('meeting-ended-note')).toHaveCount(0);
+});

@@ -6,7 +6,6 @@
  *  the members and the substitutions (both collapsible). Shown on the set
  *  page above the agenda (the questions); an ended meeting is read-only. */
 import { useEffect, useRef, useState } from "react";
-import { onMeetingEnded } from "./meetingEnd";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import {
@@ -50,6 +49,7 @@ import {
 } from "../components/ui";
 import { agendaLabels } from "./agendaLabels";
 import { MeetingDateInput, STATE_BADGE, STATE_LABEL } from "./MeetingList";
+import { onMeetingEnded } from "./meetingEnd";
 
 const INVITE_STATE_LABEL: Record<InviteState, string> = {
   waiting: "waiting",
@@ -170,6 +170,8 @@ export default function MeetingPanel({
   const [confirmTrial, setConfirmTrial] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const setRef = useRef(set);
+  setRef.current = set;
   // The console/beamer window reports the end: reload the summary, come forward.
   useEffect(
     () =>
@@ -178,7 +180,9 @@ export default function MeetingPanel({
           .getMeeting(set.id)
           .then((summary) => {
             setMeeting(summary);
-            onSetChange({ ...set, meeting_state: summary.meeting_state });
+            const current = setRef.current;
+            if (summary.meeting_state !== current.meeting_state)
+              onSetChange({ ...current, meeting_state: summary.meeting_state });
             window.focus();
           })
           .catch(() => undefined);

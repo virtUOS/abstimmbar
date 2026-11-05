@@ -18,7 +18,7 @@ import MeetingAgenda from "./MeetingAgenda";
 import MeetingAttendance from "./MeetingAttendance";
 import { STATE_BADGE, STATE_LABEL } from "./MeetingList";
 import { useMeetingStream } from "./useMeetingStream";
-import { broadcastEnded, useCloseWhenEnded } from "./meetingEnd";
+import { useCloseWhenEnded } from "./meetingEnd";
 import { playSignal, primeSignal, readSignalEnabled, writeSignalEnabled } from "./signal";
 
 const COLLAPSED_KEY = "abstimmbar_meeting_panel_collapsed";
@@ -74,14 +74,14 @@ function FullscreenMessage({ text, error = false }: { text: string; error?: bool
   );
 }
 
-/** Shown when the meeting is over and the browser did not let the page
- *  close itself (opened directly or reloaded). */
-function EndedView({ setId }: { setId: number }) {
+/** Shown when the meeting is not running: over (also when the browser did not
+ *  let the page close itself) or not begun yet. Neither closes the window. */
+function NotRunningView({ setId, over }: { setId: number; over: boolean }) {
   const { t } = useTranslation();
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-4 bg-white p-6 text-center dark:bg-slate-950">
       <p role="status" className="text-lg text-slate-700 dark:text-slate-200">
-        {t("The meeting has ended.")}
+        {over ? t("The meeting has ended.") : t("The meeting has not begun yet.")}
       </p>
       <Link
         to={`/sets/${setId}`}
@@ -97,16 +97,15 @@ function EndedView({ setId }: { setId: number }) {
 export function MeetingBeamerWindow() {
   const setId = Number(useParams().setId);
   const { data, loadError } = useConsoleData(setId);
-  const { ended, stuck } = useCloseWhenEnded(
-    setId,
-    !!data && data.meeting.state !== "started",
-  );
+  const { ended, stuck } = useCloseWhenEnded(setId, data?.meeting.state);
   useEffect(() => {
     if (data) document.title = data.meeting.title;
   }, [data]);
-  if (ended && stuck) return <EndedView setId={setId} />;
+  if (ended && stuck) return <NotRunningView setId={setId} over />;
   if (loadError) return <FullscreenMessage text={loadError} error />;
   if (!data) return <FullscreenMessage text="" />;
+  if (!ended && data.meeting.state !== "started")
+    return <NotRunningView setId={setId} over={data.meeting.state === "ended"} />;
   return (
     <div className="h-screen">
       <MeetingBeamer data={data} />
@@ -125,11 +124,7 @@ export default function MeetingConsole() {
   const [signalOn, setSignalOn] = useState(readSignalEnabled);
   const [autoClosed, setAutoClosed] = useState(false);
   const beamerWindow = useRef<Window | null>(null);
-  const { ended, stuck } = useCloseWhenEnded(
-    setId,
-    !!data && data.meeting.state !== "started",
-    true,
-  );
+  const { ended, stuck } = useCloseWhenEnded(setId, data?.meeting.state, true);
 
   // The shown vote closing by itself (everyone voted): notice and tone.
   const shown = data?.item?.ballot ?? null;
@@ -203,7 +198,9 @@ export default function MeetingConsole() {
 
   if (loadError && !data) return <FullscreenMessage text={loadError} error />;
   if (!data) return <FullscreenMessage text="" />;
-  if (ended && stuck) return <EndedView setId={setId} />;
+  if (ended && stuck) return <NotRunningView setId={setId} over />;
+  if (!ended && data.meeting.state !== "started")
+    return <NotRunningView setId={setId} over={data.meeting.state === "ended"} />;
 
   const state = data.meeting.state;
   const panelId = "meeting-console-panel";
@@ -357,9 +354,7 @@ export default function MeetingConsole() {
           confirmLabel={data.trial ? t("End test run") : t("End meeting")}
           onConfirm={() => {
             setConfirmEnd(false);
-            void act(() => api.endMeeting(setId)).then((ok) => {
-              if (ok) broadcastEnded(setId);
-            });
+            void act(() => api.endMeeting(setId));
           }}
           onCancel={() => setConfirmEnd(false)}
         />

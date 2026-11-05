@@ -34,26 +34,29 @@ export function onMeetingEnded(setId: number, callback: () => void): () => void 
   }
 }
 
-/** Closes this window once the meeting is over (own state or a message from
- *  another window). Returns true when the window could not be closed (not
+/** Closes this window when it sees the meeting go from "started" to anything
+ *  else (end, or a test run's reset), or when another window reports it. Only
+ *  a transition seen by this page counts: the first snapshot never does, so a
+ *  stale link to a draft or finished meeting neither closes nor broadcasts.
+ *  `stuck` is true when the browser refused to close the window (not
  *  script-opened): show the ended view instead. */
-export function useCloseWhenEnded(setId: number, endedByState: boolean, focusOpener = false) {
+export function useCloseWhenEnded(setId: number, state: string | undefined, focusOpener = false) {
   const [ended, setEnded] = useState(false);
   const [stuck, setStuck] = useState(false);
-  const announced = useRef(false);
+  const previous = useRef<string | undefined>(undefined);
 
   useEffect(() => onMeetingEnded(setId, () => setEnded(true)), [setId]);
   useEffect(() => {
-    if (endedByState) setEnded(true);
-  }, [endedByState]);
+    const before = previous.current;
+    previous.current = state;
+    if (before === "started" && state !== undefined && state !== "started") {
+      setEnded(true);
+      broadcastEnded(setId);
+    }
+  }, [state, setId]);
 
   useEffect(() => {
     if (!ended) return;
-    if (!announced.current) {
-      announced.current = true;
-      broadcastEnded(setId);
-    }
-    let timer: number | undefined;
     try {
       if (focusOpener) window.opener?.focus();
     } catch {
@@ -64,9 +67,9 @@ export function useCloseWhenEnded(setId: number, endedByState: boolean, focusOpe
     } catch {
       /* refused */
     }
-    timer = window.setTimeout(() => setStuck(true), 300);
+    const timer = window.setTimeout(() => setStuck(true), 300);
     return () => window.clearTimeout(timer);
-  }, [ended, setId, focusOpener]);
+  }, [ended, focusOpener]);
 
   return { ended, stuck };
 }
