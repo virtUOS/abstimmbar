@@ -274,8 +274,14 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
     if not ballot.seats.filter(voted=False).exists():
         # Everyone has voted: close under the lock already held (the close
         # notifies immediately, so the final state is never debounced away).
-        close_ballot(ballot, automatic=True)
-        return
+        # A savepoint: if the close fails, the vote (and its tally entry)
+        # stands and the ballot stays open for a manual close.
+        try:
+            with transaction.atomic():
+                close_ballot(ballot, automatic=True)
+            return
+        except Exception:  # noqa: BLE001 - deliberately silent (§ 8: no logging of votes)
+            pass
     # Progress only (voted/eligible); a burst of votes becomes one event.
     _notify(invite.meeting, debounce=True)
 

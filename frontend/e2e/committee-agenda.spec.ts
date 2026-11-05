@@ -122,7 +122,7 @@ test('agenda: TOPs, spontaneous resolution, en bloc vote', async ({ page, browse
   await expect(header).toBeDisabled();
   await expect(header).toHaveAttribute('title', 'Es läuft noch eine andere Abstimmung.');
 
-  // 7. Anna votes yes; closing the vote closes both resolutions.
+  // 7. Anna votes yes; the automatic close covers both resolutions.
   await anna.p.getByRole('button', { name: 'Ja', exact: true }).click();
   // The only voter closes the vote automatically.
   await expect(page.getByTestId('beamer-result').first()).toBeVisible();

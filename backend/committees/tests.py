@@ -1770,6 +1770,25 @@ class AutoCloseTests(BallotBase):
         ballot.refresh_from_db()
         self.assertEqual(ballot.result["voted"], len(members))
 
+    def test_failed_auto_close_keeps_vote_and_ballot_open(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        members = [seat.member for seat in ballot.seats.select_related("member")]
+        for member in members[:-1]:
+            self.vote(member, ballot, {"choice": "yes"})
+        with mock.patch.object(
+            BallotText.objects, "bulk_create", side_effect=RuntimeError("boom"),
+        ):
+            self.vote(members[-1], ballot, {"choice": "yes"})
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.OPEN)
+        self.assertFalse(ballot.seats.filter(voted=False).exists())
+        snapshot = ballots.secret_tally.snapshot(ballot.pk)
+        self.assertEqual(sum(g["ballots"] for g in snapshot["groups"].values()), len(members))
+        self.assertCode("already_voted", self.vote, members[-1], ballot, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            closed = ballots.close_ballot(ballot)
+        self.assertEqual(closed.result["tally_sum"], len(members))
+
     def test_trial_auto_closes_without_seal(self):
         MeetingControl.objects.update_or_create(meeting=self.meeting, defaults={"trial": True})
         ballot = ballots.open_ballot(self.meeting, self.q1)
