@@ -576,6 +576,8 @@ def set_top_note(
         question is not None and question.question_set_id != meeting.pk
     ):
         raise ValidationError("The TOP does not belong to this meeting.", code="invalid")
+    if question is not None and question.section_id is not None:
+        raise ValidationError("The question belongs to a TOP; note the TOP.", code="invalid")
     target = {"section": section} if section is not None else {"question": question}
     existing = TopNote.objects.filter(meeting=meeting, **target)
     if not text.strip():

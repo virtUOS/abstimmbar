@@ -3750,6 +3750,21 @@ class TopNoteTests(BallotBase):
             )
         self.assertEqual(ctx.exception.code, "invalid")
 
+    def test_question_in_section_rejected(self):
+        r = self.put(question=self.q3.pk, text="x")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "invalid")
+        self.assertFalse(TopNote.objects.exists())
+
+    def test_notes_only_in_manager_stream_payloads(self):
+        from . import live
+
+        self.put(section=self.s1.pk, text="Geheim")
+        self.meeting.refresh_from_db()
+        self.assertNotIn("Geheim", json.dumps(payloads.public_payload(self.meeting)))
+        src = open(live.__file__).read()
+        self.assertEqual(src.count("manager_payload"), 2)  # broadcast + manager stream only
+
     def make_other_meeting(self):
         other = QuestionSet.objects.create(room=self.room, title_de="Andere")
         return Question.objects.create(
@@ -3799,8 +3814,17 @@ class TopNoteTests(BallotBase):
         self.assertIn("Einzelnotiz", text)
 
     def test_long_note_pdf(self):
-        note = "\n".join(["Zeile " + "wort " * 20] * 20)[:2000]
+        lines = [f"Z{i:02d} " + "wort " * 16 for i in range(20)]
+        note = "\n".join(lines)[:1990] + "\nENDEMARKE"
+        self.assertLessEqual(len(note), 2000)
         self.put(section=self.s1.pk, text=note)
         services.end_meeting(self.meeting)
         r = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol.pdf")
         self.assertEqual(r.status_code, 200)
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(r.content)).pages)
+        self.assertIn("Z00", text)
+        self.assertIn("ENDEMARKE", text)
