@@ -1017,6 +1017,16 @@ class PdfFrameRobustnessTests(SimpleTestCase):
         text = "\n".join(self._texts(self._render_guarded(doc)))
         self.assertIn("danach", text)
 
+    def test_multiline_headings_do_not_hang(self):
+        from .pdf import PdfDocument
+        for build in (lambda d: d.heading("x\n" * 40, 1),
+                      lambda d: d.heading("\n" * 299, 1),
+                      lambda d: d.rich("<h1>" + "<br>" * 400 + "x</h1>"),
+                      lambda d: d.heading("big " * 700, 3)):
+            doc = PdfDocument("t")
+            build(doc)
+            self.assertTrue(self._render_guarded(doc).startswith(b"%PDF"))
+
     def test_rich_img_table_and_pre(self):
         from .pdf import PdfDocument
         html = ('<p>vor <img src="x.png"> nach</p>'

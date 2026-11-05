@@ -22,7 +22,6 @@ from reportlab.platypus import HRFlowable, KeepTogether, Paragraph, SimpleDocTem
 
 MARGIN = 20 * MM
 BOTTOM = 18 * MM
-MAX_HEADING_CHARS = 300  # longer "headings" are body text: keepWithNext on a block taller than a page hangs the build
 INLINE_TAGS = {"strong": "b", "b": "b", "em": "i", "i": "i", "u": "u", "s": "strike", "del": "strike",
                "strike": "strike"}
 HEADINGS = {"h1": "h1", "h2": "h2", "h3": "h3"}
@@ -48,11 +47,11 @@ def make_styles() -> dict:
         "bold": ParagraphStyle("b", parent=normal, fontName="Helvetica-Bold"),
         "muted": ParagraphStyle("m", parent=normal, fontSize=8.5, leading=11, textColor=colors.HexColor("#666666")),
         "h1": ParagraphStyle("h1", parent=normal, fontName="Helvetica-Bold", fontSize=18, leading=22,
-                             spaceBefore=4, spaceAfter=6, keepWithNext=1),
+                             spaceBefore=4, spaceAfter=6),
         "h2": ParagraphStyle("h2", parent=normal, fontName="Helvetica-Bold", fontSize=15, leading=18,
-                             spaceBefore=14, spaceAfter=5, keepWithNext=1),
+                             spaceBefore=14, spaceAfter=5),
         "h3": ParagraphStyle("h3", parent=normal, fontName="Helvetica-Bold", fontSize=12, leading=15,
-                             spaceBefore=8, spaceAfter=2, keepWithNext=1),
+                             spaceBefore=8, spaceAfter=2),
         "quote": ParagraphStyle("q", parent=normal, leftIndent=10, textColor=colors.HexColor("#444444")),
         "cell": ParagraphStyle("c", parent=normal, fontSize=9, leading=11.5, spaceAfter=0),
         "cell_head": ParagraphStyle("ch", parent=normal, fontName="Helvetica-Bold", fontSize=9, leading=11.5,
@@ -103,8 +102,6 @@ class _HtmlToFlowables(HTMLParser):
     def _paragraph(self, markup):
         depth = len(self.lists)
         style = self.styles[self.block]
-        if self.block in HEADINGS.values() and len(re.sub(r"<[^>]*>", "", markup)) > MAX_HEADING_CHARS:
-            style = self.styles["bold"]
         if self.bullet is not None:
             style = ParagraphStyle("li", parent=style, leftIndent=12 * depth + 4, bulletIndent=12 * (depth - 1))
         try:
@@ -196,12 +193,12 @@ class _HtmlToFlowables(HTMLParser):
     def handle_data(self, data):
         if self.skip:
             return
-        if not self.open and not self.buf.strip() and not data.strip():
-            return
         if self.pre:
             self.buf += _markup(data)
             if data.strip():
                 self.has_text = True
+            return
+        if not self.open and not self.buf.strip() and not data.strip():
             return
         self.buf += escape(safe_text(data))
         if data.strip():
@@ -264,8 +261,7 @@ class PdfDocument:
         self._story.extend(flowables)
 
     def heading(self, text: str, level: int = 1):
-        key = f"h{min(max(level, 1), 3)}" if len(str(text)) <= MAX_HEADING_CHARS else "bold"
-        self._add(Paragraph(_markup(text), self.styles[key]))
+        self._add(Paragraph(_markup(text), self.styles[f"h{min(max(level, 1), 3)}"]))
 
     def paragraph(self, text: str, *, style: str = "normal"):
         self._add(Paragraph(_markup(text), self.styles[style]))
