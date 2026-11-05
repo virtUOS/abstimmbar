@@ -195,6 +195,45 @@ class MeetingControl(models.Model):
     trial_snapshot = models.JSONField(null=True, blank=True)
 
 
+class TopNote(models.Model):
+    """The chair's plain-text note on one TOP for the protocol. A TOP is a
+    section, or a question without a section (its own TOP): exactly one of
+    ``section`` / ``question`` is set. Manager-only, never public."""
+
+    meeting = models.ForeignKey(
+        "rooms.QuestionSet", on_delete=models.CASCADE, related_name="top_notes",
+    )
+    section = models.ForeignKey(
+        "rooms.Section", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="+",
+    )
+    question = models.ForeignKey(
+        "rooms.Question", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="+",
+    )
+    text = models.TextField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=(
+                    Q(section__isnull=False, question__isnull=True)
+                    | Q(section__isnull=True, question__isnull=False)
+                ),
+                name="topnote_exactly_one_target",
+            ),
+            models.UniqueConstraint(
+                fields=["section"], condition=Q(section__isnull=False),
+                name="topnote_unique_section",
+            ),
+            models.UniqueConstraint(
+                fields=["question"], condition=Q(question__isnull=False),
+                name="topnote_unique_question",
+            ),
+        ]
+
+
 class Ballot(models.Model):
     """One voting round on an agenda item, bound to the version voted on."""
 

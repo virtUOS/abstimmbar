@@ -363,5 +363,9 @@ def manager_payload(meeting: QuestionSet) -> dict:
         attendance=_attendance(meeting, names, order),
         texts=texts,
         open_ballot=open_ballot,
+        notes=[
+            {"section": n.section_id, "question": n.question_id, "text": n.text}
+            for n in meeting.top_notes.order_by("pk")
+        ],
     )
     return payload

@@ -28,6 +28,7 @@ from .models import (
     MotionVersion,
     NamedVote,
     SealLink,
+    TopNote,
 )
 from .services import parse_member_list
 
@@ -3582,6 +3583,16 @@ class TrialTests(MeetingFixture, ApiBase):
         self.assertFalse(r.json()["trial"])
         self.assertFalse(ballots.secret_tally.has(ballot.pk))
 
+    def test_trial_end_deletes_notes(self):
+        self.start()
+        r = self.client.put(
+            self.url("notes"), {"question": self.q1.pk, "text": "Probe"}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(TopNote.objects.count(), 1)
+        self.client.post(self.url("end"))
+        self.assertFalse(TopNote.objects.exists())
+
     def test_real_start_after_trial(self):
         self.start()
         self.run_vote()
@@ -3678,3 +3689,118 @@ class TrialTests(MeetingFixture, ApiBase):
         ballots.open_ballot(self.meeting, self.q1)
         r = self.client.post(self.url("end"))
         self.assertEqual((r.status_code, r.json()["code"]), (400, "vote_open"))
+
+
+class TopNoteTests(BallotBase):
+    closed = SealTests.closed
+
+    def setUp(self):
+        super().setUp()
+        self.s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=5)
+        self.q3 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Drei", position=6,
+            section=self.s1,
+        )
+        versions.sync(self.q3)
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/notes/"
+
+    def put(self, **body):
+        return self.client.put(self.url(), body, format="json")
+
+    def test_set_update_clear_on_section(self):
+        r = self.put(section=self.s1.pk, text="Erste\nZweite")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(
+            r.json()["notes"],
+            [{"section": self.s1.pk, "question": None, "text": "Erste\nZweite"}],
+        )
+        r = self.put(section=self.s1.pk, text="Neu")
+        self.assertEqual(r.json()["notes"][0]["text"], "Neu")
+        self.assertEqual(TopNote.objects.count(), 1)
+        r = self.put(section=self.s1.pk, text="")
+        self.assertEqual(r.json()["notes"], [])
+        self.assertEqual(TopNote.objects.count(), 0)
+
+    def test_standalone_question(self):
+        r = self.put(question=self.q1.pk, text="Hinweis")
+        self.assertEqual(
+            r.json()["notes"], [{"section": None, "question": self.q1.pk, "text": "Hinweis"}],
+        )
+        self.put(question=self.q1.pk, text="  ")
+        self.assertEqual(TopNote.objects.count(), 0)
+
+    def test_validation(self):
+        self.assertEqual(self.put(section=self.s1.pk, text="x" * 2001).json()["code"], "invalid")
+        self.assertEqual(self.put(section=self.s1.pk, text="x" * 2000).status_code, 200)
+        self.assertEqual(self.put(text="x").json()["code"], "invalid")
+        self.assertEqual(
+            self.put(section=self.s1.pk, question=self.q1.pk, text="x").json()["code"], "invalid",
+        )
+        self.assertEqual(self.put(section=self.s1.pk, text=5).json()["code"], "invalid")
+        other = self.make_other_meeting()
+        self.assertEqual(self.put(question=other.pk, text="x").status_code, 404)
+        with self.assertRaises(ValidationError) as ctx:
+            services.set_top_note(
+                self.meeting, section=Section.objects.create(
+                    question_set=QuestionSet.objects.create(room=self.room, title_de="Y"),
+                    title_de="F", position=1,
+                ), text="x",
+            )
+        self.assertEqual(ctx.exception.code, "invalid")
+
+    def make_other_meeting(self):
+        other = QuestionSet.objects.create(room=self.room, title_de="Andere")
+        return Question.objects.create(
+            question_set=other, kind="resolution", text_de="F", position=1,
+        )
+
+    def test_not_started(self):
+        self.put(section=self.s1.pk, text="Notiz")
+        services.end_meeting(self.meeting)
+        r = self.put(section=self.s1.pk, text="Spät")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "not_started")
+        self.assertEqual(TopNote.objects.get().text, "Notiz")
+
+    def test_manager_only(self):
+        self.meeting.refresh_from_db()
+        self.put(section=self.s1.pk, text="Geheim")
+        self.assertEqual(
+            self.foreign.put(self.url(), {"section": self.s1.pk, "text": "x"}, format="json")
+            .status_code, 404,
+        )
+        self.assertIn("notes", payloads.manager_payload(self.meeting))
+        self.assertNotIn("Geheim", json.dumps(payloads.public_payload(self.meeting)))
+        self.assertNotIn("notes", payloads.public_payload(self.meeting))
+
+    def test_protocol_and_pdf(self):
+        self.closed(answers=[(self.anna, {"choice": "yes"})])
+        self.put(section=self.s1.pk, text="Zeile eins\nZeile <b>zwei</b>")
+        self.put(question=self.q1.pk, text="Einzelnotiz")
+        services.end_meeting(self.meeting)
+        data = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol/").json()
+        notes = {t["title"]: t["note"] for t in data["tops"]}
+        self.assertEqual(notes["Eins"], "Zeile eins\nZeile <b>zwei</b>")
+        top_q1 = next(t for t in data["tops"] if any(i["label"] == "1" for i in t["items"]))
+        self.assertEqual(top_q1["note"], "Einzelnotiz")
+        top_q2 = next(t for t in data["tops"] if any(i["label"] == "2" for i in t["items"]))
+        self.assertEqual(top_q2["note"], "")
+        r = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol.pdf?lang=de")
+        self.assertEqual(r.status_code, 200)
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(r.content)).pages)
+        self.assertIn("Notiz: Zeile eins", text)
+        self.assertIn("Zeile <b>zwei</b>", text)
+        self.assertIn("Einzelnotiz", text)
+
+    def test_long_note_pdf(self):
+        note = "\n".join(["Zeile " + "wort " * 20] * 20)[:2000]
+        self.put(section=self.s1.pk, text=note)
+        services.end_meeting(self.meeting)
+        r = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol.pdf")
+        self.assertEqual(r.status_code, 200)

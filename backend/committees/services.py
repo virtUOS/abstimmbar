@@ -25,6 +25,7 @@ from .models import (
     MeetingInvite,
     MeetingSubstitution,
     MotionVersion,
+    TopNote,
 )
 
 _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
@@ -462,6 +463,7 @@ def _reset_trial(meeting: QuestionSet) -> QuestionSet:
     )
     _restore_agenda(meeting, snapshot)
     MotionVersion.objects.filter(question__question_set_id=meeting.pk).delete()
+    TopNote.objects.filter(meeting=meeting).delete()
     for pk in ballot_ids:
         transaction.on_commit(lambda pk=pk: ballots.secret_tally.discard(pk))
     MeetingControl.objects.filter(meeting_id=meeting.pk).update(
@@ -545,6 +547,46 @@ def resolve_invite(token: str) -> tuple[MeetingInvite | None, str]:
     if invite is None:
         return None, "unknown"
     return invite, invite_state(invite)
+
+
+MAX_NOTE_LENGTH = 2000
+
+
+@transaction.atomic
+def set_top_note(
+    meeting: QuestionSet, *, section: Section | None = None,
+    question: Question | None = None, text: str,
+) -> TopNote | None:
+    """The chair's plain-text note on a TOP (a section, or a question without
+    a section); empty text deletes it. Only while the meeting is running."""
+    current = (
+        QuestionSet.objects.select_for_update()
+        .values_list("meeting_state", flat=True).get(pk=meeting.pk)
+    )
+    meeting.meeting_state = current
+    if current != State.STARTED:
+        raise ValidationError("The meeting is not running.", code="not_started")
+    if (section is None) == (question is None):
+        raise ValidationError("A note targets exactly one TOP.", code="invalid")
+    if not isinstance(text, str):
+        raise ValidationError("Invalid note.", code="invalid")
+    if len(text) > MAX_NOTE_LENGTH:
+        raise ValidationError("The note is too long.", code="invalid")
+    if (section is not None and section.question_set_id != meeting.pk) or (
+        question is not None and question.question_set_id != meeting.pk
+    ):
+        raise ValidationError("The TOP does not belong to this meeting.", code="invalid")
+    target = {"section": section} if section is not None else {"question": question}
+    existing = TopNote.objects.filter(meeting=meeting, **target)
+    if not text.strip():
+        existing.delete()
+        note = None
+    else:
+        note, _created = TopNote.objects.update_or_create(
+            meeting=meeting, **target, defaults={"text": text},
+        )
+    _notify(meeting)
+    return note
 
 
 @transaction.atomic
