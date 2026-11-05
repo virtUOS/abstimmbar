@@ -6,6 +6,7 @@ Secrecy: a secret vote touches the database only through the participation
 mark (``BallotSeat.voted``); its content goes to the in-memory tally. Nothing
 in this module logs, and error messages never carry vote content.
 """
+import logging
 import secrets
 
 from django.core.exceptions import ValidationError
@@ -27,6 +28,8 @@ from .models import (
     NamedVote,
 )
 from .services import invite_state
+
+logger = logging.getLogger(__name__)
 
 secret_tally = tally.secret_tally
 
@@ -280,8 +283,9 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
             with transaction.atomic():
                 close_ballot(ballot, automatic=True)
             return
-        except Exception:  # noqa: BLE001 - deliberately silent (§ 8: no logging of votes)
-            pass
+        except Exception:  # noqa: BLE001
+            # Ballot id only: no exc_info (it could carry answer data, § 8).
+            logger.warning("auto-close failed for ballot %s", ballot.pk)
     # Progress only (voted/eligible); a burst of votes becomes one event.
     _notify(invite.meeting, debounce=True)
 

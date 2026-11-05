@@ -10,7 +10,7 @@ import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, Layers, Lock, Pencil, Play, RotateCcw, SquareStop, UserRound } from "lucide-react";
 import { stripHtml, type LocalizedText } from "@basicbar/ui";
-import { api, requestError, type MeetingAgendaItem, type MeetingManager } from "../api";
+import { api, requestBody, requestError, type MeetingAgendaItem, type MeetingManager } from "../api";
 import { Button, ToggleSwitch } from "../components/ui";
 import TranslatableField from "../components/TranslatableField";
 import { TextList, groupNames } from "./MeetingBeamer";
@@ -505,7 +505,17 @@ export default function MeetingAgenda({
               <Button
                 variant="primary"
                 disabled={busy}
-                onClick={() => void act(() => api.closeBallot(setId, data.open_ballot!))}
+                onClick={() =>
+                  void act(async () => {
+                    try {
+                      return await api.closeBallot(setId, data.open_ballot!);
+                    } catch (err) {
+                      // The last vote already closed it: nothing to report.
+                      if (requestBody(err)?.code === "not_open") return undefined;
+                      throw err;
+                    }
+                  })
+                }
                 className="inline-flex items-center gap-1.5"
               >
                 <SquareStop aria-hidden className="h-4 w-4" />

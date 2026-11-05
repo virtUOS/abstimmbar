@@ -8,7 +8,7 @@
  *  (`MeetingBeamerWindow`) on a second screen. Both follow the manager
  *  stream. */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
 import { ChevronLeft, MonitorUp, Volume2, VolumeX, PanelRightClose, PanelRightOpen, SquareStop } from "lucide-react";
 import { api, requestError, type MeetingManager } from "../api";
@@ -125,6 +125,12 @@ export default function MeetingConsole() {
   const [autoClosed, setAutoClosed] = useState(false);
   const beamerWindow = useRef<Window | null>(null);
   const { ended, stuck } = useCloseWhenEnded(setId, data?.meeting.state, true);
+  const navigate = useNavigate();
+  // Reached through the same-tab "Lead meeting" link and the browser refuses
+  // to close it: back to the meeting page (the beamer keeps its ended view).
+  useEffect(() => {
+    if (ended && stuck) navigate(`/sets/${setId}`, { replace: true });
+  }, [ended, stuck, navigate, setId]);
 
   // The shown vote closing by itself (everyone voted): notice and tone.
   const shown = data?.item?.ballot ?? null;
@@ -198,7 +204,7 @@ export default function MeetingConsole() {
 
   if (loadError && !data) return <FullscreenMessage text={loadError} error />;
   if (!data) return <FullscreenMessage text="" />;
-  if (ended && stuck) return <NotRunningView setId={setId} over />;
+  if (ended && stuck) return <FullscreenMessage text="" />;
   if (!ended && data.meeting.state !== "started")
     return <NotRunningView setId={setId} over={data.meeting.state === "ended"} />;
 

@@ -1779,7 +1779,12 @@ class AutoCloseTests(BallotBase):
         with mock.patch.object(
             BallotText.objects, "bulk_create", side_effect=RuntimeError("boom"),
         ):
-            self.vote(members[-1], ballot, {"choice": "yes"})
+            with self.assertLogs("committees.ballots", level="WARNING") as logs:
+                self.vote(members[-1], ballot, {"choice": "yes"})
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn(str(ballot.pk), logs.output[0])
+        self.assertNotIn("choice", logs.output[0])
+        self.assertIsNone(logs.records[0].exc_info)
         ballot.refresh_from_db()
         self.assertEqual(ballot.status, Ballot.Status.OPEN)
         self.assertFalse(ballot.seats.filter(voted=False).exists())

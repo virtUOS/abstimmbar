@@ -164,3 +164,32 @@ test('a draft meeting opened directly is not closed and does not announce an end
   expect(await page.evaluate(() => (window as unknown as { __marker?: number }).__marker)).toBe(1);
   await expect(page.getByTestId('meeting-ended-note')).toHaveCount(0);
 });
+
+test('console reached by the same-tab link and refused to close returns to the meeting page', async ({ page, trackRoom }) => {
+  await login(page);
+  const headers = { 'X-CSRFToken': (await csrfToken(page.request)) ?? '' };
+  const api = async (method: 'get' | 'post', path: string, data?: unknown) => {
+    const response = await page.request[method](`${API_BASE_URL}${path}`, { headers, data });
+    expect(response.ok(), `${method} ${path}: ${response.status()}`).toBeTruthy();
+    return response.status() === 204 ? null : response.json();
+  };
+  const room = await api('post', '/api/rooms/', { title: 'E2E Gremium Rueckkehr', kind: 'committee' });
+  trackRoom(room.id);
+  const meeting = await api('post', '/api/question-sets/', {
+    room: room.id, type: 'meeting', title: 'E2E Rueckkehr', scheduled_at: '2030-01-15T10:00:00Z',
+  });
+  await api('post', '/api/questions/', {
+    question_set: meeting.id, kind: 'resolution', text: { de: 'Antrag' },
+  });
+  await api('post', `/api/meetings/${meeting.id}/start/`);
+
+  await page.addInitScript(() => { window.close = () => {}; }); // browsers refuse it here
+  await page.goto(`/sets/${meeting.id}`);
+  await page.getByRole('link', { name: 'Sitzung leiten' }).click();
+  await page.waitForURL(new RegExp(`/sets/${meeting.id}/meeting$`));
+  await page.getByRole('button', { name: 'Sitzung beenden' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Sitzung beenden' }).click();
+  await page.waitForURL(new RegExp(`/sets/${meeting.id}$`));
+  await expect(page.getByTestId('meeting-ended-note')).toBeVisible();
+  await expect(page.getByText('Beendet', { exact: true }).first()).toBeVisible();
+});
