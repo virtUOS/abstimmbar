@@ -6,6 +6,7 @@
  *  the members and the substitutions (both collapsible). Shown on the set
  *  page above the agenda (the questions); an ended meeting is read-only. */
 import { useEffect, useRef, useState } from "react";
+import { onMeetingEnded } from "./meetingEnd";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router";
 import {
@@ -168,6 +169,23 @@ export default function MeetingPanel({
   const [confirmStart, setConfirmStart] = useState(false);
   const [confirmTrial, setConfirmTrial] = useState(false);
   const [busy, setBusy] = useState(false);
+
+  // The console/beamer window reports the end: reload the summary, come forward.
+  useEffect(
+    () =>
+      onMeetingEnded(set.id, () => {
+        api
+          .getMeeting(set.id)
+          .then((summary) => {
+            setMeeting(summary);
+            onSetChange({ ...set, meeting_state: summary.meeting_state });
+            window.focus();
+          })
+          .catch(() => undefined);
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [set.id],
+  );
 
   useEffect(() => {
     setDateDraft(toLocalInput(set.scheduled_at));

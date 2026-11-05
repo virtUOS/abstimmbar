@@ -7,10 +7,10 @@
  *  chair can share it as is, or open the panel-free beamer window
  *  (`MeetingBeamerWindow`) on a second screen. Both follow the manager
  *  stream. */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 import { useTranslation } from "react-i18next";
-import { ChevronLeft, MonitorUp, PanelRightClose, PanelRightOpen, SquareStop } from "lucide-react";
+import { ChevronLeft, MonitorUp, Volume2, VolumeX, PanelRightClose, PanelRightOpen, SquareStop } from "lucide-react";
 import { api, requestError, type MeetingManager } from "../api";
 import { Button, ConfirmDialog } from "../components/ui";
 import MeetingBeamer from "./MeetingBeamer";
@@ -18,6 +18,8 @@ import MeetingAgenda from "./MeetingAgenda";
 import MeetingAttendance from "./MeetingAttendance";
 import { STATE_BADGE, STATE_LABEL } from "./MeetingList";
 import { useMeetingStream } from "./useMeetingStream";
+import { broadcastEnded, useCloseWhenEnded } from "./meetingEnd";
+import { playSignal, primeSignal, readSignalEnabled, writeSignalEnabled } from "./signal";
 
 const COLLAPSED_KEY = "abstimmbar_meeting_panel_collapsed";
 
@@ -72,13 +74,37 @@ function FullscreenMessage({ text, error = false }: { text: string; error?: bool
   );
 }
 
+/** Shown when the meeting is over and the browser did not let the page
+ *  close itself (opened directly or reloaded). */
+function EndedView({ setId }: { setId: number }) {
+  const { t } = useTranslation();
+  return (
+    <div className="flex h-screen flex-col items-center justify-center gap-4 bg-white p-6 text-center dark:bg-slate-950">
+      <p role="status" className="text-lg text-slate-700 dark:text-slate-200">
+        {t("The meeting has ended.")}
+      </p>
+      <Link
+        to={`/sets/${setId}`}
+        className="font-semibold text-brand-700 underline dark:text-brand-300"
+      >
+        {t("To the meeting")}
+      </Link>
+    </div>
+  );
+}
+
 /** `/sets/:setId/meeting/beamer`: the beamer picture only, no controls. */
 export function MeetingBeamerWindow() {
   const setId = Number(useParams().setId);
   const { data, loadError } = useConsoleData(setId);
+  const { ended, stuck } = useCloseWhenEnded(
+    setId,
+    !!data && data.meeting.state !== "started",
+  );
   useEffect(() => {
     if (data) document.title = data.meeting.title;
   }, [data]);
+  if (ended && stuck) return <EndedView setId={setId} />;
   if (loadError) return <FullscreenMessage text={loadError} error />;
   if (!data) return <FullscreenMessage text="" />;
   return (
@@ -96,6 +122,58 @@ export default function MeetingConsole() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const [signalOn, setSignalOn] = useState(readSignalEnabled);
+  const [autoClosed, setAutoClosed] = useState(false);
+  const beamerWindow = useRef<Window | null>(null);
+  const { ended, stuck } = useCloseWhenEnded(
+    setId,
+    !!data && data.meeting.state !== "started",
+    true,
+  );
+
+  // The shown vote closing by itself (everyone voted): notice and tone.
+  const shown = data?.item?.ballot ?? null;
+  const prevBallot = useRef<{ id: number; status: string } | null>(null);
+  useEffect(() => {
+    const prev = prevBallot.current;
+    prevBallot.current = shown && { id: shown.id, status: shown.status };
+    if (!shown) {
+      setAutoClosed(false);
+      return;
+    }
+    if (prev && prev.id === shown.id && prev.status === "open" && shown.status === "closed") {
+      if (shown.closed_automatically) {
+        setAutoClosed(true);
+        if (signalOn) playSignal();
+      }
+    } else if (!prev || prev.id !== shown.id || shown.status === "open") {
+      setAutoClosed(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shown?.id, shown?.status]);
+
+  // Audio needs a user gesture: prime it on the first click anywhere.
+  useEffect(() => {
+    window.addEventListener("click", primeSignal, { once: true });
+    return () => window.removeEventListener("click", primeSignal);
+  }, []);
+
+  // The beamer window this console opened closes with the meeting.
+  useEffect(() => {
+    if (!ended) return;
+    try {
+      beamerWindow.current?.close();
+    } catch {
+      /* already gone */
+    }
+  }, [ended]);
+
+  function toggleSignal() {
+    const next = !signalOn;
+    setSignalOn(next);
+    writeSignalEnabled(next);
+    if (next) primeSignal();
+  }
 
   function toggle(next: boolean) {
     setCollapsed(next);
@@ -125,6 +203,7 @@ export default function MeetingConsole() {
 
   if (loadError && !data) return <FullscreenMessage text={loadError} error />;
   if (!data) return <FullscreenMessage text="" />;
+  if (ended && stuck) return <EndedView setId={setId} />;
 
   const state = data.meeting.state;
   const panelId = "meeting-console-panel";
@@ -194,13 +273,31 @@ export default function MeetingConsole() {
             </div>
             <div className="flex flex-wrap gap-1.5">
               <Button
-                onClick={() =>
-                  window.open(`/sets/${setId}/meeting/beamer`, `meeting-beamer-${setId}`)
-                }
+                onClick={() => {
+                  beamerWindow.current = window.open(
+                    `/sets/${setId}/meeting/beamer`,
+                    `meeting-beamer-${setId}`,
+                  );
+                }}
                 className="inline-flex items-center gap-1.5"
               >
                 <MonitorUp aria-hidden className="h-4 w-4" />
                 {t("Open beamer window")}
+              </Button>
+              <Button
+                variant="ghost"
+                role="switch"
+                aria-checked={signalOn}
+                onClick={toggleSignal}
+                title={t("Signal tone when a vote closes automatically")}
+                className="inline-flex items-center gap-1.5"
+              >
+                {signalOn ? (
+                  <Volume2 aria-hidden className="h-4 w-4" />
+                ) : (
+                  <VolumeX aria-hidden className="h-4 w-4" />
+                )}
+                {t("Signal tone")}
               </Button>
               {state === "started" && (
                 <Button
@@ -214,6 +311,15 @@ export default function MeetingConsole() {
                 </Button>
               )}
             </div>
+            {autoClosed && (
+              <p
+                role="status"
+                data-testid="auto-closed-notice"
+                className="rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-semibold text-emerald-900 dark:bg-emerald-900/40 dark:text-emerald-200"
+              >
+                {t("Everyone has voted – the vote was closed automatically.")}
+              </p>
+            )}
             {lost && (
               <p role="status" className="text-xs text-amber-700 dark:text-amber-400">
                 {t("Connection lost – reconnecting…")}
@@ -251,7 +357,9 @@ export default function MeetingConsole() {
           confirmLabel={data.trial ? t("End test run") : t("End meeting")}
           onConfirm={() => {
             setConfirmEnd(false);
-            void act(() => api.endMeeting(setId));
+            void act(() => api.endMeeting(setId)).then((ok) => {
+              if (ok) broadcastEnded(setId);
+            });
           }}
           onCancel={() => setConfirmEnd(false)}
         />

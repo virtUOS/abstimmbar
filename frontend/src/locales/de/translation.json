@@ -1600,5 +1600,9 @@
   "“Chain intact”: no seal of this room has been removed or altered.": "„Kette intakt“: Kein Siegel dieses Raums wurde entfernt oder verändert.",
   "Seal": "Siegel",
   "Every result in this protocol is sealed. With its reference and fingerprint, anyone managing the room can check under Abstimmbar → Room → “Check seal” whether the result was changed afterwards.": "Jedes Ergebnis in diesem Protokoll ist versiegelt. Mit Kennung und Fingerabdruck können die Verwaltenden des Raums unter Abstimmbar → Raum → „Siegel prüfen“ nachprüfen, ob das Ergebnis nachträglich verändert wurde.",
-  "No seal: this vote was closed before seals were introduced.": "Kein Siegel: Diese Abstimmung wurde geschlossen, bevor es Siegel gab."
+  "No seal: this vote was closed before seals were introduced.": "Kein Siegel: Diese Abstimmung wurde geschlossen, bevor es Siegel gab.",
+  "To the meeting": "Zur Sitzung",
+  "Signal tone": "Signalton",
+  "Signal tone when a vote closes automatically": "Signalton, wenn eine Abstimmung automatisch schließt",
+  "Everyone has voted – the vote was closed automatically.": "Alle haben abgestimmt – die Abstimmung wurde automatisch geschlossen."
 }

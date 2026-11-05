@@ -277,6 +277,8 @@ export interface MeetingBallot {
   id: number;
   status: "open" | "closed";
   round: number;
+  /** Closed by itself because everyone voted. */
+  closed_automatically: boolean;
   progress: { voted: number; eligible: number; groups: MeetingProgressGroup[] };
   result: null | {
     groups: { id: number; name: string; counts: MeetingCounts }[];
