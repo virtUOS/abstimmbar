@@ -112,6 +112,74 @@ export interface QuestionSet {
 
 export type MeetingState = "draft" | "started" | "ended";
 
+export type SealLinkStatus = "valid" | "altered" | "discarded" | "deleted";
+
+/** Result of checking a seal reference (and optionally a printed fingerprint). */
+export interface SealVerification {
+  found: boolean;
+  chain_intact: boolean;
+  links: {
+    kind: "result" | "finding" | "discard";
+    seq: number;
+    created_at: string;
+    hash: string;
+    status: SealLinkStatus;
+  }[];
+  fingerprint_matches: boolean | null;
+}
+
+/** Protocol of an ended meeting (`GET /api/meetings/<id>/protocol/`). */
+export interface ProtocolCounts {
+  eligible: number;
+  voted: number;
+  counts: Record<string, number>;
+}
+
+export interface ProtocolItem {
+  label: string;
+  kind: string;
+  named: boolean;
+  text: string;
+  version: number | null;
+  version_changed: boolean;
+  status: "voted" | "not_voted";
+  bundle_with: string[];
+  rounds_discarded: { round: number; reason: "reset" | "restart"; comment: string }[];
+  result: {
+    groups: (ProtocolCounts & { name: string })[];
+    total: ProtocolCounts;
+    voted: number;
+    tally_sum: number;
+    count_check_ok: boolean;
+  } | null;
+  /** Display order of the count keys; fixed keys carry `text === key`. */
+  options: { key: string; text: string }[];
+  finding: "adopted" | "rejected" | "" | null;
+  named_votes: { member: string; group: string; keys: string[] }[];
+  voters: { name: string; group: string }[];
+  texts: { group: string; text: string }[];
+  opened_at: string | null;
+  closed_at: string | null;
+  reference: string | null;
+  fingerprint: string | null;
+  finding_fingerprint: string | null;
+}
+
+export interface MeetingProtocol {
+  id: number;
+  committee: string;
+  title: string;
+  scheduled_at: string | null;
+  started_at: string | null;
+  ended_at: string | null;
+  attendance: {
+    present: { name: string; group: string; left: boolean; left_after: string | null }[];
+    substitutions: { deputy: string; absent: string; group: string; from_label: string | null }[];
+    observers: string[];
+  };
+  tops: { number: number; title: string; description: string; items: ProtocolItem[] }[];
+}
+
 /** Seeded starting point for a committee room's groups. */
 export interface CommitteeTemplate {
   id: number;
@@ -181,6 +249,8 @@ export interface MeetingSummary {
   ended_at: string | null;
   /** The requesting user is a voting member of a voting group (by email). */
   chair_is_member: boolean;
+  /** A running test run: nothing is recorded, ending resets the meeting. */
+  trial: boolean;
 }
 
 /** Kind of an agenda item a ballot can run on. */
@@ -211,7 +281,12 @@ export interface MeetingBallot {
   result: null | {
     groups: { id: number; name: string; counts: MeetingCounts }[];
     total: { counts: MeetingCounts };
+    /** Seats marked as voted vs. ballots counted (should agree). */
+    voted: number | null;
+    tally_sum: number | null;
   };
+  /** The chair's finding on a closed ballot ("" = left open). */
+  finding: "" | "adopted" | "rejected";
   /** Released free texts (closed free-text ballots only). */
   texts: MeetingText[] | null;
 }
@@ -243,6 +318,8 @@ export interface MeetingTop {
 /** Snapshot of a running meeting as the beamer and ballot pages see it. */
 export interface MeetingPublic {
   meeting: { id: number; title: string; state: MeetingState };
+  /** Test run: nothing is recorded. */
+  trial: boolean;
   item: MeetingItem | null;
   /** TOP of the shown item, or the shown TOP when no vote is shown. */
   top: MeetingTop | null;
@@ -1123,6 +1200,14 @@ export const api = {
     request<void>(`/api/rooms/${id}/leave/`, { method: "POST" }),
 
   // --- committee rooms: groups and members (Gremien-Raum) ---
+  verifySeal: (roomId: number, reference: string, fingerprint: string) =>
+    request<SealVerification>(
+      `/api/committee-seals/verify/?${new URLSearchParams({
+        room: String(roomId),
+        reference,
+        fingerprint,
+      })}`,
+    ),
   listCommitteeTemplates: () =>
     request<CommitteeTemplate[]>("/api/committee-templates/"),
   listCommitteeGroups: (roomId: number) =>
@@ -1179,8 +1264,13 @@ export const api = {
 
   // --- committee meetings: lifecycle, personal links, substitutions ---
   getMeeting: (setId: number) => request<MeetingSummary>(`/api/meetings/${setId}/`),
-  startMeeting: (setId: number) =>
-    request<MeetingSummary>(`/api/meetings/${setId}/start/`, { method: "POST" }),
+  getMeetingProtocol: (setId: number) =>
+    request<MeetingProtocol>(`/api/meetings/${setId}/protocol/`),
+  startMeeting: (setId: number, trial = false) =>
+    request<MeetingSummary>(`/api/meetings/${setId}/start/`, {
+      method: "POST",
+      ...(trial ? { body: JSON.stringify({ trial: true }) } : {}),
+    }),
   endMeeting: (setId: number) =>
     request<MeetingSummary>(`/api/meetings/${setId}/end/`, { method: "POST" }),
   /** Create the missing personal links (never deletes any). */
@@ -1255,6 +1345,11 @@ export const api = {
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/reset/`, {
       method: "POST",
       body: JSON.stringify({ comment }),
+    }),
+  setBallotFinding: (setId: number, ballotId: number, finding: "" | "adopted" | "rejected") =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/finding/`, {
+      method: "POST",
+      body: JSON.stringify({ finding }),
     }),
   releaseTexts: (setId: number, ballotId: number) =>
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/release-texts/`, {

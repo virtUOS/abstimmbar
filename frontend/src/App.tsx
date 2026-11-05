@@ -381,7 +381,7 @@ export default function App() {
 
   return (
     <div className="flex min-h-screen flex-col overflow-x-clip bg-white font-sans text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      <header className="border-b border-slate-200 dark:border-slate-800">
+      <header className="border-b border-slate-200 print:hidden dark:border-slate-800">
         <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-y-1 px-4 py-2 sm:gap-y-2 sm:py-3">
           <div className="flex items-center gap-2">
             <Link to="/" className="flex items-center gap-3">
@@ -459,7 +459,11 @@ export default function App() {
         </div>
       </header>
 
-      {whoami?.authenticated && site && <AiNoticeBanner site={site} whoami={whoami} />}
+      {whoami?.authenticated && site && (
+        <div className="print:hidden">
+          <AiNoticeBanner site={site} whoami={whoami} />
+        </div>
+      )}
       {whoami?.authenticated && <GenerationStatusBar />}
 
       <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-5 sm:py-8">
@@ -475,7 +479,9 @@ export default function App() {
         )}
       </main>
 
-      <Footer />
+      <div className="print:hidden">
+        <Footer />
+      </div>
 
       {/* Global status notice (mode switch, #77): the live region stays
           mounted so screen readers announce each new message. */}

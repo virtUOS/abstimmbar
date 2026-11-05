@@ -123,6 +123,7 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   // Links first: Anna's row survives the substitution below (status
   // "substituted"); the deputy only gets a link once substituting.
   await page.getByRole('button', { name: 'Links erzeugen' }).click();
+  await expect(page.getByTestId('invite-row').first()).toBeVisible();
 
   // The meeting head: status, date as text (changed behind the pencil).
   await expect(page.getByTestId('meeting-date')).toContainText('15. Januar 2030');
@@ -165,9 +166,27 @@ test('committee room: groups, members, meeting links', async ({ page, browser, t
   await entry.goto(veraInvite.url);
   await expect(entry.getByText('Die Sitzung hat noch nicht begonnen')).toBeVisible();
 
+  // Without a vote on the agenda the meeting cannot start; the head says why.
+  const startButton = page.getByRole('button', { name: 'Sitzung beginnen' });
+  await expect(startButton).toBeDisabled();
+  await expect(page.getByTestId('start-blocked-hint')).toContainText('mindestens einen TOP mit einer Abstimmung');
+  await expect(page.getByRole('button', { name: 'Weitere Sitzungsaktionen' })).toHaveCount(0);
+  const meetingId = page.url().split('/').pop();
+  const created = await page.request.post(`${API_BASE_URL}/api/questions/`, {
+    headers: { 'X-CSRFToken': (await csrfToken(page.request)) ?? '' },
+    data: { question_set: Number(meetingId), kind: 'resolution', text: { de: 'Der Antrag wird angenommen.' } },
+  });
+  expect(created.ok()).toBeTruthy();
+  await page.reload();
+  await expect(page.getByTestId('start-blocked-hint')).toHaveCount(0);
+  // The test run sits in the ⋮ menu next to "Sitzung beginnen".
+  await page.getByRole('button', { name: 'Weitere Sitzungsaktionen' }).click();
+  await expect(page.getByRole('menuitem', { name: 'Testlauf starten' })).toBeVisible();
+  await page.keyboard.press('Escape');
+
   // Far from the scheduled date: starting asks first, then opens the
   // console in a new tab.
-  await page.getByRole('button', { name: 'Sitzung beginnen' }).click();
+  await startButton.click();
   await expect(page.getByRole('dialog')).toContainText('Die Sitzung ist für');
   const consoleTab = page.context().waitForEvent('page');
   await page.getByRole('dialog').getByRole('button', { name: 'Jetzt beginnen' }).click();

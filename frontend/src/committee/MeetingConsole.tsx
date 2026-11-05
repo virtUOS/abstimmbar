@@ -154,6 +154,15 @@ export default function MeetingConsole() {
           className="fixed inset-0 z-30 flex flex-col bg-white dark:bg-slate-900 md:static md:inset-auto md:z-auto md:w-96 md:shrink-0 md:border-l md:border-slate-200 md:dark:border-slate-800"
         >
           <div className="grid shrink-0 gap-2 border-b border-slate-200 p-3 dark:border-slate-800">
+            {data.trial && state === "started" && (
+              <p
+                data-testid="trial-banner"
+                role="status"
+                className="rounded-lg bg-amber-100 px-3 py-1.5 text-sm font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+              >
+                {t("Test run – nothing is recorded.")}
+              </p>
+            )}
             <div className="flex items-center gap-2">
               <Link
                 to={`/sets/${setId}`}
@@ -169,7 +178,7 @@ export default function MeetingConsole() {
               <span
                 className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${STATE_BADGE[state]}`}
               >
-                {t(STATE_LABEL[state])}
+                {t(data.trial && state === "started" ? "Test run" : STATE_LABEL[state])}
               </span>
               <Button
                 variant="ghost"
@@ -201,7 +210,7 @@ export default function MeetingConsole() {
                   className="inline-flex items-center gap-1.5 border border-red-200 dark:border-red-900"
                 >
                   <SquareStop aria-hidden className="h-4 w-4" />
-                  {t("End meeting")}
+                  {data.trial ? t("End test run") : t("End meeting")}
                 </Button>
               )}
             </div>
@@ -232,8 +241,14 @@ export default function MeetingConsole() {
 
       {confirmEnd && (
         <ConfirmDialog
-          message={t("End the meeting? All personal links become invalid afterwards.")}
-          confirmLabel={t("End meeting")}
+          message={
+            data.trial
+              ? t(
+                  "All votes, attendance and versions of the test run will be deleted. The agenda returns to its state before the test run.",
+                )
+              : t("End the meeting? All personal links become invalid afterwards.")
+          }
+          confirmLabel={data.trial ? t("End test run") : t("End meeting")}
           onConfirm={() => {
             setConfirmEnd(false);
             void act(() => api.endMeeting(setId));

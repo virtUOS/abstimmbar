@@ -162,6 +162,14 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
     <div className="flex h-full min-h-0 flex-col bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="shrink-0 px-6 pt-5 text-sm font-medium text-slate-500 dark:text-slate-400 md:px-10">
         <span className="break-words">{data.meeting.title}</span>
+        {data.trial && data.meeting.state === "started" && (
+          <span
+            data-testid="beamer-trial"
+            className="ml-3 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+          >
+            {t("Test run")}
+          </span>
+        )}
       </header>
       <main className="min-h-0 flex-1 overflow-y-auto px-6 py-6 md:px-10">
         {!item && data.top ? (
@@ -260,6 +268,18 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
               </section>
             )}
             {ballot?.status === "closed" && <Result item={item} ballot={ballot} />}
+            {ballot?.status === "closed" && ballot.finding && (
+              <p
+                data-testid="beamer-finding"
+                className={`inline-flex w-fit rounded-full px-4 py-1.5 text-xl font-semibold md:text-2xl ${
+                  ballot.finding === "adopted"
+                    ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+                    : "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300"
+                }`}
+              >
+                {ballot.finding === "adopted" ? t("Adopted") : t("Rejected")}
+              </p>
+            )}
             {ballot?.texts && ballot.texts.length > 0 && (
               <section className="grid gap-3">
                 <h2 className="text-lg font-semibold text-slate-500 dark:text-slate-400">

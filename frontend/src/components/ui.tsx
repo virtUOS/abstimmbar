@@ -226,8 +226,11 @@ export function ConfirmDialog({
   onCancel,
   confirmLabel,
   confirmVariant = "danger",
+  extra,
 }: {
   message: string;
+  /** Additional button between Cancel and the confirm button. */
+  extra?: ReactNode;
   onConfirm: () => void;
   onCancel: () => void;
   confirmLabel?: string;
@@ -253,10 +256,11 @@ export function ConfirmDialog({
         onClick={(event) => event.stopPropagation()}
       >
         <p className="text-slate-700 dark:text-slate-200">{message}</p>
-        <div className="mt-4 flex justify-end gap-2">
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button variant="ghost" onClick={onCancel}>
             {t("Cancel")}
           </Button>
+          {extra}
           <Button variant={confirmVariant} onClick={onConfirm}>
             {confirmLabel ?? t("Delete")}
           </Button>
@@ -271,9 +275,12 @@ export function ConfirmDialog({
 export function MoreMenu({
   children,
   label,
+  align = "right",
 }: {
   children: ReactNode;
   label?: string;
+  /** Which edge of the button the menu lines up with. */
+  align?: "left" | "right";
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -311,7 +318,7 @@ export function MoreMenu({
         <div
           role="menu"
           onClick={() => setOpen(false)}
-          className="absolute right-0 z-30 mt-2 w-64 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900"
+          className={`absolute ${align === "left" ? "left-0" : "right-0"} z-30 mt-2 w-64 max-w-[calc(100vw-2rem)] overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/5 dark:border-slate-700 dark:bg-slate-900`}
         >
           {children}
         </div>

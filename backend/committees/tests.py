@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 
 from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
-from . import agenda, ballots, eligibility, services, versions
+from . import agenda, ballots, eligibility, payloads, seals, services, versions
 from .models import (
     Ballot,
     BallotSeat,
@@ -22,9 +22,12 @@ from .models import (
     CommitteeGroup,
     CommitteeMember,
     GroupTemplate,
+    MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
+    MotionVersion,
     NamedVote,
+    SealLink,
 )
 from .services import parse_member_list
 
@@ -422,9 +425,17 @@ class MeetingFixture:
         )
 
 
+def add_vote(meeting):
+    """A meeting can only start with at least one item to vote on."""
+    return Question.objects.create(
+        question_set=meeting, kind="resolution", text_de="Antrag", position=1,
+    )
+
+
 class MeetingServiceTests(MeetingFixture, TestCase):
     def setUp(self):
         self.make_fixture()
+        add_vote(self.meeting)
 
     def test_start_marks_connected_invites_entered(self):
         from .presence import presence
@@ -677,6 +688,7 @@ class MeetingApiTests(MeetingFixture, ApiBase):
     def setUp(self):
         super().setUp()
         self.make_fixture(room=self.room)
+        add_vote(self.meeting)
         self.base = f"/api/meetings/{self.meeting.pk}/"
 
     def test_foreign_user_404(self):
@@ -729,6 +741,16 @@ class MeetingApiTests(MeetingFixture, ApiBase):
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["meeting_state"], "ended")
         self.assertEqual(self.client.post(self.base + "end/").status_code, 400)
+
+    def test_start_needs_an_item_with_a_vote(self):
+        self.meeting.questions.all().delete()
+        Section.objects.create(question_set=self.meeting, title_de="Bericht", position=1)
+        for body in ({}, {"trial": True}):
+            r = self.client.post(self.base + "start/", body, format="json")
+            self.assertEqual(r.status_code, 400)
+            self.assertEqual(r.json()["code"], "empty_agenda")
+        self.meeting.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_state, "draft")
 
     def test_start_and_end_times(self):
         data = self.client.get(self.base).json()
@@ -1910,6 +1932,61 @@ class BallotApiTests(BallotBase):
         self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
 
 
+class FindingTests(BallotBase):
+    def url(self, ballot):
+        return f"/api/meetings/{self.meeting.pk}/ballots/{ballot.pk}/finding/"
+
+    def closed(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            return ballots.close_ballot(ballot)
+
+    def post(self, ballot, value):
+        return self.client.post(self.url(ballot), {"finding": value}, format="json")
+
+    def test_set_finding_on_closed_ballot(self):
+        ballot = self.closed()
+        self.assertEqual(self.post(ballot, "adopted").status_code, 200)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.finding, "adopted")
+        resp = self.post(ballot, "")
+        self.assertEqual(resp.status_code, 200)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.finding, "")
+
+    def test_finding_needs_closed_ballot(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        resp = self.post(ballot, "adopted")
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
+        ballots.reset_ballot(ballot, "")
+        resp = self.post(ballot, "adopted")
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "not_closed"))
+
+    def test_finding_invalid_value(self):
+        ballot = self.closed()
+        resp = self.post(ballot, "maybe")
+        self.assertEqual((resp.status_code, resp.data["code"]), (400, "invalid"))
+
+    def test_finding_after_end_allowed(self):
+        ballot = self.closed()
+        services.end_meeting(self.meeting)
+        self.assertEqual(self.post(ballot, "rejected").status_code, 200)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.finding, "rejected")
+
+    def test_finding_in_public_payload(self):
+        ballot = self.closed()
+        self.post(ballot, "adopted")
+        self.client.post(
+            f"/api/meetings/{self.meeting.pk}/show/", {"question": self.q1.pk}, format="json",
+        )
+        public = payloads.public_payload(self.meeting)
+        self.assertEqual(public["item"]["ballot"]["finding"], "adopted")
+        self.assertEqual(public["item"]["ballot"]["result"]["voted"], 1)
+        self.assertEqual(public["item"]["ballot"]["result"]["tally_sum"], 1)
+
+
 class StatusTests(BallotBase):
     def run_command(self):
         import io
@@ -2645,3 +2722,742 @@ class BundleTests(BallotBase):
         self.assertEqual(resp.status_code, 204)
         self.assertFalse(Ballot.objects.exists())
         self.assertFalse(Question.objects.filter(pk=self.r2.pk).exists())
+
+
+class SealTests(BallotBase):
+    RESULT_KEYS = frozenset({
+        "reference", "secret", "round", "version", "items", "groups", "total",
+        "voted", "tally_sum", "voters", "named", "texts", "opened_at", "closed_at",
+    })
+
+    def closed(self, question=None, answers=None):
+        ballot = ballots.open_ballot(self.meeting, question or self.q1)
+        for member, answer in (answers or [(self.anna, {"choice": "yes"})]):
+            self.vote(member, ballot, answer)
+        with self.captureOnCommitCallbacks(execute=True):
+            return ballots.close_ballot(ballot)
+
+    def expected_hash(self, link, ballot):
+        content = seals.content(ballot, link.kind, link.reference)
+        return seals.digest({
+            "v": 1, "seq": link.seq, "kind": link.kind, "reference": link.reference,
+            "content_hash": seals.digest(content), "previous": link.previous,
+        })
+
+    def test_close_appends_result_link(self):
+        ballot = self.closed()
+        link = SealLink.objects.get()
+        self.assertEqual((link.kind, link.seq, link.previous), ("result", 1, ""))
+        self.assertEqual(link.room_id, self.room.pk)
+        self.assertEqual(link.meeting_id, self.meeting.pk)
+        self.assertEqual(link.ballot_id, ballot.pk)
+        ballot = Ballot.objects.get(pk=ballot.pk)
+        content = seals.content(ballot, "result", link.reference)
+        self.assertEqual(link.content_hash, seals.digest(content))
+        self.assertEqual(link.hash, self.expected_hash(link, ballot))
+        self.assertEqual(len(link.hash), 64)
+        self.assertEqual(
+            seals.canonical({"b": 1, "a": "ä"}), '{"a":"ä","b":1}'.encode(),
+        )
+
+    def test_chain_links_previous(self):
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        links = list(SealLink.objects.all())
+        self.assertEqual([link.seq for link in links], [1, 2])
+        self.assertEqual(links[1].previous, links[0].hash)
+
+    def test_reference_format(self):
+        import datetime
+        from zoneinfo import ZoneInfo
+
+        section = Section.objects.create(question_set=self.meeting, title_de="TOP", position=0)
+        Question.objects.filter(pk__in=[self.q1.pk, self.q2.pk]).update(section=section)
+        self.meeting.scheduled_at = datetime.datetime(
+            2026, 11, 4, 0, 30, tzinfo=ZoneInfo("Europe/Berlin"),
+        )
+        self.meeting.save(update_fields=["scheduled_at"])
+        ballot = self.closed()
+        self.assertEqual(seals.reference(ballot), f"G{self.meeting.pk}-20261104-TOP1a")
+        self.assertEqual(SealLink.objects.get().reference, f"G{self.meeting.pk}-20261104-TOP1a")
+        ballots.reset_ballot(ballot, "Fehler")
+        second = self.closed()
+        self.assertEqual(seals.reference(second), f"G{self.meeting.pk}-20261104-TOP1a-W2")
+
+    def test_reference_falls_back_to_start(self):
+        ballot = self.closed()
+        started = timezone.localtime(self.meeting.meeting_control.started_at)
+        self.assertEqual(
+            seals.reference(ballot),
+            f"G{self.meeting.pk}-{started:%Y%m%d}-TOP1",
+        )
+
+    def test_secret_content_has_no_choices_per_person(self):
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result", "R")
+        self.assertEqual(set(content), self.RESULT_KEYS)
+        self.assertTrue(content["secret"])
+        self.assertEqual(content["named"], [])
+        self.assertEqual(content["voters"], sorted([self.anna.pk, self.ben.pk]))
+        self.assertEqual(content["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
+        self.assertEqual(
+            [set(g) for g in content["groups"]],
+            [{"group_id", "eligible", "voted", "counts"}] * 2,
+        )
+        self.assertEqual(
+            [g["group_id"] for g in content["groups"]], sorted([self.ga.pk, self.gb.pk]),
+        )
+
+    def test_named_content_lists_choices(self):
+        self.q1.named_vote = True
+        self.q1.save()
+        ballot = self.closed(answers=[(self.ben, {"choice": "no"}), (self.anna, {"choice": "yes"})])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result", "R")
+        self.assertEqual(set(content), self.RESULT_KEYS)
+        self.assertEqual(content["named"], sorted(
+            [{"member_id": self.anna.pk, "keys": ["yes"]},
+             {"member_id": self.ben.pk, "keys": ["no"]}],
+            key=lambda n: n["member_id"],
+        ))
+
+    def test_secret_texts_sorted_per_group(self):
+        ballot = self.closed(self.q2, [
+            (self.bert, {"text": "zwei"}), (self.anna, {"text": "eins"}),
+            (self.ben, {"text": "drei"}),
+        ])
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "result", "R")
+        self.assertEqual(content["texts"], sorted([
+            {"group_id": self.ga.pk, "texts": ["eins", "zwei"]},
+            {"group_id": self.gb.pk, "texts": ["drei"]},
+        ], key=lambda t: t["group_id"]))
+
+    def test_finding_and_reset_append_links(self):
+        ballot = self.closed()
+        ballots.set_finding(ballot, "adopted")
+        finding = SealLink.objects.get(kind="finding")
+        self.assertEqual(
+            seals.content(Ballot.objects.get(pk=ballot.pk), "finding", finding.reference),
+            {"reference": finding.reference, "finding": "adopted"},
+        )
+        ballots.reset_ballot(ballot, "Zählfehler")
+        discard = SealLink.objects.get(kind="discard")
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard", discard.reference)
+        self.assertEqual(
+            content, {"reference": discard.reference, "reason": "reset", "comment": "Zählfehler"},
+        )
+        self.assertEqual(discard.content_hash, seals.digest(content))
+        self.assertEqual(
+            list(SealLink.objects.values_list("kind", flat=True)),
+            ["result", "finding", "discard"],
+        )
+
+    def test_reset_open_ballot_appends_discard(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.reset_ballot(ballot, "")
+        self.assertEqual(list(SealLink.objects.values_list("kind", flat=True)), ["discard"])
+
+    def test_restart_abort_appends_discard(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        with mock.patch("committees.tally.EPOCH", "other"):
+            ballots.abort_stale(self.meeting)
+        link = SealLink.objects.get()
+        self.assertEqual((link.kind, link.ballot_id), ("discard", ballot.pk))
+        content = seals.content(Ballot.objects.get(pk=ballot.pk), "discard", link.reference)
+        self.assertEqual(content["reason"], "restart")
+        self.assertEqual(link.hash, self.expected_hash(link, Ballot.objects.get(pk=ballot.pk)))
+
+    def test_delete_meeting_keeps_placeholders(self):
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        before = list(SealLink.objects.values_list("hash", "previous", "content_hash"))
+        services.end_meeting(self.meeting)
+        self.meeting.delete()
+        links = list(SealLink.objects.all())
+        self.assertEqual(len(links), 2)
+        self.assertTrue(all(link.deleted_at is not None for link in links))
+        self.assertTrue(all(link.ballot is None for link in links))
+        self.assertEqual(
+            [(link.hash, link.previous, link.content_hash) for link in links], before,
+        )
+
+    def test_chain_is_per_room(self):
+        self.closed()
+        other = make_room(title="Other")
+        fixture = MeetingFixture()
+        fixture.make_fixture(room=other)
+        question = Question.objects.create(
+            question_set=fixture.meeting, kind="resolution", text_de="B", position=1,
+        )
+        fixture.member("Xena", fixture.ga)
+        services.start_meeting(fixture.meeting)
+        ballot = ballots.open_ballot(fixture.meeting, question)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.close_ballot(ballot)
+        link = SealLink.objects.get(room=other)
+        self.assertEqual((link.seq, link.previous), (1, ""))
+
+    def test_content_survives_renames_and_relabelling(self):
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        link = SealLink.objects.get()
+        self.assertTrue(link.reference.endswith("-TOP1"))
+
+        def recomputed():
+            fresh = Ballot.objects.get(pk=ballot.pk)
+            return seals.digest(seals.content(fresh, "result", link.reference))
+
+        self.assertEqual(recomputed(), link.content_hash)
+        CommitteeMember.objects.filter(pk=self.anna.pk).update(name="Anna Neu")
+        CommitteeGroup.objects.filter(pk=self.ga.pk).update(name_de="Umbenannt", name_en="Renamed")
+        self.assertEqual(recomputed(), link.content_hash)
+        # A second resolution in the same TOP: "1" becomes "1a".
+        section = Section.objects.create(question_set=self.meeting, title_de="TOP", position=0)
+        Question.objects.filter(pk=self.q1.pk).update(section=section)
+        Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Zweiter",
+            position=1, section=section,
+        )
+        self.assertEqual(agenda.labels(self.meeting)[self.q1.pk], "1a")
+        self.assertTrue(seals.reference(Ballot.objects.get(pk=ballot.pk)).endswith("TOP1a"))
+        self.assertEqual(recomputed(), link.content_hash)
+
+
+class VerifyTests(BallotBase):
+    closed = SealTests.closed
+
+    def verify(self, reference, fingerprint="", client=None, room=None):
+        return (client or self.client).get("/api/committee-seals/verify/", {
+            "room": (room or self.room).pk, "reference": reference, "fingerprint": fingerprint,
+        })
+
+    def ref(self):
+        return SealLink.objects.order_by("seq").first().reference
+
+    def test_valid_result(self):
+        self.closed()
+        r = self.verify(self.ref())
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.data["found"])
+        self.assertTrue(r.data["chain_intact"])
+        self.assertEqual([link["status"] for link in r.data["links"]], ["valid"])
+        self.assertEqual(r.data["links"][0]["kind"], "result")
+        self.assertIsNone(r.data["fingerprint_matches"])
+
+    def test_unknown_reference(self):
+        self.closed()
+        r = self.verify("nope")
+        self.assertFalse(r.data["found"])
+        self.assertEqual(r.data["links"], [])
+
+    def test_altered_result_detected(self):
+        ballot = self.closed()
+        result = dict(Ballot.objects.get(pk=ballot.pk).result)
+        result["total"] = {**result["total"], "counts": {"yes": 0, "no": 1, "abstain": 0}}
+        Ballot.objects.filter(pk=ballot.pk).update(result=result)
+        r = self.verify(self.ref())
+        self.assertEqual(r.data["links"][0]["status"], "altered")
+        self.assertTrue(r.data["chain_intact"])
+
+    def test_reset_after_seal_is_discarded(self):
+        ballot = self.closed()
+        ballots.set_finding(ballot, "adopted")
+        ballots.reset_ballot(ballot, "Fehler")
+        r = self.verify(self.ref())
+        self.assertEqual(
+            [(link["kind"], link["status"]) for link in r.data["links"]],
+            [("result", "discarded"), ("finding", "discarded"), ("discard", "valid")],
+        )
+        self.assertTrue(r.data["chain_intact"])
+
+    def test_relabel_keeps_reference_for_later_links(self):
+        s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=0)
+        Question.objects.filter(pk=self.q1.pk).update(section=s1)
+        ballot = self.closed()
+        result_ref = SealLink.objects.get(kind="result").reference
+        self.assertTrue(result_ref.endswith("-TOP1"), result_ref)
+        services.add_resolution(self.meeting, "Änderung", s1, named=False)
+        self.assertEqual(agenda.labels(self.meeting)[self.q1.pk], "1a")
+        ballot = Ballot.objects.get(pk=ballot.pk)
+        ballots.set_finding(ballot, "adopted")
+        finding = SealLink.objects.get(kind="finding")
+        self.assertEqual(finding.reference, result_ref)
+        ballots.reset_ballot(Ballot.objects.get(pk=ballot.pk), "Fehler")
+        self.assertEqual(
+            set(SealLink.objects.filter(ballot=ballot).values_list("reference", flat=True)),
+            {result_ref},
+        )
+        r = self.verify(result_ref, finding.hash[:16])
+        self.assertEqual(
+            [(link["kind"], link["status"]) for link in r.data["links"]],
+            [("result", "discarded"), ("finding", "discarded"), ("discard", "valid")],
+        )
+        self.assertTrue(r.data["fingerprint_matches"])
+
+    def test_discarded_without_discard_link_is_altered(self):
+        ballot = self.closed()
+        Ballot.objects.filter(pk=ballot.pk).update(status=Ballot.Status.DISCARDED)
+        r = self.verify(self.ref())
+        self.assertEqual([link["status"] for link in r.data["links"]], ["altered"])
+
+    def test_link_without_ballot_is_altered(self):
+        self.closed()
+        SealLink.objects.update(ballot=None)
+        r = self.verify(self.ref())
+        self.assertEqual([link["status"] for link in r.data["links"]], ["altered"])
+
+    def test_tampered_link_breaks_chain(self):
+        self.closed()
+        SealLink.objects.update(content_hash="0" * 64)
+        r = self.verify(self.ref())
+        self.assertFalse(r.data["chain_intact"])
+
+    def test_gap_breaks_chain(self):
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        SealLink.objects.filter(seq=1).delete()
+        r = self.verify(SealLink.objects.get().reference)
+        self.assertFalse(r.data["chain_intact"])
+
+    def test_deleted_meeting_placeholder(self):
+        self.closed()
+        a_ref = self.ref()
+        services.end_meeting(self.meeting)
+        self.meeting.delete()
+        fixture = MeetingFixture()
+        fixture.make_fixture(room=self.room)
+        question = Question.objects.create(
+            question_set=fixture.meeting, kind="resolution", text_de="B", position=1,
+        )
+        fixture.member("Xena", fixture.ga)
+        services.start_meeting(fixture.meeting)
+        ballot = ballots.open_ballot(fixture.meeting, question)
+        with self.captureOnCommitCallbacks(execute=True):
+            ballots.close_ballot(ballot)
+        r = self.verify(a_ref)
+        self.assertEqual([link["status"] for link in r.data["links"]], ["deleted"])
+        self.assertTrue(r.data["chain_intact"])
+        b = self.verify(SealLink.objects.get(seq=2).reference)
+        self.assertEqual([link["status"] for link in b.data["links"]], ["valid"])
+
+    def test_fingerprint_prefix(self):
+        self.closed()
+        h = SealLink.objects.get().hash
+        spaced = " ".join(h[i:i + 4] for i in range(0, 16, 4)).upper()
+        self.assertTrue(self.verify(self.ref(), spaced).data["fingerprint_matches"])
+        self.assertFalse(self.verify(self.ref(), "0" * 16).data["fingerprint_matches"])
+        r = self.verify(self.ref(), h[:8])
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data["code"], "invalid")
+        self.assertEqual(self.verify(self.ref(), "xyz" * 6).status_code, 400)
+
+    def test_not_manager_404(self):
+        self.closed()
+        r = self.verify(self.ref(), client=self.foreign)
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self.verify(self.ref(), room=self.room).status_code, 200)
+        r = self.client.get("/api/committee-seals/verify/", {"room": 99999, "reference": "x"})
+        self.assertEqual(r.status_code, 404)
+
+
+class ProtocolTests(BallotBase):
+    closed = SealTests.closed
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/protocol/"
+
+    def end(self):
+        services.end_meeting(self.meeting)
+
+    def protocol(self):
+        r = self.client.get(self.url())
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def items(self, data):
+        return {i["label"]: i for top in data["tops"] for i in top["items"]}
+
+    def test_requires_ended_meeting(self):
+        r = self.client.get(self.url())
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "not_ended")
+        self.assertEqual(self.foreign.get(self.url()).status_code, 404)
+
+    def test_secret_result_and_voters(self):
+        ballot = self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        ballots.set_finding(ballot, "adopted")
+        self.end()
+        data = self.protocol()
+        self.assertEqual(data["committee"], "R")
+        self.assertEqual(data["title"], "Sitzung")
+        self.assertIsNotNone(data["started_at"])
+        self.assertIsNotNone(data["ended_at"])
+        present = [(p["name"], p["group"]) for p in data["attendance"]["present"]]
+        self.assertIn(("Anna", "Gruppe A"), present)
+        self.assertNotIn("Olga", [p["name"] for p in data["attendance"]["present"]])
+        self.assertEqual(data["attendance"]["observers"], ["Olga"])
+        item = self.items(data)["1"]
+        self.assertEqual(item["status"], "voted")
+        self.assertEqual(item["kind"], "resolution")
+        self.assertFalse(item["named"])
+        self.assertEqual(item["text"], "Beschluss")
+        self.assertEqual(item["result"]["total"]["counts"], {"yes": 1, "no": 1, "abstain": 0})
+        groups = {g["name"]: g for g in item["result"]["groups"]}
+        self.assertEqual(groups["Gruppe A"]["eligible"], 2)
+        self.assertEqual(groups["Gruppe A"]["voted"], 1)
+        self.assertTrue(item["result"]["count_check_ok"])
+        self.assertEqual(item["named_votes"], [])
+        self.assertEqual(item["finding"], "adopted")
+        self.assertEqual(
+            item["options"],
+            [{"key": "yes", "text": "yes"}, {"key": "no", "text": "no"},
+             {"key": "abstain", "text": "abstain"}],
+        )
+        self.assertIsNotNone(item["opened_at"])
+        self.assertIsNotNone(item["closed_at"])
+        self.assertEqual(
+            item["voters"],
+            [{"name": "Anna", "group": "Gruppe A"}, {"name": "Ben", "group": "Gruppe B"}],
+        )
+
+    def test_secret_voters_without_choices(self):
+        self.closed(answers=[(self.anna, {"choice": "yes"})])
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual(item["voters"], [{"name": "Anna", "group": "Gruppe A"}])
+        self.assertEqual(item["named_votes"], [])
+        # Anna's name appears only in the voter list, never next to a choice.
+        rest = {k: v for k, v in item.items() if k != "voters"}
+        self.assertNotIn("Anna", json.dumps(rest))
+        self.assertNotIn("Bert", json.dumps(item))
+
+    def test_named_follows_voted_ballot(self):
+        self.closed()  # secret ballot
+        self.q1.named_vote = True
+        self.q1.save(update_fields=["named_vote"])
+        self.end()
+        items = self.items(self.protocol())
+        self.assertFalse(items["1"]["named"])
+        self.assertEqual(items["1"]["voters"], [{"name": "Anna", "group": "Gruppe A"}])
+        self.assertEqual(items["2"]["voters"], [])
+
+    def test_named_votes_listed(self):
+        self.q1.named_vote = True
+        self.q1.save(update_fields=["named_vote"])
+        self.closed(answers=[(self.anna, {"choice": "yes"}), (self.ben, {"choice": "no"})])
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertTrue(item["named"])
+        self.assertEqual(item["named_votes"], [
+            {"member": "Anna", "group": "Gruppe A", "keys": ["yes"]},
+            {"member": "Ben", "group": "Gruppe B", "keys": ["no"]},
+        ])
+
+    def test_free_texts_by_group(self):
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        self.end()
+        item = self.items(self.protocol())["2"]
+        self.assertEqual(item["texts"], [{"group": "Gruppe A", "text": "Hallo"}])
+        self.assertEqual(
+            item["options"], [{"key": "text", "text": "text"}, {"key": "abstain", "text": "abstain"}],
+        )
+
+    def test_choice_options_use_version_text(self):
+        q = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="Wahl", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=q, text_de="Rot", text_en="Red", position=1)
+        versions.sync(q)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"option": o1.pk})
+        ballots.close_ballot(ballot)
+        self.end()
+        item = self.items(self.protocol())["3"]
+        self.assertEqual(
+            item["options"],
+            [{"key": f"opt:{o1.pk}", "text": "Rot"}, {"key": "abstain", "text": "abstain"}],
+        )
+
+    def test_reset_note_without_old_result(self):
+        first = self.closed(answers=[(self.anna, {"choice": "no"})])
+        ballots.reset_ballot(first, "Fehler")
+        self.closed()
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual(
+            item["rounds_discarded"], [{"round": 1, "reason": "reset", "comment": "Fehler"}],
+        )
+        self.assertEqual(item["result"]["total"]["counts"], {"yes": 1, "no": 0, "abstain": 0})
+        self.assertTrue(item["reference"].endswith("-W2"))
+
+    def test_version_changed_note(self):
+        r = self.client.patch(
+            f"/api/questions/{self.q1.pk}/", {"text": {"de": "Beschluss neu"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.q1.refresh_from_db()
+        self.closed()
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual((item["version"], item["text"]), (2, "Beschluss neu"))
+        self.assertTrue(item["version_changed"])
+        self.assertFalse(self.items(self.protocol())["2"]["version_changed"])
+
+    def test_en_bloc_items_each_show_result(self):
+        r3 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Drei", position=3,
+        )
+        versions.sync(r3)
+        bundle = ballots.open_bundle(self.meeting, [self.q1, r3])
+        self.vote(self.anna, bundle, {"choice": "yes"})
+        ballots.close_ballot(bundle)
+        ballots.set_finding(bundle, "adopted")
+        self.end()
+        items = self.items(self.protocol())
+        self.assertEqual(items["1"]["result"], items["3"]["result"])
+        self.assertEqual(items["1"]["bundle_with"], ["3"])
+        self.assertEqual(items["3"]["bundle_with"], ["1"])
+        self.assertEqual(items["3"]["status"], "voted")
+        self.assertEqual(items["3"]["text"], "Drei")
+        self.assertEqual(items["3"]["finding"], "adopted")
+        self.assertEqual(items["3"]["fingerprint"], items["1"]["fingerprint"])
+        self.assertEqual(items["3"]["voters"], [{"name": "Anna", "group": "Gruppe A"}])
+
+    def test_attendance_left_after_and_substitution(self):
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=self.q2)
+        self.meeting.invites.filter(entered_at__isnull=True).update(entered_at=timezone.now())
+        services.remove_invite(self.invite(self.bert), after_question=self.q1)
+        self.end()
+        attendance = self.protocol()["attendance"]
+        present = {p["name"]: p for p in attendance["present"]}
+        self.assertEqual(present["Bert"]["left_after"], "1")
+        self.assertIsNone(present["Ben"]["left_after"])
+        self.assertIn("Dora", present)
+        self.assertEqual(
+            attendance["substitutions"],
+            [{"deputy": "Dora", "absent": "Anna", "group": "Gruppe A", "from_label": "2"}],
+        )
+
+    def test_not_voted_item(self):
+        self.end()
+        item = self.items(self.protocol())["1"]
+        self.assertEqual(item["status"], "not_voted")
+        self.assertIsNone(item["result"])
+        self.assertIsNone(item["fingerprint"])
+        self.assertIsNone(item["reference"])
+        self.assertEqual(item["version"], 1)
+        self.assertEqual(item["text"], "Beschluss")
+
+    def test_top_without_vote(self):
+        Section.objects.create(
+            question_set=self.meeting, title_de="Verschiedenes", position=9,
+        )
+        self.end()
+        tops = self.protocol()["tops"]
+        self.assertEqual(
+            [(t["number"], t["title"], t["items"]) for t in tops[2:]],
+            [(3, "Verschiedenes", [])],
+        )
+
+    def test_fingerprint_matches_seal_link(self):
+        ballot = self.closed()
+        ballots.set_finding(ballot, "rejected")
+        self.end()
+        item = self.items(self.protocol())["1"]
+        result_link = SealLink.objects.get(ballot=ballot, kind="result")
+        finding_link = SealLink.objects.get(ballot=ballot, kind="finding")
+        self.assertEqual(item["fingerprint"], result_link.hash)
+        self.assertEqual(item["reference"], result_link.reference)
+        self.assertEqual(item["finding_fingerprint"], finding_link.hash)
+
+    def test_query_count_does_not_grow_with_items(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from . import protocol
+
+        self.closed()
+        self.closed(self.q2, [(self.anna, {"text": "Hallo"})])
+        self.end()
+        with CaptureQueriesContext(connection) as small:
+            protocol.build(QuestionSet.objects.get(pk=self.meeting.pk))
+        for n in range(3, 8):
+            Question.objects.create(
+                question_set=self.meeting, kind="resolution", text_de=f"Q{n}", position=n,
+            )
+        with CaptureQueriesContext(connection) as large:
+            protocol.build(QuestionSet.objects.get(pk=self.meeting.pk))
+        self.assertEqual(
+            len(small), len(large),
+            [q["sql"][:80] for q in small.captured_queries],
+        )
+
+
+class TrialTests(MeetingFixture, ApiBase):
+    """Test run: a started meeting that leaves no trace (Decisions 8)."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        self.q1 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Beschluss", position=1,
+        )
+        self.anna = self.member("Anna", self.ga)
+        self.ben = self.member("Ben", self.gb)
+
+    def url(self, action):
+        return f"/api/meetings/{self.meeting.pk}/{action}/"
+
+    def start(self, trial=True):
+        r = self.client.post(self.url("start"), {"trial": trial}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        return r
+
+    def invite(self, member):
+        return MeetingInvite.objects.select_related("meeting", "member").get(
+            meeting=self.meeting, member=member,
+        )
+
+    def run_vote(self, voter=None):
+        self.meeting.invites.update(entered_at=timezone.now())
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        ballots.cast_vote(self.invite(voter or self.anna), ballot.pk, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            return ballots.close_ballot(ballot)
+
+    def test_trial_start_and_vote_without_seal(self):
+        r = self.start()
+        self.assertTrue(r.json()["trial"])
+        self.run_vote()
+        self.assertFalse(SealLink.objects.exists())
+        self.meeting.refresh_from_db()
+        self.assertTrue(payloads.manager_payload(self.meeting)["trial"])
+        self.assertTrue(payloads.public_payload(self.meeting)["trial"])
+
+    def test_trial_end_resets_everything(self):
+        dora = self.member("Dora", self.ga, role="deputy", rank=1)
+        MeetingSubstitution.objects.create(
+            meeting=self.meeting, absent=self.anna, deputy=dora,
+        )
+        self.start()
+        ballot = self.run_vote(dora)
+        MeetingInvite.objects.filter(member=self.ben).update(
+            removed_at=timezone.now(), removed_after=self.q1,
+        )
+        ballots.secret_tally.start(987654)
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(self.url("end"))
+        self.assertEqual(r.status_code, 200, r.content)
+        self.meeting.refresh_from_db()
+        self.assertEqual(self.meeting.meeting_state, "draft")
+        self.assertFalse(Ballot.objects.exists())
+        self.assertFalse(BallotSeat.objects.exists())
+        self.assertFalse(MotionVersion.objects.exists())
+        for invite in self.meeting.invites.all():
+            self.assertIsNone(invite.entered_at)
+            self.assertIsNone(invite.removed_at)
+            self.assertIsNone(invite.removed_after)
+        control = MeetingControl.objects.get(meeting=self.meeting)
+        self.assertFalse(control.trial)
+        self.assertIsNone(control.started_at)
+        self.assertIsNone(control.ended_at)
+        self.assertEqual(MeetingSubstitution.objects.count(), 1)
+        self.assertFalse(r.json()["trial"])
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
+
+    def test_real_start_after_trial(self):
+        self.start()
+        self.run_vote()
+        self.client.post(self.url("end"))
+        self.start(trial=False)
+        self.assertEqual(list(self.q1.motion_versions.values_list("number", flat=True)), [1])
+        ballot = self.run_vote()
+        self.assertEqual(SealLink.objects.filter(ballot=ballot, kind="result").count(), 1)
+
+    def test_trial_end_restores_agenda(self):
+        s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=0)
+        Question.objects.filter(pk=self.q1.pk).update(section=s1, text_en="Motion")
+        q2 = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="Wahl", position=2,
+        )
+        a = AnswerOption.objects.create(question=q2, text_de="A", text_en="A", position=0)
+        b = AnswerOption.objects.create(question=q2, text_de="B", position=1)
+        dora = self.member("Dora", self.ga, role="deputy", rank=1)
+        self.start()
+        r = self.client.patch(
+            f"/api/questions/{self.q1.pk}/",
+            {"text": {"de": "Geändert", "en": "Changed"}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        r = self.client.patch(
+            f"/api/questions/{q2.pk}/",
+            {"options": [
+                {"id": a.pk, "text": {"de": "A2", "en": "A2"}},
+                {"text": {"de": "C"}},
+            ]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertFalse(AnswerOption.objects.filter(pk=b.pk).exists())
+        sub_item = services.add_resolution(self.meeting, "Änderung", s1, named=False)
+        new_top = services.add_resolution(self.meeting, "Neuer TOP", None, named=False)
+        new_section = Section.objects.create(
+            question_set=self.meeting, title_de="Neu", position=10,
+        )
+        MeetingSubstitution.objects.create(
+            meeting=self.meeting, absent=self.anna, deputy=dora, from_question=sub_item,
+        )
+        MeetingInvite.objects.filter(member=self.ben).update(
+            removed_at=timezone.now(), removed_after=new_top,
+        )
+        self.run_vote()
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.post(self.url("end"))
+        self.assertEqual(r.status_code, 200, r.content)
+
+        self.assertEqual(
+            set(self.meeting.questions.values_list("pk", flat=True)), {self.q1.pk, q2.pk},
+        )
+        self.assertFalse(Section.objects.filter(pk=new_section.pk).exists())
+        self.assertEqual(list(self.meeting.sections.values_list("pk", flat=True)), [s1.pk])
+        self.q1.refresh_from_db()
+        self.assertEqual((self.q1.text_de, self.q1.text_en), ("Beschluss", "Motion"))
+        self.assertEqual(
+            list(q2.options.values_list("pk", "text_de", "text_en")),
+            [(a.pk, "A", "A"), (b.pk, "B", "")],
+        )
+        self.assertEqual(
+            dict(self.meeting.questions.values_list("pk", "position")),
+            {self.q1.pk: 1, q2.pk: 2},
+        )
+        self.assertIsNone(MeetingSubstitution.objects.get().from_question_id)
+        self.assertIsNone(MeetingControl.objects.get(meeting=self.meeting).trial_snapshot)
+        self.assertFalse(MotionVersion.objects.exists())
+
+        self.start(trial=False)
+        self.assertIsNone(MeetingControl.objects.get(meeting=self.meeting).trial_snapshot)
+        self.assertEqual(
+            self.q1.motion_versions.get().text_de, "Beschluss",
+        )
+        ballot = self.run_vote(dora)  # Anna is substituted from the start now
+        self.assertEqual(SealLink.objects.filter(ballot=ballot, kind="result").count(), 1)
+
+    def test_trial_finding_rejected(self):
+        self.start()
+        ballot = self.run_vote()
+        r = self.client.post(
+            self.url(f"ballots/{ballot.pk}/finding"), {"finding": "adopted"}, format="json",
+        )
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "trial"))
+
+    def test_trial_protocol_400(self):
+        self.start()
+        r = self.client.get(self.url("protocol"))
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "not_ended"))
+
+    def test_trial_end_with_open_vote_blocked(self):
+        self.start()
+        self.meeting.invites.update(entered_at=timezone.now())
+        ballots.open_ballot(self.meeting, self.q1)
+        r = self.client.post(self.url("end"))
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "vote_open"))

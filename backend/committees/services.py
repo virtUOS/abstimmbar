@@ -12,7 +12,7 @@ from django.db.models import F, Max, Q
 from django.utils.html import escape
 from django.utils import timezone
 
-from rooms.models import Question, QuestionSet, Room, Section
+from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
 from . import eligibility, versions
 from .presence import presence
@@ -24,6 +24,7 @@ from .models import (
     MeetingControl,
     MeetingInvite,
     MeetingSubstitution,
+    MotionVersion,
 )
 
 _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
@@ -315,10 +316,28 @@ def _transition(meeting: QuestionSet, expected: str, state: str, message: str):
 
 
 @transaction.atomic
-def start_meeting(meeting: QuestionSet) -> QuestionSet:
+def start_meeting(meeting: QuestionSet, trial: bool = False) -> QuestionSet:
+    # A meeting without anything to vote on is not a committee session in
+    # Abstimmbar's sense (we are no committee management system).
+    if not meeting.questions.exists():
+        raise ValidationError(
+            "Add at least one agenda item with a vote before starting.",
+            code="empty_agenda",
+        )
     _transition(meeting, State.DRAFT, State.STARTED, "The meeting has already started.")
+    snapshot = None
+    if trial:
+        snapshot = {
+            "questions": {
+                str(pk): pos for pk, pos in meeting.questions.values_list("pk", "position")
+            },
+            "sections": {
+                str(pk): pos for pk, pos in meeting.sections.values_list("pk", "position")
+            },
+        }
     MeetingControl.objects.update_or_create(
-        meeting_id=meeting.pk, defaults={"started_at": timezone.now()},
+        meeting_id=meeting.pk,
+        defaults={"started_at": timezone.now(), "trial": trial, "trial_snapshot": snapshot},
     )
     ensure_invites(meeting)
     # Members whose ballot page is already open (connected while the meeting
@@ -344,9 +363,110 @@ def end_meeting(meeting: QuestionSet) -> QuestionSet:
         question__question_set_id=meeting.pk, status=Ballot.Status.OPEN,
     ).exists():
         raise ValidationError("A vote is still open.", code="vote_open")
+    if MeetingControl.objects.filter(meeting_id=meeting.pk, trial=True).exists():
+        return _reset_trial(meeting)
     _transition(meeting, State.STARTED, State.ENDED, "Only a running meeting can be ended.")
     MeetingControl.objects.update_or_create(
         meeting_id=meeting.pk, defaults={"ended_at": timezone.now()},
+    )
+    _notify(meeting)
+    return meeting
+
+
+def _restore_agenda(meeting: QuestionSet, snapshot: dict | None) -> None:
+    """Put the agenda back to its state at the start of the test run:
+    delete items and TOPs added since, restore positions and the texts
+    (items and options) from version 1, frozen at the start."""
+    if snapshot is None:
+        return
+    q_pos = {int(k): v for k, v in snapshot.get("questions", {}).items()}
+    s_pos = {int(k): v for k, v in snapshot.get("sections", {}).items()}
+    added = meeting.questions.exclude(pk__in=q_pos)
+    MeetingSubstitution.objects.filter(meeting_id=meeting.pk, from_question__in=added).update(
+        from_question=None,
+    )
+    added.delete()
+    meeting.sections.exclude(pk__in=s_pos).delete()
+    for pk, position in meeting.sections.values_list("pk", "position"):
+        if position != s_pos[pk]:
+            Section.objects.filter(pk=pk).update(position=s_pos[pk])
+    first = {
+        v.question_id: v
+        for v in MotionVersion.objects.filter(question__question_set_id=meeting.pk, number=1)
+    }
+    for question in meeting.questions.all():
+        fields = []
+        if question.position != q_pos[question.pk]:
+            question.position = q_pos[question.pk]
+            fields.append("position")
+        version = first.get(question.pk)
+        if version is not None:
+            if (question.text_de or "") != version.text_de:
+                question.text_de = version.text_de
+                fields.append("text_de")
+            if (question.text_en or "") != version.text_en:
+                question.text_en = version.text_en
+                fields.append("text_en")
+            _restore_options(question, version.options)
+        if fields:
+            # Plain update: no question-saved hooks (no new versions).
+            Question.objects.filter(pk=question.pk).update(
+                **{f: getattr(question, f) for f in fields},
+            )
+
+
+def _restore_options(question: Question, frozen: list[dict]) -> None:
+    """Options as in a version: added ones go, deleted ones come back
+    (same id), texts and order as frozen."""
+    existing = {o.pk: o for o in question.options.all()}
+    ids = [o["id"] for o in frozen]
+    for pk, option in existing.items():
+        if pk not in ids:
+            option.delete()  # added during the test run
+    for index, old in enumerate(frozen):
+        option = existing.get(old["id"])
+        if option is None:
+            AnswerOption.objects.create(
+                pk=old["id"], question=question, position=index,
+                text_de=old["text_de"], text_en=old["text_en"],
+            )
+        elif (
+            (option.text_de or "") != old["text_de"]
+            or (option.text_en or "") != old["text_en"]
+            or option.position != index
+        ):
+            AnswerOption.objects.filter(pk=option.pk).update(
+                text_de=old["text_de"], text_en=old["text_en"], position=index,
+            )
+
+
+def _reset_trial(meeting: QuestionSet) -> QuestionSet:
+    """End of a test run: wipe ballots, motion versions, attendance and the
+    control state, and restore the agenda as it was at the start;
+    substitutions stay."""
+    from . import ballots  # ballots imports this module
+
+    _transition(meeting, State.STARTED, State.DRAFT, "Only a running meeting can be ended.")
+    ballot_ids = list(
+        Ballot.objects.filter(question__question_set_id=meeting.pk)
+        .values_list("pk", flat=True),
+    )
+    Ballot.objects.filter(pk__in=ballot_ids).delete()  # seats, votes, texts, items cascade
+    # Before the restore: removals may point at items added in the test run.
+    MeetingInvite.objects.filter(meeting_id=meeting.pk).update(
+        entered_at=None, removed_at=None, removed_after=None,
+    )
+    snapshot = (
+        MeetingControl.objects.filter(meeting_id=meeting.pk)
+        .values_list("trial_snapshot", flat=True).first()
+    )
+    _restore_agenda(meeting, snapshot)
+    MotionVersion.objects.filter(question__question_set_id=meeting.pk).delete()
+    for pk in ballot_ids:
+        transaction.on_commit(lambda pk=pk: ballots.secret_tally.discard(pk))
+    MeetingControl.objects.filter(meeting_id=meeting.pk).update(
+        started_at=None, ended_at=None, current_question=None, current_section=None,
+        trial=False, trial_snapshot=None,
     )
     _notify(meeting)
     return meeting

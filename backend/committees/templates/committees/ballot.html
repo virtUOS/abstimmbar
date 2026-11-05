@@ -13,6 +13,14 @@
   .who { margin-top: 18px; }
   .conn { margin-top: 14px; padding: 8px 12px; border: 1px dashed var(--field-line);
           border-radius: 10px; color: var(--ink-soft); font-size: 14px; }
+  /* Test run: amber warning, deliberately not the brand green. */
+  .trial { --warn-ink: #8a4b00; --warn-line: #d98a00; --warn-soft: #fff4dc;
+           margin-top: 14px; padding: 8px 12px; border: 1px solid var(--warn-line);
+           border-left-width: 6px;
+           border-radius: 10px; font-size: 14px; font-weight: 700; color: var(--warn-ink);
+           background: var(--warn-soft); }
+  :root[data-theme="dark"] .trial { --warn-ink: #ffd27a; --warn-line: #c98a1a;
+                                    --warn-soft: #2e2208; }
   #view { margin-top: 18px; }
   .badges { display: flex; flex-wrap: wrap; gap: 6px; }
   .badge { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px;
@@ -56,6 +64,7 @@
 {% elif is_observer %}{% trans "You are taking part as an observer. You cannot vote." %}
 {% else %}{% blocktrans with name=member.name group=group_name %}You are voting as {{ name }} ({{ group }}).{% endblocktrans %}{% endif %}
 </p>
+<p class="trial" id="trial" data-testid="ballot-trial" role="status" hidden>{% trans "Test run: your vote is not saved." %}</p>
 <p class="conn" id="conn" role="status" hidden></p>
 <section id="view" aria-live="polite">
   <p class="soft">{% if state == "waiting" %}{% trans "The meeting has not started yet. This page updates by itself." %}{% else %}{% trans "Please wait for the next vote." %}{% endif %}</p>
@@ -154,6 +163,8 @@
     view.replaceChildren();
     const who = document.getElementById("who");
     if (who) who.hidden = !linkValid();
+    const trial = document.getElementById("trial");
+    if (trial) trial.hidden = !(linkValid() && snap && snap.trial);
     if (!linkValid()) {
       view.appendChild(el("p", { class: "soft" }, S.invalid));
       return;

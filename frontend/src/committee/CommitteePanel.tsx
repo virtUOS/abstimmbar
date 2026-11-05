@@ -8,7 +8,8 @@
  *  own rooms or by pasting an e-mail list. */
 import { useEffect, useState, type FormEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { ChevronDown, ClipboardList, Pencil, Search, Trash2, UsersRound } from "lucide-react";
+import { Link } from "react-router";
+import { ChevronDown, ClipboardList, Pencil, Search, ShieldCheck, Trash2, UsersRound } from "lucide-react";
 import { localizedText, type LocalizedText } from "@basicbar/ui";
 import {
   api,
@@ -152,6 +153,13 @@ export default function CommitteePanel({ room }: { room: Room }) {
           />
         </button>
       </h2>
+      <Link
+        to={`/rooms/${room.id}/seals`}
+        className="-mt-2 inline-flex items-center gap-1.5 text-sm text-brand-700 hover:underline dark:text-brand-300"
+      >
+        <ShieldCheck aria-hidden className="h-4 w-4" />
+        {t("Check seal")}
+      </Link>
       {open && (
         <div id="committee-groups-body" className="grid min-w-0 gap-4">
           {/* Results are broken down per group, so this applies to every group,
@@ -551,7 +559,7 @@ function BulkAddForm({
 
   /** Both the search pick and the pasted list go through the bulk import,
    *  so validation and the created/skipped report are the same. */
-  async function add(lines: string): Promise<boolean> {
+  async function add(lines: string, onSaved?: () => void): Promise<boolean> {
     setError("");
     setResult(null);
     setBusy(true);
@@ -563,6 +571,9 @@ function BulkAddForm({
         text: lines,
       });
       setResult(data);
+      // Clear the input together with the report, before the list reloads:
+      // otherwise the next entry typed meanwhile would be wiped.
+      onSaved?.();
       await onAdded();
       return true;
     } catch (err) {
@@ -575,7 +586,7 @@ function BulkAddForm({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (await add(text)) setText("");
+    await add(text, () => setText(""));
   }
 
   function pick(person: KnownPerson) {

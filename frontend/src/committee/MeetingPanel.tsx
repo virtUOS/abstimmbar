@@ -14,10 +14,13 @@ import {
   ChevronDown,
   Copy,
   Download,
+  FileText,
+  FlaskConical,
   KeyRound,
   Pencil,
   Play,
   Presentation,
+  ShieldCheck,
   SquareStop,
   Trash2,
   UserRoundCheck,
@@ -35,7 +38,15 @@ import {
   type QuestionSet,
   type Section,
 } from "../api";
-import { Button, ConfirmDialog, Field, Select, ToggleSwitch } from "../components/ui";
+import {
+  Button,
+  ConfirmDialog,
+  Field,
+  MenuItem,
+  MoreMenu,
+  Select,
+  ToggleSwitch,
+} from "../components/ui";
 import { agendaLabels } from "./agendaLabels";
 import { MeetingDateInput, STATE_BADGE, STATE_LABEL } from "./MeetingList";
 
@@ -124,6 +135,9 @@ function Collapsible({
   );
 }
 
+const EMPTY_AGENDA_HINT =
+  "The meeting can only start once the agenda has at least one TOP with a vote. Add a vote with “New question”.";
+
 export default function MeetingPanel({
   set,
   questions,
@@ -138,6 +152,8 @@ export default function MeetingPanel({
   onSetChange: (set: QuestionSet) => void;
 }) {
   const { t, i18n } = useTranslation();
+  // Nothing to vote on: not a meeting Abstimmbar can run (the backend refuses too).
+  const emptyAgenda = questions.length === 0;
   const [meeting, setMeeting] = useState<MeetingSummary | null>(null);
   const [groups, setGroups] = useState<CommitteeGroup[]>([]);
   const [members, setMembers] = useState<CommitteeMember[]>([]);
@@ -150,6 +166,7 @@ export default function MeetingPanel({
   const [dateDraft, setDateDraft] = useState(toLocalInput(set.scheduled_at));
   const [confirmEnd, setConfirmEnd] = useState(false);
   const [confirmStart, setConfirmStart] = useState(false);
+  const [confirmTrial, setConfirmTrial] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -233,9 +250,9 @@ export default function MeetingPanel({
 
   /** Start the meeting and open the console in a new tab. The tab is
    *  opened right away (inside the click) so no popup blocker stops it. */
-  async function begin() {
+  async function begin(trial = false) {
     const tab = window.open("", "_blank");
-    const ok = await run(() => api.startMeeting(set.id), setStateError);
+    const ok = await run(() => api.startMeeting(set.id, trial), setStateError);
     if (!tab) return;
     if (ok) tab.location.href = `/sets/${set.id}/meeting`;
     else tab.close();
@@ -284,8 +301,14 @@ export default function MeetingPanel({
 
       {confirmEnd && (
         <ConfirmDialog
-          message={t("End the meeting? All personal links become invalid afterwards.")}
-          confirmLabel={t("End meeting")}
+          message={
+            meeting.trial
+              ? t(
+                  "All votes, attendance and versions of the test run will be deleted. The agenda returns to its state before the test run.",
+                )
+              : t("End the meeting? All personal links become invalid afterwards.")
+          }
+          confirmLabel={meeting.trial ? t("End test run") : t("End meeting")}
           onConfirm={() => {
             setConfirmEnd(false);
             void run(() => api.endMeeting(set.id), setStateError);
@@ -300,11 +323,35 @@ export default function MeetingPanel({
           })}
           confirmLabel={t("Start now")}
           confirmVariant="primary"
+          extra={
+            <Button
+              variant="secondary"
+              data-testid="start-trial-from-dialog"
+              onClick={() => {
+                setConfirmStart(false);
+                void begin(true);
+              }}
+            >
+              {t("Start test run")}
+            </Button>
+          }
           onConfirm={() => {
             setConfirmStart(false);
             void begin();
           }}
           onCancel={() => setConfirmStart(false)}
+        />
+      )}
+      {confirmTrial && (
+        <ConfirmDialog
+          message={t("Nothing is recorded in a test run. Everything is reset when it ends.")}
+          confirmLabel={t("Start test run")}
+          confirmVariant="primary"
+          onConfirm={() => {
+            setConfirmTrial(false);
+            void begin(true);
+          }}
+          onCancel={() => setConfirmTrial(false)}
         />
       )}
 
@@ -316,7 +363,7 @@ export default function MeetingPanel({
               data-testid="meeting-state"
               className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STATE_BADGE[state]}`}
             >
-              {t(STATE_LABEL[state])}
+              {t(meeting.trial && state === "started" ? "Test run" : STATE_LABEL[state])}
             </span>
             <span className="inline-flex min-w-0 items-center gap-1.5 text-base font-semibold sm:text-lg text-slate-900 dark:text-slate-100">
               <CalendarClock aria-hidden className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />
@@ -342,7 +389,8 @@ export default function MeetingPanel({
             {state === "draft" && (
               <Button
                 variant="primary"
-                disabled={busy}
+                disabled={busy || emptyAgenda}
+                title={emptyAgenda ? t(EMPTY_AGENDA_HINT) : undefined}
                 onClick={() =>
                   offSchedule(meeting.scheduled_at) ? setConfirmStart(true) : void begin()
                 }
@@ -351,6 +399,14 @@ export default function MeetingPanel({
                 <Play aria-hidden className="h-4 w-4" />
                 {t("Start meeting")}
               </Button>
+            )}
+            {state === "draft" && !emptyAgenda && !busy && (
+              <MoreMenu label={t("More meeting actions")} align="left">
+                <MenuItem onClick={() => setConfirmTrial(true)}>
+                  <FlaskConical aria-hidden className="h-4 w-4" />
+                  <span data-testid="start-trial">{t("Start test run")}</span>
+                </MenuItem>
+              </MoreMenu>
             )}
             {state === "started" && (
               <Link
@@ -369,11 +425,19 @@ export default function MeetingPanel({
                 className="inline-flex items-center gap-1.5 border border-red-200 dark:border-red-900"
               >
                 <SquareStop aria-hidden className="h-4 w-4" />
-                {t("End meeting")}
+                {meeting.trial ? t("End test run") : t("End meeting")}
               </Button>
             )}
           </div>
         </div>
+        {state === "draft" && emptyAgenda && (
+          <p
+            data-testid="start-blocked-hint"
+            className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+          >
+            {t(EMPTY_AGENDA_HINT)}
+          </p>
+        )}
         {editingDate && (
           <div className="flex flex-wrap items-end gap-2">
             <MeetingDateInput value={dateDraft} onChange={setDateDraft} />
@@ -397,15 +461,51 @@ export default function MeetingPanel({
           </p>
         )}
         {ended && (
-          <p
-            data-testid="meeting-ended-note"
-            className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700 dark:bg-slate-900 dark:text-slate-300"
-          >
-            {meeting.ended_at
-              ? t("The meeting ended on {{date}}.", { date: longDate(meeting.ended_at) })
-              : t("The meeting has ended.")}{" "}
-            {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}
-          </p>
+          <div className="grid gap-3">
+            <p
+              data-testid="meeting-ended-note"
+              className="text-sm text-slate-600 dark:text-slate-400"
+            >
+              {meeting.ended_at
+                ? t("The meeting ended on {{date}}.", { date: longDate(meeting.ended_at) })
+                : t("The meeting has ended.")}{" "}
+              {t("The personal links are no longer valid; agenda, links and substitutions can no longer be changed.")}
+            </p>
+            <div
+              data-testid="protocol-card"
+              className="flex flex-wrap items-center gap-3 rounded-xl border border-brand-200 bg-brand-50/60 p-4 dark:border-brand-900 dark:bg-brand-950/30"
+            >
+              <span
+                aria-hidden
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-sm dark:bg-slate-900 dark:text-brand-300"
+              >
+                <FileText className="h-5 w-5" />
+              </span>
+              <div className="min-w-[10rem] flex-1">
+                <p className="font-semibold text-slate-900 dark:text-slate-100">{t("Protocol")}</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  {t("Results, attendance and seals of this meeting — ready to print or save as PDF.")}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Link
+                  to={`/sets/${meeting.id}/protocol`}
+                  data-testid="protocol-link"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+                >
+                  <FileText aria-hidden className="h-4 w-4" />
+                  {t("View protocol")}
+                </Link>
+                <Link
+                  to={`/rooms/${set.room}/seals`}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                >
+                  <ShieldCheck aria-hidden className="h-4 w-4" />
+                  {t("Check seal")}
+                </Link>
+              </div>
+            </div>
+          </div>
         )}
         <ErrorText text={stateError} />
       </div>

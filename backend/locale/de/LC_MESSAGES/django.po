@@ -756,6 +756,9 @@ msgstr "Antworten"
 msgid "Preview: this is how members see the ballot. Nothing you enter here is stored."
 msgstr "Vorschau: So sehen Mitglieder den Stimmzettel. Ihre Eingaben hier werden nicht gespeichert."
 
+msgid "Test run: your vote is not saved."
+msgstr "Testlauf: Ihre Stimme wird nicht gespeichert."
+
 msgid "Try again"
 msgstr "Noch einmal"
 

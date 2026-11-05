@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from rooms.models import Question, QuestionSet
 
-from . import eligibility, tally, versions
+from . import eligibility, seals, tally, versions
 from .models import (
     Ballot,
     BallotItem,
@@ -116,6 +116,11 @@ def abort_stale(meeting: QuestionSet) -> None:
             discarded_at=now,
         )
         BallotSeat.objects.filter(ballot_id__in=ids).delete()
+        for discarded in (
+            Ballot.objects.filter(pk__in=ids).select_related("question__question_set")
+            .order_by("pk")
+        ):
+            seals.append(discarded, "discard")
         for pk in ids:
             transaction.on_commit(lambda pk=pk: secret_tally.discard(pk))
         if ids:
@@ -342,6 +347,7 @@ def close_ballot(ballot: Ballot) -> Ballot:
     ballot.status = Ballot.Status.CLOSED
     ballot.closed_at = timezone.now()
     ballot.save(update_fields=["result", "status", "closed_at"])
+    seals.append(ballot, "result")
     if ballot.secret:
         pk = ballot.pk
         transaction.on_commit(lambda: secret_tally.discard(pk))
@@ -371,6 +377,7 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
     ballot.save(update_fields=[
         "result", "status", "discard_reason", "discard_comment", "discarded_at",
     ])
+    seals.append(ballot, "discard")
     pk = ballot.pk
     transaction.on_commit(lambda: secret_tally.discard(pk))
     _notify(ballot.question.question_set)
@@ -385,6 +392,31 @@ def release_texts(ballot: Ballot) -> Ballot:
         raise ValidationError("Only free-text votes have texts.", code="invalid")
     ballot.texts_released = True
     ballot.save(update_fields=["texts_released"])
+    _notify(ballot.question.question_set)
+    return ballot
+
+
+@transaction.atomic
+def set_finding(ballot: Ballot, finding: str) -> Ballot:
+    """The chair's finding (adopted/rejected, "" = left open) on a closed ballot."""
+    if finding not in Ballot.Finding.values and finding != "":
+        raise _invalid()
+    state = QuestionSet.objects.values_list("meeting_state", flat=True).get(
+        pk=ballot.question.question_set_id,
+    )
+    if state not in (QuestionSet.MeetingState.STARTED, QuestionSet.MeetingState.ENDED):
+        raise ValidationError("The meeting has not started.", code="not_started")
+    if MeetingControl.objects.filter(
+        meeting_id=ballot.question.question_set_id, trial=True,
+    ).exists():
+        raise ValidationError("Findings are not recorded in a test run.", code="trial")
+    locked = _locked(ballot.pk)
+    if locked is None or locked.status != Ballot.Status.CLOSED:
+        raise ValidationError("The vote is not closed.", code="not_closed")
+    ballot = locked
+    ballot.finding = finding
+    ballot.save(update_fields=["finding"])
+    seals.append(ballot, "finding")
     _notify(ballot.question.question_set)
     return ballot
 

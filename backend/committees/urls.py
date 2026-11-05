@@ -9,6 +9,7 @@ from .views import (
     CommitteeMemberViewSet,
     GroupTemplateViewSet,
     MeetingViewSet,
+    verify_seal,
 )
 
 router = DefaultRouter()
@@ -27,6 +28,7 @@ def _meeting(name, actions, suffix=""):
 
 urlpatterns = [
     path("", include(router.urls)),
+    path("committee-seals/verify/", verify_seal, name="committee-seal-verify"),
     path("meetings/<int:pk>/stream/", manager_stream, name="meeting-stream"),
     _meeting("detail", {"get": "retrieve"}),
     _meeting("start", {"post": "start"}, "start/"),
@@ -42,12 +44,14 @@ urlpatterns = [
         "substitutions/<int:sub_id>/",
     ),
     _meeting("control", {"get": "control"}, "control/"),
+    _meeting("protocol", {"get": "protocol"}, "protocol/"),
     _meeting("show", {"post": "show"}, "show/"),
     _meeting("item-add", {"post": "add_item"}, "items/"),
     _meeting("bundle-open", {"post": "open_bundle"}, "bundles/"),
     _meeting("item-open", {"post": "open_item"}, "items/<int:question_id>/open/"),
     _meeting("ballot-close", {"post": "close_ballot"}, "ballots/<int:ballot_id>/close/"),
     _meeting("ballot-reset", {"post": "reset_ballot"}, "ballots/<int:ballot_id>/reset/"),
+    _meeting("ballot-finding", {"post": "finding"}, "ballots/<int:ballot_id>/finding/"),
     _meeting(
         "ballot-release-texts", {"post": "release_texts"},
         "ballots/<int:ballot_id>/release-texts/",
