@@ -824,6 +824,12 @@ export default function SetPage() {
   const [metaError, setMetaError] = useState("");
   const [sections, setSections] = useState<SectionType[]>([]);
   const [editingSections, setEditingSections] = useState(false);
+  /** Leave the sections editor: blurring the focused field commits a
+   *  pending title/description edit (they save on blur) before it unmounts. */
+  const finishSections = () => {
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    setEditingSections(false);
+  };
   const [editingMeta, setEditingMeta] = useState(false);
   const [draft, setDraft] = useState<SetSettings | null>(null);
   const [sharePanelOpen, setSharePanelOpen] = useState(false);
@@ -1966,7 +1972,7 @@ export default function SetPage() {
                   ? t("Create a question first — sections group existing questions.")
                   : undefined
               }
-              onClick={() => setEditingSections((value) => !value)}
+              onClick={() => (editingSections ? finishSections() : setEditingSections(true))}
               className="inline-flex items-center gap-1.5"
             >
               <ListTree aria-hidden className="h-4 w-4" />{isMeeting ? t("TOPs") : t("Sections")}
@@ -2017,11 +2023,25 @@ export default function SetPage() {
       )}
 
       {editingSections && (
-        <p className="mb-3 rounded-xl bg-brand-50 px-4 py-2 text-sm text-slate-700 dark:bg-brand-950 dark:text-slate-300">
-          {t(
-            "Editing sections: use “+ Section” to insert a heading, click a name to rename it, drag by the handle to move it. Drag questions below the matching heading.",
-          )}
-        </p>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50 px-4 py-2 text-sm text-slate-700 dark:bg-brand-950 dark:text-slate-300">
+          <p className="min-w-[12rem] flex-1">
+            {isMeeting
+              ? t(
+                  "Editing TOPs: use “+ TOP here” to insert a TOP, click a name to rename it, drag by the handle to move it. Drag votes below the matching TOP.",
+                )
+              : t(
+                  "Editing sections: use “+ Section” to insert a heading, click a name to rename it, drag by the handle to move it. Drag questions below the matching heading.",
+                )}
+          </p>
+          <Button
+            variant="primary"
+            onClick={finishSections}
+            className="inline-flex items-center gap-1.5"
+          >
+            <Check aria-hidden className="h-4 w-4" />
+            {t("Save")}
+          </Button>
+        </div>
       )}
       {/* Section names are translatable: dock the controls above the outline
           on phones while sections are being edited. */}
