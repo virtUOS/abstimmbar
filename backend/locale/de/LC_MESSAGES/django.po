@@ -773,3 +773,99 @@ msgstr "Eine Stimme für alle diese Beschlüsse."
 
 msgid "Page %(page)s of %(pages)s"
 msgstr "Seite %(page)s von %(pages)s"
+
+msgid "Protocol"
+msgstr "Protokoll"
+
+msgid "Start: %(time)s"
+msgstr "Beginn: %(time)s"
+
+msgid "End: %(time)s"
+msgstr "Ende: %(time)s"
+
+msgid "Attendance"
+msgstr "Anwesenheit"
+
+msgid "left after TOP %(label)s"
+msgstr "nach TOP %(label)s gegangen"
+
+msgid "left"
+msgstr "gegangen"
+
+msgid "Substitutions"
+msgstr "Vertretungen"
+
+msgid "Observers"
+msgstr "Beobachtende"
+
+msgid "Agenda"
+msgstr "Tagesordnung"
+
+msgid "TOP %(number)s"
+msgstr "TOP %(number)s"
+
+msgid "%(deputy)s substitutes %(absent)s (%(group)s) from TOP %(label)s"
+msgstr "%(deputy)s vertritt %(absent)s (%(group)s) ab TOP %(label)s"
+
+msgid "%(deputy)s substitutes %(absent)s (%(group)s)"
+msgstr "%(deputy)s vertritt %(absent)s (%(group)s)"
+
+msgid "Version %(n)s – differs from the version at the start of the meeting"
+msgstr "Fassung %(n)s – weicht von der Fassung bei Sitzungsbeginn ab"
+
+msgid "Interrupted by a server restart"
+msgstr "Durch Serverneustart abgebrochen"
+
+msgid "Vote repeated (round %(round)s): %(comment)s"
+msgstr "Abstimmung wiederholt (Durchgang %(round)s): %(comment)s"
+
+msgid "Voted en bloc with TOP %(labels)s"
+msgstr "En bloc abgestimmt mit TOP %(labels)s"
+
+msgid "Not voted"
+msgstr "Nicht abgestimmt"
+
+msgid "Named vote"
+msgstr "Namentliche Abstimmung"
+
+msgid "Secret vote"
+msgstr "Geheime Abstimmung"
+
+msgid "Vote: %(start)s–%(end)s"
+msgstr "Abstimmung: %(start)s–%(end)s"
+
+msgid "%(voted)s of %(eligible)s eligible voters voted"
+msgstr "%(voted)s von %(eligible)s Stimmberechtigten haben abgestimmt"
+
+msgid "Abstention"
+msgstr "Enthaltung"
+
+msgid "Count check failed: %(voted)s marked as voted, %(tally)s ballots counted."
+msgstr "Zählprobe auffällig: %(voted)s als abgestimmt vermerkt, %(tally)s Stimmzettel gezählt."
+
+msgid "Voted: %(names)s"
+msgstr "Abgestimmt haben: %(names)s"
+
+msgid "Finding: adopted"
+msgstr "Feststellung: angenommen"
+
+msgid "Finding: rejected"
+msgstr "Feststellung: abgelehnt"
+
+msgid "No seal: this vote was closed before seals were introduced."
+msgstr "Kein Siegel: Diese Abstimmung wurde geschlossen, bevor es Siegel gab."
+
+msgid "Seal"
+msgstr "Siegel"
+
+msgid "Reference"
+msgstr "Kennung"
+
+msgid "Fingerprint"
+msgstr "Fingerabdruck"
+
+msgid "Fingerprint of the finding"
+msgstr "Fingerabdruck der Feststellung"
+
+msgid "Every result in this protocol is sealed. With its reference and fingerprint, anyone managing the room can check under Abstimmbar → Room → “Check seal” whether the result was changed afterwards."
+msgstr "Jedes Ergebnis in diesem Protokoll ist versiegelt. Mit Kennung und Fingerabdruck können die Verwaltenden des Raums unter Abstimmbar → Raum → „Siegel prüfen“ nachprüfen, ob das Ergebnis nachträglich verändert wurde."
