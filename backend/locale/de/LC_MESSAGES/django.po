@@ -872,3 +872,6 @@ msgstr "Fingerabdruck der Feststellung"
 
 msgid "Every result in this protocol is sealed. With its reference and fingerprint, anyone managing the room can check under Abstimmbar → Room → “Check seal” whether the result was changed afterwards."
 msgstr "Jedes Ergebnis in diesem Protokoll ist versiegelt. Mit Kennung und Fingerabdruck können die Verwaltenden des Raums unter Abstimmbar → Raum → „Siegel prüfen“ nachprüfen, ob das Ergebnis nachträglich verändert wurde."
+
+msgid "Note"
+msgstr "Notiz"

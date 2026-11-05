@@ -290,6 +290,9 @@ def build(meeting: QuestionSet) -> dict:
     }
     by_question = _ballots_by_question(meeting)
     control = MeetingControl.objects.filter(meeting_id=meeting.pk).first()
+    notes = list(meeting.top_notes.all())
+    section_notes = {n.section_id: n.text for n in notes if n.section_id}
+    question_notes = {n.question_id: n.text for n in notes if n.question_id}
     return {
         "id": meeting.pk,
         "committee": _canonical(translated_map(meeting.room, "title")),
@@ -303,6 +306,11 @@ def build(meeting: QuestionSet) -> dict:
                 "number": top.number,
                 "title": top.title,
                 "description": top.description,
+                "note": (
+                    section_notes.get(top.section_id, "") if top.section_id
+                    else question_notes.get(top.question_ids[0], "") if top.question_ids
+                    else ""
+                ),
                 "items": [
                     _item(
                         questions[qid], labels[qid], by_question.get(qid, []),

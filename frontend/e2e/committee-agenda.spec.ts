@@ -122,15 +122,46 @@ test('agenda: TOPs, spontaneous resolution, en bloc vote', async ({ page, browse
   await expect(header).toBeDisabled();
   await expect(header).toHaveAttribute('title', 'Es läuft noch eine andere Abstimmung.');
 
-  // 7. Anna votes yes; closing the vote closes both resolutions.
+  // 7. Anna votes yes; the automatic close covers both resolutions.
   await anna.p.getByRole('button', { name: 'Ja', exact: true }).click();
-  await expect(anna.p.getByText('Ihre Stimme ist abgegeben.')).toBeVisible();
-  await page.getByRole('button', { name: 'Abstimmung schließen' }).click();
+  // The only voter closes the vote automatically.
   await expect(page.getByTestId('beamer-result').first()).toBeVisible();
   await expect(items.nth(0)).toContainText('Der Haushalt wird genehmigt.');
   await expect(page.getByRole('button', { name: 'Abstimmung schließen' })).toHaveCount(0);
   await expect(items.nth(1)).toContainText('en bloc mit TOP 2a');
   await expect(header).toBeEnabled();
 
+  // 8. A note on TOP 2 (a section) shows in the console and, after the
+  //    meeting has ended, on the protocol page; editing and clearing work.
+  const top2 = tops.nth(1);
+  await top2.getByRole('button', { name: '+ Notiz' }).click();
+  await top2.getByLabel('Notiz für das Protokoll').fill('Rücklage bis Q3 prüfen.\nZweite Zeile');
+  await top2.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(top2.getByTestId('top-note')).toContainText('Rücklage bis Q3 prüfen.');
+  await expect(top2.getByRole('button', { name: '+ Notiz' })).toHaveCount(0);
+  await top2.getByRole('button', { name: 'Notiz bearbeiten' }).click();
+  await top2.getByLabel('Notiz für das Protokoll').fill('Rücklage bis Q3 prüfen.');
+  await top2.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(top2.getByTestId('top-note')).not.toContainText('Zweite Zeile');
+  // TOP 3: set a note, then clear it again.
+  await top3.getByRole('button', { name: '+ Notiz' }).click();
+  await top3.getByLabel('Notiz für das Protokoll').fill('Vorübergehend');
+  await top3.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(top3.getByTestId('top-note')).toBeVisible();
+  await top3.getByRole('button', { name: 'Notiz bearbeiten' }).click();
+  await top3.getByLabel('Notiz für das Protokoll').fill('');
+  // Wait for the server to delete the note before the meeting ends.
+  const cleared = page.waitForResponse(
+    (r) => r.url().includes(`/api/meetings/${meeting.id}/notes/`) && r.request().method() === 'PUT',
+  );
+  await top3.getByRole('button', { name: 'Speichern', exact: true }).click();
+  expect((await cleared).ok()).toBeTruthy();
+  await expect(top3.getByTestId('top-note')).toHaveCount(0);
+
   await anna.context.close();
+  await api('post', `/api/meetings/${meeting.id}/end/`);
+  await page.goto(`/sets/${meeting.id}/protocol`);
+  const notes = page.getByTestId('protocol-note');
+  await expect(notes).toHaveCount(1);
+  await expect(notes).toContainText('Notiz: Rücklage bis Q3 prüfen.');
 });

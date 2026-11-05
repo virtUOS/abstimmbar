@@ -227,6 +227,12 @@ export default function ProtocolPage() {
                     )}
                   </div>
                 )}
+                {top.note && (
+                  <p data-testid="protocol-note" className="whitespace-pre-line break-words text-sm text-slate-800 dark:text-slate-200">
+                    <span className="font-semibold">{t("Note")}: </span>
+                    {top.note}
+                  </p>
+                )}
                 {top.items.map((item) => (
                   <ItemBlock key={item.label} item={item} roomId={roomId} />
                 ))}

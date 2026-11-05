@@ -6,6 +6,7 @@ Secrecy: a secret vote touches the database only through the participation
 mark (``BallotSeat.voted``); its content goes to the in-memory tally. Nothing
 in this module logs, and error messages never carry vote content.
 """
+import logging
 import secrets
 
 from django.core.exceptions import ValidationError
@@ -27,6 +28,8 @@ from .models import (
     NamedVote,
 )
 from .services import invite_state
+
+logger = logging.getLogger(__name__)
 
 secret_tally = tally.secret_tally
 
@@ -271,6 +274,18 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
         NamedVote.objects.create(
             ballot=ballot, member_id=invite.member_id, answer={"keys": keys, "text": text},
         )
+    if not ballot.seats.filter(voted=False).exists():
+        # Everyone has voted: close under the lock already held (the close
+        # notifies immediately, so the final state is never debounced away).
+        # A savepoint: if the close fails, the vote (and its tally entry)
+        # stands and the ballot stays open for a manual close.
+        try:
+            with transaction.atomic():
+                close_ballot(ballot, automatic=True)
+            return
+        except Exception:  # noqa: BLE001
+            # Ballot id only: no exc_info (it could carry answer data, § 8).
+            logger.warning("auto-close failed for ballot %s", ballot.pk)
     # Progress only (voted/eligible); a burst of votes becomes one event.
     _notify(invite.meeting, debounce=True)
 
@@ -304,7 +319,7 @@ def _collect(ballot: Ballot) -> tuple[dict[int, dict], int]:
 
 
 @transaction.atomic
-def close_ballot(ballot: Ballot) -> Ballot:
+def close_ballot(ballot: Ballot, *, automatic: bool = False) -> Ballot:
     abort_stale(ballot.question.question_set)
     locked = _locked(ballot.pk)
     if locked is None or locked.status != Ballot.Status.OPEN:
@@ -346,7 +361,8 @@ def close_ballot(ballot: Ballot) -> Ballot:
     }
     ballot.status = Ballot.Status.CLOSED
     ballot.closed_at = timezone.now()
-    ballot.save(update_fields=["result", "status", "closed_at"])
+    ballot.closed_automatically = automatic
+    ballot.save(update_fields=["result", "status", "closed_at", "closed_automatically"])
     seals.append(ballot, "result")
     if ballot.secret:
         pk = ballot.pk

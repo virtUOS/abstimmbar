@@ -153,6 +153,7 @@ def _ballot_payload(ballot, question, names, order) -> dict:
         "progress": _progress(ballot, names, order),
         "result": _result(ballot, names),
         "finding": ballot.finding,
+        "closed_automatically": ballot.closed_automatically,
         "texts": _texts(ballot, order) if released else None,
     }
 
@@ -362,5 +363,9 @@ def manager_payload(meeting: QuestionSet) -> dict:
         attendance=_attendance(meeting, names, order),
         texts=texts,
         open_ballot=open_ballot,
+        notes=[
+            {"section": n.section_id, "question": n.question_id, "text": n.text}
+            for n in meeting.top_notes.order_by("pk")
+        ],
     )
     return payload
