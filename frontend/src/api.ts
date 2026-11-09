@@ -177,7 +177,16 @@ export interface MeetingProtocol {
     substitutions: { deputy: string; absent: string; group: string; from_label: string | null }[];
     observers: string[];
   };
-  tops: { number: number; title: string; description: string; note?: string; items: ProtocolItem[] }[];
+  tops: {
+    number: number;
+    title: string;
+    description: string;
+    /** Note target: the TOP's section, or its only question without a section. */
+    section?: number | null;
+    question?: number | null;
+    note?: string;
+    items: ProtocolItem[];
+  }[];
 }
 
 /** Seeded starting point for a committee room's groups. */

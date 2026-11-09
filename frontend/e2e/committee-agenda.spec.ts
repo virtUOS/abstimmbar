@@ -164,4 +164,13 @@ test('agenda: TOPs, spontaneous resolution, en bloc vote', async ({ page, browse
   const notes = page.getByTestId('protocol-note');
   await expect(notes).toHaveCount(1);
   await expect(notes).toContainText('Notiz: Rücklage bis Q3 prüfen.');
+
+  // After the meeting a note can still be added, e.g. who did not vote and why.
+  const before = await page.getByTestId('top-note').count();
+  await page.getByRole('button', { name: '+ Notiz' }).first().click();
+  await page.getByLabel('Notiz für das Protokoll').fill('X hat wegen Befangenheit nicht mit abgestimmt.');
+  await page.getByRole('button', { name: 'Speichern', exact: true }).click();
+  await expect(page.getByTestId('top-note')).toHaveCount(before + 1);
+  await expect(page.getByTestId('top-note').filter({ hasText: 'Befangenheit' })).toBeVisible();
+  await expect(page.getByTestId('protocol-note')).toHaveCount(2);
 });
