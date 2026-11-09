@@ -3,7 +3,7 @@ SPDX-License-Identifier: Apache-2.0
 Copyright 2026 Universität Osnabrück (virtUOS)
 
 Anleitung für Betrieb/Monitoring: Prometheus-Endpoint und Grafana.
-Bei neuen Kennzahlen (common/stats.py, common/views.py render_prometheus)
+Bei neuen Kennzahlen (common/stats.py, common/views.py MetricsView.collect)
 die Tabelle unten mitpflegen.
 -->
 

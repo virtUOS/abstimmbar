@@ -8,7 +8,7 @@ from unittest import mock
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.utils import timezone, translation
 from rest_framework.test import APIClient
 
@@ -2119,9 +2119,8 @@ class StatusTests(BallotBase):
         self.assertEqual(code, 1)
 
     def test_prometheus_lines_and_admin_stats(self):
-        from common.views import render_prometheus
-
-        text = render_prometheus()
+        with override_settings(METRICS_TOKEN="secret"):
+            text = self.client.get("/metrics", HTTP_AUTHORIZATION="Bearer secret").content.decode()
         self.assertIn("abstimmbar_committee_meetings_running 1", text)
         self.assertIn("abstimmbar_committee_secret_ballots_open 0", text)
 

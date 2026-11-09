@@ -2,7 +2,7 @@ Django==5.2.18
 djangorestframework==3.18.3
 # Gemeinsame Basis der -bar-Tools (LibreTranslate/LiteLLM/Capabilities);
 # Versionswechsel = Tag in der URL heben, Migrationsschritte im dortigen CHANGELOG.
-basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/integrations/v0.3.0.tar.gz#subdirectory=packages/django/basicbar-integrations
+basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/integrations/v0.4.0.tar.gz#subdirectory=packages/django/basicbar-integrations
 basicbar-auth @ https://github.com/virtUOS/basicbar/archive/refs/tags/auth/v0.2.2.tar.gz#subdirectory=packages/django/basicbar-auth
 basicbar-lti @ https://github.com/virtUOS/basicbar/archive/refs/tags/lti/v0.1.5.tar.gz#subdirectory=packages/django/basicbar-lti
 django-cors-headers==4.9.0

@@ -22,7 +22,7 @@ from lti.api_urls import urlpatterns as lti_api
 urlpatterns = [
     path("admin/", admin.site.urls),
     # Top-level, not under /api/ — a Prometheus scrape target, not an app API
-    # route. Token-guarded inside the view itself (see MetricsView).
+    # route. Token-guarded by basicbar-integrations (see common.views.MetricsView).
     path("metrics", MetricsView.as_view()),
     # OIDC login/logout/silent/back-channel, the Back-tolerant callback and
     # api/whoami/language/ — all from basicbar-auth.
