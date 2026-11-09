@@ -107,10 +107,8 @@ test('secret resolution: vote, close, reset, observer', async ({ page, browser, 
   await expect(progress).toHaveText('1 von 2 haben abgestimmt');
   await expect(page.getByTestId('beamer-result')).toHaveCount(0);
 
-  // 5. Ben abstains; closing shows the count.
+  // 5. Ben abstains; as the last voter he closes the vote automatically.
   await ben.p.getByRole('button', { name: 'Enthaltung', exact: true }).click();
-  await expect(ben.p.getByText('Ihre Stimme ist abgegeben.')).toBeVisible();
-  await item.getByRole('button', { name: 'Abstimmung schließen' }).click();
   const result = page.getByTestId('beamer-result');
   await expect(result).toBeVisible();
   const row = (label: string) => result.getByRole('listitem').filter({ hasText: new RegExp(`^${label}`) }).first();

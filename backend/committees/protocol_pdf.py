@@ -199,6 +199,9 @@ def render(meeting: QuestionSet) -> bytes:
             doc.heading(_("TOP %(number)s") % {"number": top["number"]} + f" – {top['title']}", 3)
             if top["description"]:
                 doc.rich(top["description"])
+        if top["note"]:
+            # Plain text: paragraph() escapes it and keeps the line breaks.
+            doc.paragraph(f"{_('Note')}: {top['note']}")
         for item in top["items"]:
             _item(doc, item)
     doc.spacer(mm=2)

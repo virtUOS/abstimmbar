@@ -28,6 +28,7 @@ from .models import (
     MotionVersion,
     NamedVote,
     SealLink,
+    TopNote,
 )
 from .services import parse_member_list
 
@@ -1607,9 +1608,12 @@ class BallotFlowTests(BallotBase):
         self.assertEqual(ballot.status, Ballot.Status.OPEN)
         self.assertIsNone(ballot.result)
         self.assertTrue(ballots.secret_tally.has(ballot.pk))
-        self.vote(self.bert, ballot, {"choice": "abstain"})
+        # The last vote closes the ballot automatically.
         with self.captureOnCommitCallbacks(execute=True):
-            result = ballots.close_ballot(ballot).result
+            self.vote(self.bert, ballot, {"choice": "abstain"})
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        result = ballot.result
         self.assertEqual(result["total"]["counts"], {"yes": 1, "no": 1, "abstain": 1})
         self.assertEqual((result["voted"], result["tally_sum"]), (3, 3))
         self.assertFalse(ballots.secret_tally.has(ballot.pk))
@@ -1637,13 +1641,12 @@ class BallotFlowTests(BallotBase):
         ballot = ballots.open_ballot(self.meeting, self.q2)
         self.vote(self.anna, ballot, {"text": "  Erstens  "})
         self.vote(self.ben, ballot, {"text": "Zweitens"})
-        self.vote(self.bert, ballot, {"choice": "abstain"})
         self.assertEqual(BallotText.objects.count(), 0)
         ballot = ballots.close_ballot(ballot)
         self.assertEqual(
             sorted(BallotText.objects.values_list("text", flat=True)), ["Erstens", "Zweitens"],
         )
-        self.assertEqual(ballot.result["total"]["counts"], {"text": 2, "abstain": 1})
+        self.assertEqual(ballot.result["total"]["counts"], {"text": 2, "abstain": 0})
         self.assertTrue(ballots.release_texts(ballot).texts_released)
         resolution = ballots.close_ballot(ballots.open_ballot(self.meeting, self.q1))
         self.assertCode("invalid", ballots.release_texts, resolution)
@@ -1697,6 +1700,109 @@ def _keys(value):
     if isinstance(value, list):
         return {k for v in value for k in _keys(v)}
     return set()
+
+
+class AutoCloseTests(BallotBase):
+    def vote_all(self, ballot, upto=None):
+        members = [seat.member for seat in ballot.seats.select_related("member")]
+        for member in members[:upto]:
+            self.vote(member, ballot, {"choice": "yes"})
+        return members
+
+    def test_secret_closes_when_all_voted(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        with self.captureOnCommitCallbacks(execute=True):
+            members = self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertTrue(ballot.closed_automatically)
+        self.assertEqual(ballot.result["total"]["counts"]["yes"], len(members))
+        self.assertEqual(ballot.result["voted"], len(members))
+        self.assertFalse(ballots.secret_tally.has(ballot.pk))
+        self.assertEqual(SealLink.objects.filter(kind="result", ballot=ballot).count(), 1)
+        self.assertTrue(payloads.manager_payload(self.meeting)["item"]["ballot"]["closed_automatically"])
+
+    def test_named_closes_when_all_voted(self):
+        self.q1.named_vote = True
+        self.q1.save()
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        members = self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertTrue(ballot.closed_automatically)
+        self.assertEqual(ballot.result["total"]["counts"]["yes"], len(members))
+
+    def test_partial_stays_open(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote_all(ballot, upto=ballot.seats.count() - 1)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.OPEN)
+        self.assertFalse(ballot.closed_automatically)
+
+    def test_manual_close_is_not_automatic(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        ballots.close_ballot(ballot)
+        ballot.refresh_from_db()
+        self.assertFalse(ballot.closed_automatically)
+
+    def test_latecomer_cannot_vote_after_auto_close(self):
+        MeetingInvite.objects.filter(meeting=self.meeting, member=self.bert).update(
+            entered_at=None,
+        )
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        ballots.enter(self.invite(self.bert))
+        self.assertFalse(ballot.seats.filter(member=self.bert).exists())
+        self.assertCode("closed", self.vote, self.bert, ballot, {"choice": "yes"})
+
+    def test_last_two_votes_close_exactly_once(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        members = [seat.member for seat in ballot.seats.select_related("member")]
+        for member in members[:-2]:
+            self.vote(member, ballot, {"choice": "yes"})
+        self.vote(members[-2], ballot, {"choice": "no"})
+        self.vote(members[-1], ballot, {"choice": "yes"})
+        # A would-be simultaneous voter arriving afterwards sees it closed.
+        self.assertCode("closed", self.vote, members[-1], ballot, {"choice": "yes"})
+        self.assertEqual(SealLink.objects.filter(kind="result", ballot=ballot).count(), 1)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.result["voted"], len(members))
+
+    def test_failed_auto_close_keeps_vote_and_ballot_open(self):
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        members = [seat.member for seat in ballot.seats.select_related("member")]
+        for member in members[:-1]:
+            self.vote(member, ballot, {"choice": "yes"})
+        with mock.patch.object(
+            BallotText.objects, "bulk_create", side_effect=RuntimeError("boom"),
+        ):
+            with self.assertLogs("committees.ballots", level="WARNING") as logs:
+                self.vote(members[-1], ballot, {"choice": "yes"})
+        self.assertEqual(len(logs.records), 1)
+        self.assertIn(str(ballot.pk), logs.output[0])
+        self.assertNotIn("choice", logs.output[0])
+        self.assertIsNone(logs.records[0].exc_info)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.OPEN)
+        self.assertFalse(ballot.seats.filter(voted=False).exists())
+        snapshot = ballots.secret_tally.snapshot(ballot.pk)
+        self.assertEqual(sum(g["ballots"] for g in snapshot["groups"].values()), len(members))
+        self.assertCode("already_voted", self.vote, members[-1], ballot, {"choice": "yes"})
+        with self.captureOnCommitCallbacks(execute=True):
+            closed = ballots.close_ballot(ballot)
+        self.assertEqual(closed.result["tally_sum"], len(members))
+
+    def test_trial_auto_closes_without_seal(self):
+        MeetingControl.objects.update_or_create(meeting=self.meeting, defaults={"trial": True})
+        ballot = ballots.open_ballot(self.meeting, self.q1)
+        self.vote_all(ballot)
+        ballot.refresh_from_db()
+        self.assertEqual(ballot.status, Ballot.Status.CLOSED)
+        self.assertTrue(ballot.closed_automatically)
+        self.assertFalse(SealLink.objects.exists())
 
 
 class PayloadTests(BallotBase):
@@ -2735,7 +2841,10 @@ class SealTests(BallotBase):
         for member, answer in (answers or [(self.anna, {"choice": "yes"})]):
             self.vote(member, ballot, answer)
         with self.captureOnCommitCallbacks(execute=True):
-            return ballots.close_ballot(ballot)
+            ballot.refresh_from_db()
+            if ballot.status == Ballot.Status.OPEN:
+                return ballots.close_ballot(ballot)
+        return ballot
 
     def expected_hash(self, link, ballot):
         content = seals.content(ballot, link.kind, link.reference)
@@ -3479,6 +3588,16 @@ class TrialTests(MeetingFixture, ApiBase):
         self.assertFalse(r.json()["trial"])
         self.assertFalse(ballots.secret_tally.has(ballot.pk))
 
+    def test_trial_end_deletes_notes(self):
+        self.start()
+        r = self.client.put(
+            self.url("notes"), {"question": self.q1.pk, "text": "Probe"}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(TopNote.objects.count(), 1)
+        self.client.post(self.url("end"))
+        self.assertFalse(TopNote.objects.exists())
+
     def test_real_start_after_trial(self):
         self.start()
         self.run_vote()
@@ -3575,3 +3694,142 @@ class TrialTests(MeetingFixture, ApiBase):
         ballots.open_ballot(self.meeting, self.q1)
         r = self.client.post(self.url("end"))
         self.assertEqual((r.status_code, r.json()["code"]), (400, "vote_open"))
+
+
+class TopNoteTests(BallotBase):
+    closed = SealTests.closed
+
+    def setUp(self):
+        super().setUp()
+        self.s1 = Section.objects.create(question_set=self.meeting, title_de="Eins", position=5)
+        self.q3 = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Drei", position=6,
+            section=self.s1,
+        )
+        versions.sync(self.q3)
+
+    def url(self):
+        return f"/api/meetings/{self.meeting.pk}/notes/"
+
+    def put(self, **body):
+        return self.client.put(self.url(), body, format="json")
+
+    def test_set_update_clear_on_section(self):
+        r = self.put(section=self.s1.pk, text="Erste\nZweite")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(
+            r.json()["notes"],
+            [{"section": self.s1.pk, "question": None, "text": "Erste\nZweite"}],
+        )
+        r = self.put(section=self.s1.pk, text="Neu")
+        self.assertEqual(r.json()["notes"][0]["text"], "Neu")
+        self.assertEqual(TopNote.objects.count(), 1)
+        r = self.put(section=self.s1.pk, text="")
+        self.assertEqual(r.json()["notes"], [])
+        self.assertEqual(TopNote.objects.count(), 0)
+
+    def test_standalone_question(self):
+        r = self.put(question=self.q1.pk, text="Hinweis")
+        self.assertEqual(
+            r.json()["notes"], [{"section": None, "question": self.q1.pk, "text": "Hinweis"}],
+        )
+        self.put(question=self.q1.pk, text="  ")
+        self.assertEqual(TopNote.objects.count(), 0)
+
+    def test_validation(self):
+        self.assertEqual(self.put(section=self.s1.pk, text="x" * 2001).json()["code"], "invalid")
+        self.assertEqual(self.put(section=self.s1.pk, text="x" * 2000).status_code, 200)
+        self.assertEqual(self.put(text="x").json()["code"], "invalid")
+        self.assertEqual(
+            self.put(section=self.s1.pk, question=self.q1.pk, text="x").json()["code"], "invalid",
+        )
+        self.assertEqual(self.put(section=self.s1.pk, text=5).json()["code"], "invalid")
+        other = self.make_other_meeting()
+        self.assertEqual(self.put(question=other.pk, text="x").status_code, 404)
+        with self.assertRaises(ValidationError) as ctx:
+            services.set_top_note(
+                self.meeting, section=Section.objects.create(
+                    question_set=QuestionSet.objects.create(room=self.room, title_de="Y"),
+                    title_de="F", position=1,
+                ), text="x",
+            )
+        self.assertEqual(ctx.exception.code, "invalid")
+
+    def test_question_in_section_rejected(self):
+        r = self.put(question=self.q3.pk, text="x")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "invalid")
+        self.assertFalse(TopNote.objects.exists())
+
+    def test_notes_only_in_manager_stream_payloads(self):
+        from . import live
+
+        self.put(section=self.s1.pk, text="Geheim")
+        self.meeting.refresh_from_db()
+        self.assertNotIn("Geheim", json.dumps(payloads.public_payload(self.meeting)))
+        src = open(live.__file__).read()
+        self.assertEqual(src.count("manager_payload"), 2)  # broadcast + manager stream only
+
+    def make_other_meeting(self):
+        other = QuestionSet.objects.create(room=self.room, title_de="Andere")
+        return Question.objects.create(
+            question_set=other, kind="resolution", text_de="F", position=1,
+        )
+
+    def test_not_started(self):
+        self.put(section=self.s1.pk, text="Notiz")
+        services.end_meeting(self.meeting)
+        r = self.put(section=self.s1.pk, text="Spät")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "not_started")
+        self.assertEqual(TopNote.objects.get().text, "Notiz")
+
+    def test_manager_only(self):
+        self.meeting.refresh_from_db()
+        self.put(section=self.s1.pk, text="Geheim")
+        self.assertEqual(
+            self.foreign.put(self.url(), {"section": self.s1.pk, "text": "x"}, format="json")
+            .status_code, 404,
+        )
+        self.assertIn("notes", payloads.manager_payload(self.meeting))
+        self.assertNotIn("Geheim", json.dumps(payloads.public_payload(self.meeting)))
+        self.assertNotIn("notes", payloads.public_payload(self.meeting))
+
+    def test_protocol_and_pdf(self):
+        self.closed(answers=[(self.anna, {"choice": "yes"})])
+        self.put(section=self.s1.pk, text="Zeile eins\nZeile <b>zwei</b>")
+        self.put(question=self.q1.pk, text="Einzelnotiz")
+        services.end_meeting(self.meeting)
+        data = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol/").json()
+        notes = {t["title"]: t["note"] for t in data["tops"]}
+        self.assertEqual(notes["Eins"], "Zeile eins\nZeile <b>zwei</b>")
+        top_q1 = next(t for t in data["tops"] if any(i["label"] == "1" for i in t["items"]))
+        self.assertEqual(top_q1["note"], "Einzelnotiz")
+        top_q2 = next(t for t in data["tops"] if any(i["label"] == "2" for i in t["items"]))
+        self.assertEqual(top_q2["note"], "")
+        r = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol.pdf?lang=de")
+        self.assertEqual(r.status_code, 200)
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(r.content)).pages)
+        self.assertIn("Notiz: Zeile eins", text)
+        self.assertIn("Zeile <b>zwei</b>", text)
+        self.assertIn("Einzelnotiz", text)
+
+    def test_long_note_pdf(self):
+        lines = [f"Z{i:02d} " + "wort " * 16 for i in range(20)]
+        note = "\n".join(lines)[:1990] + "\nENDEMARKE"
+        self.assertLessEqual(len(note), 2000)
+        self.put(section=self.s1.pk, text=note)
+        services.end_meeting(self.meeting)
+        r = self.client.get(f"/api/meetings/{self.meeting.pk}/protocol.pdf")
+        self.assertEqual(r.status_code, 200)
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(r.content)).pages)
+        self.assertIn("Z00", text)
+        self.assertIn("ENDEMARKE", text)
