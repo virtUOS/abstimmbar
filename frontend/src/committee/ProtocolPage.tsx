@@ -18,6 +18,7 @@ import {
   type ProtocolItem,
 } from "../api";
 import HomeCrumb from "../components/HomeCrumb";
+import { TopNote } from "./MeetingAgenda";
 import { Button } from "../components/ui";
 
 /** 64 hex characters as 4 blocks of 16. */
@@ -44,6 +45,29 @@ export default function ProtocolPage() {
   const [roomId, setRoomId] = useState<number | null>(null);
   const [error, setError] = useState<"" | "not_ended" | "other">("");
   const [message, setMessage] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+  const [noteError, setNoteError] = useState<{ top: number; text: string } | null>(null);
+
+  /** Notes can still be added after the meeting — the minutes are often
+   *  completed afterwards (e.g. who did not vote and why). */
+  async function saveNote(
+    top: number,
+    target: { section: number } | { question: number },
+    text: string,
+  ): Promise<boolean> {
+    setSavingNote(true);
+    setNoteError(null);
+    try {
+      await api.setMeetingNote(Number(setId), target, text);
+      setProtocol(await api.getMeetingProtocol(Number(setId)));
+      return true;
+    } catch (err) {
+      setNoteError({ top, text: t(requestError(err)) });
+      return false;
+    } finally {
+      setSavingNote(false);
+    }
+  }
 
   useEffect(() => {
     setProtocol(null);
@@ -228,10 +252,34 @@ export default function ProtocolPage() {
                   </div>
                 )}
                 {top.note && (
-                  <p data-testid="protocol-note" className="whitespace-pre-line break-words text-sm text-slate-800 dark:text-slate-200">
+                  <p
+                    data-testid="protocol-note"
+                    className="hidden whitespace-pre-line break-words text-sm text-slate-800 print:block dark:text-slate-200"
+                  >
                     <span className="font-semibold">{t("Note")}: </span>
                     {top.note}
                   </p>
+                )}
+                {(top.section || top.question) && (
+                  <div className="grid gap-1.5 print:hidden">
+                    <TopNote
+                      text={top.note ?? ""}
+                      editable
+                      busy={savingNote}
+                      onSave={(text) =>
+                        saveNote(
+                          top.number,
+                          top.section ? { section: top.section } : { question: top.question as number },
+                          text,
+                        )
+                      }
+                    />
+                    {noteError?.top === top.number && (
+                      <p role="alert" className="text-sm text-red-700 dark:text-red-400">
+                        {noteError.text}
+                      </p>
+                    )}
+                  </div>
                 )}
                 {top.items.map((item) => (
                   <ItemBlock key={item.label} item={item} roomId={roomId} />

@@ -209,7 +209,7 @@ function ResolutionForm({
 
 /** The chair's note on a TOP for the protocol: shown as text with a pencil
  *  to edit, or a "+ Note" button; saving empty text deletes it. */
-function TopNote({
+export function TopNote({
   text,
   editable,
   busy,

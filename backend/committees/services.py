@@ -558,14 +558,16 @@ def set_top_note(
     question: Question | None = None, text: str,
 ) -> TopNote | None:
     """The chair's plain-text note on a TOP (a section, or a question without
-    a section); empty text deletes it. Only while the meeting is running."""
+    a section); empty text deletes it. While the meeting runs and after it
+    has ended — the minutes are often completed afterwards (e.g. "X did not
+    vote because of a conflict of interest"). Notes are not sealed."""
     current = (
         QuestionSet.objects.select_for_update()
         .values_list("meeting_state", flat=True).get(pk=meeting.pk)
     )
     meeting.meeting_state = current
-    if current != State.STARTED:
-        raise ValidationError("The meeting is not running.", code="not_started")
+    if current not in (State.STARTED, State.ENDED):
+        raise ValidationError("The meeting has not started yet.", code="not_started")
     if (section is None) == (question is None):
         raise ValidationError("A note targets exactly one TOP.", code="invalid")
     if not isinstance(text, str):

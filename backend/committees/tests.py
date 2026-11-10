@@ -3776,13 +3776,30 @@ class TopNoteTests(BallotBase):
             question_set=other, kind="resolution", text_de="F", position=1,
         )
 
-    def test_not_started(self):
+    def test_editable_after_end(self):
         self.put(section=self.s1.pk, text="Notiz")
         services.end_meeting(self.meeting)
-        r = self.put(section=self.s1.pk, text="Spät")
+        r = self.put(section=self.s1.pk, text="X hat wegen Befangenheit nicht mit abgestimmt.")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(TopNote.objects.get().text, "X hat wegen Befangenheit nicht mit abgestimmt.")
+        self.assertEqual(self.put(section=self.s1.pk, text="").status_code, 200)
+        self.assertFalse(TopNote.objects.exists())
+        from . import protocol
+
+        tops = protocol.build(self.meeting)["tops"]
+        top = next(t for t in tops if t["section"] == self.s1.pk)
+        self.assertIsNone(top["question"])
+
+    def test_not_in_draft(self):
+        draft = QuestionSet.objects.create(
+            room=self.room, title="Entwurf", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(question_set=draft, kind="resolution", text_de="X")
+        r = self.client.put(
+            f"/api/meetings/{draft.pk}/notes/", {"question": q.pk, "text": "Vorab"}, format="json",
+        )
         self.assertEqual(r.status_code, 400)
         self.assertEqual(r.json()["code"], "not_started")
-        self.assertEqual(TopNote.objects.get().text, "Notiz")
 
     def test_manager_only(self):
         self.meeting.refresh_from_db()

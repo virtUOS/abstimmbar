@@ -306,6 +306,12 @@ def build(meeting: QuestionSet) -> dict:
                 "number": top.number,
                 "title": top.title,
                 "description": top.description,
+                # Note target for editing on the protocol page: the section,
+                # or the TOP's only question when it has no section.
+                "section": top.section_id,
+                "question": (
+                    top.question_ids[0] if not top.section_id and top.question_ids else None
+                ),
                 "note": (
                     section_notes.get(top.section_id, "") if top.section_id
                     else question_notes.get(top.question_ids[0], "") if top.question_ids
