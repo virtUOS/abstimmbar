@@ -3,11 +3,9 @@
 
 """Site-content API: public reads (branding, landing text, footer pages,
 data-collection registry) and staff-only management."""
-import hmac
 from typing import ClassVar
 
-from django.conf import settings
-from django.http import Http404, HttpResponse
+from basicbar_integrations.metrics import MetricsView as BaseMetricsView
 from django.shortcuts import get_object_or_404
 from rest_framework import parsers, status, viewsets
 from rest_framework.decorators import action
@@ -185,87 +183,56 @@ def _committee_activity():
     }
 
 
-def _esc(label_value):
-    return str(label_value).replace("\\", "\\\\").replace('"', '\\"')
+class MetricsView(BaseMetricsView):
+    """Prometheus exporter, top-level ``GET /metrics`` (deliberately outside
+    ``/api/`` — a scrape target, not an app API route). Token check (404
+    without ``METRICS_TOKEN``, 401 for a wrong bearer token) and the text
+    format come from basicbar-integrations; this class only supplies the
+    gauges: ``common.stats.totals()``, today's DailyModeSession counts and
+    the committee activity."""
 
+    def collect(self, gauges):
+        from django.db.models import Count
+        from django.utils import timezone
 
-def render_prometheus():
-    """Render the metric layer (``common.stats.totals()`` + today's
-    DailyModeSession counts) as Prometheus text exposition format."""
-    from django.db.models import Count
-    from django.utils import timezone
+        from accounts.models import DailyModeSession
 
-    from accounts.models import DailyModeSession
+        from . import stats
 
-    from . import stats
-
-    t = stats.totals()
-    lines = []
-
-    def gauge(name, help_text, value, labels=None):
-        lines.append(f"# HELP {name} {help_text}")
-        lines.append(f"# TYPE {name} gauge")
-        if labels is None:
-            lines.append(f"{name} {int(value)}")
-        else:
-            for lbls, v in labels:
-                lset = ",".join(f'{k}="{_esc(val)}"' for k, val in lbls.items())
-                lines.append(f"{name}{{{lset}}} {int(v)}")
-
-    gauge("abstimmbar_rooms", "Total rooms", t["rooms"])
-    gauge("abstimmbar_rooms_lti", "Rooms created via LTI", t["rooms_lti"])
-    gauge("abstimmbar_users", "Registered users", t["users"])
-    gauge("abstimmbar_question_sets", "Question sets by type", None,
-          [({"type": k}, v) for k, v in t["sets_by_type"].items()])
-    gauge("abstimmbar_questions", "Questions by kind", None,
-          [({"kind": k}, v) for k, v in t["questions_by_kind"].items()])
-    gauge("abstimmbar_runs", "Runs (presented sets) by set type", None,
-          [({"type": k}, v) for k, v in t["runs_by_type"].items()])
-    gauge("abstimmbar_participants", "Distinct participants who voted", t["participants"])
-    gauge("abstimmbar_questions_run", "Distinct questions voted on", t["questions_run"])
-    tour = t["tour"]
-    gauge("abstimmbar_tour_events", "Guided-tour events by kind and mode", None,
-          [({"kind": k, "mode": m}, tour[k][m])
-           for k in ("started", "completed", "aborted") for m in ("easy", "pro")])
-    gauge("abstimmbar_tour_starts", "Guided-tour starts by source", None,
-          [({"source": s}, v) for s, v in tour["by_source"].items()])
-    gauge("abstimmbar_tour_users_seen", "Users who finished or dismissed the guided tour",
-          tour["users_seen"])
-    today = timezone.localdate()
-    sess = {r["mode"]: r["n"] for r in
-            DailyModeSession.objects.filter(date=today).values("mode").annotate(n=Count("id"))}
-    gauge("abstimmbar_sessions_today", "Active sessions today by mode", None,
-          [({"mode": m}, sess.get(m, 0)) for m in ("easy", "pro")])
-    committee = _committee_activity()
-    gauge("abstimmbar_committee_meetings_running", "Committee meetings in progress",
-          committee["meetings_running"])
-    gauge("abstimmbar_committee_secret_ballots_open", "Open secret committee ballots",
-          committee["secret_ballots_open"])
-    return "\n".join(lines) + "\n"
-
-
-class MetricsView(APIView):
-    """Token-guarded Prometheus text exporter, top-level ``GET /metrics``
-    (deliberately outside ``/api/`` — a scrape target, not an app API route).
-    Auth is checked manually against a bearer token (``METRICS_TOKEN``), not
-    via DRF's session/OIDC auth — a scraper has neither a session nor an
-    OIDC token, and DRF auth would also pull in CSRF handling we don't want
-    here."""
-
-    permission_classes: ClassVar = []  # token-checked manually
-    authentication_classes: ClassVar = []
-
-    def get(self, request):
-        token = settings.METRICS_TOKEN
-        if not token:
-            raise Http404()
-        header = request.META.get("HTTP_AUTHORIZATION", "")
-        if not hmac.compare_digest(header, f"Bearer {token}"):
-            return HttpResponse(status=401)
-        return HttpResponse(
-            render_prometheus(),
-            content_type="text/plain; version=0.0.4; charset=utf-8",
-        )
+        t = stats.totals()
+        gauges.gauge("abstimmbar_rooms", "Total rooms", t["rooms"])
+        gauges.gauge("abstimmbar_rooms_lti", "Rooms created via LTI", t["rooms_lti"])
+        gauges.gauge("abstimmbar_users", "Registered users", t["users"])
+        gauges.gauge("abstimmbar_question_sets", "Question sets by type",
+                     labels=[({"type": k}, v) for k, v in t["sets_by_type"].items()])
+        gauges.gauge("abstimmbar_questions", "Questions by kind",
+                     labels=[({"kind": k}, v) for k, v in t["questions_by_kind"].items()])
+        gauges.gauge("abstimmbar_runs", "Runs (presented sets) by set type",
+                     labels=[({"type": k}, v) for k, v in t["runs_by_type"].items()])
+        gauges.gauge("abstimmbar_participants", "Distinct participants who voted",
+                     t["participants"])
+        gauges.gauge("abstimmbar_questions_run", "Distinct questions voted on",
+                     t["questions_run"])
+        tour = t["tour"]
+        gauges.gauge("abstimmbar_tour_events", "Guided-tour events by kind and mode",
+                     labels=[({"kind": k, "mode": m}, tour[k][m])
+                             for k in ("started", "completed", "aborted")
+                             for m in ("easy", "pro")])
+        gauges.gauge("abstimmbar_tour_starts", "Guided-tour starts by source",
+                     labels=[({"source": s}, v) for s, v in tour["by_source"].items()])
+        gauges.gauge("abstimmbar_tour_users_seen",
+                     "Users who finished or dismissed the guided tour", tour["users_seen"])
+        today = timezone.localdate()
+        sess = {r["mode"]: r["n"] for r in
+                DailyModeSession.objects.filter(date=today)
+                .values("mode").annotate(n=Count("id"))}
+        gauges.gauge("abstimmbar_sessions_today", "Active sessions today by mode",
+                     labels=[({"mode": m}, sess.get(m, 0)) for m in ("easy", "pro")])
+        committee = _committee_activity()
+        gauges.gauge("abstimmbar_committee_meetings_running", "Committee meetings in progress",
+                     committee["meetings_running"])
+        gauges.gauge("abstimmbar_committee_secret_ballots_open", "Open secret committee ballots",
+                     committee["secret_ballots_open"])
 
 
 class ManagePageViewSet(viewsets.ModelViewSet):

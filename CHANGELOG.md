@@ -14,6 +14,12 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
   Links und Vertretungen. Abstimmen folgt.
 
+### Geändert
+
+- Der Prometheus-Endpunkt `/metrics` nutzt jetzt den gemeinsamen Baustein
+  aus basicbar-integrations 0.4.0. Kennzahlen, Token und Statuscodes bleiben
+  gleich; Antworten tragen zusätzlich `Cache-Control: no-store`.
+
 > ### Hinweise für den Betrieb
 >
 > - **Caddy leitet `/g/*` an Django weiter.** Unter `/g/<token>/` liegen die
