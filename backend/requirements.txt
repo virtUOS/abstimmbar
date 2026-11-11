@@ -4,6 +4,7 @@ djangorestframework==3.18.3
 # Versionswechsel = Tag in der URL heben, Migrationsschritte im dortigen CHANGELOG.
 basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/integrations/v0.4.0.tar.gz#subdirectory=packages/django/basicbar-integrations
 basicbar-auth @ https://github.com/virtUOS/basicbar/archive/refs/tags/auth/v0.2.2.tar.gz#subdirectory=packages/django/basicbar-auth
+basicbar-pdf @ https://github.com/virtUOS/basicbar/archive/refs/tags/pdf/v0.1.0.tar.gz#subdirectory=packages/django/basicbar-pdf
 basicbar-lti @ https://github.com/virtUOS/basicbar/archive/refs/tags/lti/v0.1.5.tar.gz#subdirectory=packages/django/basicbar-lti
 django-cors-headers==4.9.0
 psycopg[binary,pool]==3.3.6
@@ -28,5 +29,6 @@ django-modeltranslation==0.20.6
 pypdf==6.21.1
 python-pptx==1.0.2
 odfpy==1.4.1
-# PDF generation for downloadable documents (ADR-0008); same pin as Kalkulierbar.
+# PDF generation (ADR-0008): the frame comes from basicbar-pdf; reportlab stays pinned here
+# so its updates are explicit (Dependabot).
 reportlab==4.4.4
