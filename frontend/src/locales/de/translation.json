@@ -1624,5 +1624,16 @@
   "Runoff (ballot {{n}})": "Stichwahl ({{n}}. Wahlgang)",
   "Up to {{count}} votes per person_one": "Bis zu {{count}} Stimme pro Person",
   "Up to {{count}} votes per person_other": "Bis zu {{count}} Stimmen pro Person",
-  ", cumulating allowed": ", kumulieren erlaubt"
+  ", cumulating allowed": ", kumulieren erlaubt",
+  "Runoff": "Stichwahl",
+  "Election · up to {{n}} votes": "Wahl · bis zu {{n}} Stimmen",
+  "Start runoff": "Stichwahl starten",
+  "Choose the candidates for the runoff. It opens immediately; each person has one vote.": "Wählen Sie die Kandidierenden für die Stichwahl. Sie wird sofort geöffnet; jede Person hat eine Stimme.",
+  "{{count}} votes_one": "{{count}} Stimme",
+  "{{count}} votes_other": "{{count}} Stimmen",
+  "The election has no candidates.": "Die Wahl hat keine Kandidierenden.",
+  "There are fewer candidates than votes per person.": "Es gibt weniger Kandidierende als Stimmen pro Person.",
+  "Choose at least two candidates.": "Wählen Sie mindestens zwei Kandidierende.",
+  "A runoff is already running for this election.": "Für diese Wahl läuft bereits eine Stichwahl.",
+  "Reset the runoff first.": "Setzen Sie zuerst die Stichwahl zurück."
 }

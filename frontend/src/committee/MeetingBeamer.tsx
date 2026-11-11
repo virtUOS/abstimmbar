@@ -8,7 +8,8 @@
  *
  *  Never shows names (§ 8): attendance lives only in the console's panel.
  *  Content (motion text, options, group names) is canonical-language plain
- *  data from the server — not run through `localizedText`. */
+ *  data from the server — not run through `localizedText`. Elections show
+ *  only the shown round's candidates (a runoff narrows them). */
 import { useTranslation } from "react-i18next";
 import { Lock, UserRound } from "lucide-react";
 import { RichText } from "@basicbar/ui";
@@ -18,12 +19,16 @@ const pct = (n: number, of: number) => (of > 0 ? Math.round((n / of) * 100) : 0)
 
 /** Count keys in display order; unknown keys are appended. */
 function answerKeys(item: MeetingItem, counts: MeetingCounts): string[] {
+  const candidates = item.options.map((option) => `opt:${option.id}`);
+  const mode = item.kind === "election" ? item.election?.mode : undefined;
   const keys =
-    item.kind === "resolution"
+    item.kind === "resolution" || mode === "approval"
       ? ["yes", "no", "abstain"]
       : item.kind === "open_text"
         ? ["text", "abstain"]
-        : [...item.options.map((option) => `opt:${option.id}`), "abstain"];
+        : mode === "single"
+          ? [...candidates, "no", "abstain"]
+          : [...candidates, "abstain"];
   for (const key of Object.keys(counts)) if (!keys.includes(key)) keys.push(key);
   return keys;
 }
@@ -207,6 +212,14 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                     {data.top.title}
                   </span>
                 )}
+                {item.election?.runoff && (
+                  <span
+                    data-testid="beamer-runoff"
+                    className="rounded-full bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-900 dark:bg-amber-900/40 dark:text-amber-200"
+                  >
+                    {t("Runoff")}
+                  </span>
+                )}
                 {item.version !== null && (
                   <span
                     className={`rounded-full border px-3 py-1 text-sm ${
@@ -242,6 +255,13 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                     {t("One vote for all of these resolutions.")}
                   </p>
                 </div>
+              )}
+              {item.election && (
+                <p data-testid="beamer-election" className="text-lg font-semibold text-slate-600 dark:text-slate-300 md:text-xl">
+                  {item.election.mode === "multi"
+                    ? t("Election · up to {{n}} votes", { n: item.election.max_votes })
+                    : t("Election")}
+                </p>
               )}
               {item.options.length > 0 && !ballot?.result && (
                 <ol className="grid gap-2 text-lg md:text-2xl">

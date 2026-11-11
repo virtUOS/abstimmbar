@@ -315,6 +315,25 @@ export interface MeetingBallot {
   finding: "" | "adopted" | "rejected";
   /** Released free texts (closed free-text ballots only). */
   texts: MeetingText[] | null;
+  /** Elections only (else null): this round's ballot paper. */
+  election?: MeetingBallotElection | null;
+}
+
+/** Election mode of a round: one candidate (yes/no/abstain), one vote among
+ *  several ("opt:<id>" / "no" / "abstain") or several votes ("opt:<id>" /
+ *  "abstain"; unspent votes count as abstain). */
+export type ElectionMode = "approval" | "single" | "multi";
+
+export interface MeetingBallotElection {
+  mode: ElectionMode;
+  max_votes: number;
+  cumulate: boolean;
+  /** Option ids standing in this round. */
+  candidates: number[];
+  /** The round this runoff follows (null for the first round). */
+  runoff_of: number | null;
+  /** Suggested runoff candidates — closed single/multi rounds only. */
+  proposal: number[] | null;
 }
 
 /** The shown agenda item; content in the canonical language only. */
@@ -328,7 +347,10 @@ export interface MeetingItem {
   version: number | null;
   changed: boolean;
   named: boolean;
+  /** Elections: only the shown round's candidates. */
   options: { id: number; text: string }[];
+  /** Elections only (else null). */
+  election?: { mode: ElectionMode; max_votes: number; cumulate: boolean; runoff: boolean } | null;
   bundle: { id: number; label: string; text: string; version: number | null }[];
   ballot: MeetingBallot | null;
 }
@@ -1385,6 +1407,12 @@ export const api = {
   closeBallot: (setId: number, ballotId: number) =>
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/close/`, {
       method: "POST",
+    }),
+  /** A runoff round of a closed election among `candidates` (opens at once). */
+  openRunoff: (setId: number, ballotId: number, candidates: number[]) =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/runoff/`, {
+      method: "POST",
+      body: JSON.stringify({ candidates }),
     }),
   resetBallot: (setId: number, ballotId: number, comment: string) =>
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/reset/`, {

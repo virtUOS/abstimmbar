@@ -8,9 +8,17 @@
  *  the meeting and several resolutions voted on en bloc. */
 import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Eye, Layers, Lock, Pencil, Play, RotateCcw, SquareStop, UserRound } from "lucide-react";
+import { Eye, Layers, Lock, Pencil, Play, Repeat, RotateCcw, SquareStop, UserRound } from "lucide-react";
 import { stripHtml, type LocalizedText } from "@basicbar/ui";
-import { api, requestBody, requestError, type MeetingAgendaItem, type MeetingManager } from "../api";
+import {
+  api,
+  requestBody,
+  requestError,
+  type MeetingAgendaItem,
+  type MeetingBallot,
+  type MeetingItem,
+  type MeetingManager,
+} from "../api";
 import { Button, ToggleSwitch } from "../components/ui";
 import TranslatableField from "../components/TranslatableField";
 import { TextList, groupNames } from "./MeetingBeamer";
@@ -57,6 +65,105 @@ export function Modal({
 function ErrorText({ text }: { text: string }) {
   if (!text) return null;
   return <p role="alert" className="text-sm text-danger">{text}</p>;
+}
+
+/** English source strings (translation keys) for ballot error codes whose
+ *  backend detail is too technical for the chair. */
+const OPEN_ERRORS: Record<string, string> = {
+  no_candidates: "The election has no candidates.",
+  too_many_votes: "There are fewer candidates than votes per person.",
+};
+const RUNOFF_ERRORS: Record<string, string> = {
+  runoff_candidates: "Choose at least two candidates.",
+  runoff_exists: "A runoff is already running for this election.",
+};
+const RESET_ERRORS: Record<string, string> = {
+  runoff_exists: "Reset the runoff first.",
+};
+
+/** The error of a failed request as a translation key: `messages[code]`
+ *  if listed, else the server's detail. */
+function codedError(err: unknown, messages: Record<string, string>): string {
+  const code = requestBody(err)?.code;
+  return (typeof code === "string" && messages[code]) || requestError(err);
+}
+
+/** Pick the candidates of a runoff: preselected from the round's proposal,
+ *  each with its total votes. Returns an error message or "". */
+function RunoffDialog({
+  item,
+  ballot,
+  onConfirm,
+  onCancel,
+}: {
+  item: MeetingItem;
+  ballot: MeetingBallot;
+  onConfirm: (candidates: number[]) => Promise<string>;
+  onCancel: () => void;
+}) {
+  const { t } = useTranslation();
+  const [picked, setPicked] = useState<number[]>(ballot.election?.proposal ?? []);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const counts = ballot.result?.total.counts ?? {};
+  async function submit() {
+    setBusy(true);
+    const message = await onConfirm(item.options.map((o) => o.id).filter((id) => picked.includes(id)));
+    setBusy(false);
+    if (message) setError(message);
+  }
+  return (
+    <Modal label={t("Start runoff")} onCancel={onCancel}>
+      <div className="grid gap-3" data-testid="runoff-dialog">
+        <h2 className="font-semibold text-slate-900 dark:text-slate-100">{t("Start runoff")}</h2>
+        <p className="text-sm text-slate-700 dark:text-slate-200">
+          {t("Choose the candidates for the runoff. It opens immediately; each person has one vote.")}
+        </p>
+        <fieldset className="grid gap-1.5">
+          <legend className="sr-only">{t("Candidates")}</legend>
+          {item.options.map((option, index) => (
+            <label
+              key={option.id}
+              className="flex items-center gap-3 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+            >
+              <input
+                type="checkbox"
+                data-testid="runoff-candidate"
+                autoFocus={index === 0}
+                checked={picked.includes(option.id)}
+                onChange={(event) =>
+                  setPicked(
+                    event.target.checked
+                      ? [...picked, option.id]
+                      : picked.filter((id) => id !== option.id),
+                  )
+                }
+                className="h-4 w-4 shrink-0 accent-brand-600"
+              />
+              <span className="min-w-0 flex-1 break-words text-slate-900 dark:text-slate-100">{option.text}</span>
+              <span className="shrink-0 tabular-nums text-slate-600 dark:text-slate-300">
+                {t("{{count}} votes", { count: counts[`opt:${option.id}`] ?? 0 })}
+              </span>
+            </label>
+          ))}
+        </fieldset>
+        <ErrorText text={error} />
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>
+            {t("Cancel")}
+          </Button>
+          <Button
+            variant="primary"
+            data-testid="runoff-confirm"
+            disabled={busy || picked.length < 2}
+            onClick={() => void submit()}
+          >
+            {t("Start runoff")}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
 }
 
 function ResetDialog({
@@ -316,6 +423,7 @@ export default function MeetingAgenda({
   const { t } = useTranslation();
   const [resetting, setResetting] = useState<MeetingAgendaItem | null>(null);
   const [editing, setEditing] = useState<MeetingAgendaItem | null>(null);
+  const [runoff, setRunoff] = useState(false);
   const [adding, setAdding] = useState<AddTarget>(null);
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<number[]>([]);
@@ -342,7 +450,18 @@ export default function MeetingAgenda({
       setResetting(null);
       return "";
     } catch (err) {
-      return t(requestError(err));
+      return t(codedError(err, RESET_ERRORS));
+    }
+  }
+
+  /** Open a runoff of the shown, closed election round. */
+  async function startRunoff(ballotId: number, candidates: number[]): Promise<string> {
+    try {
+      apply(await api.openRunoff(setId, ballotId, candidates));
+      setRunoff(false);
+      return "";
+    } catch (err) {
+      return t(codedError(err, RUNOFF_ERRORS));
     }
   }
 
@@ -485,7 +604,16 @@ export default function MeetingAgenda({
                 <Button
                   variant="primary"
                   disabled={busy || voteOpen}
-                  onClick={() => void act(() => api.openBallot(setId, item.id))}
+                  onClick={() =>
+                    void act(async () => {
+                      try {
+                        return await api.openBallot(setId, item.id);
+                      } catch (err) {
+                        // `act` shows the message (a translation key).
+                        throw new Error(codedError(err, OPEN_ERRORS));
+                      }
+                    })
+                  }
                   className="inline-flex items-center gap-1.5"
                 >
                   <Play aria-hidden className="h-4 w-4" />
@@ -557,6 +685,18 @@ export default function MeetingAgenda({
                   })}
                 </p>
               )}
+            {running && ballot.election?.proposal && (
+              <Button
+                disabled={busy || voteOpen}
+                title={voteOpen ? t("Another vote is still open.") : undefined}
+                onClick={() => setRunoff(true)}
+                data-testid="runoff-start"
+                className="inline-flex items-center gap-1.5 justify-self-start"
+              >
+                <Repeat aria-hidden className="h-4 w-4" />
+                {t("Start runoff")}
+              </Button>
+            )}
             {/* A test run records no findings (backend code "trial"). */}
             {!data.trial && (
               <div role="group" aria-label={t("Finding")} className="flex flex-wrap items-center gap-1.5">
@@ -695,6 +835,14 @@ export default function MeetingAgenda({
         <ResetDialog
           onConfirm={(comment) => reset(resetting, comment)}
           onCancel={() => setResetting(null)}
+        />
+      )}
+      {runoff && shown?.ballot?.status === "closed" && shown.ballot.election?.proposal && (
+        <RunoffDialog
+          item={shown}
+          ballot={shown.ballot}
+          onConfirm={(candidates) => startRunoff(shown.ballot!.id, candidates)}
+          onCancel={() => setRunoff(false)}
         />
       )}
       {editing && (
