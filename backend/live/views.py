@@ -36,16 +36,16 @@ from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import (
     ai_evaluation,
-    ai_matrix,
-    matrix,
-    matrix_rating,
-    mindmap,
     ai_freetext,
     ai_freetext_summary,
+    ai_matrix,
     ai_mindmap,
     ai_report,
     ai_wordcloud,
     ai_wordcloud_live,
+    matrix,
+    matrix_rating,
+    mindmap,
     mindmap_log,
     mindmap_rating,
 )

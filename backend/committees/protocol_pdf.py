@@ -10,7 +10,8 @@ from datetime import datetime
 from basicbar_pdf import PdfDocument
 from django.utils import formats, timezone
 from django.utils.text import slugify
-from django.utils.translation import get_language, gettext as _, gettext_lazy
+from django.utils.translation import get_language, gettext_lazy
+from django.utils.translation import gettext as _
 
 from common.i18n_fields import translated_map
 from rooms.models import QuestionSet

@@ -1778,9 +1778,8 @@ class AutoCloseTests(BallotBase):
             self.vote(member, ballot, {"choice": "yes"})
         with mock.patch.object(
             BallotText.objects, "bulk_create", side_effect=RuntimeError("boom"),
-        ):
-            with self.assertLogs("committees.ballots", level="WARNING") as logs:
-                self.vote(members[-1], ballot, {"choice": "yes"})
+        ), self.assertLogs("committees.ballots", level="WARNING") as logs:
+            self.vote(members[-1], ballot, {"choice": "yes"})
         self.assertEqual(len(logs.records), 1)
         self.assertIn(str(ballot.pk), logs.output[0])
         self.assertNotIn("choice", logs.output[0])
@@ -2572,11 +2571,11 @@ class AddResolutionTests(BallotBase):
         return f"/api/meetings/{self.meeting.pk}/items/"
 
     def test_add_into_top_becomes_next_subitem(self):
-        with mock.patch("committees.live.broadcast_meeting") as broadcast:
-            with self.captureOnCommitCallbacks(execute=True) as callbacks:
-                q = services.add_resolution(
-                    self.meeting, "Änderungsantrag", self.s1, named=False,
-                )
+        with (mock.patch("committees.live.broadcast_meeting") as broadcast,
+              self.captureOnCommitCallbacks(execute=True) as callbacks):
+            q = services.add_resolution(
+                self.meeting, "Änderungsantrag", self.s1, named=False,
+            )
         self.assertTrue(callbacks)
         broadcast.assert_called()
         self.assertEqual(
@@ -3766,7 +3765,8 @@ class TopNoteTests(BallotBase):
         self.put(section=self.s1.pk, text="Geheim")
         self.meeting.refresh_from_db()
         self.assertNotIn("Geheim", json.dumps(payloads.public_payload(self.meeting)))
-        src = open(live.__file__).read()
+        with open(live.__file__) as f:
+            src = f.read()
         self.assertEqual(src.count("manager_payload"), 2)  # broadcast + manager stream only
 
     def make_other_meeting(self):
