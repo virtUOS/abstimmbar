@@ -4033,6 +4033,12 @@ class ElectionBallotTests(BallotBase):
         self.assertEqual((ballot.max_votes, ballot.cumulate), (3, True))
         self.assertIsNone(ballot.candidates)
 
+    def test_approval_ignores_max_votes(self):
+        q, _ = self.election(n=1, max_votes=3)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual((ballot.max_votes, ballot.cumulate), (1, False))
+        self.assertEqual(ballots.election_mode(ballot), "approval")
+
     def test_named_election_stores_keys(self):
         q, (a, _b, _c) = self.election(max_votes=3, named=True)
         ballot = ballots.open_ballot(self.meeting, q)

@@ -237,6 +237,8 @@ def _election_settings(
     count = len(ids if candidates is None else ids & set(candidates))
     if count == 0:
         raise ValidationError("The election has no candidates.", code="no_candidates")
+    if count == 1:
+        return 1, False  # approval vote: max_votes is ignored (treated as 1)
     if not cumulate and max_votes > count:
         raise ValidationError(
             "More votes than candidates without cumulating.", code="too_many_votes",
