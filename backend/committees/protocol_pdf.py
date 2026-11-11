@@ -10,7 +10,7 @@ from datetime import datetime
 from basicbar_pdf import PdfDocument
 from django.utils import formats, timezone
 from django.utils.text import slugify
-from django.utils.translation import get_language, gettext_lazy
+from django.utils.translation import get_language, gettext_lazy, ngettext
 from django.utils.translation import gettext as _
 
 from common.i18n_fields import translated_map
@@ -60,6 +60,88 @@ def _label(item: dict, key: str) -> str:
     return next((o["text"] for o in item["options"] if o["key"] == key), key)
 
 
+def _election_line(rnd: dict) -> str:
+    line = ngettext(
+        "Up to %(n)s vote per person", "Up to %(n)s votes per person", rnd["max_votes"],
+    ) % {"n": rnd["max_votes"]}
+    if rnd["cumulate"]:
+        line += _(", cumulating allowed")
+    return line
+
+
+def _round(doc: PdfDocument, item: dict, rnd: dict, heading: str | None) -> None:
+    """One closed ballot round of an item (``rnd`` carries the round fields
+    of ``protocol._round``)."""
+    if heading:
+        doc.paragraph(heading, style="bold")
+    result = rnd["result"]
+    kind = _("Named vote") if rnd["named"] else _("Secret vote")
+    if rnd["opened_at"] and rnd["closed_at"]:
+        kind += " · " + _("Vote: %(start)s–%(end)s") % {
+            "start": _time(rnd["opened_at"]), "end": _time(rnd["closed_at"]),
+        }
+    if item["kind"] == "election" and rnd["max_votes"] and rnd["max_votes"] >= 2:
+        kind += " · " + _election_line(rnd)
+    doc.paragraph(kind, style="muted")
+    counts = result["total"]["counts"]
+    doc.paragraph(
+        "   ".join(f"{_label(rnd, o['key'])}: {counts.get(o['key'], 0)}" for o in rnd["options"]),
+        style="bold",
+    )
+    doc.paragraph(
+        _("%(voted)s of %(eligible)s eligible voters voted")
+        % {"voted": result["total"]["voted"], "eligible": result["total"]["eligible"]},
+        style="muted",
+    )
+    if len(result["groups"]) > 1:
+        for group in result["groups"]:
+            parts = ", ".join(
+                f"{_label(rnd, o['key'])} {group['counts'].get(o['key'], 0)}"
+                for o in rnd["options"]
+            )
+            doc.paragraph(f"{group['name']} ({group['voted']}/{group['eligible']}): {parts}",
+                          style="small")
+    if not result["count_check_ok"]:
+        doc.paragraph(
+            _("Count check failed: %(voted)s marked as voted, %(tally)s ballots counted.")
+            % {"voted": result["voted"], "tally": result["tally_sum"]}, style="bold",
+        )
+    if rnd["voters"]:
+        doc.paragraph(_("Voted: %(names)s") % {"names": ", ".join(v["name"] for v in rnd["voters"])})
+    if rnd["named"] and rnd["named_votes"]:
+        doc.bullets([
+            f"{v['member']} ({v['group']}): {', '.join(_label(rnd, k) for k in v['keys'])}"
+            for v in rnd["named_votes"]
+        ])
+    if rnd["texts"]:
+        doc.bullets([f"({t['group']}) {t['text']}" for t in rnd["texts"]])
+    if rnd["finding"]:
+        doc.paragraph(
+            _("Finding: adopted") if rnd["finding"] == "adopted" else _("Finding: rejected"),
+            style="bold",
+        )
+    if not rnd["reference"]:
+        doc.paragraph(_("No seal: this vote was closed before seals were introduced."), style="muted")
+    else:
+        def seal(doc: PdfDocument) -> None:
+            doc.paragraph(_("Seal"), style="bold")
+            doc.paragraph(f"{_('Reference')}: {rnd['reference']}", style="small")
+            if rnd["fingerprint"]:
+                doc.paragraph(f"{_('Fingerprint')}: {_fingerprint(rnd['fingerprint'])}", style="small")
+            if rnd["finding_fingerprint"]:
+                doc.paragraph(
+                    f"{_('Fingerprint of the finding')}: {_fingerprint(rnd['finding_fingerprint'])}",
+                    style="small",
+                )
+        doc.box(seal)
+
+
+def _round_heading(rnd: dict) -> str:
+    if rnd["runoff"]:
+        return _("Runoff (ballot %(n)s)") % {"n": rnd["ballot_no"]}
+    return _("Ballot %(n)s") % {"n": rnd["ballot_no"]}
+
+
 def _item(doc: PdfDocument, item: dict) -> None:
     def build(doc: PdfDocument) -> None:
         doc.rule()
@@ -83,67 +165,15 @@ def _item(doc: PdfDocument, item: dict) -> None:
                 _("Voted en bloc with TOP %(labels)s") % {"labels": ", ".join(item["bundle_with"])},
                 style="muted",
             )
-        result = item["result"]
-        if item["status"] == "not_voted" or not result:
+        if item["status"] == "not_voted" or not item["result"]:
             doc.paragraph(_("Not voted"), style="muted")
             return
-        kind = _("Named vote") if item["named"] else _("Secret vote")
-        if item["opened_at"] and item["closed_at"]:
-            kind += " · " + _("Vote: %(start)s–%(end)s") % {
-                "start": _time(item["opened_at"]), "end": _time(item["closed_at"]),
-            }
-        doc.paragraph(kind, style="muted")
-        counts = result["total"]["counts"]
-        doc.paragraph(
-            "   ".join(f"{_label(item, o['key'])}: {counts.get(o['key'], 0)}" for o in item["options"]),
-            style="bold",
-        )
-        doc.paragraph(
-            _("%(voted)s of %(eligible)s eligible voters voted")
-            % {"voted": result["total"]["voted"], "eligible": result["total"]["eligible"]},
-            style="muted",
-        )
-        if len(result["groups"]) > 1:
-            for group in result["groups"]:
-                parts = ", ".join(
-                    f"{_label(item, o['key'])} {group['counts'].get(o['key'], 0)}"
-                    for o in item["options"]
-                )
-                doc.paragraph(f"{group['name']} ({group['voted']}/{group['eligible']}): {parts}",
-                              style="small")
-        if not result["count_check_ok"]:
-            doc.paragraph(
-                _("Count check failed: %(voted)s marked as voted, %(tally)s ballots counted.")
-                % {"voted": result["voted"], "tally": result["tally_sum"]}, style="bold",
-            )
-        if item["voters"]:
-            doc.paragraph(_("Voted: %(names)s") % {"names": ", ".join(v["name"] for v in item["voters"])})
-        if item["named"] and item["named_votes"]:
-            doc.bullets([
-                f"{v['member']} ({v['group']}): {', '.join(_label(item, k) for k in v['keys'])}"
-                for v in item["named_votes"]
-            ])
-        if item["texts"]:
-            doc.bullets([f"({t['group']}) {t['text']}" for t in item["texts"]])
-        if item["finding"]:
-            doc.paragraph(
-                _("Finding: adopted") if item["finding"] == "adopted" else _("Finding: rejected"),
-                style="bold",
-            )
-        if not item["reference"]:
-            doc.paragraph(_("No seal: this vote was closed before seals were introduced."), style="muted")
-        else:
-            def seal(doc: PdfDocument) -> None:
-                doc.paragraph(_("Seal"), style="bold")
-                doc.paragraph(f"{_('Reference')}: {item['reference']}", style="small")
-                if item["fingerprint"]:
-                    doc.paragraph(f"{_('Fingerprint')}: {_fingerprint(item['fingerprint'])}", style="small")
-                if item["finding_fingerprint"]:
-                    doc.paragraph(
-                        f"{_('Fingerprint of the finding')}: {_fingerprint(item['finding_fingerprint'])}",
-                        style="small",
-                    )
-            doc.box(seal)
+        # Elections: earlier rounds first, each headed; the last round is
+        # headed only when it is a runoff.
+        rounds = item.get("earlier_rounds") or []
+        for rnd in rounds:
+            _round(doc, item, rnd, _round_heading(rnd))
+        _round(doc, item, item, _round_heading(item) if item["runoff"] or rounds else None)
 
     doc.keep_together(build)
     doc.spacer(mm=2)

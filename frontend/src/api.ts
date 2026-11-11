@@ -135,16 +135,14 @@ export interface ProtocolCounts {
   counts: Record<string, number>;
 }
 
-export interface ProtocolItem {
-  label: string;
-  kind: string;
+/** One closed ballot round of a protocol item (elections may have several). */
+export interface ProtocolRound {
+  /** Ballot.round (also counts reset repeats). */
+  round: number | null;
+  /** Wahlgang number: position among the item's closed rounds. */
+  ballot_no: number | null;
+  runoff: boolean;
   named: boolean;
-  text: string;
-  version: number | null;
-  version_changed: boolean;
-  status: "voted" | "not_voted";
-  bundle_with: string[];
-  rounds_discarded: { round: number; reason: "reset" | "restart"; comment: string }[];
   result: {
     groups: (ProtocolCounts & { name: string })[];
     total: ProtocolCounts;
@@ -163,6 +161,23 @@ export interface ProtocolItem {
   reference: string | null;
   fingerprint: string | null;
   finding_fingerprint: string | null;
+  /** Elections only (else null). */
+  max_votes: number | null;
+  cumulate: boolean | null;
+}
+
+/** An agenda item: its last closed round spread in, earlier rounds apart. */
+export interface ProtocolItem extends ProtocolRound {
+  label: string;
+  kind: string;
+  text: string;
+  version: number | null;
+  version_changed: boolean;
+  status: "voted" | "not_voted";
+  bundle_with: string[];
+  rounds_discarded: { round: number; reason: "reset" | "restart"; comment: string }[];
+  /** Closed election rounds before the last one (`[]` otherwise). */
+  earlier_rounds: ProtocolRound[];
 }
 
 export interface MeetingProtocol {

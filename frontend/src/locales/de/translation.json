@@ -1610,5 +1610,10 @@
   "+ Note": "+ Notiz",
   "Note": "Notiz",
   "Edit note": "Notiz bearbeiten",
-  "Note for the minutes": "Notiz für das Protokoll"
+  "Note for the minutes": "Notiz für das Protokoll",
+  "Ballot {{n}}": "{{n}}. Wahlgang",
+  "Runoff (ballot {{n}})": "Stichwahl ({{n}}. Wahlgang)",
+  "Up to {{count}} votes per person_one": "Bis zu {{count}} Stimme pro Person",
+  "Up to {{count}} votes per person_other": "Bis zu {{count}} Stimmen pro Person",
+  ", cumulating allowed": ", kumulieren erlaubt"
 }

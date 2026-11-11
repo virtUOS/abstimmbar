@@ -822,6 +822,20 @@ msgstr "Durch Serverneustart abgebrochen"
 msgid "Vote repeated (round %(round)s): %(comment)s"
 msgstr "Abstimmung wiederholt (Durchgang %(round)s): %(comment)s"
 
+msgid "Ballot %(n)s"
+msgstr "%(n)s. Wahlgang"
+
+msgid "Runoff (ballot %(n)s)"
+msgstr "Stichwahl (%(n)s. Wahlgang)"
+
+msgid "Up to %(n)s vote per person"
+msgid_plural "Up to %(n)s votes per person"
+msgstr[0] "Bis zu %(n)s Stimme pro Person"
+msgstr[1] "Bis zu %(n)s Stimmen pro Person"
+
+msgid ", cumulating allowed"
+msgstr ", kumulieren erlaubt"
+
 msgid "Voted en bloc with TOP %(labels)s"
 msgstr "En bloc abgestimmt mit TOP %(labels)s"
 
