@@ -1,0 +1,101 @@
+# SPDX-License-Identifier: Apache-2.0
+# Dependabot version updates for both lines (CLAUDE.md, branching workflow):
+#
+# - main (2.0 development): weekly, all minor and patch updates of an
+#   ecosystem grouped into one pull request; major updates come separately.
+# - release/1.0 (maintenance of 1.0.x): weekly, patch updates only, grouped.
+#   Merge release/1.0 into main as usual afterwards ("merge up"); if main
+#   already has a newer version of the same package, keep main's in the
+#   conflict.
+#
+# Dependabot reads this file only from the default branch (main), so the
+# release/1.0 entries live here too (target-branch). Security updates
+# (repository settings) are independent of this schedule and only target
+# main; the weekly patch run carries them to release/1.0.
+# Not covered: the basicbar packages (archive URLs in backend/requirements.txt)
+# — bump those by hand per basicbar's CHANGELOG — and the floating Docker base
+# image tags (python:3.12-slim, node:24-slim), which pick up fixes on rebuild.
+version: 2
+updates:
+  # ---- main ---------------------------------------------------------------
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      backend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directory: /website
+    schedule:
+      interval: weekly
+    groups:
+      website-minor-patch:
+        update-types: [minor, patch]
+    ignore:
+      # MkDocs 2 is incompatible with Material (see website/requirements.txt).
+      - dependency-name: mkdocs
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # ---- release/1.0: patch updates only --------------------------------------
+  - package-ecosystem: pip
+    directory: /backend
+    target-branch: release/1.0
+    schedule:
+      interval: weekly
+    groups:
+      backend-patch-1-0:
+        update-types: [patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: npm
+    directory: /frontend
+    target-branch: release/1.0
+    schedule:
+      interval: weekly
+    groups:
+      frontend-patch-1-0:
+        update-types: [patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: pip
+    directory: /website
+    target-branch: release/1.0
+    schedule:
+      interval: weekly
+    groups:
+      website-patch-1-0:
+        update-types: [patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: release/1.0
+    schedule:
+      interval: weekly
+    groups:
+      actions-1-0:
+        patterns: ["*"]
