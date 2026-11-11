@@ -454,7 +454,7 @@ const QUESTION_TYPES: {
     icon: Vote,
     group: "choose",
     label: "Election",
-    description: "Candidates are elected by secret ballot, with optional runoff rounds.",
+    description: "Candidates are elected, secret or named, with a runoff if needed.",
   },
   {
     kind: "single_choice",

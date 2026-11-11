@@ -1436,7 +1436,7 @@
   "Time": "Uhrzeit",
   "Resolution": "Beschluss",
   "Election": "Wahl",
-  "Candidates are elected by secret ballot, with optional runoff rounds.": "Kandidierende werden geheim gewählt, bei Bedarf mit Stichwahl.",
+  "Candidates are elected, secret or named, with a runoff if needed.": "Kandidierende werden gewählt, geheim oder namentlich, bei Bedarf mit Stichwahl.",
   "Votes per person": "Stimmen pro Person",
   "Allow cumulating": "Kumulieren erlauben",
   "Candidates": "Kandidierende",
