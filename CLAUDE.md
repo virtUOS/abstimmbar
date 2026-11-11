@@ -76,6 +76,9 @@ merge. Reference issues in the PR description (`Closes #<n>`).
   release workflow builds images for every `v*` tag (`X.Y.Z`, `vX.Y.Z`
   and `latest`). `latest` stays on the newest *stable* line; pre-releases
   of the next major use tags like `v2.0.0-beta.1` without `latest`.
+- Dependabot (`.github/dependabot.yml`) opens weekly grouped PRs for both
+  lines: minor+patch against `main`, patch-only against `release/1.0`.
+  Merge the release ones, then merge up; on a version conflict keep `main`'s.
 - The website (GitHub Pages) deploys from `release/*` pushes only, so the
   guide always describes the stable line; `main` and PRs build it (strict)
   without deploying.
