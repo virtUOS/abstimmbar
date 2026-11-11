@@ -709,6 +709,28 @@ msgid "Cast vote"
 msgstr "Stimme abgeben"
 
 #: committees/views.py
+msgid "Election"
+msgstr "Wahl"
+
+#: committees/views.py
+msgid "Runoff"
+msgstr "Stichwahl"
+
+#: committees/views.py
+#, python-format
+msgid "Up to %(n)s votes"
+msgstr "Bis zu %(n)s Stimmen"
+
+#: committees/views.py
+#, python-format
+msgid "%(used)s of %(max)s votes given"
+msgstr "%(used)s von %(max)s Stimmen vergeben"
+
+#: committees/views.py
+msgid "Cast votes"
+msgstr "Stimmen abgeben"
+
+#: committees/views.py
 msgid "Your answer"
 msgstr "Ihre Antwort"
 

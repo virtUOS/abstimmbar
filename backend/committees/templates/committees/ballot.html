@@ -55,6 +55,20 @@
   .text-card { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
                border-radius: 12px; white-space: pre-wrap; }
   .text-card .soft { display: block; margin-bottom: 4px; white-space: normal; }
+  .badge.runoff { background: var(--ink); color: var(--surface); }
+  .candidate { font-size: 18px; font-weight: 700; margin-top: 14px; overflow-wrap: anywhere; }
+  button.cand { text-align: center; }
+  button.toggle[aria-pressed="true"] { background: var(--brand-soft); border-color: var(--brand-strong); }
+  .stepper { display: flex; gap: 10px; align-items: center; min-height: 52px; margin-top: 10px;
+             padding: 6px 8px 6px 16px; border: 1px solid var(--line); border-radius: 14px;
+             background: var(--surface); }
+  .stepper.checked { background: var(--brand-soft); border-color: var(--brand-strong); }
+  .stepper .name { flex: 1; min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .stepper button { width: 44px; min-height: 44px; margin: 0; padding: 0; flex: none;
+                    text-align: center; font-size: 20px; }
+  .stepper .count { min-width: 2ch; text-align: center; font-weight: 700;
+                    font-variant-numeric: tabular-nums; }
+  .used { margin-top: 14px; font-weight: 600; }
 </style>
 <p class="soft">{{ room_title }}</p>
 <h1>{{ meeting_title }}</h1>
@@ -86,6 +100,8 @@
   const view = document.getElementById("view");
   const conn = document.getElementById("conn");
   const fill = (text, values) => text.replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
+  // Election strings keep gettext's %(name)s placeholders.
+  const pfill = (text, values) => text.replace(/%\((\w+)\)s/g, (m, k) => (k in values ? values[k] : m));
 
   let snap = null;          // last public snapshot
   let me = null;            // last /me/ answer (null while loading)
@@ -103,6 +119,7 @@
   let draftBallot = null;
   let draftOptions = new Set();
   let draftText = "";
+  let draftVotes = new Map(); // multi-vote election: candidate id -> votes
 
   function el(tag, attrs, text) {
     const node = document.createElement(tag);
@@ -219,6 +236,12 @@
       if (item.changed) label += " · " + S.changed;
       badges.appendChild(el("span", { class: "badge version" }, label));
     }
+    if (item.kind === "election") {
+      badges.appendChild(el("span", { class: "badge" }, S.election));
+      if (item.election && item.election.runoff) {
+        badges.appendChild(el("span", { class: "badge runoff" }, S.runoff));
+      }
+    }
     view.appendChild(badges);
     const text = el("div", { class: "question-text" });
     text.innerHTML = item.text || ""; // sanitized when authored (like participant.html)
@@ -256,10 +279,16 @@
       draftBallot = ballot.id;
       draftOptions = new Set();
       draftText = "";
+      draftVotes = new Map();
     }
+    const election = item.kind === "election" ? item.election : null;
     const notice = el("div", { class: "notice" });
     notice.appendChild(el("strong", {}, item.named ? S.named : S.secret));
-    const oneTap = item.kind === "resolution" || item.kind === "single_choice";
+    const oneTap = item.kind === "resolution" || item.kind === "single_choice"
+      || (election && election.mode !== "multi");
+    if (election && election.mode === "multi") {
+      notice.appendChild(el("p", {}, pfill(S.upTo, { n: election.max_votes })));
+    }
     notice.appendChild(el("p", { class: "soft" }, oneTap ? S.hintTap : S.hintFinal));
     if (item.bundle && item.bundle.length) notice.appendChild(el("p", {}, S.bundle));
     view.appendChild(notice);
@@ -308,14 +337,91 @@
       view.appendChild(submit);
       sync();
       view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
+    } else if (election) {
+      electionForm(item, election, send);
     }
     if (error) view.appendChild(el("p", { class: "error", role: "alert" }, S.error));
+  }
+
+  function electionForm(item, election, send) {
+    if (election.mode === "approval") {
+      const candidate = item.options[0];
+      if (candidate) view.appendChild(el("p", { class: "candidate" }, candidate.text));
+      for (const choice of ["yes", "no", "abstain"]) {
+        view.appendChild(button(S[choice], "choice", () => send({ choice })));
+      }
+      return;
+    }
+    if (election.mode === "single") {
+      for (const option of item.options) {
+        view.appendChild(button(option.text, "cand", () => send({ option: option.id })));
+      }
+      view.appendChild(button(S.no, "choice", () => send({ choice: "no" })));
+      view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
+      return;
+    }
+    // multi: up to max_votes votes; repeats per candidate only if cumulate.
+    const max = election.max_votes;
+    const used = () => [...draftVotes.values()].reduce((a, b) => a + b, 0);
+    const counter = el("p", { class: "used", role: "status" });
+    const submit = button(S.castVotes, "primary", () => {
+      const options = [];
+      for (const option of item.options) {
+        for (let i = 0; i < (draftVotes.get(option.id) || 0); i++) options.push(option.id);
+      }
+      send({ options });
+    });
+    const syncers = [];
+    const sync = () => {
+      const n = used();
+      counter.textContent = pfill(S.used, { used: n, max });
+      submit.disabled = busy || n === 0;
+      for (const fn of syncers) fn(n);
+    };
+    const change = (id, delta) => {
+      const next = Math.max(0, (draftVotes.get(id) || 0) + delta);
+      if (next) draftVotes.set(id, next); else draftVotes.delete(id);
+      sync();
+    };
+    for (const option of item.options) {
+      if (!election.cumulate) {
+        const toggle = button(option.text, "toggle");
+        toggle.addEventListener("click", () => change(option.id, draftVotes.has(option.id) ? -1 : 1));
+        syncers.push((n) => {
+          const on = draftVotes.has(option.id);
+          toggle.setAttribute("aria-pressed", on ? "true" : "false");
+          toggle.disabled = busy || (!on && n >= max);
+        });
+        view.appendChild(toggle);
+        continue;
+      }
+      const row = el("div", { class: "stepper", role: "group", "aria-label": option.text });
+      row.appendChild(el("span", { class: "name", "aria-hidden": "true" }, option.text));
+      const minus = el("button", { type: "button", "aria-label": option.text + ": −1" }, "−");
+      const count = el("span", { class: "count", "aria-hidden": "true" });
+      const plus = el("button", { type: "button", "aria-label": option.text + ": +1" }, "+");
+      minus.addEventListener("click", () => change(option.id, -1));
+      plus.addEventListener("click", () => change(option.id, 1));
+      syncers.push((n) => {
+        const mine = draftVotes.get(option.id) || 0;
+        count.textContent = String(mine);
+        row.classList.toggle("checked", mine > 0);
+        minus.disabled = busy || mine === 0;
+        plus.disabled = busy || n >= max;
+      });
+      row.append(minus, count, plus);
+      view.appendChild(row);
+    }
+    view.appendChild(counter);
+    view.appendChild(submit);
+    sync();
+    view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
   }
 
   function button(text, cls, onClick) {
     const node = el("button", { type: "button", class: cls }, text);
     node.disabled = busy;
-    node.addEventListener("click", onClick);
+    if (onClick) node.addEventListener("click", onClick);
     return node;
   }
 
@@ -362,7 +468,9 @@
 
   function answerKeys(item, counts) {
     let keys;
-    if (item.kind === "resolution") keys = ["yes", "no", "abstain"];
+    const mode = item.kind === "election" && item.election ? item.election.mode : null;
+    if (item.kind === "resolution" || mode === "approval") keys = ["yes", "no", "abstain"];
+    else if (mode === "single") keys = item.options.map((o) => "opt:" + o.id).concat(["no", "abstain"]);
     else if (item.kind === "open_text") keys = ["text", "abstain"];
     else keys = item.options.map((o) => "opt:" + o.id).concat(["abstain"]);
     for (const key of Object.keys(counts)) if (!keys.includes(key)) keys.push(key);

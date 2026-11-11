@@ -655,6 +655,12 @@ BALLOT_STRINGS = {
     "total": _("Total"),
     "answers": _("Answers"),
     "again": _("Try again"),
+    "election": _("Election"),
+    "runoff": _("Runoff"),
+    # gettext-style placeholders (verbatim msgids), filled by the script.
+    "upTo": _("Up to %(n)s votes"),
+    "used": _("%(used)s of %(max)s votes given"),
+    "castVotes": _("Cast votes"),
 }
 
 

@@ -1067,6 +1067,17 @@ class BallotPageTests(MeetingFixture, TestCase):
         ):
             self.assertIn(text, strings)
 
+    def test_ballot_strings_for_elections(self):
+        self._start()
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=de")
+        strings = set(self._strings(r).values())
+        for text in (
+            "Wahl", "Stichwahl", "Bis zu %(n)s Stimmen",
+            "%(used)s von %(max)s Stimmen vergeben", "Stimmen abgeben",
+            "Enthaltung", "Ja", "Nein",
+        ):
+            self.assertIn(text, strings)
+
     def test_member_page_english(self):
         self._start()
         r = self.client.get(f"/g/{self.anna_invite.token}/?lang=en")
