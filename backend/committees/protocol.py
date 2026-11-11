@@ -14,7 +14,7 @@ from django.db.models import Prefetch
 from common.i18n_fields import translated_map
 from rooms.models import Question, QuestionSet
 
-from . import agenda
+from . import agenda, ballots
 from .models import (
     Ballot,
     BallotItem,
@@ -51,6 +51,16 @@ def _version_text(version: MotionVersion | None, question: Question) -> str:
     return _canonical({"de": version.text_de, "en": version.text_en})
 
 
+def _option_entries(options: list[dict]) -> list[dict]:
+    return [
+        {
+            "key": f"opt:{o['id']}",
+            "text": _canonical({"de": o.get("text_de", ""), "en": o.get("text_en", "")}),
+        }
+        for o in options
+    ]
+
+
 def _options(kind: str, version: MotionVersion | None) -> list[dict]:
     """Count keys (as in ``ballots._count_keys``) with their texts: option
     texts for ``opt:<id>``, the plain key for fixed keys (the frontend
@@ -59,14 +69,33 @@ def _options(kind: str, version: MotionVersion | None) -> list[dict]:
         return [{"key": k, "text": k} for k in RESOLUTION_KEYS]
     if kind == Question.Kind.OPEN_TEXT:
         return [{"key": "text", "text": "text"}, {"key": "abstain", "text": "abstain"}]
-    options = [
-        {
-            "key": f"opt:{o['id']}",
-            "text": _canonical({"de": o.get("text_de", ""), "en": o.get("text_en", "")}),
-        }
-        for o in (version.options if version else [])
-    ]
+    options = _option_entries(version.options if version else [])
     return [*options, {"key": "abstain", "text": "abstain"}]
+
+
+def _election_options(mode: str, candidates: list[dict]) -> list[dict]:
+    """Count keys of an election round by ``ballots.election_mode``:
+    approval yes/no/abstain, single candidates + no + abstain, multi
+    candidates + abstain."""
+    if mode == "approval":
+        return [{"key": k, "text": k} for k in RESOLUTION_KEYS]
+    fixed = ["no", "abstain"] if mode == "single" else ["abstain"]
+    return [*_option_entries(candidates), *({"key": k, "text": k} for k in fixed)]
+
+
+def _approval_candidate(mode: str | None, candidates: list[dict]) -> str | None:
+    """The canonical name of the only candidate of an approval round."""
+    if mode != "approval" or not candidates:
+        return None
+    return _option_entries(candidates[:1])[0]["text"]
+
+
+def _unvoted_election(question: Question, version: MotionVersion | None) -> tuple[str, int, bool]:
+    """(mode, max_votes, cumulate) as opening the first round would freeze them."""
+    count = len(version.options) if version else 0
+    if count <= 1:
+        return "approval", 1, False
+    return ("multi" if question.max_votes >= 2 else "single"), question.max_votes, question.cumulate
 
 
 def _same_wording(a: MotionVersion, b: MotionVersion) -> bool:
@@ -207,12 +236,45 @@ def _ballots_by_question(meeting: QuestionSet) -> dict[int, list[tuple[Ballot, M
     return out
 
 
+def _round(ballot, version, question, names, order) -> dict:
+    """One closed ballot round: options, counts, voters, seal."""
+    result_link = _latest_link(ballot, SealLink.Kind.RESULT)
+    finding_link = _latest_link(ballot, SealLink.Kind.FINDING)
+    election = question.kind == Question.Kind.ELECTION
+    mode = ballots.election_mode(ballot) if election else None
+    candidates = ballots.ballot_options(ballot) if election else []
+    return {
+        "round": ballot.round,
+        "runoff": ballot.runoff_of_id is not None,
+        "options": (
+            _election_options(mode, candidates)
+            if election else _options(question.kind, version)
+        ),
+        "candidate": _approval_candidate(mode, candidates),
+        "result": _result(ballot, names),
+        "finding": ballot.finding,
+        "named": not ballot.secret,
+        "voters": _voters(ballot, names, order),
+        "named_votes": _named_votes(ballot, names, order),
+        "texts": _texts(ballot, question.kind, names, order),
+        "opened_at": _iso(ballot.opened_at),
+        "closed_at": _iso(ballot.closed_at),
+        "reference": result_link.reference if result_link else None,
+        "fingerprint": result_link.hash if result_link else None,
+        "finding_fingerprint": finding_link.hash if finding_link else None,
+        "max_votes": ballot.max_votes if election else None,
+        "cumulate": ballot.cumulate if election else None,
+    }
+
+
 def _item(question, label, entries, labels, positions, names, order) -> dict:
     closed = [e for e in entries if e[0].status == Ballot.Status.CLOSED]
     ballot, voted_version = closed[-1] if closed else (None, None)
     all_versions = list(question.motion_versions.all())  # ordered by number
     version = voted_version or (all_versions[-1] if all_versions else None)
     first = all_versions[0] if all_versions else None
+    election = question.kind == Question.Kind.ELECTION
+    mode, max_votes, cumulate = _unvoted_election(question, version) if election else (None, None, None)
     item = {
         "label": label,
         "kind": question.kind,
@@ -228,8 +290,15 @@ def _item(question, label, entries, labels, positions, names, order) -> dict:
             {"round": b.round, "reason": b.discard_reason, "comment": b.discard_comment}
             for b, _ in entries if b.status == Ballot.Status.DISCARDED
         ],
+        "round": None,
+        "ballot_no": None,
+        "runoff": False,
         "result": None,
-        "options": _options(question.kind, version),
+        "options": (
+            _election_options(mode, version.options if version else [])
+            if election else _options(question.kind, version)
+        ),
+        "candidate": _approval_candidate(mode, version.options if version else []),
         "finding": None,
         "voters": [],
         "named_votes": [],
@@ -239,31 +308,30 @@ def _item(question, label, entries, labels, positions, names, order) -> dict:
         "reference": None,
         "fingerprint": None,
         "finding_fingerprint": None,
+        "max_votes": max_votes,
+        "cumulate": cumulate,
+        "earlier_rounds": [],
     }
     if ballot is None:
         return item
     partners = [ballot.question_id, *(i.question_id for i in ballot.items.all())]
-    result_link = _latest_link(ballot, SealLink.Kind.RESULT)
-    finding_link = _latest_link(ballot, SealLink.Kind.FINDING)
     item.update(
+        _round(ballot, voted_version, question, names, order),
+        ballot_no=len(closed),
         bundle_with=[
             labels.get(qid, "")
             for qid in sorted(
                 (q for q in partners if q != question.pk), key=lambda q: positions.get(q, 0),
             )
         ],
-        result=_result(ballot, names),
-        finding=ballot.finding,
-        named=not ballot.secret,
-        voters=_voters(ballot, names, order),
-        named_votes=_named_votes(ballot, names, order),
-        texts=_texts(ballot, question.kind, names, order),
-        opened_at=_iso(ballot.opened_at),
-        closed_at=_iso(ballot.closed_at),
-        reference=result_link.reference if result_link else None,
-        fingerprint=result_link.hash if result_link else None,
-        finding_fingerprint=finding_link.hash if finding_link else None,
     )
+    if election:
+        # Wahlgang number = position among the closed rounds (a reset
+        # repeat also counts in Ballot.round).
+        item["earlier_rounds"] = [
+            {**_round(b, v, question, names, order), "ballot_no": n}
+            for n, (b, v) in enumerate(closed[:-1], start=1)
+        ]
     return item
 
 

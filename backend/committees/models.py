@@ -274,6 +274,16 @@ class Ballot(models.Model):
     discard_comment = models.TextField(blank=True)
     discarded_at = models.DateTimeField(null=True, blank=True)
     finding = models.CharField(max_length=10, choices=Finding.choices, blank=True)
+    # Elections: ballot paper settings frozen at opening, the candidates
+    # (AnswerOption ids; null = all options of ``version``) and, for a runoff,
+    # the round it follows up on.
+    max_votes = models.PositiveSmallIntegerField(default=1)
+    cumulate = models.BooleanField(default=False)
+    candidates = models.JSONField(null=True, blank=True)
+    runoff_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="runoffs",
+    )
 
     class Meta:
         ordering: ClassVar = ["round"]

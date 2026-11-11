@@ -20,6 +20,12 @@ from babel.messages.mofile import read_mo
 from babel.messages.pofile import read_po
 
 
+def _plain(value):
+    """Plural ids/strings come as tuples from the .po and as lists from the
+    .mo; make both hashable and comparable."""
+    return tuple(value) if isinstance(value, (list, tuple)) else value
+
+
 def _translated(catalog, *, skip_fuzzy):
     entries = {}
     for message in catalog:
@@ -27,10 +33,11 @@ def _translated(catalog, *, skip_fuzzy):
             continue
         if skip_fuzzy and message.fuzzy:
             continue
-        strings = message.string if isinstance(message.string, tuple) else (message.string,)
+        string = _plain(message.string)
+        strings = string if isinstance(string, tuple) else (string,)
         if not any(strings):  # untranslated: msgfmt leaves it out
             continue
-        entries[(message.context, message.id)] = message.string
+        entries[(message.context, _plain(message.id))] = string
     return entries
 
 

@@ -333,6 +333,10 @@ class Question(TimeStampedModel):
         # Committee meetings only: fixed answers yes/no/abstain, no
         # AnswerOptions (the ballot lives in the committees app).
         RESOLUTION = "resolution", "Resolution"
+        # Committee meetings only: a candidate election; the candidates are
+        # AnswerOptions, the ballot lives in the committees app (not in
+        # CHOICE_KINDS: that drives the live-poll logic).
+        ELECTION = "election", "Election"
 
     # Kinds whose answers are AnswerOption rows (vs. free text).
     CHOICE_KINDS = ("single_choice", "multiple_choice", "likert")
@@ -356,6 +360,10 @@ class Question(TimeStampedModel):
     # Committee meetings only: record each member's vote with their name
     # (listed in the minutes). False = secret ballot.
     named_vote = models.BooleanField(default=False)
+    # Elections only: votes per ballot paper (1..20) and whether several of
+    # them may go to the same candidate (cumulating).
+    max_votes = models.PositiveSmallIntegerField(default=1)
+    cumulate = models.BooleanField(default=False)
     # Sanitized HTML from the WYSIWYG editor (ADR-0007); the API layer is the
     # only writer and always passes it through the nh3 allowlist.
     text = models.TextField(blank=True)

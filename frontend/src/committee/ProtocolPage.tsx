@@ -16,6 +16,7 @@ import {
   requestError,
   type MeetingProtocol,
   type ProtocolItem,
+  type ProtocolRound,
 } from "../api";
 import HomeCrumb from "../components/HomeCrumb";
 import { TopNote } from "./MeetingAgenda";
@@ -28,7 +29,7 @@ function fingerprintBlocks(hash: string): string {
 
 function answerLabel(
   t: (key: string) => string,
-  item: ProtocolItem,
+  item: ProtocolRound,
   key: string,
 ): string {
   if (key === "yes") return t("Yes");
@@ -298,10 +299,7 @@ export default function ProtocolPage() {
 }
 
 function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null }) {
-  const { t, i18n } = useTranslation();
-  const time = new Intl.DateTimeFormat(i18n.language, { timeStyle: "short" });
-  const label = (key: string) => answerLabel(t as (key: string) => string, item, key);
-  const result = item.result;
+  const { t } = useTranslation();
   const muted = "text-slate-600 dark:text-slate-400";
   return (
     <div
@@ -335,127 +333,179 @@ function ItemBlock({ item, roomId }: { item: ProtocolItem; roomId: number | null
         </p>
       )}
 
-      {item.status === "not_voted" || !result ? (
+      {item.status === "not_voted" || !item.result ? (
         <p className={muted}>{t("Not voted")}</p>
       ) : (
         <>
-          <p className={muted}>
-            {item.named ? t("Named vote") : t("Secret vote")}
-            {item.opened_at && item.closed_at && (
-              <>
-                {" · "}
-                {t("Vote: {{start}}–{{end}}", {
-                  start: time.format(new Date(item.opened_at)),
-                  end: time.format(new Date(item.closed_at)),
-                })}
-              </>
+          {item.earlier_rounds.map((round) => (
+            <RoundBlock key={round.round} item={item} round={round} heading roomId={roomId} />
+          ))}
+          <RoundBlock
+            item={item}
+            round={item}
+            heading={item.runoff || item.earlier_rounds.length > 0}
+            roomId={roomId}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/** One closed ballot round: kind, counts, voters, finding, seal. */
+function RoundBlock({
+  item,
+  round,
+  heading,
+  roomId,
+}: {
+  item: ProtocolItem;
+  round: ProtocolRound;
+  heading: boolean;
+  roomId: number | null;
+}) {
+  const { t, i18n } = useTranslation();
+  const time = new Intl.DateTimeFormat(i18n.language, { timeStyle: "short" });
+  const label = (key: string) => answerLabel(t as (key: string) => string, round, key);
+  const result = round.result;
+  const muted = "text-slate-600 dark:text-slate-400";
+  if (!result) return null;
+  return (
+    <div data-testid="protocol-round" className="grid gap-2">
+      {heading && (
+        <p className="font-semibold text-slate-900 dark:text-slate-100">
+          {round.runoff
+            ? t("Runoff (ballot {{n}})", { n: round.ballot_no })
+            : t("Ballot {{n}}", { n: round.ballot_no })}
+        </p>
+      )}
+      {round.candidate && (
+        <p data-testid="protocol-candidate" className="text-slate-800 dark:text-slate-200">
+          {t("Candidate: {{name}}", { name: round.candidate })}
+        </p>
+      )}
+      <p className={muted}>
+        {round.named ? t("Named vote") : t("Secret vote")}
+        {round.opened_at && round.closed_at && (
+          <>
+            {" · "}
+            {t("Vote: {{start}}–{{end}}", {
+              start: time.format(new Date(round.opened_at)),
+              end: time.format(new Date(round.closed_at)),
+            })}
+          </>
+        )}
+        {item.kind === "election" && round.max_votes !== null && round.max_votes >= 2 && (
+          <>
+            {" · "}
+            {t("Up to {{count}} votes per person", { count: round.max_votes })}
+            {round.cumulate && t(", cumulating allowed")}
+          </>
+        )}
+      </p>
+      <ul className="flex flex-wrap gap-x-4 gap-y-0.5 text-slate-800 dark:text-slate-200">
+        {round.options.map((option) => (
+          <li key={option.key}>
+            {label(option.key)}: <strong>{result.total.counts[option.key] ?? 0}</strong>
+          </li>
+        ))}
+      </ul>
+      <p className={muted}>
+        {t("{{voted}} of {{eligible}} eligible voters voted", {
+          voted: result.total.voted,
+          eligible: result.total.eligible,
+        })}
+      </p>
+      {result.groups.length > 1 && (
+        <ul className={`grid gap-0.5 text-xs ${muted}`}>
+          {result.groups.map((group) => (
+            <li key={group.name}>
+              {group.name} ({group.voted}/{group.eligible}):{" "}
+              {round.options
+                .map((option) => `${label(option.key)} ${group.counts[option.key] ?? 0}`)
+                .join(", ")}
+            </li>
+          ))}
+        </ul>
+      )}
+      {!result.count_check_ok && (
+        <p role="alert" className="font-semibold text-red-700 dark:text-red-400">
+          {t("Count check failed: {{voted}} marked as voted, {{tally}} ballots counted.", {
+            voted: result.voted,
+            tally: result.tally_sum,
+          })}
+        </p>
+      )}
+      {round.voters.length > 0 && (
+        <p className="text-slate-800 dark:text-slate-200">
+          {t("Voted: {{names}}", { names: round.voters.map((voter) => voter.name).join(", ") })}
+        </p>
+      )}
+      {round.named && round.named_votes.length > 0 && (
+        <ul className="grid gap-0.5 text-slate-800 dark:text-slate-200">
+          {round.named_votes.map((vote, index) => (
+            <li key={index}>
+              {vote.member} ({vote.group}): {vote.keys.map(label).join(", ")}
+            </li>
+          ))}
+        </ul>
+      )}
+      {round.texts.length > 0 && (
+        <ul className="grid gap-1 text-slate-800 dark:text-slate-200">
+          {round.texts.map((entry, index) => (
+            <li key={index} className="break-words">
+              <span className={muted}>({entry.group})</span> {entry.text}
+            </li>
+          ))}
+        </ul>
+      )}
+      {round.finding && (
+        <p className="font-semibold text-slate-900 dark:text-slate-100">
+          {round.finding === "adopted" ? t("Finding: adopted") : t("Finding: rejected")}
+        </p>
+      )}
+      {!round.reference && round.result && (
+        <p className="text-xs text-slate-500 dark:text-slate-400">
+          {t("No seal: this vote was closed before seals were introduced.")}
+        </p>
+      )}
+      {round.reference && (
+        <div
+          data-testid="protocol-seal"
+          className="grid gap-0.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 break-inside-avoid dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
+        >
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
+            <ShieldCheck aria-hidden className="h-4 w-4" />
+            {t("Seal")}
+          </p>
+          <p>
+            {t("Reference")}:{" "}
+            {roomId ? (
+              <Link
+                to={`/rooms/${roomId}/seals?reference=${encodeURIComponent(round.reference)}`}
+                className="font-mono underline print:no-underline"
+              >
+                {round.reference}
+              </Link>
+            ) : (
+              <span className="font-mono">{round.reference}</span>
             )}
           </p>
-          <ul className="flex flex-wrap gap-x-4 gap-y-0.5 text-slate-800 dark:text-slate-200">
-            {item.options.map((option) => (
-              <li key={option.key}>
-                {label(option.key)}: <strong>{result.total.counts[option.key] ?? 0}</strong>
-              </li>
-            ))}
-          </ul>
-          <p className={muted}>
-            {t("{{voted}} of {{eligible}} eligible voters voted", {
-              voted: result.total.voted,
-              eligible: result.total.eligible,
-            })}
-          </p>
-          {result.groups.length > 1 && (
-            <ul className={`grid gap-0.5 text-xs ${muted}`}>
-              {result.groups.map((group) => (
-                <li key={group.name}>
-                  {group.name} ({group.voted}/{group.eligible}):{" "}
-                  {item.options
-                    .map((option) => `${label(option.key)} ${group.counts[option.key] ?? 0}`)
-                    .join(", ")}
-                </li>
-              ))}
-            </ul>
-          )}
-          {!result.count_check_ok && (
-            <p role="alert" className="font-semibold text-red-700 dark:text-red-400">
-              {t("Count check failed: {{voted}} marked as voted, {{tally}} ballots counted.", {
-                voted: result.voted,
-                tally: result.tally_sum,
-              })}
+          {round.fingerprint && (
+            <p>
+              {t("Fingerprint")}:{" "}
+              <span className="break-all font-mono">{fingerprintBlocks(round.fingerprint)}</span>
             </p>
           )}
-          {item.voters.length > 0 && (
-            <p className="text-slate-800 dark:text-slate-200">
-              {t("Voted: {{names}}", { names: item.voters.map((voter) => voter.name).join(", ") })}
+          {round.finding_fingerprint && (
+            <p>
+              {t("Fingerprint of the finding")}:{" "}
+              <span className="break-all font-mono">
+                {fingerprintBlocks(round.finding_fingerprint)}
+              </span>
             </p>
           )}
-          {item.named && item.named_votes.length > 0 && (
-            <ul className="grid gap-0.5 text-slate-800 dark:text-slate-200">
-              {item.named_votes.map((vote, index) => (
-                <li key={index}>
-                  {vote.member} ({vote.group}): {vote.keys.map(label).join(", ")}
-                </li>
-              ))}
-            </ul>
-          )}
-          {item.texts.length > 0 && (
-            <ul className="grid gap-1 text-slate-800 dark:text-slate-200">
-              {item.texts.map((entry, index) => (
-                <li key={index} className="break-words">
-                  <span className={muted}>({entry.group})</span> {entry.text}
-                </li>
-              ))}
-            </ul>
-          )}
-          {item.finding && (
-            <p className="font-semibold text-slate-900 dark:text-slate-100">
-              {item.finding === "adopted" ? t("Finding: adopted") : t("Finding: rejected")}
-            </p>
-          )}
-          {!item.reference && item.result && (
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {t("No seal: this vote was closed before seals were introduced.")}
-            </p>
-          )}
-          {item.reference && (
-            <div
-              data-testid="protocol-seal"
-              className="grid gap-0.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600 break-inside-avoid dark:border-slate-800 dark:bg-slate-900 dark:text-slate-400"
-            >
-              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-900 dark:text-slate-100">
-                <ShieldCheck aria-hidden className="h-4 w-4" />
-                {t("Seal")}
-              </p>
-              <p>
-                {t("Reference")}:{" "}
-                {roomId ? (
-                  <Link
-                    to={`/rooms/${roomId}/seals?reference=${encodeURIComponent(item.reference)}`}
-                    className="font-mono underline print:no-underline"
-                  >
-                    {item.reference}
-                  </Link>
-                ) : (
-                  <span className="font-mono">{item.reference}</span>
-                )}
-              </p>
-              {item.fingerprint && (
-                <p>
-                  {t("Fingerprint")}:{" "}
-                  <span className="break-all font-mono">{fingerprintBlocks(item.fingerprint)}</span>
-                </p>
-              )}
-              {item.finding_fingerprint && (
-                <p>
-                  {t("Fingerprint of the finding")}:{" "}
-                  <span className="break-all font-mono">
-                    {fingerprintBlocks(item.finding_fingerprint)}
-                  </span>
-                </p>
-              )}
-            </div>
-          )}
-        </>
+        </div>
       )}
     </div>
   );

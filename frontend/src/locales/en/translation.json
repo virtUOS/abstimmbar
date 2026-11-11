@@ -58,5 +58,9 @@
   "{{count}} agenda item_one": "{{count}} agenda item",
   "{{count}} agenda item_other": "{{count}} agenda items",
   "{{count}} meeting_one": "{{count}} meeting",
-  "{{count}} meeting_other": "{{count}} meetings"
+  "{{count}} meeting_other": "{{count}} meetings",
+  "Up to {{count}} votes per person_one": "Up to {{count}} vote per person",
+  "Up to {{count}} votes per person_other": "Up to {{count}} votes per person",
+  "{{count}} votes_one": "{{count}} vote",
+  "{{count}} votes_other": "{{count}} votes"
 }

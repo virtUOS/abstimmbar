@@ -135,16 +135,14 @@ export interface ProtocolCounts {
   counts: Record<string, number>;
 }
 
-export interface ProtocolItem {
-  label: string;
-  kind: string;
+/** One closed ballot round of a protocol item (elections may have several). */
+export interface ProtocolRound {
+  /** Ballot.round (also counts reset repeats). */
+  round: number | null;
+  /** Wahlgang number: position among the item's closed rounds. */
+  ballot_no: number | null;
+  runoff: boolean;
   named: boolean;
-  text: string;
-  version: number | null;
-  version_changed: boolean;
-  status: "voted" | "not_voted";
-  bundle_with: string[];
-  rounds_discarded: { round: number; reason: "reset" | "restart"; comment: string }[];
   result: {
     groups: (ProtocolCounts & { name: string })[];
     total: ProtocolCounts;
@@ -163,6 +161,25 @@ export interface ProtocolItem {
   reference: string | null;
   fingerprint: string | null;
   finding_fingerprint: string | null;
+  /** Elections only (else null). */
+  max_votes: number | null;
+  cumulate: boolean | null;
+  /** Approval elections only (else null): the single candidate's name. */
+  candidate: string | null;
+}
+
+/** An agenda item: its last closed round spread in, earlier rounds apart. */
+export interface ProtocolItem extends ProtocolRound {
+  label: string;
+  kind: string;
+  text: string;
+  version: number | null;
+  version_changed: boolean;
+  status: "voted" | "not_voted";
+  bundle_with: string[];
+  rounds_discarded: { round: number; reason: "reset" | "restart"; comment: string }[];
+  /** Closed election rounds before the last one (`[]` otherwise). */
+  earlier_rounds: ProtocolRound[];
 }
 
 export interface MeetingProtocol {
@@ -263,7 +280,7 @@ export interface MeetingSummary {
 }
 
 /** Kind of an agenda item a ballot can run on. */
-export type MeetingItemKind = "resolution" | "single_choice" | "multiple_choice" | "open_text";
+export type MeetingItemKind = "resolution" | "election" | "single_choice" | "multiple_choice" | "open_text";
 
 /** Per-group participation of a ballot (never counts before closing). */
 export interface MeetingProgressGroup {
@@ -300,6 +317,25 @@ export interface MeetingBallot {
   finding: "" | "adopted" | "rejected";
   /** Released free texts (closed free-text ballots only). */
   texts: MeetingText[] | null;
+  /** Elections only (else null): this round's ballot paper. */
+  election?: MeetingBallotElection | null;
+}
+
+/** Election mode of a round: one candidate (yes/no/abstain), one vote among
+ *  several ("opt:<id>" / "no" / "abstain") or several votes ("opt:<id>" /
+ *  "abstain"; unspent votes count as abstain). */
+export type ElectionMode = "approval" | "single" | "multi";
+
+export interface MeetingBallotElection {
+  mode: ElectionMode;
+  max_votes: number;
+  cumulate: boolean;
+  /** Option ids standing in this round. */
+  candidates: number[];
+  /** The round this runoff follows (null for the first round). */
+  runoff_of: number | null;
+  /** Suggested runoff candidates — closed single/multi rounds only. */
+  proposal: number[] | null;
 }
 
 /** The shown agenda item; content in the canonical language only. */
@@ -313,7 +349,10 @@ export interface MeetingItem {
   version: number | null;
   changed: boolean;
   named: boolean;
+  /** Elections: only the shown round's candidates. */
   options: { id: number; text: string }[];
+  /** Elections only (else null). */
+  election?: { mode: ElectionMode; max_votes: number; cumulate: boolean; runoff: boolean } | null;
   bundle: { id: number; label: string; text: string; version: number | null }[];
   ballot: MeetingBallot | null;
 }
@@ -426,7 +465,8 @@ export type QuestionKind =
   | "ordering"
   | "mindmap"
   | "matrix"
-  | "resolution";
+  | "resolution"
+  | "election";
 
 export type MatrixCategoryMode = "off" | "colors" | "named";
 /** A matrix category: a palette colour (see matrixPalette.ts) and, in mode
@@ -589,6 +629,9 @@ export interface Question {
   binary_choice: boolean;
   /** Committee meetings only: record each vote with the member's name (false = secret). */
   named_vote: boolean;
+  /** election only: votes per ballot paper (1..20) and whether they may be cumulated. */
+  max_votes: number;
+  cumulate: boolean;
   time_limit: number | null;
   position: number;
   options: AnswerOption[];
@@ -1366,6 +1409,12 @@ export const api = {
   closeBallot: (setId: number, ballotId: number) =>
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/close/`, {
       method: "POST",
+    }),
+  /** A runoff round of a closed election among `candidates` (opens at once). */
+  openRunoff: (setId: number, ballotId: number, candidates: number[]) =>
+    request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/runoff/`, {
+      method: "POST",
+      body: JSON.stringify({ candidates }),
     }),
   resetBallot: (setId: number, ballotId: number, comment: string) =>
     request<MeetingManager>(`/api/meetings/${setId}/ballots/${ballotId}/reset/`, {

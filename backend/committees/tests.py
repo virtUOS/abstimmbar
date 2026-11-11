@@ -1067,6 +1067,17 @@ class BallotPageTests(MeetingFixture, TestCase):
         ):
             self.assertIn(text, strings)
 
+    def test_ballot_strings_for_elections(self):
+        self._start()
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=de")
+        strings = set(self._strings(r).values())
+        for text in (
+            "Wahl", "Stichwahl", "Bis zu %(n)s Stimmen",
+            "%(used)s von %(max)s Stimmen vergeben", "Stimmen abgeben",
+            "Enthaltung", "Ja", "Nein",
+        ):
+            self.assertIn(text, strings)
+
     def test_member_page_english(self):
         self._start()
         r = self.client.get(f"/g/{self.anna_invite.token}/?lang=en")
@@ -1482,6 +1493,24 @@ class BallotBase(MeetingFixture, ApiBase):
 
     def group_result(self, result, group):
         return next(g for g in result["groups"] if g["group"] == group.pk)
+
+    def election(self, n=3, max_votes=1, cumulate=False, named=False):
+        q = Question.objects.create(
+            question_set=self.meeting, kind="election", text_de="Wahl", position=3,
+            max_votes=max_votes, cumulate=cumulate, named_vote=named,
+        )
+        opts = [
+            AnswerOption.objects.create(question=q, text_de=f"K{i}", position=i)
+            for i in range(n)
+        ]
+        return q, [o.pk for o in opts]
+
+    def result(self, ballot):
+        ballot.refresh_from_db()
+        if ballot.status == Ballot.Status.OPEN:
+            with self.captureOnCommitCallbacks(execute=True):
+                ballot = ballots.close_ballot(ballot)
+        return ballot.result
 
 
 class BallotFlowTests(BallotBase):
@@ -3377,6 +3406,151 @@ class ProtocolTests(BallotBase):
         self.assertEqual(item["reference"], result_link.reference)
         self.assertEqual(item["finding_fingerprint"], finding_link.hash)
 
+    def election_rounds(self, reset_first=False):
+        """Round 1 (optionally reset and voted again), then a runoff over
+        the first two candidates; the meeting is ended."""
+        q, (a, b, c) = self.election()
+        b1 = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, b1, {"option": a})
+        if reset_first:
+            ballots.reset_ballot(b1, "Fehler")
+            b1 = ballots.open_ballot(self.meeting, q)
+            self.vote(self.anna, b1, {"option": a})
+        self.vote(self.ben, b1, {"option": b})
+        self.result(b1)
+        b1.refresh_from_db()
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        self.vote(self.anna, b2, {"option": a})
+        self.result(b2)
+        self.end()
+        return q, (a, b, c), b1, Ballot.objects.get(pk=b2.pk)
+
+    def test_protocol_lists_election_rounds(self):
+        _q, (a, b, c), b1, b2 = self.election_rounds()
+        item = self.items(self.protocol())["3"]
+        self.assertEqual(item["kind"], "election")
+        self.assertTrue(item["runoff"])
+        self.assertEqual((item["round"], item["ballot_no"]), (2, 2))
+        self.assertEqual((item["max_votes"], item["cumulate"]), (1, False))
+        self.assertEqual(
+            [o["key"] for o in item["options"]], [f"opt:{a}", f"opt:{b}", "no", "abstain"],
+        )
+        self.assertEqual(item["result"]["total"]["counts"][f"opt:{a}"], 1)
+        self.assertTrue(item["reference"].endswith("-W2"))
+        self.assertEqual(
+            item["fingerprint"], SealLink.objects.get(ballot=b2, kind="result").hash,
+        )
+        [first] = item["earlier_rounds"]
+        self.assertFalse(first["runoff"])
+        self.assertEqual((first["round"], first["ballot_no"]), (1, 1))
+        self.assertEqual(
+            [o["key"] for o in first["options"]],
+            [f"opt:{a}", f"opt:{b}", f"opt:{c}", "no", "abstain"],
+        )
+        self.assertEqual(
+            [o["text"] for o in first["options"][:3]], ["K0", "K1", "K2"],
+        )
+        self.assertEqual(first["result"]["total"]["counts"][f"opt:{b}"], 1)
+        self.assertEqual(first["result"]["total"]["voted"], 2)
+        self.assertEqual(
+            first["reference"], SealLink.objects.get(ballot=b1, kind="result").reference,
+        )
+        self.assertFalse(first["reference"].endswith("-W1"))
+        self.assertEqual(
+            first["fingerprint"], SealLink.objects.get(ballot=b1, kind="result").hash,
+        )
+        self.assertEqual(
+            [v["name"] for v in first["voters"]], ["Anna", "Ben"],
+        )
+        self.assertIsNotNone(first["opened_at"])
+        self.assertIsNotNone(first["closed_at"])
+        # Resolutions have no further rounds.
+        resolution = self.items(self.protocol())["1"]
+        self.assertEqual(resolution["earlier_rounds"], [])
+
+    def test_protocol_wahlgang_number_after_reset(self):
+        self.election_rounds(reset_first=True)
+        item = self.items(self.protocol())["3"]
+        self.assertEqual((item["round"], item["ballot_no"]), (3, 2))
+        self.assertTrue(item["reference"].endswith("-W3"))
+        [first] = item["earlier_rounds"]
+        self.assertEqual((first["round"], first["ballot_no"]), (2, 1))
+        self.assertEqual([r["round"] for r in item["rounds_discarded"]], [1])
+
+    def test_protocol_keeps_round_candidates_after_edit(self):
+        q, _ids, _b1, _b2 = self.election_rounds()
+        before = self.items(self.protocol())["3"]
+        AnswerOption.objects.create(question=q, text_de="Neu", position=9)
+        after = self.items(self.protocol())["3"]
+        self.assertEqual(after["earlier_rounds"][0]["options"], before["earlier_rounds"][0]["options"])
+        self.assertEqual(after["options"], before["options"])
+        self.assertNotIn("Neu", json.dumps(after))
+
+    def test_protocol_approval_and_multi_options(self):
+        single, _ids = self.election(n=1, max_votes=3)
+        ballot = ballots.open_ballot(self.meeting, single)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.result(ballot)
+        multi = Question.objects.create(
+            question_set=self.meeting, kind="election", text_de="Mehr", position=4,
+            max_votes=2, cumulate=True,
+        )
+        ids = [
+            AnswerOption.objects.create(question=multi, text_de=f"M{i}", position=i).pk
+            for i in range(3)
+        ]
+        ballot = ballots.open_ballot(self.meeting, multi)
+        self.result(ballot)
+        self.end()
+        items = self.items(self.protocol())
+        self.assertEqual([o["key"] for o in items["3"]["options"]], ["yes", "no", "abstain"])
+        self.assertEqual(items["3"]["result"]["total"]["counts"]["yes"], 1)
+        self.assertEqual((items["3"]["max_votes"], items["3"]["cumulate"]), (1, False))
+        self.assertEqual(
+            [o["key"] for o in items["4"]["options"]], [*(f"opt:{i}" for i in ids), "abstain"],
+        )
+        self.assertEqual((items["4"]["max_votes"], items["4"]["cumulate"]), (2, True))
+        self.assertFalse(items["4"]["runoff"])
+
+    def test_protocol_approval_names_candidate(self):
+        single, _ids = self.election(n=1)
+        ballot = ballots.open_ballot(self.meeting, single)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.result(ballot)
+        unvoted = Question.objects.create(
+            question_set=self.meeting, kind="election", text_de="Noch", position=4,
+        )
+        AnswerOption.objects.create(question=unvoted, text_de="Berta", position=0)
+        versions.sync(unvoted)
+        multi, _ = self.election()
+        multi.position = 5
+        multi.save(update_fields=["position"])
+        versions.sync(multi)
+        self.end()
+        items = self.items(self.protocol())
+        self.assertEqual(items["3"]["candidate"], "K0")
+        self.assertEqual(items["4"]["status"], "not_voted")
+        self.assertEqual(items["4"]["candidate"], "Berta")
+        self.assertIsNone(items["5"]["candidate"])
+        self.assertIsNone(items["1"]["candidate"])
+
+    def test_protocol_unvoted_election_options(self):
+        single, _ids = self.election(n=1, max_votes=3)
+        versions.sync(single)
+        multi, ids = self.election(max_votes=2)
+        multi.position = 4
+        multi.save(update_fields=["position"])
+        versions.sync(multi)
+        self.end()
+        items = self.items(self.protocol())
+        self.assertEqual(items["3"]["status"], "not_voted")
+        self.assertEqual([o["key"] for o in items["3"]["options"]], ["yes", "no", "abstain"])
+        self.assertEqual((items["3"]["max_votes"], items["3"]["cumulate"]), (1, False))
+        self.assertEqual(
+            [o["key"] for o in items["4"]["options"]], [*(f"opt:{i}" for i in ids), "abstain"],
+        )
+        self.assertEqual(items["4"]["max_votes"], 2)
+
     def test_query_count_does_not_grow_with_items(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
@@ -3504,6 +3678,46 @@ class ProtocolPdfTests(BallotBase):
         r = self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de")
         self.assertIn("Protokoll-sitzung-2030-01-15.pdf", r["Content-Disposition"])
         self.assertIn("15. Januar 2030, 11:00", self.text(r))
+
+    def test_protocol_pdf_election_rounds(self):
+        q, (a, b, _c) = self.election(max_votes=2, cumulate=True)
+        b1 = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, b1, {"options": [a, a]})
+        self.result(b1)
+        b1.refresh_from_db()
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        self.vote(self.anna, b2, {"option": b})
+        self.result(b2)
+        self.end()
+        text = self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de"))
+        self.assertIn("1. Wahlgang", text)
+        self.assertIn("Stichwahl (2. Wahlgang)", text)
+        self.assertIn("Bis zu 2 Stimmen pro Person, Kumulieren erlaubt", text)
+        self.assertIn("K0", text)
+        self.assertLess(text.index("1. Wahlgang"), text.index("Stichwahl"))
+        text = self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="en"))
+        self.assertIn("Ballot 1", text)
+        self.assertIn("Runoff (ballot 2)", text)
+
+    def test_protocol_pdf_approval_names_candidate(self):
+        q, _ids = self.election(n=1)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.result(ballot)
+        self.end()
+        self.assertIn("Kandidatur: K0", self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de")))
+        self.assertIn("Candidate: K0", self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="en")))
+
+    def test_protocol_pdf_approval_has_no_votes_line(self):
+        q, _ids = self.election(n=1, max_votes=3)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.result(ballot)
+        self.end()
+        text = self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de"))
+        self.assertIn("Ja: 1", text)
+        self.assertNotIn("Bis zu", text)
+        self.assertNotIn("Wahlgang", text)
 
     def test_requires_ended_meeting_and_manager(self):
         r = self.client.get(self.url())
@@ -3849,3 +4063,418 @@ class TopNoteTests(BallotBase):
         text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(r.content)).pages)
         self.assertIn("Z00", text)
         self.assertIn("ENDEMARKE", text)
+
+
+class ElectionConfigTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+
+    def post_item(self, **extra):
+        body = {
+            "question_set": self.meeting.pk, "kind": "election",
+            "text": {"de": "Wahl"}, **extra,
+        }
+        return self.client.post("/api/questions/", body, format="json")
+
+    def test_meeting_accepts_election_kind(self):
+        r = self.post_item(max_votes=3)
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["max_votes"], 3)
+        self.assertIs(r.json()["cumulate"], False)
+
+    def test_live_poll_rejects_election_kind(self):
+        live = QuestionSet.objects.create(room=make_room(), title="L")
+        live.room.owners.add(self.user)
+        r = self.client.post(
+            "/api/questions/",
+            {"question_set": live.pk, "kind": "election", "text": {"de": "X"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+
+    def test_max_votes_bounds(self):
+        for bad in (0, 21):
+            r = self.post_item(max_votes=bad)
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertEqual(r.json()["max_votes"], ["Between 1 and 20 votes."])
+
+    def test_election_settings_locked_while_voted(self):
+        q = self.post_item(max_votes=2).json()
+        question = Question.objects.get(pk=q["id"])
+        versions.freeze_all(self.meeting)
+        Ballot.objects.create(
+            question=question, version=versions.current(question), round=1,
+            secret=True, status=Ballot.Status.CLOSED,
+        )
+        for field, value in (("max_votes", 3), ("cumulate", True)):
+            r = self.client.patch(
+                f"/api/questions/{q['id']}/", {field: value}, format="json",
+            )
+            self.assertEqual(r.status_code, 400, field)
+            self.assertIn("Reset the vote", r.json()["detail"])
+
+    def test_duplicate_and_export_keep_election_settings(self):
+        self.meeting.title_de = self.meeting.title_en = "Sitzung"
+        self.meeting.save()
+        self.post_item(max_votes=3, cumulate=True)
+        r = self.client.post(f"/api/question-sets/{self.meeting.pk}/duplicate/", {}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        copy = Question.objects.get(question_set_id=r.json()["id"])
+        self.assertEqual((copy.kind, copy.max_votes, copy.cumulate), ("election", 3, True))
+
+        data = self.client.get(f"/api/question-sets/{self.meeting.pk}/export/").json()
+        self.assertEqual(data["questions"][0]["max_votes"], 3)
+        # Meetings are never imported (transfer.import_set rejects them), so
+        # only the sanitising of the imported settings is checked.
+        from rooms.transfer import _clamped_max_votes
+        self.assertEqual(
+            [_clamped_max_votes(v) for v in (None, "x", 0, 3, 99)], [1, 1, 1, 3, 20],
+        )
+
+    def test_empty_candidate_text_rejected_single_candidate_ok(self):
+        q = self.post_item().json()
+        url = f"/api/questions/{q['id']}/"
+        r = self.client.patch(
+            url, {"text": {"de": "Wahl"}, "options": [{"text": {"de": "Anna"}}, {"text": {"de": ""}}]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("options", r.json())
+        r = self.client.patch(
+            url, {"text": {"de": "Wahl"}, "options": [{"text": {"de": "Anna"}}]}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+    def test_image_only_candidate_rejected(self):
+        q = self.post_item().json()
+        r = self.client.patch(
+            f"/api/questions/{q['id']}/",
+            {"text": {"de": "Wahl"}, "options": [
+                {"text": {"de": "Anna"}},
+                {"text": {"de": ""}, "image": "/media/question-images/2026/07/a.png"},
+            ]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(r.json()["options"], ["Every candidate needs a name."])
+
+
+class ElectionBallotTests(BallotBase):
+    def test_approval_single_candidate(self):
+        q, (a,) = self.election(n=1)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual(ballots.election_mode(ballot), "approval")
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"options": [a]})
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"option": a})
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.vote(self.bert, ballot, {"choice": "no"})
+        self.vote(self.ben, ballot, {"choice": "abstain"})
+        self.assertEqual(
+            self.result(ballot)["total"]["counts"], {"yes": 1, "no": 1, "abstain": 1},
+        )
+
+    def test_single_mode_has_no(self):
+        q, (a, b, c) = self.election()
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual(ballots.election_mode(ballot), "single")
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"options": [a]})
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"choice": "yes"})
+        self.vote(self.anna, ballot, {"choice": "no"})
+        self.vote(self.bert, ballot, {"option": b})
+        counts = self.result(ballot)["total"]["counts"]
+        self.assertEqual(
+            counts,
+            {f"opt:{a}": 0, f"opt:{b}": 1, f"opt:{c}": 0, "no": 1, "abstain": 0},
+        )
+
+    def test_multi_has_no_no(self):
+        q, (a, b, c) = self.election(max_votes=2)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual(ballots.election_mode(ballot), "multi")
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"choice": "no"})
+        self.vote(self.anna, ballot, {"options": [a, b]})
+        counts = self.result(ballot)["total"]["counts"]
+        self.assertNotIn("no", counts)
+        self.assertEqual(
+            counts, {f"opt:{a}": 1, f"opt:{b}": 1, f"opt:{c}": 0, "abstain": 0},
+        )
+
+    def test_multi_pads_unspent_votes_as_abstain(self):
+        q, (a, _b, _c) = self.election(max_votes=3)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"options": [a]})
+        self.vote(self.bert, ballot, {"choice": "abstain"})
+        result = self.result(ballot)
+        counts = result["total"]["counts"]
+        self.assertEqual(counts["abstain"], 2 + 3)
+        self.assertEqual(counts[f"opt:{a}"], 1)
+        self.assertEqual(sum(counts.values()), result["voted"] * 3)
+        self.assertEqual(result["tally_sum"], 2)
+        self.assertEqual(result["voted"], 2)
+
+    def test_multi_rejects_too_many_and_repeats(self):
+        q, (a, b, c) = self.election(max_votes=2)
+        other = AnswerOption.objects.create(question=self.q2, text_de="X")
+        ballot = ballots.open_ballot(self.meeting, q)
+        for bad in (
+            {"options": [a, b, c]}, {"options": [a, a]}, {"options": []},
+            {"options": [other.pk]}, {"options": [True]}, {"options": [a], "x": 1},
+            {"option": a},
+        ):
+            self.assertCode("invalid", self.vote, self.anna, ballot, bad)
+
+    def test_cumulate_allows_repeats(self):
+        q, (a, _b, _c) = self.election(max_votes=3, cumulate=True)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"options": [a, a, a]})
+        self.assertEqual(self.result(ballot)["total"]["counts"][f"opt:{a}"], 3)
+
+    def test_start_validates_config(self):
+        q, _ = self.election(n=0)
+        self.assertCode("no_candidates", ballots.open_ballot, self.meeting, q)
+        q.delete()
+        q, _ = self.election(n=2, max_votes=3)
+        self.assertCode("too_many_votes", ballots.open_ballot, self.meeting, q)
+        q.cumulate = True
+        q.save()
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual((ballot.max_votes, ballot.cumulate), (3, True))
+        self.assertIsNone(ballot.candidates)
+
+    def test_approval_ignores_max_votes(self):
+        q, _ = self.election(n=1, max_votes=3)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual((ballot.max_votes, ballot.cumulate), (1, False))
+        self.assertEqual(ballots.election_mode(ballot), "approval")
+
+    def test_named_election_stores_keys(self):
+        q, (a, _b, _c) = self.election(max_votes=3, named=True)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertFalse(ballot.secret)
+        self.vote(self.anna, ballot, {"options": [a]})
+        vote = NamedVote.objects.get(ballot=ballot, member=self.anna)
+        self.assertEqual(vote.answer["keys"], [f"opt:{a}", "abstain", "abstain"])
+
+    def test_parse_answer_needs_ballot_for_elections(self):
+        q, (a, _b, _c) = self.election()
+        self.assertCode("invalid", ballots.parse_answer, q, {"option": a})
+        self.assertCode("invalid", ballots.parse_answer, q, {"choice": "abstain"})
+
+    def test_election_seal_includes_settings(self):
+        q, (a, _b, _c) = self.election(max_votes=2)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"options": [a]})
+        self.result(ballot)
+        content = seals._result_content(Ballot.objects.get(pk=ballot.pk), "R")
+        self.assertEqual(
+            content["election"],
+            {"max_votes": 2, "cumulate": False, "candidates": None, "runoff_of": None},
+        )
+        res = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, res, {"choice": "yes"})
+        self.result(res)
+        self.assertNotIn("election", seals._result_content(Ballot.objects.get(pk=res.pk), "R"))
+
+
+class RunoffTests(BallotBase):
+    def url(self, suffix):
+        return f"/api/meetings/{self.meeting.pk}/{suffix}"
+
+    def closed_round(self, n=3, max_votes=1, counts=None):
+        """A closed first election round; ``counts`` overrides its totals."""
+        q, ids = self.election(n=n, max_votes=max_votes)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.result(ballot)
+        ballot.refresh_from_db()
+        if counts is not None:
+            total = ballot.result["total"]["counts"]
+            total.update({f"opt:{ids[i]}": c for i, c in enumerate(counts)})
+            ballot.save(update_fields=["result"])
+        return q, ids, ballot
+
+    def test_runoff_proposal_top_two(self):
+        _, (a, b, _c), ballot = self.closed_round(counts=[5, 3, 1])
+        self.assertEqual(ballots.runoff_proposal(ballot), [a, b])
+
+    def test_runoff_proposal_includes_ties(self):
+        _, (a, b, c, d), ballot = self.closed_round(n=4, counts=[4, 2, 2, 2])
+        self.assertEqual(ballots.runoff_proposal(ballot), [a, b, c, d])
+
+    def test_runoff_proposal_all_zero_returns_all_candidates(self):
+        _, ids, ballot = self.closed_round(counts=[0, 0, 0])
+        self.assertEqual(sorted(ballots.runoff_proposal(ballot)), sorted(ids))
+
+    def test_runoff_proposal_ignores_no_and_abstain(self):
+        _, (a, b, _c), ballot = self.closed_round(counts=[3, 2, 0])
+        ballot.result["total"]["counts"].update({"no": 9, "abstain": 7})
+        self.assertEqual(ballots.runoff_proposal(ballot), [a, b])
+
+    def test_runoff_proposal_none_for_approval_and_open(self):
+        _, _, approval = self.closed_round(n=1)
+        self.assertIsNone(ballots.runoff_proposal(approval))
+        q, _ = self.election()
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertIsNone(ballots.runoff_proposal(ballot))
+        self.result(ballot)
+        resolution = ballots.open_ballot(self.meeting, self.q1)
+        self.result(resolution)
+        resolution.refresh_from_db()
+        self.assertIsNone(ballots.runoff_proposal(resolution))
+
+    def test_open_runoff(self):
+        _q, (a, b, c), b1 = self.closed_round()
+        b2 = ballots.open_runoff(self.meeting, b1, [b, a])
+        self.assertEqual(b2.round, 2)
+        self.assertEqual(b2.max_votes, 1)
+        self.assertEqual(b2.runoff_of, b1)
+        self.assertEqual(b2.candidates, [a, b])  # normalized to version order
+        self.assertEqual(b2.status, Ballot.Status.OPEN)
+        self.assertCode("invalid", self.vote, self.anna, b2, {"option": c})
+        self.vote(self.anna, b2, {"option": a})
+        self.result(b2)
+        b2 = Ballot.objects.get(pk=b2.pk)
+        self.assertTrue(seals.reference(b2).endswith("-W2"))
+        self.assertEqual(b2.result["total"]["counts"][f"opt:{a}"], 1)
+        self.assertNotIn(f"opt:{c}", b2.result["total"]["counts"])
+        content = seals._result_content(b2, "R")
+        self.assertEqual(
+            content["election"],
+            {"max_votes": 1, "cumulate": False, "candidates": [a, b], "runoff_of": b1.pk},
+        )
+
+    def test_runoff_over_two_of_three_is_single(self):
+        _, (a, _b, c), b1 = self.closed_round(max_votes=2)
+        b2 = ballots.open_runoff(self.meeting, b1, [a, c])
+        self.assertEqual([o["id"] for o in ballots.ballot_options(b2)], [a, c])
+        self.assertEqual(ballots.election_mode(b2), "single")
+        self.assertEqual((b2.max_votes, b2.cumulate), (1, False))
+
+    def test_open_runoff_rejects(self):
+        _q, (a, b, _c), b1 = self.closed_round()
+        other = AnswerOption.objects.create(question=self.q2, text_de="X")
+        for bad in (
+            [a], [a, a], [a, other.pk], [], "x", None, [a, True], [[a], b], [a, "b"],
+        ):
+            self.assertCode("runoff_candidates", ballots.open_runoff, self.meeting, b1, bad)
+        res = ballots.open_ballot(self.meeting, self.q1)
+        self.assertCode("other_open", ballots.open_runoff, self.meeting, b1, [a, b])
+        self.assertCode("not_an_election", ballots.open_runoff, self.meeting, res, [a, b])
+        self.result(res)
+        res.refresh_from_db()
+        self.assertCode("not_an_election", ballots.open_runoff, self.meeting, res, [a, b])
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        self.assertCode("not_closed", ballots.open_runoff, self.meeting, b2, [a, b])
+        self.result(b2)
+        self.assertCode("runoff_exists", ballots.open_runoff, self.meeting, b1, [a, b])
+        _, _, approval = self.closed_round(n=1)
+        self.assertCode("not_an_election", ballots.open_runoff, self.meeting, approval, [a, b])
+
+    def test_runoff_of_a_runoff(self):
+        _, (a, b, c), b1 = self.closed_round()
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b, c])
+        self.result(b2)
+        b2.refresh_from_db()
+        self.assertCode("runoff_candidates", ballots.open_runoff, self.meeting, b2, [a])
+        b3 = ballots.open_runoff(self.meeting, b2, [a, b])
+        self.assertEqual((b3.round, b3.runoff_of_id), (3, b2.pk))
+
+    def test_reset_first_round_blocked_by_runoff(self):
+        _, (a, b, _c), b1 = self.closed_round()
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        self.assertCode("runoff_exists", ballots.reset_ballot, b1, "")
+        b1.refresh_from_db()
+        self.assertEqual(b1.status, Ballot.Status.CLOSED)
+        ballots.reset_ballot(b2, "")
+        ballots.reset_ballot(b1, "")
+        b1.refresh_from_db()
+        self.assertEqual(b1.status, Ballot.Status.DISCARDED)
+
+    def test_runoff_seats_follow_course(self):
+        q, (a, b, _c), b1 = self.closed_round()
+        later = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Später", position=4,
+        )
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=later)
+        self.meeting.invites.update(entered_at=timezone.now())
+        self.assertIn(self.dora, eligibility.eligible_voters(self.meeting, later))
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        seats = set(b2.seats.values_list("member_id", flat=True))
+        self.assertEqual(seats, set(b1.seats.values_list("member_id", flat=True)))
+        self.assertEqual(seats, {self.anna.pk, self.bert.pk, self.ben.pk})
+        self.assertEqual(
+            seats, {m.pk for m in eligibility.eligible_voters(self.meeting, q)},
+        )
+
+    def test_public_payload_lists_runoff_candidates_only(self):
+        _q, (a, b, c), b1 = self.closed_round(counts=[3, 2, 1])
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual([o["id"] for o in item["options"]], [a, b, c])
+        self.assertEqual(
+            item["election"],
+            {"mode": "single", "max_votes": 1, "cumulate": False, "runoff": False},
+        )
+        self.assertEqual(
+            item["ballot"]["election"],
+            {
+                "mode": "single", "max_votes": 1, "cumulate": False,
+                "candidates": [a, b, c], "runoff_of": None, "proposal": [a, b],
+            },
+        )
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual([o["id"] for o in item["options"]], [a, b])
+        self.assertEqual(set(item["options"][0]), {"id", "text"})
+        self.assertEqual(item["election"]["runoff"], True)
+        self.assertEqual(
+            item["ballot"]["election"],
+            {
+                "mode": "single", "max_votes": 1, "cumulate": False,
+                "candidates": [a, b], "runoff_of": b1.pk, "proposal": None,
+            },
+        )
+        self.assertEqual(item["ballot"]["id"], b2.pk)
+
+    def test_election_block_before_first_ballot_and_for_resolutions(self):
+        q, _ = self.election(n=1, max_votes=3)
+        MeetingControl.objects.update_or_create(
+            meeting=self.meeting, defaults={"current_question": q},
+        )
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual(
+            item["election"],
+            {"mode": "approval", "max_votes": 1, "cumulate": False, "runoff": False},
+        )
+        self.assertEqual(
+            payloads.preview_payload(q)["item"]["election"], item["election"],
+        )
+        multi, _ = self.election(max_votes=2)
+        self.assertEqual(
+            payloads.preview_payload(multi)["item"]["election"],
+            {"mode": "multi", "max_votes": 2, "cumulate": False, "runoff": False},
+        )
+        ballots.open_ballot(self.meeting, self.q1)
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertIsNone(item["election"])
+        self.assertIsNone(item["ballot"]["election"])
+        self.assertIsNone(payloads.preview_payload(self.q1)["item"]["election"])
+
+    def test_runoff_api(self):
+        _, (a, b, _c), b1 = self.closed_round()
+        url = self.url(f"ballots/{b1.pk}/runoff/")
+        resp = self.foreign.post(url, {"candidates": [a, b]}, format="json")
+        self.assertEqual(resp.status_code, 404)
+        for body in ({}, {"candidates": "x"}, {"candidates": [a]}):
+            resp = self.client.post(url, body, format="json")
+            self.assertEqual((resp.status_code, resp.data["code"]), (400, "runoff_candidates"))
+        resp = self.client.post(url, {"candidates": [a, b]}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        b2 = Ballot.objects.get(runoff_of=b1)
+        self.assertEqual(resp.data["open_ballot"], b2.pk)
+        self.assertEqual(
+            [o["id"] for o in resp.data["item"]["options"]], [a, b],
+        )
+        resp = self.client.post(
+            self.url("ballots/999999/runoff/"), {"candidates": [a, b]}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)

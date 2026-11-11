@@ -9,7 +9,7 @@ import type { QuestionKind } from "./api";
 
 export type SetType = "live_poll" | "self_paced" | "self_check" | "meeting";
 
-// "resolution" is not in ALL_KINDS: it exists only in committee meetings.
+// "resolution" and "election" are not in ALL_KINDS: it exists only in committee meetings.
 const ALL_KINDS: QuestionKind[] = [
   "single_choice", "multiple_choice", "likert", "word_cloud",
   "open_text", "priorities", "ordering", "mindmap", "matrix",
@@ -69,8 +69,8 @@ export const SET_TYPES: Record<SetType, SetTypeInfo> = {
   // there). Created from the room's meeting list, not the type menu.
   meeting: {
     label: "Meeting",
-    description: "A committee meeting with invited members: resolutions, opinion polls and free-text input.",
-    allowedKinds: ["resolution", "single_choice", "multiple_choice", "open_text"],
+    description: "A committee meeting with invited members: resolutions, elections, opinion polls and free-text input.",
+    allowedKinds: ["resolution", "election", "single_choice", "multiple_choice", "open_text"],
     // Never run through the anonymous live flow: meetings are run from the
     // meeting panel with personal links (backend rejects start-run).
     runAction: null,

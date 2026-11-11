@@ -3955,9 +3955,11 @@ class OnboardingSeedTests(TestCase):
     def test_one_question_of_every_kind(self):
         question_set = self.room.question_sets.get()
         kinds = list(question_set.questions.values_list("kind", flat=True))
-        # Resolutions belong to committee meetings only, not the example room.
+        # Resolutions and elections belong to committee meetings only, not
+        # the example room.
         self.assertEqual(
-            sorted(kinds), sorted(set(Question.Kind.values) - {"resolution"})
+            sorted(kinds),
+            sorted(set(Question.Kind.values) - {"resolution", "election"}),
         )
         self.assertEqual(len(kinds), len(set(kinds)))  # exactly one each
 
@@ -4231,7 +4233,7 @@ class SelfCheckTokenModelTests(TestCase):
 
 class SetTypeRulesTests(TestCase):
     def test_allowed_kinds_permissive_types(self):
-        allk = tuple(k for k, _ in Question.Kind.choices if k != "resolution")
+        allk = tuple(k for k, _ in Question.Kind.choices if k not in ("resolution", "election"))
         self.assertEqual(set(set_types.allowed_kinds("live_poll")), set(allk))
         # Mindmap is a shared live activity: live polls only.
         self.assertEqual(
@@ -6107,6 +6109,8 @@ class QuestionFieldListGuardTests(ApiTestCase):
             "shuffle_options": True,
             "binary_choice": True,
             "named_vote": True,
+            "max_votes": 4,
+            "cumulate": True,
             "time_limit": 30,
             "allow_multiple": True,
             "wordcloud_live": False,
@@ -6311,7 +6315,7 @@ class CommitteeRoomKindTests(ApiTestCase):
     def test_meeting_allowed_kinds(self):
         self.assertEqual(
             set_types.allowed_kinds("meeting"),
-            ("resolution", "single_choice", "multiple_choice", "open_text"),
+            ("resolution", "election", "single_choice", "multiple_choice", "open_text"),
         )
 
     def test_duplicate_and_import_respect_room_kind(self):
