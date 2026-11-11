@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
+import type { TFunction } from "i18next";
 import { localizedMap, type LocalizedText } from "@basicbar/ui";
 
 /** Colours of the four-field matrix categories (Okabe–Ito, colour-blind safe).
@@ -48,7 +49,7 @@ export function categoryLabel(
   key: string,
   mode: "off" | "colors" | "named",
   lang: "de" | "en",
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: TFunction,
 ): { short: string; name: string; a11y: string } {
   const index = categories.findIndex((c) => c.key === key);
   if (mode === "colors" && index >= 0) {

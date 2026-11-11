@@ -363,7 +363,7 @@ export default function MatrixSettings({
               </button>
             </div>
             {problem && problem.key !== "Please label both ends of both axes." && (
-              <p className="text-sm text-danger">{t(problem.key, problem.values)}</p>
+              <p className="text-sm text-danger">{t(problem.key, problem.values ?? {})}</p>
             )}
           </div>
         )}
