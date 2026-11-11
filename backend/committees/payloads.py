@@ -16,7 +16,9 @@ from . import agenda, ballots, eligibility, versions
 from .models import Ballot, BallotText, CommitteeGroup, CommitteeMember, MeetingControl
 from .presence import presence
 
-CHOICE_KINDS = (Question.Kind.SINGLE_CHOICE, Question.Kind.MULTIPLE_CHOICE)
+CHOICE_KINDS = (
+    Question.Kind.SINGLE_CHOICE, Question.Kind.MULTIPLE_CHOICE, Question.Kind.ELECTION,
+)
 
 
 def _canonical(value) -> str:

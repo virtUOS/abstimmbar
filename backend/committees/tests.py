@@ -3849,3 +3849,71 @@ class TopNoteTests(BallotBase):
         text = "\n".join(p.extract_text() for p in PdfReader(BytesIO(r.content)).pages)
         self.assertIn("Z00", text)
         self.assertIn("ENDEMARKE", text)
+
+
+class ElectionConfigTests(MeetingFixture, ApiBase):
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+
+    def post_item(self, **extra):
+        body = {
+            "question_set": self.meeting.pk, "kind": "election",
+            "text": {"de": "Wahl"}, **extra,
+        }
+        return self.client.post("/api/questions/", body, format="json")
+
+    def test_meeting_accepts_election_kind(self):
+        r = self.post_item(max_votes=3)
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["max_votes"], 3)
+        self.assertIs(r.json()["cumulate"], False)
+
+    def test_live_poll_rejects_election_kind(self):
+        live = QuestionSet.objects.create(room=make_room(), title="L")
+        live.room.owners.add(self.user)
+        r = self.client.post(
+            "/api/questions/",
+            {"question_set": live.pk, "kind": "election", "text": {"de": "X"}},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400)
+
+    def test_max_votes_bounds(self):
+        for bad in (0, 21):
+            r = self.post_item(max_votes=bad)
+            self.assertEqual(r.status_code, 400, bad)
+            self.assertEqual(r.json()["max_votes"], ["Between 1 and 20 votes."])
+
+    def test_election_settings_locked_while_voted(self):
+        q = self.post_item(max_votes=2).json()
+        question = Question.objects.get(pk=q["id"])
+        versions.freeze_all(self.meeting)
+        Ballot.objects.create(
+            question=question, version=versions.current(question), round=1,
+            secret=True, status=Ballot.Status.CLOSED,
+        )
+        for field, value in (("max_votes", 3), ("cumulate", True)):
+            r = self.client.patch(
+                f"/api/questions/{q['id']}/", {field: value}, format="json",
+            )
+            self.assertEqual(r.status_code, 400, field)
+            self.assertIn("Reset the vote", r.json()["detail"])
+
+    def test_duplicate_and_export_keep_election_settings(self):
+        self.meeting.title_de = self.meeting.title_en = "Sitzung"
+        self.meeting.save()
+        self.post_item(max_votes=3, cumulate=True)
+        r = self.client.post(f"/api/question-sets/{self.meeting.pk}/duplicate/", {}, format="json")
+        self.assertEqual(r.status_code, 201, r.content)
+        copy = Question.objects.get(question_set_id=r.json()["id"])
+        self.assertEqual((copy.kind, copy.max_votes, copy.cumulate), ("election", 3, True))
+
+        data = self.client.get(f"/api/question-sets/{self.meeting.pk}/export/").json()
+        self.assertEqual(data["questions"][0]["max_votes"], 3)
+        # Meetings are never imported (transfer.import_set rejects them), so
+        # only the sanitising of the imported settings is checked.
+        from rooms.transfer import _clamped_max_votes
+        self.assertEqual(
+            [_clamped_max_votes(v) for v in (None, "x", 0, 3, 99)], [1, 1, 1, 3, 20],
+        )

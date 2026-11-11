@@ -263,7 +263,7 @@ export interface MeetingSummary {
 }
 
 /** Kind of an agenda item a ballot can run on. */
-export type MeetingItemKind = "resolution" | "single_choice" | "multiple_choice" | "open_text";
+export type MeetingItemKind = "resolution" | "election" | "single_choice" | "multiple_choice" | "open_text";
 
 /** Per-group participation of a ballot (never counts before closing). */
 export interface MeetingProgressGroup {
@@ -426,7 +426,8 @@ export type QuestionKind =
   | "ordering"
   | "mindmap"
   | "matrix"
-  | "resolution";
+  | "resolution"
+  | "election";
 
 export type MatrixCategoryMode = "off" | "colors" | "named";
 /** A matrix category: a palette colour (see matrixPalette.ts) and, in mode
@@ -589,6 +590,9 @@ export interface Question {
   binary_choice: boolean;
   /** Committee meetings only: record each vote with the member's name (false = secret). */
   named_vote: boolean;
+  /** election only: votes per ballot paper (1..20) and whether they may be cumulated. */
+  max_votes: number;
+  cumulate: boolean;
   time_limit: number | null;
   position: number;
   options: AnswerOption[];

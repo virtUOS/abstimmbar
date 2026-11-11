@@ -39,6 +39,14 @@ VALID_KINDS = {k.value for k in Question.Kind}
 CONTENT_DEFAULT_LANGUAGE = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
 
 
+def _clamped_max_votes(value):
+    """Election votes per paper from an import file: 1..20, default 1."""
+    try:
+        return min(max(int(value), 1), 20)
+    except (TypeError, ValueError):
+        return 1
+
+
 def _unique_in_room(room, base):
     # Dedupe on the canonical-language column — consistent with the
     # serializers' own uniqueness check (Task 2, keyed on title_<default>),
@@ -74,6 +82,8 @@ QUESTION_CONTENT_FIELDS = (
     "shuffle_options",
     "binary_choice",
     "named_vote",
+    "max_votes",
+    "cumulate",
     "time_limit",
     "allow_multiple",
     "wordcloud_live",
@@ -271,6 +281,8 @@ def export_set(question_set):
                 "shuffle_options": question.shuffle_options,
                 "binary_choice": question.binary_choice,
                 "named_vote": question.named_vote,
+                "max_votes": question.max_votes,
+                "cumulate": question.cumulate,
                 "time_limit": question.time_limit,
                 "allow_multiple": question.allow_multiple,
                 "wordcloud_live": question.wordcloud_live,
@@ -567,6 +579,8 @@ def import_set(room, data):
             model_solution=str(item.get("model_solution") or "")[:2000],
             participant_feedback=bool(item.get("participant_feedback")),
             named_vote=bool(item.get("named_vote")),
+            max_votes=_clamped_max_votes(item.get("max_votes")),
+            cumulate=bool(item.get("cumulate")),
             reveal_answers=(
                 item.get("reveal_answers")
                 if item.get("reveal_answers") in Question.RevealAnswers.values

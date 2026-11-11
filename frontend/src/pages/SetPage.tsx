@@ -59,6 +59,7 @@ export const KIND_LABEL: Record<QuestionKind, string> = {
   mindmap: "Mind map",
   matrix: "Four-field matrix",
   resolution: "Resolution",
+  election: "Election",
 };
 
 // Kinds whose answers are options (mirror of backend Question.CHOICE_KINDS) —

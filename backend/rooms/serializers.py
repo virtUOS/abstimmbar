@@ -337,7 +337,7 @@ class QuestionSetSerializer(TranslatedMapMixin, serializers.ModelSerializer):
 MEETING_ENDED = "The meeting has ended."
 MEETING_NO_DELETE = "Items cannot be deleted during a meeting."
 # Content a lock (e.g. an open vote) freezes; position/section stay free.
-LOCKED_QUESTION_FIELDS = ("kind", "named_vote")
+LOCKED_QUESTION_FIELDS = ("kind", "named_vote", "max_votes", "cumulate")
 
 
 class AgendaLocked(APIException):
@@ -373,7 +373,7 @@ def _options_changed(question, incoming):
 
 
 def question_content_changed(question, attrs):
-    """True if ``attrs`` would change text, kind, options or named_vote."""
+    """True if ``attrs`` would change text, kind, options, named_vote, max_votes or cumulate."""
     for field, value in attrs.items():
         if field == "options":
             if _options_changed(question, value):
@@ -503,7 +503,8 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
     class Meta:
         model = Question
         fields: ClassVar = [
-            "id", "question_set", "section", "kind", "named_vote", "text",
+            "id", "question_set", "section", "kind", "named_vote", "max_votes",
+            "cumulate", "text",
             "shuffle_options", "binary_choice",
             "time_limit", "position", "options", "ai_evaluate", "evaluation_hint",
             "allow_multiple", "wordcloud_live", "wordcloud_ai_enabled",
@@ -539,6 +540,11 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
 
     def validate_text(self, value):
         return clean_html(value)
+
+    def validate_max_votes(self, value):
+        if not 1 <= value <= 20:
+            raise serializers.ValidationError("Between 1 and 20 votes.")
+        return value
 
     def validate_wordcloud_grouping(self, value):
         # Same cap as the presenter's ai-settings endpoint; an unchanged

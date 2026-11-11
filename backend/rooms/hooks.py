@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from .models import Question
 
 # Each check returns a human-readable reason if the question's content
-# (text, kind, options, named_vote) must not be changed right now, else None.
+# (text, kind, options, named_vote, max_votes, cumulate) must not be changed right now, else None.
 question_lock_checks: list[Callable[[Question], str | None]] = []
 
 # Called after a question and its options were saved through the API.
