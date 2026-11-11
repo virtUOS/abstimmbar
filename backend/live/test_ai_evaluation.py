@@ -11,7 +11,7 @@ from live.ai_evaluation import classify
 class ClassifyModelSolutionTest(SimpleTestCase):
     @patch("live.ai_evaluation.ai.chat_json", return_value={"verdict": "korrekt", "note": "ok"})
     def test_model_solution_is_in_prompt(self, chat):
-        verdict, note = classify(
+        verdict, _note = classify(
             "Q",
             "hint",
             "answer",

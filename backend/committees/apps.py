@@ -10,7 +10,6 @@ class CommitteesConfig(AppConfig):
 
     def ready(self):
         import committees.signals  # noqa: F401
-
         from rooms import hooks
 
         from . import versions

@@ -5,14 +5,13 @@
 serializer mixins shared across apps."""
 from typing import ClassVar
 
-from django.utils.html import strip_tags
-
 from basicbar_integrations.html_sanitize import clean_html
 from basicbar_integrations.translation_sync import (
     modeltranslation_values,
     record_synced,
     stale_map,
 )
+from django.utils.html import strip_tags
 from rest_framework import serializers
 
 from common.i18n_fields import LANGS, TranslatedMapMixin

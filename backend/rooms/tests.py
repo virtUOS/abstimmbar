@@ -4076,6 +4076,7 @@ class ExampleResultsSeedTests(TestCase):
 
     def test_seeding_works_with_english_canonical_language(self):
         from django.test import override_settings
+
         from live.models import MindmapNode
 
         with override_settings(

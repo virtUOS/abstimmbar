@@ -3,6 +3,7 @@
 
 import json
 import threading
+from typing import ClassVar
 from unittest.mock import patch
 
 from django.conf import settings
@@ -3154,9 +3155,9 @@ class AiLiveWordCloudTests(LiveTestCase):
         key = (self.run.pk, self.wc.pk)
         ai_wordcloud_live._running.add(key)
         ai_wordcloud_live._dirty.add(key)
-        with patch.object(ai_wordcloud_live, "_compute", side_effect=RuntimeError("boom")):
-            with self.assertRaises(RuntimeError):
-                ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
+        with (patch.object(ai_wordcloud_live, "_compute", side_effect=RuntimeError("boom")),
+              self.assertRaises(RuntimeError)):
+            ai_wordcloud_live._run_loop(self.run.pk, self.wc.pk, self.room.pk)
         self.assertNotIn(key, ai_wordcloud_live._running)
         self.assertNotIn(key, ai_wordcloud_live._dirty)
 
@@ -4932,7 +4933,7 @@ class AiFreetextSummaryTests(LiveTestCase):
     def _cast(self, text):
         return self.vote(self.join(), text=text)
 
-    WORDS = [
+    WORDS: ClassVar = [
         {"text": "Keine Namen", "count": 3, "keys": ["keine namen"]},
         {"text": "Niemand weiß, wer was antwortet", "count": 2,
          "keys": ["niemand weiß, wer was antwortet", "niemand weiss"]},
@@ -5268,7 +5269,7 @@ class AiFreetextSummaryTests(LiveTestCase):
 
     # --- question context in both prompts ----------------------------------
 
-    CONTEXT = {
+    CONTEXT: ClassVar = {
         "question": "Erklären Sie kurz, was eine anonyme Umfrage auszeichnet.",
         "model_solution": "Keine Rückschlüsse auf die antwortende Person.",
         "hint": "Personenbezug fehlt",
@@ -5577,7 +5578,7 @@ class FreetextAiSummaryEndpointTests(LiveTestCase):
         self.run.save()
         self.url = f"/api/runs/{self.run.pk}/questions/{self.ot.pk}/ai-summary/"
 
-    REPLY = {
+    REPLY: ClassVar = {
         "statements": [
             {"label": "Anonymität", "cluster": "Schutz", "members": [1, 4]},
             {"label": "Ehrlichkeit", "cluster": "Qualität", "members": [2]},
@@ -6213,7 +6214,7 @@ class MindmapPayloadTests(MindmapTestCase):
 
 
 class MindmapSeedTests(MindmapTestCase):
-    SEED = [
+    SEED: ClassVar = [
         {"text": "Wind", "description": "Rotoren", "children": [
             {"text": "Offshore", "description": "", "children": []},
         ]},
@@ -6264,7 +6265,7 @@ class MindmapSeedTests(MindmapTestCase):
 
 
 class MindmapSeedI18nTests(MindmapTestCase):
-    SEED = [
+    SEED: ClassVar = [
         {"text": {"de": "Wind", "en": "Wind power"},
          "description": {"de": "Rotoren", "en": "Rotors"}, "children": [
             {"text": {"de": "Meer", "en": "Offshore"},

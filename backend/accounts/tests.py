@@ -324,8 +324,9 @@ class EasyModeMigrationTests(TestCase):
 class DailyModeSessionTests(TestCase):
     @override_settings(**LT_OFF)
     def test_whoami_records_session_for_authenticated_user(self):
-        from accounts.models import DailyModeSession
         from django.utils import timezone
+
+        from accounts.models import DailyModeSession
         user = User.objects.create_user(username="stat", is_staff=True)  # staff → pro default
         self.client.force_login(user)
         self.client.get("/api/whoami/")

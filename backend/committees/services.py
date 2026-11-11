@@ -3,19 +3,18 @@
 """Committee helpers: room access, templates, member lists, meeting lifecycle."""
 import re
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.db import transaction
-from django.conf import settings
 from django.db.models import F, Max, Q
-from django.utils.html import escape
 from django.utils import timezone
+from django.utils.html import escape
 
 from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
 from . import eligibility, versions
-from .presence import presence
 from .models import (
     Ballot,
     CommitteeGroup,
@@ -27,6 +26,7 @@ from .models import (
     MotionVersion,
     TopNote,
 )
+from .presence import presence
 
 _NAME_EMAIL = re.compile(r"^(?P<name>.*?)\s*<(?P<email>[^<>]*)>$")
 # EmailField column length (Django's validator alone would allow 320).

@@ -768,7 +768,7 @@ def vote(request, token):
         ballot_id = body["ballot"]
         answer = body["answer"]
         if isinstance(ballot_id, bool) or not isinstance(ballot_id, int):
-            raise ValueError
+            raise TypeError
     except (ValueError, KeyError, TypeError):
         return _no_store(JsonResponse({"code": "invalid"}, status=400))
     try:

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
+import logging
+
 from django.apps import AppConfig
 
 
@@ -36,4 +38,4 @@ class RoomsConfig(AppConfig):
                 daemon=True,
             ).start()
         except Exception:
-            pass
+            logging.getLogger(__name__).exception("Could not start the AI job sweep")
