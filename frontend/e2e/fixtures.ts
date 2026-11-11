@@ -46,7 +46,38 @@ type ThemeFixtures = {
   themeFromColorScheme: void;
 };
 
-export const test = base.extend<RoomCleanupFixtures & ThemeFixtures>({
+type FirefoxWorkaroundFixtures = {
+  /** Firefox 159 (Playwright 1.65's firefox-1572, and stock 159.0.1)
+   *  crashes the content process (SIGSEGV, null write in
+   *  `Element::GetAttrAssociatedElementsForBindings`, Element.cpp:2307,
+   *  via the `ariaLabelledByElements` getter) when the same element's
+   *  reflected `aria*Elements` property is read from both the page's main
+   *  world and Playwright's isolated utility world — the second world hits
+   *  the "unchanged, use cached array" path with no cache slot of its own.
+   *  axe-core 4.14 reads it in the main world; Playwright's role/name
+   *  engine (`getByRole({ name })`) reads it in the utility world. Hiding
+   *  the getters from the main world only (the utility world sees the
+   *  native prototype through its Xray) breaks the pair. axe and
+   *  Playwright then resolve `aria-labelledby` & co. from the content
+   *  attribute, which is identical here — the app never sets the
+   *  element-reference properties from JS. All axe rules still run. */
+  firefoxAriaReflectionCrash: void;
+};
+
+export const test = base.extend<RoomCleanupFixtures & ThemeFixtures & FirefoxWorkaroundFixtures>({
+  firefoxAriaReflectionCrash: [
+    async ({ context, browserName }, use) => {
+      if (browserName === 'firefox') {
+        await context.addInitScript(() => {
+          for (const key of Object.getOwnPropertyNames(Element.prototype)) {
+            if (/^aria\w+Elements$/.test(key)) delete (Element.prototype as unknown as Record<string, unknown>)[key];
+          }
+        });
+      }
+      await use();
+    },
+    { auto: true },
+  ],
   themeFromColorScheme: [
     async ({ page, browserName, colorScheme }, use) => {
       if (browserName === 'firefox' && (colorScheme === 'dark' || colorScheme === 'light')) {
