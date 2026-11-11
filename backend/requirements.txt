@@ -1,4 +1,4 @@
-Django==5.2.18
+Django==5.2.19
 djangorestframework==3.18.3
 # Gemeinsame Basis der -bar-Tools (LibreTranslate/LiteLLM/Capabilities);
 # Versionswechsel = Tag in der URL heben, Migrationsschritte im dortigen CHANGELOG.
@@ -6,13 +6,13 @@ basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/in
 basicbar-auth @ https://github.com/virtUOS/basicbar/archive/refs/tags/auth/v0.2.2.tar.gz#subdirectory=packages/django/basicbar-auth
 basicbar-lti @ https://github.com/virtUOS/basicbar/archive/refs/tags/lti/v0.1.5.tar.gz#subdirectory=packages/django/basicbar-lti
 django-cors-headers==4.9.0
-psycopg[binary,pool]==3.3.6
+psycopg[binary,pool]==3.3.8
 mozilla-django-oidc==4.0.1
 # HTML allowlist sanitizing for editor content (ADR-0007).
 nh3==0.3.7
 # Server-side Markdown → HTML for the framework-free participant page
 # (closing info, #24); output is passed through the nh3 allowlist.
-Markdown==3.11.2
+Markdown==3.11.3
 Pillow==12.3.0
 # ASGI server — SSE streams need async views without thread-per-connection
 # (ADR-0003). [standard] brings uvloop, httptools and watchfiles (--reload).
