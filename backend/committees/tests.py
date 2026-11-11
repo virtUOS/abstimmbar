@@ -3917,3 +3917,146 @@ class ElectionConfigTests(MeetingFixture, ApiBase):
         self.assertEqual(
             [_clamped_max_votes(v) for v in (None, "x", 0, 3, 99)], [1, 1, 1, 3, 20],
         )
+
+    def test_empty_candidate_text_rejected_single_candidate_ok(self):
+        q = self.post_item().json()
+        url = f"/api/questions/{q['id']}/"
+        r = self.client.patch(
+            url, {"text": {"de": "Wahl"}, "options": [{"text": {"de": "Anna"}}, {"text": {"de": ""}}]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertIn("options", r.json())
+        r = self.client.patch(
+            url, {"text": {"de": "Wahl"}, "options": [{"text": {"de": "Anna"}}]}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+
+
+class ElectionBallotTests(BallotBase):
+    def election(self, n=3, max_votes=1, cumulate=False, named=False):
+        q = Question.objects.create(
+            question_set=self.meeting, kind="election", text_de="Wahl", position=3,
+            max_votes=max_votes, cumulate=cumulate, named_vote=named,
+        )
+        opts = [
+            AnswerOption.objects.create(question=q, text_de=f"K{i}", position=i)
+            for i in range(n)
+        ]
+        return q, [o.pk for o in opts]
+
+    def result(self, ballot):
+        ballot.refresh_from_db()
+        if ballot.status == Ballot.Status.OPEN:
+            with self.captureOnCommitCallbacks(execute=True):
+                ballot = ballots.close_ballot(ballot)
+        return ballot.result
+
+    def test_approval_single_candidate(self):
+        q, (a,) = self.election(n=1)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual(ballots.election_mode(ballot), "approval")
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"options": [a]})
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"option": a})
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.vote(self.bert, ballot, {"choice": "no"})
+        self.vote(self.ben, ballot, {"choice": "abstain"})
+        self.assertEqual(
+            self.result(ballot)["total"]["counts"], {"yes": 1, "no": 1, "abstain": 1},
+        )
+
+    def test_single_mode_has_no(self):
+        q, (a, b, c) = self.election()
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual(ballots.election_mode(ballot), "single")
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"options": [a]})
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"choice": "yes"})
+        self.vote(self.anna, ballot, {"choice": "no"})
+        self.vote(self.bert, ballot, {"option": b})
+        counts = self.result(ballot)["total"]["counts"]
+        self.assertEqual(
+            counts,
+            {f"opt:{a}": 0, f"opt:{b}": 1, f"opt:{c}": 0, "no": 1, "abstain": 0},
+        )
+
+    def test_multi_has_no_no(self):
+        q, (a, b, c) = self.election(max_votes=2)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual(ballots.election_mode(ballot), "multi")
+        self.assertCode("invalid", self.vote, self.anna, ballot, {"choice": "no"})
+        self.vote(self.anna, ballot, {"options": [a, b]})
+        counts = self.result(ballot)["total"]["counts"]
+        self.assertNotIn("no", counts)
+        self.assertEqual(
+            counts, {f"opt:{a}": 1, f"opt:{b}": 1, f"opt:{c}": 0, "abstain": 0},
+        )
+
+    def test_multi_pads_unspent_votes_as_abstain(self):
+        q, (a, _b, _c) = self.election(max_votes=3)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"options": [a]})
+        self.vote(self.bert, ballot, {"choice": "abstain"})
+        result = self.result(ballot)
+        counts = result["total"]["counts"]
+        self.assertEqual(counts["abstain"], 2 + 3)
+        self.assertEqual(counts[f"opt:{a}"], 1)
+        self.assertEqual(sum(counts.values()), result["voted"] * 3)
+        self.assertEqual(result["tally_sum"], 2)
+        self.assertEqual(result["voted"], 2)
+
+    def test_multi_rejects_too_many_and_repeats(self):
+        q, (a, b, c) = self.election(max_votes=2)
+        other = AnswerOption.objects.create(question=self.q2, text_de="X")
+        ballot = ballots.open_ballot(self.meeting, q)
+        for bad in (
+            {"options": [a, b, c]}, {"options": [a, a]}, {"options": []},
+            {"options": [other.pk]}, {"options": [True]}, {"options": [a], "x": 1},
+            {"option": a},
+        ):
+            self.assertCode("invalid", self.vote, self.anna, ballot, bad)
+
+    def test_cumulate_allows_repeats(self):
+        q, (a, _b, _c) = self.election(max_votes=3, cumulate=True)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"options": [a, a, a]})
+        self.assertEqual(self.result(ballot)["total"]["counts"][f"opt:{a}"], 3)
+
+    def test_start_validates_config(self):
+        q, _ = self.election(n=0)
+        self.assertCode("no_candidates", ballots.open_ballot, self.meeting, q)
+        q.delete()
+        q, _ = self.election(n=2, max_votes=3)
+        self.assertCode("too_many_votes", ballots.open_ballot, self.meeting, q)
+        q.cumulate = True
+        q.save()
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertEqual((ballot.max_votes, ballot.cumulate), (3, True))
+        self.assertIsNone(ballot.candidates)
+
+    def test_named_election_stores_keys(self):
+        q, (a, _b, _c) = self.election(max_votes=3, named=True)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertFalse(ballot.secret)
+        self.vote(self.anna, ballot, {"options": [a]})
+        vote = NamedVote.objects.get(ballot=ballot, member=self.anna)
+        self.assertEqual(vote.answer["keys"], [f"opt:{a}", "abstain", "abstain"])
+
+    def test_parse_answer_needs_ballot_for_elections(self):
+        q, (a, _b, _c) = self.election()
+        self.assertCode("invalid", ballots.parse_answer, q, {"option": a})
+        self.assertCode("invalid", ballots.parse_answer, q, {"choice": "abstain"})
+
+    def test_election_seal_includes_settings(self):
+        q, (a, _b, _c) = self.election(max_votes=2)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"options": [a]})
+        self.result(ballot)
+        content = seals._result_content(Ballot.objects.get(pk=ballot.pk), "R")
+        self.assertEqual(
+            content["election"],
+            {"max_votes": 2, "cumulate": False, "candidates": None, "runoff_of": None},
+        )
+        res = ballots.open_ballot(self.meeting, self.q1)
+        self.vote(self.anna, res, {"choice": "yes"})
+        self.result(res)
+        self.assertNotIn("election", seals._result_content(Ballot.objects.get(pk=res.pk), "R"))

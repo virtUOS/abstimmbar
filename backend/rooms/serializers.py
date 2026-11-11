@@ -761,6 +761,15 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                     raise serializers.ValidationError(
                         {"options": "Add at least two answer options, each with text."}
                     )
+            # A single candidate is valid (approval vote), but each
+            # candidate needs a name.
+            elif kind == "election" and "options" in attrs and not all(
+                (o.get(canonical) or "").strip() or o.get("image")
+                for o in attrs["options"]
+            ):
+                raise serializers.ValidationError(
+                    {"options": "Every candidate needs a name."}
+                )
         return attrs
 
     def create(self, validated_data):

@@ -87,7 +87,7 @@ def _result_content(ballot: Ballot, ref: str) -> dict:
             if text:
                 texts_by_group.setdefault(group_id, []).append(text)
 
-    return {
+    content = {
         "reference": ref,
         "secret": ballot.secret,
         "round": ballot.round,
@@ -126,6 +126,15 @@ def _result_content(ballot: Ballot, ref: str) -> dict:
         "opened_at": _iso(ballot.opened_at),
         "closed_at": _iso(ballot.closed_at),
     }
+    if ballot.question.kind == Question.Kind.ELECTION:
+        # Only for elections: the hashes of the other kinds stay unchanged.
+        content["election"] = {
+            "max_votes": ballot.max_votes,
+            "cumulate": ballot.cumulate,
+            "candidates": ballot.candidates,
+            "runoff_of": ballot.runoff_of_id,
+        }
+    return content
 
 
 def content(ballot: Ballot, kind: str, ref: str) -> dict:

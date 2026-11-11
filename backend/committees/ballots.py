@@ -8,6 +8,7 @@ in this module logs, and error messages never carry vote content.
 """
 import logging
 import secrets
+from typing import Literal
 
 from django.core.exceptions import ValidationError
 from django.db import transaction
@@ -53,11 +54,68 @@ def _is_id(value) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
-def parse_answer(question: Question, data) -> tuple[list[str], str | None]:
+def ballot_options(ballot: Ballot) -> list[dict]:
+    """The candidates of an election round: the version's options in their
+    order, narrowed to ``ballot.candidates`` (a runoff) when set."""
+    options = ballot.version.options
+    if ballot.candidates is None:
+        return list(options)
+    chosen = set(ballot.candidates)
+    return [o for o in options if o["id"] in chosen]
+
+
+def election_mode(ballot: Ballot) -> Literal["approval", "single", "multi"]:
+    """approval: one candidate (yes/no/abstain); single: one vote among
+    several (with "no"); multi: up to ``max_votes`` votes (no "no")."""
+    if len(ballot_options(ballot)) == 1:
+        return "approval"
+    return "multi" if ballot.max_votes >= 2 else "single"
+
+
+def _parse_election(ballot: Ballot, data: dict) -> list[str]:
+    mode = election_mode(ballot)
+    if mode == "approval":
+        choice = data.get("choice")
+        if set(data) != {"choice"} or choice not in RESOLUTION_CHOICES:
+            raise _invalid()
+        return [choice]
+    option_ids = {o["id"] for o in ballot_options(ballot)}
+    if mode == "single":
+        if data in ({"choice": "no"}, {"choice": "abstain"}):
+            return [data["choice"]]
+        option = data.get("option")
+        if set(data) != {"option"} or not _is_id(option) or option not in option_ids:
+            raise _invalid()
+        return [f"opt:{option}"]
+    # multi: unspent votes count as abstentions, so every paper weighs
+    # max_votes and the counts add up to voted * max_votes.
+    if data == {"choice": "abstain"}:
+        return ["abstain"] * ballot.max_votes
+    options = data.get("options")
+    if (
+        set(data) != {"options"} or not isinstance(options, list)
+        or not 1 <= len(options) <= ballot.max_votes
+        or not all(_is_id(o) for o in options)
+        or (not ballot.cumulate and len(set(options)) != len(options))
+        or not set(options) <= option_ids
+    ):
+        raise _invalid()
+    return [f"opt:{o}" for o in options] + ["abstain"] * (ballot.max_votes - len(options))
+
+
+def parse_answer(
+    question: Question, data, ballot: Ballot | None = None,
+) -> tuple[list[str], str | None]:
     """Normalize a request ``answer`` to (keys, text); see the table in the
-    plan. ``{"choice": "abstain"}`` is accepted for every kind."""
+    plan. ``{"choice": "abstain"}`` is accepted for every kind. Elections
+    are parsed against their ``ballot`` (mode, candidates, settings)."""
     if not isinstance(data, dict):
         raise _invalid()
+    if question.kind == Question.Kind.ELECTION:
+        # Before the abstain shortcut: a multi-vote abstention weighs max_votes.
+        if ballot is None:
+            raise _invalid()
+        return _parse_election(ballot, data), None
     if data == {"choice": "abstain"}:
         return ["abstain"], None
     kind = question.kind
@@ -166,18 +224,47 @@ def _check_free(meeting: QuestionSet, questions: list[Question]) -> None:
             )
 
 
-def _start(meeting: QuestionSet, lead: Question, others: list[Question]) -> Ballot:
+def _election_settings(
+    lead: Question, version, candidates: list[int] | None, runoff_of: Ballot | None,
+) -> tuple[int, bool]:
+    """(max_votes, cumulate) frozen on the ballot; validates the round."""
+    if lead.kind != Question.Kind.ELECTION:
+        return 1, False
+    max_votes, cumulate = (1, False) if runoff_of is not None else (
+        lead.max_votes, lead.cumulate,
+    )
+    ids = {o["id"] for o in version.options}
+    count = len(ids if candidates is None else ids & set(candidates))
+    if count == 0:
+        raise ValidationError("The election has no candidates.", code="no_candidates")
+    if not cumulate and max_votes > count:
+        raise ValidationError(
+            "More votes than candidates without cumulating.", code="too_many_votes",
+        )
+    return max_votes, cumulate
+
+
+def _start(
+    meeting: QuestionSet, lead: Question, others: list[Question], *,
+    candidates: list[int] | None = None, runoff_of: Ballot | None = None,
+) -> Ballot:
     """Create the ballot on `lead` (plus `others` en bloc) with its seats,
-    start a secret tally and put the lead on the beamer."""
+    start a secret tally and put the lead on the beamer. Elections freeze
+    their settings (a runoff: one vote, no cumulating) and `candidates`."""
     for question in (lead, *others):
         versions.sync(question)
+    version = versions.current(lead)
+    max_votes, cumulate = _election_settings(lead, version, candidates, runoff_of)
     last_round = max(
         (ballots_for(q).aggregate(m=Max("round"))["m"] or 0) for q in (lead, *others)
     )
     secret = not lead.named_vote
     ballot = Ballot.objects.create(
-        question=lead, version=versions.current(lead), round=last_round + 1,
+        question=lead, version=version, round=last_round + 1,
         secret=secret, epoch=tally.EPOCH if secret else "",
+        max_votes=max_votes, cumulate=cumulate,
+        candidates=list(candidates) if candidates is not None else None,
+        runoff_of=runoff_of,
     )
     BallotItem.objects.bulk_create([
         BallotItem(ballot=ballot, question=q, version=versions.current(q)) for q in others
@@ -261,7 +348,7 @@ def cast_vote(invite: MeetingInvite, ballot_id: int, data) -> None:
     )
     if group_id is None:
         raise ValidationError("You are not eligible to vote.", code="not_eligible")
-    keys, text = parse_answer(ballot.question, data)
+    keys, text = parse_answer(ballot.question, data, ballot)
     marked = ballot.seats.filter(member_id=invite.member_id, voted=False).update(voted=True)
     if marked == 0:
         raise ValidationError("You have already voted.", code="already_voted")
@@ -297,6 +384,12 @@ def _count_keys(ballot: Ballot) -> list[str]:
         return list(RESOLUTION_CHOICES)
     if kind == Question.Kind.OPEN_TEXT:
         return ["text", "abstain"]
+    if kind == Question.Kind.ELECTION:
+        mode = election_mode(ballot)
+        if mode == "approval":
+            return list(RESOLUTION_CHOICES)
+        keys = [f"opt:{o['id']}" for o in ballot_options(ballot)]
+        return [*keys, "no", "abstain"] if mode == "single" else [*keys, "abstain"]
     return [f"opt:{o['id']}" for o in ballot.version.options] + ["abstain"]
 
 
