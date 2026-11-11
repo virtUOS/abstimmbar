@@ -1,0 +1,86 @@
+# SPDX-License-Identifier: Apache-2.0
+# Pull-request and branch pipeline (successor of .gitlab-ci.yml): backend lint,
+# backend tests against PostgreSQL 16 (as in production), frontend type-check
+# + build, and a dependency review that fails on newly added vulnerable
+# packages. Required for merging into main and release/* (branch protection).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "release/*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet ruff
+      - run: cd backend && ruff check .
+
+  backend-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: abstimmbar
+          POSTGRES_USER: abstimmbar
+          POSTGRES_PASSWORD: abstimmbar
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U abstimmbar" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      POSTGRES_HOST: localhost
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: sudo apt-get install --yes --quiet gettext
+      - run: pip install --quiet -r backend/requirements.txt
+      - name: Translation catalog is compiled
+        run: |
+          cd backend
+          cp locale/de/LC_MESSAGES/django.mo /tmp/committed.mo
+          python manage.py compilemessages -l de
+          msgunfmt /tmp/committed.mo > /tmp/committed.po
+          msgunfmt locale/de/LC_MESSAGES/django.mo > /tmp/fresh.po
+          diff -u /tmp/committed.po /tmp/fresh.po || {
+            echo "django.mo is out of date: run compilemessages -l de and commit it."; exit 1; }
+      - run: cd backend && python manage.py makemigrations --check --dry-run
+      - run: cd backend && python manage.py test --noinput --parallel 4
+
+  frontend-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: cd frontend && npm ci --no-fund --no-audit
+      - run: cd frontend && npm run build
+
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/dependency-review-action@v5
+        with:
+          fail-on-severity: moderate

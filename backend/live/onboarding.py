@@ -22,7 +22,15 @@ from rooms.models import Question
 
 from . import matrix as mx
 from . import mindmap as mm
-from .models import MatrixCard, MindmapNode, OrderingResponse, ParticipantToken, PriorityScore, Run, Vote
+from .models import (
+    MatrixCard,
+    MindmapNode,
+    OrderingResponse,
+    ParticipantToken,
+    PriorityScore,
+    Run,
+    Vote,
+)
 
 # (days ago, participants) per run, older first.
 EXAMPLE_RUNS = ((14, 9), (2, 12))
