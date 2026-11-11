@@ -62,6 +62,16 @@ are measured at full opacity. Form-control borders (WCAG 1.4.11) are not an
 axe rule; they come from one token (`border-field` in the management UI,
 `--field-line` on the participant page) — change those, not single inputs.
 
+**Firefox "Page crashed".** Firefox 159 (Playwright 1.65) segfaults when an
+element's `ariaLabelledByElements` (or another reflected `aria*Elements`
+property) is read from both the page and Playwright's isolated world — e.g.
+`getByRole({ name })` followed by axe. The auto fixture
+`firefoxAriaReflectionCrash` in `fixtures.ts` hides those getters from the page
+world in Firefox projects; axe and Playwright fall back to the
+`aria-labelledby` attribute. Import `test` from `./fixtures`, not from
+`@playwright/test`, to get it. Drop the fixture once a Firefox build without
+the bug ships.
+
 **AI without the LLM.** No spec calls a real AI model. The matrix AI grouping
 specs (`matrix-ai-presenter.spec.ts`, and the summary-card checks in
 `matrix-results.spec.ts` / `mobile-matrix-rating.spec.ts`) use
