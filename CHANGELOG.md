@@ -6,6 +6,15 @@ Versionsnummern folgen [Semantic Versioning](https://semver.org/lang/de/).
 Die Zahlen in Klammern verweisen auf Pull Requests im
 [GitHub-Repository](https://github.com/virtUOS/abstimmbar/pulls?q=is%3Apr).
 
+## [Unreleased]
+
+### Sicherheit
+
+- pypdf 6.21.1 → 6.21.4: behebt mehrere Fälle, in denen präparierte
+  PDF-Dateien beim Folienimport Endlosschleifen oder sehr hohen
+  Speicherverbrauch auslösen konnten (GitHub-Advisories vom 23. und
+  30. Oktober 2026).
+
 ## [1.0.0] – 2026-10-22
 
 Die erste stabile Version. Abstimmbar ist damit für den regulären Einsatz in
