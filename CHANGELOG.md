@@ -13,6 +13,7 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Gremien-Raum (Teil 1): Raumtyp für Gremien mit Statusgruppen, Mitgliedern,
   Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
   Links und Vertretungen. Abstimmen folgt.
+- Gremien-Raum: Wahlen mit mehreren Stimmen, Kumulieren und Stichwahl.
 
 ### Geändert
 
