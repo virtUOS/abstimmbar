@@ -49,9 +49,11 @@
   .row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; padding: 6px 0;
          font-size: 15px; }
   .row .n { font-weight: 700; font-variant-numeric: tabular-nums; }
-  .bar { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--line);
+  /* Scoped to the count rows: a bare .bar would also style the "BAR"
+     wordmark in the shared header (live/base.html). */
+  .row .bar { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--line);
          overflow: hidden; }
-  .bar > span { display: block; height: 100%; background: var(--brand-strong); }
+  .row .bar > span { display: block; height: 100%; background: var(--brand-strong); }
   .text-card { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--line);
                border-radius: 12px; white-space: pre-wrap; }
   .text-card .soft { display: block; margin-bottom: 4px; white-space: normal; }

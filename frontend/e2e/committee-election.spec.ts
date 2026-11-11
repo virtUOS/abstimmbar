@@ -89,10 +89,7 @@ test('election: two votes per person, runoff, protocol', async ({ page, browser,
   await expect(counter).toHaveText('2 von 2 Stimmen vergeben');
   // The limit is reached: the third candidate cannot be picked.
   await expect(anna.p.getByRole('button', { name: 'Eva Cramer', exact: true })).toBeDisabled();
-  // The "BAR" wordmark in the shared header (live/base.html) is a known
-  // brand-colour contrast finding outside this feature; everything else must pass.
   const { violations } = await new AxeBuilder({ page: anna.p })
-    .exclude('header .bar')
     .withTags(['wcag2a', 'wcag2aa', 'wcag21aa']).analyze();
   expect(violations.map((v) => ({ rule: v.id, nodes: v.nodes.slice(0, 5).map((n) => n.target.join(' ')) }))).toEqual([]);
   await anna.p.getByRole('button', { name: 'Stimmen abgeben' }).click();
