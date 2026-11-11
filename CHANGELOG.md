@@ -23,6 +23,13 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   kommt jetzt aus dem gemeinsamen Paket basicbar-pdf 0.1.0; das PDF sieht
   unverändert aus.
 
+### Sicherheit
+
+- pypdf 6.21.1 → 6.21.4: behebt mehrere Fälle, in denen präparierte
+  PDF-Dateien beim Folienimport Endlosschleifen oder sehr hohen
+  Speicherverbrauch auslösen konnten (GitHub-Advisories vom 23. und
+  30. Oktober 2026).
+
 > ### Hinweise für den Betrieb
 >
 > - **Caddy leitet `/g/*` an Django weiter.** Unter `/g/<token>/` liegen die
