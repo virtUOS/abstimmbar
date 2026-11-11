@@ -44,6 +44,7 @@
  *  stays on the card tint (contrast). Unrated cards are unchanged; nothing
  *  grows with the score. `interactive.stackLocked`: a drop onto a card only
  *  moves (no stack target). */
+import type { TFunction } from "i18next";
 import {
   createElement,
   useEffect,
@@ -214,7 +215,7 @@ export function matrixCardFont(
   return Math.max(Math.min(base, MIN_FONT), base * fit);
 }
 
-type Translate = (key: string, options?: Record<string, unknown>) => string;
+type Translate = TFunction;
 
 /** A zone's written-out name, composed like the participant page (`mxZoneName`):
  *  the x part first ("nützlich & modern"); edges read "between A and B". */

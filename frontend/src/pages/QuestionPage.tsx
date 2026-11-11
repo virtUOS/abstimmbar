@@ -566,9 +566,9 @@ export default function QuestionPage() {
         textMissing
           ? t("Question text is required.")
           : mindmapProblem
-            ? t(mindmapProblem.key, mindmapProblem.values)
+            ? t(mindmapProblem.key, mindmapProblem.values ?? {})
             : matrixIssue
-              ? t(matrixIssue.key, matrixIssue.values)
+              ? t(matrixIssue.key, matrixIssue.values ?? {})
               : t("Add at least two answer options, each with text."),
       );
       return false;
@@ -1682,7 +1682,7 @@ export default function QuestionPage() {
               />
               {mindmapProblem && (
                 <p className="mt-2 text-sm text-danger">
-                  {t(mindmapProblem.key, mindmapProblem.values)}
+                  {t(mindmapProblem.key, mindmapProblem.values ?? {})}
                 </p>
               )}
             </div>
