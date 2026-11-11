@@ -83,6 +83,13 @@ def _election_options(mode: str, candidates: list[dict]) -> list[dict]:
     return [*_option_entries(candidates), *({"key": k, "text": k} for k in fixed)]
 
 
+def _approval_candidate(mode: str | None, candidates: list[dict]) -> str | None:
+    """The canonical name of the only candidate of an approval round."""
+    if mode != "approval" or not candidates:
+        return None
+    return _option_entries(candidates[:1])[0]["text"]
+
+
 def _unvoted_election(question: Question, version: MotionVersion | None) -> tuple[str, int, bool]:
     """(mode, max_votes, cumulate) as opening the first round would freeze them."""
     count = len(version.options) if version else 0
@@ -234,13 +241,16 @@ def _round(ballot, version, question, names, order) -> dict:
     result_link = _latest_link(ballot, SealLink.Kind.RESULT)
     finding_link = _latest_link(ballot, SealLink.Kind.FINDING)
     election = question.kind == Question.Kind.ELECTION
+    mode = ballots.election_mode(ballot) if election else None
+    candidates = ballots.ballot_options(ballot) if election else []
     return {
         "round": ballot.round,
         "runoff": ballot.runoff_of_id is not None,
         "options": (
-            _election_options(ballots.election_mode(ballot), ballots.ballot_options(ballot))
+            _election_options(mode, candidates)
             if election else _options(question.kind, version)
         ),
+        "candidate": _approval_candidate(mode, candidates),
         "result": _result(ballot, names),
         "finding": ballot.finding,
         "named": not ballot.secret,
@@ -288,6 +298,7 @@ def _item(question, label, entries, labels, positions, names, order) -> dict:
             _election_options(mode, version.options if version else [])
             if election else _options(question.kind, version)
         ),
+        "candidate": _approval_candidate(mode, version.options if version else []),
         "finding": None,
         "voters": [],
         "named_votes": [],

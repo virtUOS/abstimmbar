@@ -287,7 +287,8 @@
     const oneTap = item.kind === "resolution" || item.kind === "single_choice"
       || (election && election.mode !== "multi");
     if (election && election.mode === "multi") {
-      notice.appendChild(el("p", {}, pfill(S.upTo, { n: election.max_votes })));
+      notice.appendChild(el("p", {}, pfill(S.upTo, { n: election.max_votes })
+        + (election.cumulate ? S.cumulate : "")));
     }
     notice.appendChild(el("p", { class: "soft" }, oneTap ? S.hintTap : S.hintFinal));
     if (item.bundle && item.bundle.length) notice.appendChild(el("p", {}, S.bundle));
@@ -395,16 +396,20 @@
         view.appendChild(toggle);
         continue;
       }
-      const row = el("div", { class: "stepper", role: "group", "aria-label": option.text });
+      // The group's label carries the candidate's current count, so screen
+      // readers hear "Name – votes: n" when entering it; the buttons say
+      // what they do.
+      const row = el("div", { class: "stepper", role: "group" });
       row.appendChild(el("span", { class: "name", "aria-hidden": "true" }, option.text));
-      const minus = el("button", { type: "button", "aria-label": option.text + ": −1" }, "−");
+      const minus = el("button", { type: "button", "aria-label": pfill(S.voteLess, { name: option.text }) }, "−");
       const count = el("span", { class: "count", "aria-hidden": "true" });
-      const plus = el("button", { type: "button", "aria-label": option.text + ": +1" }, "+");
+      const plus = el("button", { type: "button", "aria-label": pfill(S.voteMore, { name: option.text }) }, "+");
       minus.addEventListener("click", () => change(option.id, -1));
       plus.addEventListener("click", () => change(option.id, 1));
       syncers.push((n) => {
         const mine = draftVotes.get(option.id) || 0;
         count.textContent = String(mine);
+        row.setAttribute("aria-label", pfill(S.candidateVotes, { name: option.text, n: mine }));
         row.classList.toggle("checked", mine > 0);
         minus.disabled = busy || mine === 0;
         plus.disabled = busy || n >= max;
@@ -512,6 +517,9 @@
     const result = ballot.result;
     if (!result) return;
     view.appendChild(el("h2", {}, S.result));
+    if (item.kind === "election" && item.election && item.election.mode === "approval" && item.options[0]) {
+      view.appendChild(el("p", { class: "candidate" }, item.options[0].text));
+    }
     view.appendChild(el("h3", {}, S.total));
     view.appendChild(countRows(item, result.total.counts, true));
     for (const group of result.groups) {

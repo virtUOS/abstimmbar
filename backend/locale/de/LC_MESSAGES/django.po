@@ -731,6 +731,21 @@ msgid "Cast votes"
 msgstr "Stimmen abgeben"
 
 #: committees/views.py
+#, python-format
+msgid "One vote less for %(name)s"
+msgstr "Eine Stimme weniger für %(name)s"
+
+#: committees/views.py
+#, python-format
+msgid "One vote more for %(name)s"
+msgstr "Eine Stimme mehr für %(name)s"
+
+#: committees/views.py
+#, python-format
+msgid "%(name)s – votes: %(n)s"
+msgstr "%(name)s – Stimmen: %(n)s"
+
+#: committees/views.py
 msgid "Your answer"
 msgstr "Ihre Antwort"
 
@@ -855,8 +870,12 @@ msgid_plural "Up to %(n)s votes per person"
 msgstr[0] "Bis zu %(n)s Stimme pro Person"
 msgstr[1] "Bis zu %(n)s Stimmen pro Person"
 
+#, python-format
+msgid "Candidate: %(name)s"
+msgstr "Kandidatur: %(name)s"
+
 msgid ", cumulating allowed"
-msgstr ", kumulieren erlaubt"
+msgstr ", Kumulieren erlaubt"
 
 msgid "Voted en bloc with TOP %(labels)s"
 msgstr "En bloc abgestimmt mit TOP %(labels)s"

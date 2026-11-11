@@ -74,6 +74,8 @@ def _round(doc: PdfDocument, item: dict, rnd: dict, heading: str | None) -> None
     of ``protocol._round``)."""
     if heading:
         doc.paragraph(heading, style="bold")
+    if rnd.get("candidate"):
+        doc.paragraph(_("Candidate: %(name)s") % {"name": rnd["candidate"]})
     result = rnd["result"]
     kind = _("Named vote") if rnd["named"] else _("Secret vote")
     if rnd["opened_at"] and rnd["closed_at"]:

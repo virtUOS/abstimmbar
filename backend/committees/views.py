@@ -661,6 +661,10 @@ BALLOT_STRINGS = {
     "upTo": _("Up to %(n)s votes"),
     "used": _("%(used)s of %(max)s votes given"),
     "castVotes": _("Cast votes"),
+    "cumulate": _(", cumulating allowed"),
+    "voteLess": _("One vote less for %(name)s"),
+    "voteMore": _("One vote more for %(name)s"),
+    "candidateVotes": _("%(name)s – votes: %(n)s"),
 }
 
 

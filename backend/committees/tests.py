@@ -3512,6 +3512,28 @@ class ProtocolTests(BallotBase):
         self.assertEqual((items["4"]["max_votes"], items["4"]["cumulate"]), (2, True))
         self.assertFalse(items["4"]["runoff"])
 
+    def test_protocol_approval_names_candidate(self):
+        single, _ids = self.election(n=1)
+        ballot = ballots.open_ballot(self.meeting, single)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.result(ballot)
+        unvoted = Question.objects.create(
+            question_set=self.meeting, kind="election", text_de="Noch", position=4,
+        )
+        AnswerOption.objects.create(question=unvoted, text_de="Berta", position=0)
+        versions.sync(unvoted)
+        multi, _ = self.election()
+        multi.position = 5
+        multi.save(update_fields=["position"])
+        versions.sync(multi)
+        self.end()
+        items = self.items(self.protocol())
+        self.assertEqual(items["3"]["candidate"], "K0")
+        self.assertEqual(items["4"]["status"], "not_voted")
+        self.assertEqual(items["4"]["candidate"], "Berta")
+        self.assertIsNone(items["5"]["candidate"])
+        self.assertIsNone(items["1"]["candidate"])
+
     def test_protocol_unvoted_election_options(self):
         single, _ids = self.election(n=1, max_votes=3)
         versions.sync(single)
@@ -3670,12 +3692,21 @@ class ProtocolPdfTests(BallotBase):
         text = self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de"))
         self.assertIn("1. Wahlgang", text)
         self.assertIn("Stichwahl (2. Wahlgang)", text)
-        self.assertIn("Bis zu 2 Stimmen pro Person, kumulieren erlaubt", text)
+        self.assertIn("Bis zu 2 Stimmen pro Person, Kumulieren erlaubt", text)
         self.assertIn("K0", text)
         self.assertLess(text.index("1. Wahlgang"), text.index("Stichwahl"))
         text = self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="en"))
         self.assertIn("Ballot 1", text)
         self.assertIn("Runoff (ballot 2)", text)
+
+    def test_protocol_pdf_approval_names_candidate(self):
+        q, _ids = self.election(n=1)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.vote(self.anna, ballot, {"choice": "yes"})
+        self.result(ballot)
+        self.end()
+        self.assertIn("Kandidatur: K0", self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="de")))
+        self.assertIn("Candidate: K0", self.text(self.client.get(self.url(), HTTP_ACCEPT_LANGUAGE="en")))
 
     def test_protocol_pdf_approval_has_no_votes_line(self):
         q, _ids = self.election(n=1, max_votes=3)
@@ -4115,6 +4146,19 @@ class ElectionConfigTests(MeetingFixture, ApiBase):
         )
         self.assertEqual(r.status_code, 200, r.content)
 
+    def test_image_only_candidate_rejected(self):
+        q = self.post_item().json()
+        r = self.client.patch(
+            f"/api/questions/{q['id']}/",
+            {"text": {"de": "Wahl"}, "options": [
+                {"text": {"de": "Anna"}},
+                {"text": {"de": ""}, "image": "/media/question-images/2026/07/a.png"},
+            ]},
+            format="json",
+        )
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(r.json()["options"], ["Every candidate needs a name."])
+
 
 class ElectionBallotTests(BallotBase):
     def test_approval_single_candidate(self):
@@ -4256,6 +4300,10 @@ class RunoffTests(BallotBase):
     def test_runoff_proposal_includes_ties(self):
         _, (a, b, c, d), ballot = self.closed_round(n=4, counts=[4, 2, 2, 2])
         self.assertEqual(ballots.runoff_proposal(ballot), [a, b, c, d])
+
+    def test_runoff_proposal_all_zero_returns_all_candidates(self):
+        _, ids, ballot = self.closed_round(counts=[0, 0, 0])
+        self.assertEqual(sorted(ballots.runoff_proposal(ballot)), sorted(ids))
 
     def test_runoff_proposal_ignores_no_and_abstain(self):
         _, (a, b, _c), ballot = self.closed_round(counts=[3, 2, 0])

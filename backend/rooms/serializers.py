@@ -762,9 +762,10 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
                         {"options": "Add at least two answer options, each with text."}
                     )
             # A single candidate is valid (approval vote), but each
-            # candidate needs a name.
+            # candidate needs a name — an image alone is not one (the
+            # ballot paper, protocol and seal list names).
             elif kind == "election" and "options" in attrs and not all(
-                (o.get(canonical) or "").strip() or o.get("image")
+                strip_tags(o.get(canonical) or "").strip()
                 for o in attrs["options"]
             ):
                 raise serializers.ValidationError(
