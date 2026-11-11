@@ -25,6 +25,6 @@ PyLTI1p3==2.0.0
 django-modeltranslation==0.20.6
 # Text extraction from uploaded documents for the optional AI features:
 # PDF (pypdf), PowerPoint (python-pptx) and OpenDocument slides (odfpy).
-pypdf==6.21.1
+pypdf==6.21.4
 python-pptx==1.0.2
 odfpy==1.4.1
