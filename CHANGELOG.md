@@ -19,6 +19,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Der Prometheus-Endpunkt `/metrics` nutzt jetzt den gemeinsamen Baustein
   aus basicbar-integrations 0.4.0. Kennzahlen, Token und Statuscodes bleiben
   gleich; Antworten tragen zusätzlich `Cache-Control: no-store`.
+- Der PDF-Rahmen des Sitzungsprotokolls (Schrift, Fußzeile, Editor-HTML)
+  kommt jetzt aus dem gemeinsamen Paket basicbar-pdf 0.1.0; das PDF sieht
+  unverändert aus.
 
 > ### Hinweise für den Betrieb
 >

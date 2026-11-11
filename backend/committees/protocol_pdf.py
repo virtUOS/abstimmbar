@@ -7,12 +7,12 @@ timestamps, a secret ballot lists only who voted). Labels follow the request lan
 """
 from datetime import datetime
 
+from basicbar_pdf import PdfDocument
 from django.utils import formats, timezone
 from django.utils.text import slugify
 from django.utils.translation import get_language, gettext as _, gettext_lazy
 
 from common.i18n_fields import translated_map
-from common.pdf import PdfDocument
 from rooms.models import QuestionSet
 
 from . import protocol
@@ -153,6 +153,7 @@ def render(meeting: QuestionSet) -> bytes:
     data = protocol.build(meeting)
     doc = PdfDocument(
         f"{_('Protocol')}: {data['title']}", footer_left=f"{data['committee']} – {data['title']}",
+        page_label=gettext_lazy("Page %(page)s of %(pages)s"), image_placeholder=gettext_lazy("[Image]"),
     )
     doc.paragraph(data["committee"], style="muted")
     doc.heading(f"{_('Protocol')}: {data['title']}", 1)
