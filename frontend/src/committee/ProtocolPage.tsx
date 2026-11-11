@@ -379,6 +379,11 @@ function RoundBlock({
             : t("Ballot {{n}}", { n: round.ballot_no })}
         </p>
       )}
+      {round.candidate && (
+        <p data-testid="protocol-candidate" className="text-slate-800 dark:text-slate-200">
+          {t("Candidate: {{name}}", { name: round.candidate })}
+        </p>
+      )}
       <p className={muted}>
         {round.named ? t("Named vote") : t("Secret vote")}
         {round.opened_at && round.closed_at && (

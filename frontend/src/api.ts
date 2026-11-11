@@ -164,6 +164,8 @@ export interface ProtocolRound {
   /** Elections only (else null). */
   max_votes: number | null;
   cumulate: boolean | null;
+  /** Approval elections only (else null): the single candidate's name. */
+  candidate: string | null;
 }
 
 /** An agenda item: its last closed round spread in, earlier rounds apart. */

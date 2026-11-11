@@ -260,10 +260,13 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                 <p data-testid="beamer-election" className="text-lg font-semibold text-slate-600 dark:text-slate-300 md:text-xl">
                   {item.election.mode === "multi"
                     ? t("Election · up to {{n}} votes", { n: item.election.max_votes })
+                      + (item.election.cumulate ? t(", cumulating allowed") : "")
                     : t("Election")}
                 </p>
               )}
-              {item.options.length > 0 && !ballot?.result && (
+              {/* An approval vote's result counts yes/no/abstain only, so its
+                  candidate stays named next to it. */}
+              {item.options.length > 0 && (!ballot?.result || item.election?.mode === "approval") && (
                 <ol className="grid gap-2 text-lg md:text-2xl">
                   {item.options.map((option, index) => (
                     <li key={option.id} className="flex gap-3">

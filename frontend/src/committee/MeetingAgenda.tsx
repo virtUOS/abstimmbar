@@ -75,7 +75,7 @@ const OPEN_ERRORS: Record<string, string> = {
 };
 const RUNOFF_ERRORS: Record<string, string> = {
   runoff_candidates: "Choose at least two candidates.",
-  runoff_exists: "A runoff is already running for this election.",
+  runoff_exists: "A further round already exists for this election.",
 };
 const RESET_ERRORS: Record<string, string> = {
   runoff_exists: "Reset the runoff first.",

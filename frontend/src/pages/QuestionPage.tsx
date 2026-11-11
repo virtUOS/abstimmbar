@@ -862,9 +862,12 @@ export default function QuestionPage() {
   const isResolution = question.kind === "resolution";
   const isMeeting = set.type === "meeting";
   const isElection = question.kind === "election";
-  const filledCandidates = options.filter(
-    (o) => (localizedMap(o.text)[getDefaultContentLang() as "de" | "en"] ?? "").trim() !== "" || !!o.image,
-  ).length;
+  // A candidate needs a name (the ballot, protocol and seal list names); an
+  // image alone does not count. Mirrors the backend QuestionSerializer rule.
+  const optionFilled = (o: (typeof options)[number]) =>
+    (localizedMap(o.text)[getDefaultContentLang() as "de" | "en"] ?? "").trim() !== "" ||
+    (!isElection && !!o.image);
+  const filledCandidates = options.filter(optionFilled).length;
   const tooFewCandidates = isElection && filledCandidates > 0 && maxVotes > filledCandidates && !cumulate;
   const isChoice =
     question.kind !== "word_cloud" &&
@@ -891,9 +894,7 @@ export default function QuestionPage() {
   // carry text or an image count, and only those are sent to the backend
   // (#90, #100; applies to single/multiple choice, priorities and ordering
   // alike, since they all share this option list).
-  const filledOptions = options.filter(
-    (o) => (localizedMap(o.text)[canonicalLang] ?? "").trim() !== "" || !!o.image,
-  );
+  const filledOptions = options.filter(optionFilled);
   // An election may have a single candidate (approval vote: yes/no/abstain).
   const optionsMissing = isChoice && filledOptions.length < (isElection ? 1 : 2);
   // Mindmap: the predefined branches must fit the depth, have a term each and
@@ -1383,7 +1384,7 @@ export default function QuestionPage() {
                     />
                     {/* Phones: pushes image/delete to the row's right end. */}
                     <span aria-hidden className="flex-1 sm:hidden" />
-                    {!isLikert && (
+                    {!isLikert && !isElection && (
                       <label
                         title={item.image ? t("Replace image") : t("Add image")}
                         className="shrink-0 cursor-pointer rounded-lg px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-slate-800"
