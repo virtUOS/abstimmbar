@@ -15,7 +15,7 @@ bestehen. ADR-0001 verlangt für jede neue Dependency eine Begründung.
    reine Python-Bibliothek ohne Systempakete oder Headless-Browser, erzeugt
    das PDF serverseitig und deterministisch.
    **Schrift: gebündelte Plus Jakarta Sans** (SIL Open Font License 1.1;
-   TTFs und `OFL.txt` in `backend/common/fonts/`, im Image enthalten). Die
+   TTFs und `OFL.txt` im Paket `basicbar-pdf`, im Image enthalten). Die
    eingebaute Helvetica (WinAnsi) scheiterte an Namen wie „Şahin“, „Łukasz“,
    „Dvořák“. Abgedeckt ist lateinische Schrift inkl. Erweiterungen sowie
    „ „ “ – › • → €“; **nicht** abgedeckt sind Griechisch, Kyrillisch, CJK und
