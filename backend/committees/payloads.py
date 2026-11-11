@@ -142,6 +142,51 @@ def _result(ballot: Ballot, names: dict[int, str]) -> dict | None:
     }
 
 
+def _ballot_election(ballot: Ballot) -> dict | None:
+    """The ballot paper of an election round; the runoff proposal only once
+    the round is closed (it derives from the published totals)."""
+    if ballot.question.kind != Question.Kind.ELECTION:
+        return None
+    return {
+        "mode": ballots.election_mode(ballot),
+        "max_votes": ballot.max_votes,
+        "cumulate": ballot.cumulate,
+        "candidates": [o["id"] for o in ballots.ballot_options(ballot)],
+        "runoff_of": ballot.runoff_of_id,
+        "proposal": ballots.runoff_proposal(ballot),
+    }
+
+
+def _item_election(question: Question, ballot: Ballot | None, options) -> dict | None:
+    """Mode and settings for the ballot page: the shown round's, else (before
+    the first round) as opening would freeze them."""
+    if question.kind != Question.Kind.ELECTION:
+        return None
+    if ballot is not None:
+        return {
+            "mode": ballots.election_mode(ballot),
+            "max_votes": ballot.max_votes,
+            "cumulate": ballot.cumulate,
+            "runoff": ballot.runoff_of_id is not None,
+        }
+    if len(options) <= 1:
+        return {"mode": "approval", "max_votes": 1, "cumulate": False, "runoff": False}
+    return {
+        "mode": "multi" if question.max_votes >= 2 else "single",
+        "max_votes": question.max_votes,
+        "cumulate": question.cumulate,
+        "runoff": False,
+    }
+
+
+def _ballot_options(ballot: Ballot | None, options: list[dict]) -> list[dict]:
+    """An election round's candidates only (a runoff narrows them)."""
+    if ballot is None or ballot.question.kind != Question.Kind.ELECTION:
+        return options
+    ids = {o["id"] for o in ballots.ballot_options(ballot)}
+    return [o for o in options if o["id"] in ids]
+
+
 def _ballot_payload(ballot, question, names, order) -> dict:
     released = (
         question.kind == Question.Kind.OPEN_TEXT
@@ -157,6 +202,7 @@ def _ballot_payload(ballot, question, names, order) -> dict:
         "finding": ballot.finding,
         "closed_automatically": ballot.closed_automatically,
         "texts": _texts(ballot, order) if released else None,
+        "election": _ballot_election(ballot),
     }
 
 
@@ -231,7 +277,8 @@ def _public(meeting: QuestionSet, names, order) -> dict:
         "version": number,
         "changed": (number or 0) > 1,
         "named": question.named_vote,
-        "options": options,
+        "options": _ballot_options(ballot, options),
+        "election": _item_election(question, ballot, options),
         "bundle": _bundle(meeting, ballot, question, tops),
         "ballot": _ballot_payload(ballot, question, names, order) if ballot else None,
     }
@@ -244,6 +291,14 @@ def preview_payload(question: Question) -> dict:
     meeting = question.question_set
     text, number, options = _wording(question)
     top = agenda.top_of(meeting, question.pk)
+    election = _item_election(question, None, options)
+    ballot_election = None
+    if election is not None:
+        ballot_election = {
+            "mode": election["mode"], "max_votes": election["max_votes"],
+            "cumulate": election["cumulate"], "candidates": [o["id"] for o in options],
+            "runoff_of": None, "proposal": None,
+        }
     return {
         "meeting": {
             "id": meeting.pk,
@@ -259,11 +314,13 @@ def preview_payload(question: Question) -> dict:
             "changed": (number or 0) > 1,
             "named": question.named_vote,
             "options": options,
+            "election": election,
             "bundle": [],
             "ballot": {
                 "id": 0, "status": Ballot.Status.OPEN, "round": 1,
                 "progress": {"voted": 0, "eligible": 0, "groups": []},
                 "result": None, "finding": "", "texts": None,
+                "election": ballot_election,
             },
         },
         "top": _top_payload(top),

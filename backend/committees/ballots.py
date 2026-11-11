@@ -323,6 +323,72 @@ def open_bundle(meeting: QuestionSet, questions: list[Question]) -> Ballot:
     return _start(meeting, distinct[0], distinct[1:])
 
 
+def runoff_proposal(ballot: Ballot) -> list[int] | None:
+    """The candidates proposed for a runoff after a closed election round:
+    the top two by votes, ties at the second place included ("no" and
+    abstentions do not rank). ``None`` for other ballots."""
+    if (
+        ballot.question.kind != Question.Kind.ELECTION
+        or ballot.status != Ballot.Status.CLOSED or not ballot.result
+        or election_mode(ballot) == "approval"
+    ):
+        return None
+    counts = ballot.result["total"]["counts"]
+    ranked = sorted(
+        ((counts.get(f"opt:{o['id']}", 0), o["id"]) for o in ballot_options(ballot)),
+        key=lambda entry: -entry[0],
+    )
+    if len(ranked) < 2:
+        return None
+    threshold = ranked[1][0]
+    return [option for votes, option in ranked if votes >= threshold]
+
+
+def _runoff_candidates(ballot: Ballot, candidate_ids) -> list[int]:
+    """Validated runoff candidates in the order of the ballot paper."""
+    invalid = ValidationError(
+        "Choose at least two different candidates of this round.", code="runoff_candidates",
+    )
+    if not isinstance(candidate_ids, list) or not all(_is_id(c) for c in candidate_ids):
+        raise invalid
+    chosen = set(candidate_ids)
+    order = [o["id"] for o in ballot_options(ballot)]
+    if len(chosen) < 2 or len(chosen) != len(candidate_ids) or not chosen <= set(order):
+        raise invalid
+    return [option for option in order if option in chosen]
+
+
+def _later_round_exists(ballot: Ballot) -> bool:
+    return (
+        ballots_for(ballot.question).filter(round__gt=ballot.round)
+        .exclude(status=Ballot.Status.DISCARDED).exists()
+    )
+
+
+@transaction.atomic
+def open_runoff(meeting: QuestionSet, ballot: Ballot, candidate_ids) -> Ballot:
+    """A further election round on the same item over `candidate_ids`
+    (one vote each, opens immediately); round 1 stays closed."""
+    abort_stale(meeting)
+    if ballot.question.question_set_id != meeting.pk:
+        raise ValidationError("The item does not belong to this meeting.", code="invalid")
+    _lock_running(meeting)
+    locked = _locked(ballot.pk)
+    if locked is None:
+        raise ValidationError("The vote is not closed.", code="not_closed")
+    ballot = locked
+    if ballot.question.kind != Question.Kind.ELECTION or election_mode(ballot) == "approval":
+        raise ValidationError("Only elections have a runoff.", code="not_an_election")
+    if ballot.status != Ballot.Status.CLOSED:
+        raise ValidationError("The vote is not closed.", code="not_closed")
+    if _meeting_ballots(meeting).filter(status=Ballot.Status.OPEN).exists():
+        raise ValidationError("Another vote is still open.", code="other_open")
+    if _later_round_exists(ballot):
+        raise ValidationError("A further round already exists.", code="runoff_exists")
+    candidates = _runoff_candidates(ballot, candidate_ids)
+    return _start(meeting, ballot.question, [], candidates=candidates, runoff_of=ballot)
+
+
 def _locked(ballot_id: int) -> Ballot | None:
     return (
         Ballot.objects.select_for_update(of=("self",)).select_related("question")
@@ -477,6 +543,10 @@ def reset_ballot(ballot: Ballot, comment: str) -> Ballot:
     if locked is None or locked.status not in (Ballot.Status.OPEN, Ballot.Status.CLOSED):
         raise ValidationError("The vote has already been discarded.", code="not_open")
     ballot = locked
+    if ballot.runoffs.exclude(status=Ballot.Status.DISCARDED).exists():
+        raise ValidationError(
+            "A runoff follows this round. Reset the runoff first.", code="runoff_exists",
+        )
     ballot.seats.all().delete()
     ballot.named_votes.all().delete()
     ballot.texts.all().delete()

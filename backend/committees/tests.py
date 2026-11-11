@@ -1483,6 +1483,24 @@ class BallotBase(MeetingFixture, ApiBase):
     def group_result(self, result, group):
         return next(g for g in result["groups"] if g["group"] == group.pk)
 
+    def election(self, n=3, max_votes=1, cumulate=False, named=False):
+        q = Question.objects.create(
+            question_set=self.meeting, kind="election", text_de="Wahl", position=3,
+            max_votes=max_votes, cumulate=cumulate, named_vote=named,
+        )
+        opts = [
+            AnswerOption.objects.create(question=q, text_de=f"K{i}", position=i)
+            for i in range(n)
+        ]
+        return q, [o.pk for o in opts]
+
+    def result(self, ballot):
+        ballot.refresh_from_db()
+        if ballot.status == Ballot.Status.OPEN:
+            with self.captureOnCommitCallbacks(execute=True):
+                ballot = ballots.close_ballot(ballot)
+        return ballot.result
+
 
 class BallotFlowTests(BallotBase):
     def test_secret_vote_counts_only_in_memory(self):
@@ -3934,24 +3952,6 @@ class ElectionConfigTests(MeetingFixture, ApiBase):
 
 
 class ElectionBallotTests(BallotBase):
-    def election(self, n=3, max_votes=1, cumulate=False, named=False):
-        q = Question.objects.create(
-            question_set=self.meeting, kind="election", text_de="Wahl", position=3,
-            max_votes=max_votes, cumulate=cumulate, named_vote=named,
-        )
-        opts = [
-            AnswerOption.objects.create(question=q, text_de=f"K{i}", position=i)
-            for i in range(n)
-        ]
-        return q, [o.pk for o in opts]
-
-    def result(self, ballot):
-        ballot.refresh_from_db()
-        if ballot.status == Ballot.Status.OPEN:
-            with self.captureOnCommitCallbacks(execute=True):
-                ballot = ballots.close_ballot(ballot)
-        return ballot.result
-
     def test_approval_single_candidate(self):
         q, (a,) = self.election(n=1)
         ballot = ballots.open_ballot(self.meeting, q)
@@ -4066,3 +4066,202 @@ class ElectionBallotTests(BallotBase):
         self.vote(self.anna, res, {"choice": "yes"})
         self.result(res)
         self.assertNotIn("election", seals._result_content(Ballot.objects.get(pk=res.pk), "R"))
+
+
+class RunoffTests(BallotBase):
+    def url(self, suffix):
+        return f"/api/meetings/{self.meeting.pk}/{suffix}"
+
+    def closed_round(self, n=3, max_votes=1, counts=None):
+        """A closed first election round; ``counts`` overrides its totals."""
+        q, ids = self.election(n=n, max_votes=max_votes)
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.result(ballot)
+        ballot.refresh_from_db()
+        if counts is not None:
+            total = ballot.result["total"]["counts"]
+            total.update({f"opt:{ids[i]}": c for i, c in enumerate(counts)})
+            ballot.save(update_fields=["result"])
+        return q, ids, ballot
+
+    def test_runoff_proposal_top_two(self):
+        _, (a, b, _c), ballot = self.closed_round(counts=[5, 3, 1])
+        self.assertEqual(ballots.runoff_proposal(ballot), [a, b])
+
+    def test_runoff_proposal_includes_ties(self):
+        _, (a, b, c, d), ballot = self.closed_round(n=4, counts=[4, 2, 2, 2])
+        self.assertEqual(ballots.runoff_proposal(ballot), [a, b, c, d])
+
+    def test_runoff_proposal_ignores_no_and_abstain(self):
+        _, (a, b, _c), ballot = self.closed_round(counts=[3, 2, 0])
+        ballot.result["total"]["counts"].update({"no": 9, "abstain": 7})
+        self.assertEqual(ballots.runoff_proposal(ballot), [a, b])
+
+    def test_runoff_proposal_none_for_approval_and_open(self):
+        _, _, approval = self.closed_round(n=1)
+        self.assertIsNone(ballots.runoff_proposal(approval))
+        q, _ = self.election()
+        ballot = ballots.open_ballot(self.meeting, q)
+        self.assertIsNone(ballots.runoff_proposal(ballot))
+        self.result(ballot)
+        resolution = ballots.open_ballot(self.meeting, self.q1)
+        self.result(resolution)
+        resolution.refresh_from_db()
+        self.assertIsNone(ballots.runoff_proposal(resolution))
+
+    def test_open_runoff(self):
+        _q, (a, b, c), b1 = self.closed_round()
+        b2 = ballots.open_runoff(self.meeting, b1, [b, a])
+        self.assertEqual(b2.round, 2)
+        self.assertEqual(b2.max_votes, 1)
+        self.assertEqual(b2.runoff_of, b1)
+        self.assertEqual(b2.candidates, [a, b])  # normalized to version order
+        self.assertEqual(b2.status, Ballot.Status.OPEN)
+        self.assertCode("invalid", self.vote, self.anna, b2, {"option": c})
+        self.vote(self.anna, b2, {"option": a})
+        self.result(b2)
+        b2 = Ballot.objects.get(pk=b2.pk)
+        self.assertTrue(seals.reference(b2).endswith("-W2"))
+        self.assertEqual(b2.result["total"]["counts"][f"opt:{a}"], 1)
+        self.assertNotIn(f"opt:{c}", b2.result["total"]["counts"])
+        content = seals._result_content(b2, "R")
+        self.assertEqual(
+            content["election"],
+            {"max_votes": 1, "cumulate": False, "candidates": [a, b], "runoff_of": b1.pk},
+        )
+
+    def test_runoff_over_two_of_three_is_single(self):
+        _, (a, _b, c), b1 = self.closed_round(max_votes=2)
+        b2 = ballots.open_runoff(self.meeting, b1, [a, c])
+        self.assertEqual([o["id"] for o in ballots.ballot_options(b2)], [a, c])
+        self.assertEqual(ballots.election_mode(b2), "single")
+        self.assertEqual((b2.max_votes, b2.cumulate), (1, False))
+
+    def test_open_runoff_rejects(self):
+        _q, (a, b, _c), b1 = self.closed_round()
+        other = AnswerOption.objects.create(question=self.q2, text_de="X")
+        for bad in (
+            [a], [a, a], [a, other.pk], [], "x", None, [a, True], [[a], b], [a, "b"],
+        ):
+            self.assertCode("runoff_candidates", ballots.open_runoff, self.meeting, b1, bad)
+        res = ballots.open_ballot(self.meeting, self.q1)
+        self.assertCode("other_open", ballots.open_runoff, self.meeting, b1, [a, b])
+        self.assertCode("not_an_election", ballots.open_runoff, self.meeting, res, [a, b])
+        self.result(res)
+        res.refresh_from_db()
+        self.assertCode("not_an_election", ballots.open_runoff, self.meeting, res, [a, b])
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        self.assertCode("not_closed", ballots.open_runoff, self.meeting, b2, [a, b])
+        self.result(b2)
+        self.assertCode("runoff_exists", ballots.open_runoff, self.meeting, b1, [a, b])
+        _, _, approval = self.closed_round(n=1)
+        self.assertCode("not_an_election", ballots.open_runoff, self.meeting, approval, [a, b])
+
+    def test_runoff_of_a_runoff(self):
+        _, (a, b, c), b1 = self.closed_round()
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b, c])
+        self.result(b2)
+        b2.refresh_from_db()
+        self.assertCode("runoff_candidates", ballots.open_runoff, self.meeting, b2, [a])
+        b3 = ballots.open_runoff(self.meeting, b2, [a, b])
+        self.assertEqual((b3.round, b3.runoff_of_id), (3, b2.pk))
+
+    def test_reset_first_round_blocked_by_runoff(self):
+        _, (a, b, _c), b1 = self.closed_round()
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        self.assertCode("runoff_exists", ballots.reset_ballot, b1, "")
+        b1.refresh_from_db()
+        self.assertEqual(b1.status, Ballot.Status.CLOSED)
+        ballots.reset_ballot(b2, "")
+        ballots.reset_ballot(b1, "")
+        b1.refresh_from_db()
+        self.assertEqual(b1.status, Ballot.Status.DISCARDED)
+
+    def test_runoff_seats_follow_course(self):
+        q, (a, b, _c), b1 = self.closed_round()
+        later = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Später", position=4,
+        )
+        services.add_substitution(self.meeting, self.anna, self.dora, from_question=later)
+        self.meeting.invites.update(entered_at=timezone.now())
+        self.assertIn(self.dora, eligibility.eligible_voters(self.meeting, later))
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        seats = set(b2.seats.values_list("member_id", flat=True))
+        self.assertEqual(seats, set(b1.seats.values_list("member_id", flat=True)))
+        self.assertEqual(seats, {self.anna.pk, self.bert.pk, self.ben.pk})
+        self.assertEqual(
+            seats, {m.pk for m in eligibility.eligible_voters(self.meeting, q)},
+        )
+
+    def test_public_payload_lists_runoff_candidates_only(self):
+        _q, (a, b, c), b1 = self.closed_round(counts=[3, 2, 1])
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual([o["id"] for o in item["options"]], [a, b, c])
+        self.assertEqual(
+            item["election"],
+            {"mode": "single", "max_votes": 1, "cumulate": False, "runoff": False},
+        )
+        self.assertEqual(
+            item["ballot"]["election"],
+            {
+                "mode": "single", "max_votes": 1, "cumulate": False,
+                "candidates": [a, b, c], "runoff_of": None, "proposal": [a, b],
+            },
+        )
+        b2 = ballots.open_runoff(self.meeting, b1, [a, b])
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual([o["id"] for o in item["options"]], [a, b])
+        self.assertEqual(set(item["options"][0]), {"id", "text"})
+        self.assertEqual(item["election"]["runoff"], True)
+        self.assertEqual(
+            item["ballot"]["election"],
+            {
+                "mode": "single", "max_votes": 1, "cumulate": False,
+                "candidates": [a, b], "runoff_of": b1.pk, "proposal": None,
+            },
+        )
+        self.assertEqual(item["ballot"]["id"], b2.pk)
+
+    def test_election_block_before_first_ballot_and_for_resolutions(self):
+        q, _ = self.election(n=1, max_votes=3)
+        MeetingControl.objects.update_or_create(
+            meeting=self.meeting, defaults={"current_question": q},
+        )
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertEqual(
+            item["election"],
+            {"mode": "approval", "max_votes": 1, "cumulate": False, "runoff": False},
+        )
+        self.assertEqual(
+            payloads.preview_payload(q)["item"]["election"], item["election"],
+        )
+        multi, _ = self.election(max_votes=2)
+        self.assertEqual(
+            payloads.preview_payload(multi)["item"]["election"],
+            {"mode": "multi", "max_votes": 2, "cumulate": False, "runoff": False},
+        )
+        ballots.open_ballot(self.meeting, self.q1)
+        item = payloads.public_payload(self.meeting)["item"]
+        self.assertIsNone(item["election"])
+        self.assertIsNone(item["ballot"]["election"])
+        self.assertIsNone(payloads.preview_payload(self.q1)["item"]["election"])
+
+    def test_runoff_api(self):
+        _, (a, b, _c), b1 = self.closed_round()
+        url = self.url(f"ballots/{b1.pk}/runoff/")
+        resp = self.foreign.post(url, {"candidates": [a, b]}, format="json")
+        self.assertEqual(resp.status_code, 404)
+        for body in ({}, {"candidates": "x"}, {"candidates": [a]}):
+            resp = self.client.post(url, body, format="json")
+            self.assertEqual((resp.status_code, resp.data["code"]), (400, "runoff_candidates"))
+        resp = self.client.post(url, {"candidates": [a, b]}, format="json")
+        self.assertEqual(resp.status_code, 200)
+        b2 = Ballot.objects.get(runoff_of=b1)
+        self.assertEqual(resp.data["open_ballot"], b2.pk)
+        self.assertEqual(
+            [o["id"] for o in resp.data["item"]["options"]], [a, b],
+        )
+        resp = self.client.post(
+            self.url("ballots/999999/runoff/"), {"candidates": [a, b]}, format="json",
+        )
+        self.assertEqual(resp.status_code, 404)

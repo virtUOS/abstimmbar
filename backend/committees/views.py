@@ -569,6 +569,16 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise _coded(exc) from exc
         return self._console(meeting)
 
+    def open_runoff(self, request, pk=None, ballot_id=None):
+        meeting = self.get_object()
+        try:
+            ballots.open_runoff(
+                meeting, self._ballot(meeting, ballot_id), request.data.get("candidates"),
+            )
+        except DjangoValidationError as exc:
+            raise _coded(exc) from exc
+        return self._console(meeting)
+
     def reset_ballot(self, request, pk=None, ballot_id=None):
         meeting = self.get_object()
         comment = request.data.get("comment", "")
