@@ -518,11 +518,11 @@ class StatsTotalsTests(TestCase):
 
     def test_totals_counts(self):
         from basicbar_lti.models import LtiPlatform
-        from lti.models import LtiContextLink
-        from live.models import ParticipantToken, Run, Vote
-        from rooms.models import Question, QuestionSet, Room
 
         from common import stats
+        from live.models import ParticipantToken, Run, Vote
+        from lti.models import LtiContextLink
+        from rooms.models import Question, QuestionSet, Room
 
         lti_room = Room.objects.create(title="LTI room")
         plain_room = Room.objects.create(title="Plain room")
@@ -644,9 +644,8 @@ class StatsDailyTests(TestCase):
 
         from django.utils import timezone
 
-        from rooms.models import Room
-
         from common import stats
+        from rooms.models import Room
 
         Room.objects.create(title="Room A")
         Room.objects.create(title="Room B")
@@ -665,10 +664,9 @@ class StatsDailyTests(TestCase):
         from django.utils import timezone
 
         from accounts.models import DailyModeSession
+        from common import stats
         from live.models import ParticipantToken, Run, Vote
         from rooms.models import Question, QuestionSet, Room
-
-        from common import stats
 
         room = Room.objects.create(title="Room")
         live_set = QuestionSet.objects.create(
@@ -789,6 +787,7 @@ class AdminStatsEndpointTests(TestCase):
 
     def test_explicit_from_to_range(self):
         import datetime
+
         from django.utils import timezone
         staff = User.objects.create_user(username="chef4", is_staff=True)
         self.client.force_login(staff)
@@ -803,8 +802,9 @@ class AdminStatsEndpointTests(TestCase):
         self.assertEqual(len(body["daily"]["rooms"]), 10)
 
     def test_totals_sessions_by_mode(self):
-        from accounts.models import DailyModeSession
         from django.utils import timezone
+
+        from accounts.models import DailyModeSession
         from common import stats
         today = timezone.localdate()
         DailyModeSession.objects.create(session_hash="a", date=today, mode="easy")
