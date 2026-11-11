@@ -87,7 +87,7 @@ let nextClientId = -1;
 // query param on a new (unsaved) question.
 const QUESTION_KINDS = [
   "single_choice", "multiple_choice", "word_cloud", "likert",
-  "open_text", "priorities", "ordering", "mindmap", "matrix", "resolution",
+  "open_text", "priorities", "ordering", "mindmap", "matrix", "resolution", "election",
 ] as const;
 
 /** Per-kind default options for a brand-new question, moved out of
@@ -213,6 +213,9 @@ export default function QuestionPage() {
   const [shuffle, setShuffle] = useState(false);
   const [binaryChoice, setBinaryChoice] = useState(false);
   const [namedVote, setNamedVote] = useState(false);
+  // Election items (meetings): votes per ballot paper and cumulation.
+  const [maxVotes, setMaxVotes] = useState(1);
+  const [cumulate, setCumulate] = useState(false);
   const [reveal, setReveal] = useState<"inherit" | RevealAnswers>("inherit");
   const [options, setOptions] = useState<EditableOption[]>([]);
   // #75 Phase 3: a self-check choice question without a marked correct answer
@@ -359,6 +362,8 @@ export default function QuestionPage() {
       setShuffle(data.shuffle_options);
       setBinaryChoice(data.binary_choice ?? false);
       setNamedVote(data.named_vote ?? false);
+      setMaxVotes(data.max_votes ?? 1);
+      setCumulate(data.cumulate ?? false);
       setReveal(data.reveal_answers);
       setAiEvaluate(data.ai_evaluate);
       setEvaluationHint(data.evaluation_hint);
@@ -569,7 +574,9 @@ export default function QuestionPage() {
             ? t(mindmapProblem.key, mindmapProblem.values ?? {})
             : matrixIssue
               ? t(matrixIssue.key, matrixIssue.values ?? {})
-              : t("Add at least two answer options, each with text."),
+              : isElection
+                ? t("Every candidate needs a name.")
+                : t("Add at least two answer options, each with text."),
       );
       return false;
     }
@@ -583,7 +590,10 @@ export default function QuestionPage() {
         text,
         shuffle_options: shuffle,
         binary_choice: question.kind === "single_choice" && binaryChoice,
-        named_vote: set?.type === "meeting" && namedVote,
+        named_vote: set?.type === "meeting" && question.kind !== "election" && namedVote,
+        ...(set?.type === "meeting" && question.kind === "election"
+          ? { max_votes: maxVotes, cumulate: maxVotes > 1 && cumulate }
+          : {}),
         reveal_answers:
           question.kind === "single_choice" || question.kind === "multiple_choice"
             ? reveal
@@ -850,6 +860,11 @@ export default function QuestionPage() {
   const isMatrix = question.kind === "matrix";
   const isResolution = question.kind === "resolution";
   const isMeeting = set.type === "meeting";
+  const isElection = question.kind === "election";
+  const filledCandidates = options.filter(
+    (o) => (localizedMap(o.text)[getDefaultContentLang() as "de" | "en"] ?? "").trim() !== "" || !!o.image,
+  ).length;
+  const tooFewCandidates = isElection && filledCandidates > 0 && maxVotes > filledCandidates && !cumulate;
   const isChoice =
     question.kind !== "word_cloud" &&
     !isResolution &&
@@ -878,7 +893,8 @@ export default function QuestionPage() {
   const filledOptions = options.filter(
     (o) => (localizedMap(o.text)[canonicalLang] ?? "").trim() !== "" || !!o.image,
   );
-  const optionsMissing = isChoice && filledOptions.length < 2;
+  // An election may have a single candidate (approval vote: yes/no/abstain).
+  const optionsMissing = isChoice && filledOptions.length < (isElection ? 1 : 2);
   // Mindmap: the predefined branches must fit the depth, have a term each and
   // no duplicate siblings (mirrors backend rooms/mindmap.clean_seed).
   const mindmapProblem = isMindmap
@@ -920,7 +936,7 @@ export default function QuestionPage() {
   // there are unsaved changes before paging to another question (#92).
   function editSnapshot() {
     return JSON.stringify({
-      text, shuffle, binaryChoice, namedVote, reveal, options,
+      text, shuffle, binaryChoice, namedVote, maxVotes, cumulate, reveal, options,
       timeLimit, likertPreset, abstention,
       // Likert step count and endpoint labels live outside `options` until
       // save (likertOptions() bakes them in), so the unsaved-changes guard
@@ -1235,7 +1251,7 @@ export default function QuestionPage() {
           </p>
         )}
 
-        {isMeeting && (
+        {isMeeting && !isElection && (
           <div>
             <ToggleSwitch
               checked={namedVote}
@@ -1250,12 +1266,46 @@ export default function QuestionPage() {
           </div>
         )}
 
+        {isElection && (
+          <div className="space-y-2">
+            <label className="flex items-center gap-3 text-sm font-medium text-slate-700 dark:text-slate-300">
+              <span>{t("Votes per person")}</span>
+              <input
+                type="number"
+                min={1}
+                max={20}
+                value={maxVotes}
+                onChange={(event) => {
+                  const n = parseInt(event.target.value, 10);
+                  setMaxVotes(Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1);
+                }}
+                className="w-20 rounded-lg border border-slate-300 bg-white px-2 py-1 text-slate-900 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </label>
+            {maxVotes > 1 && (
+              <ToggleSwitch
+                checked={cumulate}
+                onChange={setCumulate}
+                label={t("Allow cumulating")}
+              />
+            )}
+            <p className="text-xs text-slate-400">
+              {t("With only one candidate, members vote Yes, No or Abstain.")}
+            </p>
+            {tooFewCandidates && (
+              <p className="text-sm text-danger">
+                {t("There are fewer candidates than votes. Allow cumulating or reduce the number of votes.")}
+              </p>
+            )}
+          </div>
+        )}
+
         {isChoice && (
           <>
             <div>
               <div className="mb-1 flex items-baseline justify-between">
                 <span className="text-sm font-medium text-slate-700 dark:text-slate-300">
-                  {t("Answer options")}
+                  {isElection ? t("Candidates") : t("Answer options")}
                 </span>
                 {hasCorrect && (
                   <span className="text-xs text-slate-400">
@@ -1396,13 +1446,15 @@ export default function QuestionPage() {
                       ])
                     }
                   >
-                    + {t("Add answer")}
+                    + {isElection ? t("Add candidate") : t("Add answer")}
                   </Button>
                 )}
               </div>
               {optionsMissing && (
                 <p className="mt-2 text-sm text-danger">
-                  {t("Add at least two answer options, each with text.")}
+                  {isElection
+                    ? t("Every candidate needs a name.")
+                    : t("Add at least two answer options, each with text.")}
                 </p>
               )}
 

@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, X, type LucideIcon } from "lucide-react";
+import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, Vote, X, type LucideIcon } from "lucide-react";
 import {
   api,
   live,
@@ -448,6 +448,13 @@ const QUESTION_TYPES: {
     group: "choose",
     label: "Resolution",
     description: "Yes / No / Abstention on a motion; the vote can be named or secret.",
+  },
+  {
+    kind: "election",
+    icon: Vote,
+    group: "choose",
+    label: "Election",
+    description: "Candidates are elected by secret ballot, with optional runoff rounds.",
   },
   {
     kind: "single_choice",
