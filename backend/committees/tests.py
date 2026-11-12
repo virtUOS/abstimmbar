@@ -4566,7 +4566,21 @@ class InviteMailTests(MeetingFixture, ApiBase):
         self.assertIn("Sitzung", de_body)
         self.assertIn("Termin", de_body)
         self.assertIn("Bitte leiten Sie ihn nicht weiter.", de_body)
-        self.assertNotIn("&", de_body)  # no HTML escaping in plain text
+        # the date follows the member's language (German vs. English format)
+        de_date = re.search(r"^Termin: (.+)$", de_body, re.MULTILINE).group(1)
+        en_date = re.search(r"^Date: (.+)$", en_body, re.MULTILINE).group(1)
+        self.assertNotEqual(de_date, en_date)
+        local = timezone.localtime(self.meeting.scheduled_at)
+        self.assertIn(f"{local:%H:%M}", de_date)
+
+    def test_plain_text_not_escaped(self):
+        self.meeting.title_de = "Rat & <Ausschuss>"
+        self.meeting.save()
+        r = self.post({"subject": "x", "message": 'A & B <x> "q"'})
+        self.assertEqual(r.status_code, 200)
+        body = self.mail_to(self.de).body
+        self.assertIn('A & B <x> "q"', body)
+        self.assertIn("Rat & <Ausschuss>", body)
 
     def test_title_falls_back_to_canonical(self):
         self.meeting.title_en = ""
