@@ -4692,6 +4692,19 @@ class InviteMailTests(MeetingFixture, ApiBase):
         self.assertIsNotNone(invites[self.de.pk].mailed_at)
         self.assertIsNone(invites[self.en.pk].mailed_at)
 
+    def test_malformed_address_lands_in_failed(self):
+        # bypasses EmailField validation, like legacy or hand-edited data
+        CommitteeMember.objects.filter(pk=self.en.pk).update(email="bob\n@uni.de")
+        with self.assertLogs("committees.mailing", "WARNING") as logs:
+            r = self.post()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["sent"], 1)
+        self.assertEqual(r.json()["failed"], ["Bob"])
+        self.assertEqual([m.to for m in self.outbox], [[self.de.email]])
+        self.assertNotIn("@", "\n".join(logs.output))
+        self.assertIsNone(MeetingInvite.objects.get(member=self.en).mailed_at)
+        self.assertIsNotNone(MeetingInvite.objects.get(member=self.de).mailed_at)
+
     def test_connection_failure(self):
         from django.core.mail.backends.locmem import EmailBackend
 

@@ -26,6 +26,9 @@ from .serializers import invite_url
 logger = logging.getLogger(__name__)
 
 _SEND_ERRORS = (smtplib.SMTPException, OSError)
+# Per message also ValueError: a malformed stored address (incl. BadHeaderError)
+# must only fail that member, not abort the batch.
+_MESSAGE_ERRORS = (*_SEND_ERRORS, ValueError)
 
 
 @dataclass
@@ -92,7 +95,7 @@ def send_invitations(
             )
             try:
                 mail.send()
-            except _SEND_ERRORS as exc:
+            except _MESSAGE_ERRORS as exc:
                 errors.add(type(exc).__name__)
                 result.failed.append(invite)
                 continue
