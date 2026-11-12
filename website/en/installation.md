@@ -435,6 +435,12 @@ them or via the CSV export instead. Set in `.env` (values as in
 - `MAIL_ENABLED` — optional. Empty: sending is on as soon as `EMAIL_HOST`
   **and** `DEFAULT_FROM_EMAIL` are set; `0` switches it off regardless.
 
+Please note: once sending is on, every person who manages a committee room
+can send mails with their own text from `DEFAULT_FROM_EMAIL` to the addresses
+in their member list. Abstimmbar limits this to 10 sends per hour per person
+and 200 recipients per send; `Reply-To` is the chair. Consider a dedicated
+sender address and limits on the SMTP server's side.
+
 Like all new variables they must also appear in the `environment:` block of
 the `app` service (see "New configuration variable? Update it in three places" below); the shipped
 `docker-compose.prod.yml` already contains them. Run `up -d` after changing

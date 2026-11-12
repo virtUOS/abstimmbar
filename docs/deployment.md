@@ -421,6 +421,13 @@ SMTP-Konfiguration bleibt die Funktion aus; die Links verteilen Sie dann
 - `MAIL_ENABLED` — optional. Leer: der Versand ist an, sobald `EMAIL_HOST`
   **und** `DEFAULT_FROM_EMAIL` gesetzt sind; `0` schaltet ihn trotzdem ab.
 
+Bitte bedenken: Ist der Versand an, kann jede Person, die einen Gremien-Raum
+verwaltet, Mails mit eigenem Text vom `DEFAULT_FROM_EMAIL` an die Adressen
+ihrer Mitgliederliste schicken. Abstimmbar begrenzt das auf 10 Versände pro
+Stunde und Person und 200 Empfänger je Versand; `Reply-To` ist die
+Sitzungsleitung. Erwägen Sie eine eigene Absenderadresse und Limits auf
+Seiten des SMTP-Servers.
+
 Wie alle neuen Variablen müssen sie auch im `environment:`-Block des
 `app`-Service stehen (siehe „Neue Konfigurations-Variable?“ unten); die
 mitgelieferte `docker-compose.prod.yml` enthält sie bereits. Nach der
