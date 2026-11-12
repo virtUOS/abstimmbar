@@ -195,7 +195,7 @@ msgstr "Nächste Frage"
 
 #: live/templates/live/participant.html:202
 msgid "Almost there — look at the screen."
-msgstr "Gleich geht es weiter — bitte schauen Sie an die Wand."
+msgstr "Gleich geht es weiter — die nächste Frage erscheint hier in Kürze."
 
 #: live/templates/live/participant.html:203
 #, python-brace-format
