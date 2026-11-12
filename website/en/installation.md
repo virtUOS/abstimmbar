@@ -417,6 +417,29 @@ is not set). Setup, metrics and example queries:
   persons or sessions and no timestamps. The table stays small (a few rows
   per day). Example rooms don't count towards the usage figures.
 
+### Sending e-mail (optional)
+
+The committee room can send meeting invitation links by e-mail. Without
+SMTP configuration the feature stays off; distribute the links by copying
+them or via the CSV export instead. Set in `.env` (values as in
+`.env.prod.example`):
+
+- `EMAIL_HOST`, `EMAIL_PORT` (default 587), `EMAIL_HOST_USER`,
+  `EMAIL_HOST_PASSWORD` — the SMTP server.
+- `DEFAULT_FROM_EMAIL` — sender of the invitations, e.g.
+  `Abstimmbar <abstimmbar@uni-example.de>`. Replies go to the meeting chair
+  via `Reply-To`, not to this address.
+- `EMAIL_USE_TLS` (default `1`, port 587 with STARTTLS) or
+  `EMAIL_USE_SSL=1` (implicit TLS, port 465; STARTTLS is then off).
+- `EMAIL_TIMEOUT` (seconds, default 10).
+- `MAIL_ENABLED` — optional. Empty: sending is on as soon as `EMAIL_HOST`
+  **and** `DEFAULT_FROM_EMAIL` are set; `0` switches it off regardless.
+
+Like all new variables they must also appear in the `environment:` block of
+the `app` service (see "New configuration variable? Update it in three places" below); the shipped
+`docker-compose.prod.yml` already contains them. Run `up -d` after changing
+them so the container is recreated.
+
 ## Retention of the mode statistics
 
 The `DailyModeSession` table grows continuously. A management command
@@ -580,7 +603,7 @@ Double-check what actually reaches the running container:
 
 ```bash
 sudo docker compose -f docker-compose.prod.yml exec app env \
-  | grep -oE "^(DJANGO_|OIDC_|POSTGRES_|AI_|CSRF|FRONTEND|SESSION)[A-Z_]*" | sort
+  | grep -oE "^(DJANGO_|OIDC_|POSTGRES_|AI_|CSRF|FRONTEND|SESSION|EMAIL_|DEFAULT_FROM|MAIL_)[A-Z_]*" | sort
 ```
 
 ## HTTPS certificates (Caddy), in plain terms

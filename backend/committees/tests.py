@@ -4478,3 +4478,22 @@ class RunoffTests(BallotBase):
             self.url("ballots/999999/runoff/"), {"candidates": [a, b]}, format="json",
         )
         self.assertEqual(resp.status_code, 404)
+
+
+class MailSettingsTests(TestCase):
+    """MAIL_ENABLED derivation (pure function, config/mail.py)."""
+
+    def test_derivation(self):
+        from config.mail import mail_enabled
+
+        cases = [
+            ({}, False),
+            ({"EMAIL_HOST": "smtp.x", "DEFAULT_FROM_EMAIL": "a@x"}, True),
+            ({"EMAIL_HOST": "smtp.x"}, False),
+            ({"MAIL_ENABLED": "0", "EMAIL_HOST": "h", "DEFAULT_FROM_EMAIL": "a@x"}, False),
+            ({"MAIL_ENABLED": "1"}, True),
+            ({"MAIL_ENABLED": "", "EMAIL_HOST": "h", "DEFAULT_FROM_EMAIL": "a@x"}, True),
+        ]
+        for env, expected in cases:
+            with self.subTest(env=env):
+                self.assertIs(mail_enabled(env), expected)

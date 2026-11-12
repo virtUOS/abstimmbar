@@ -66,6 +66,10 @@ services:
       WATCHFILES_FORCE_POLLING: "true"
       OIDC_LOGIN_REDIRECT_URL: ${OIDC_LOGIN_REDIRECT_URL:-http://localhost:5174/}
       OIDC_LOGOUT_REDIRECT_URL: ${OIDC_LOGOUT_REDIRECT_URL:-http://localhost:5174/}
+      # dev: invitation mails are printed to the backend log
+      EMAIL_BACKEND: ${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      MAIL_ENABLED: ${MAIL_ENABLED:-1}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-abstimmbar@localhost}
       # Optional AI features (LiteLLM). Off unless all four are set.
       AI_PROVIDER: ${AI_PROVIDER:-none}
       AI_BASE_URL: ${AI_BASE_URL:-}

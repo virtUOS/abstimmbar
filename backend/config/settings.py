@@ -7,6 +7,8 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 
+from .mail import mail_enabled
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
@@ -236,6 +238,22 @@ REST_FRAMEWORK = {
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardPagination",
     "PAGE_SIZE": 25,
 }
+
+# E-mail (committee invitations). Off unless EMAIL_HOST and
+# DEFAULT_FROM_EMAIL are set, or forced via MAIL_ENABLED=1/0.
+EMAIL_BACKEND = os.environ.get(
+    "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
+)
+EMAIL_HOST = os.environ.get("EMAIL_HOST", "")
+EMAIL_PORT = _int_or_default("EMAIL_PORT", 587)
+EMAIL_HOST_USER = os.environ.get("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.environ.get("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0") == "1"
+# Django forbids both at once; implicit TLS (SSL) wins.
+EMAIL_USE_TLS = os.environ.get("EMAIL_USE_TLS", "1") == "1" and not EMAIL_USE_SSL
+EMAIL_TIMEOUT = _int_or_default("EMAIL_TIMEOUT", 10)
+DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "")
+MAIL_ENABLED = mail_enabled(os.environ)
 
 # Optional AI features via a LiteLLM proxy (see common/ai.py). Off unless
 # fully configured; "enabled" is derived from these, not a separate flag.
