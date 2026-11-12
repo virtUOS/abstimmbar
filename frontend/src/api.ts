@@ -254,6 +254,8 @@ export interface MeetingInvite {
   /** Removed after this agenda item (question id); null = right away. */
   removed_after: number | null;
   state: InviteState;
+  /** Last time the link was sent by e-mail (ISO); null = never. */
+  mailed_at: string | null;
 }
 
 export interface MeetingSubstitution {
@@ -277,6 +279,16 @@ export interface MeetingSummary {
   chair_is_member: boolean;
   /** A running test run: nothing is recorded, ending resets the meeting. */
   trial: boolean;
+  /** The server can send the links by e-mail (MAIL_ENABLED). */
+  mail_enabled: boolean;
+}
+
+/** Outcome of sending the personal links by e-mail (member names). */
+export interface InviteMailResult {
+  meeting: MeetingSummary;
+  sent: number;
+  failed: string[];
+  no_email: string[];
 }
 
 /** Kind of an agenda item a ballot can run on. */
@@ -1332,6 +1344,16 @@ export const api = {
   /** Create the missing personal links (never deletes any). */
   ensureMeetingInvites: (setId: number) =>
     request<MeetingSummary>(`/api/meetings/${setId}/invites/`, { method: "POST" }),
+  /** Mail each valid link to its member (only not-yet-mailed ones unless
+   *  `resend`); creates missing links first. */
+  mailMeetingInvites: (
+    setId: number,
+    body: { subject: string; message: string; resend: boolean },
+  ) =>
+    request<InviteMailResult>(`/api/meetings/${setId}/invites/mail/`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   /** CSV of the currently valid (waiting/active) links. */
   meetingInvitesCsvUrl: (setId: number) =>
     `${API_BASE_URL}/api/meetings/${setId}/invites.csv`,

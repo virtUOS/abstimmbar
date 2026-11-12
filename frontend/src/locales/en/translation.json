@@ -62,5 +62,9 @@
   "Up to {{count}} votes per person_one": "Up to {{count}} vote per person",
   "Up to {{count}} votes per person_other": "Up to {{count}} votes per person",
   "{{count}} votes_one": "{{count}} vote",
-  "{{count}} votes_other": "{{count}} votes"
+  "{{count}} votes_other": "{{count}} votes",
+  "Goes to {{count}} members_one": "Goes to {{count}} member",
+  "Goes to {{count}} members_other": "Goes to {{count}} members",
+  "{{count}} e-mails sent._one": "{{count}} e-mail sent.",
+  "{{count}} e-mails sent._other": "{{count}} e-mails sent."
 }

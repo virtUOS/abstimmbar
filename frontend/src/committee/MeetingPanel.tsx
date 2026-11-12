@@ -17,6 +17,7 @@ import {
   FileText,
   FlaskConical,
   KeyRound,
+  Mail,
   Pencil,
   Play,
   Presentation,
@@ -31,6 +32,7 @@ import {
   requestError,
   type CommitteeGroup,
   type CommitteeMember,
+  type InviteMailResult,
   type InviteState,
   type MeetingInvite,
   type MeetingSummary,
@@ -48,6 +50,7 @@ import {
   ToggleSwitch,
 } from "../components/ui";
 import { agendaLabels } from "./agendaLabels";
+import InviteMailDialog, { type InviteMailBody, isValidInvite } from "./InviteMailDialog";
 import { MeetingDateInput, STATE_BADGE, STATE_LABEL } from "./MeetingList";
 import { onMeetingEnded } from "./meetingEnd";
 
@@ -562,6 +565,15 @@ export default function MeetingPanel({
         busy={busy}
         error={linksError}
         onGenerate={() => void run(() => api.ensureMeetingInvites(set.id), setLinksError)}
+        mailTitle={localizedText(set.title)}
+        onMail={async (body, setError) => {
+          const box: { result?: InviteMailResult } = {};
+          const ok = await run(async () => {
+            box.result = await api.mailMeetingInvites(set.id, body);
+            return box.result.meeting;
+          }, setError);
+          return ok ? box.result ?? null : null;
+        }}
         onRemove={(invite, after) =>
           run(() => api.removeInvite(set.id, invite.id, after), setLinksError)
         }
@@ -606,6 +618,8 @@ function InviteSection({
   busy,
   error,
   onGenerate,
+  mailTitle,
+  onMail,
   onRemove,
   onReadmit,
   csvUrl,
@@ -617,18 +631,28 @@ function InviteSection({
   busy: boolean;
   error: string;
   onGenerate: () => void;
+  /** Meeting title (UI language) for the mail subject. */
+  mailTitle: string;
+  onMail: (
+    body: InviteMailBody,
+    setError: (text: string) => void,
+  ) => Promise<InviteMailResult | null>;
   onRemove: (invite: MeetingInvite, after: number | null) => Promise<boolean>;
   onReadmit: (invite: MeetingInvite) => void;
   csvUrl: string;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [copied, setCopied] = useState<number | null>(null);
+  const [mailing, setMailing] = useState(false);
+  const [mailResult, setMailResult] = useState<InviteMailResult | null>(null);
   const [copyError, setCopyError] = useState("");
   const [removing, setRemoving] = useState<number | null>(null);
   const [removeAfter, setRemoveAfter] = useState("");
   const ended = meeting.meeting_state === "ended";
   const invites = meeting.invites;
-  const hasValid = invites.some((invite) => invite.state === "waiting" || invite.state === "active");
+  const hasValid = invites.some(isValidInvite);
+  const mailDate = (iso: string) =>
+    new Intl.DateTimeFormat(i18n.language, { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
   // Closed once links exist: the table is long and the agenda below matters more.
   const [open, setOpen] = useState(invites.length === 0);
   const connected = invites.filter((invite) => invite.state === "active").length;
@@ -678,7 +702,30 @@ function InviteSection({
               {t("All links as CSV")}
             </a>
           )}
+          {hasValid && meeting.mail_enabled && (
+            <Button
+              disabled={busy}
+              onClick={() => setMailing(true)}
+              className="inline-flex items-center gap-1.5"
+            >
+              <Mail aria-hidden className="h-4 w-4" />
+              {t("Invite by e-mail")}
+            </Button>
+          )}
         </div>
+      )}
+      {mailing && !ended && (
+        <InviteMailDialog
+          title={mailTitle}
+          invites={invites}
+          busy={busy}
+          onSend={onMail}
+          onSent={(result) => {
+            setMailing(false);
+            setMailResult(result);
+          }}
+          onCancel={() => setMailing(false)}
+        />
       )}
       {invites.length === 0 ? (
         <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -727,6 +774,11 @@ function InviteSection({
                       >
                         {t(INVITE_STATE_LABEL[invite.state])}
                       </span>
+                      {invite.mailed_at && (
+                        <span className="mt-1 block whitespace-nowrap text-xs text-slate-500 dark:text-slate-400">
+                          {t("E-mail: {{date}}", { date: mailDate(invite.mailed_at) })}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2">
                       {removing === invite.id ? (
@@ -820,6 +872,25 @@ function InviteSection({
       )}
       </div>
       )}
+      <div data-testid="mail-status" aria-live="polite" className="grid gap-0.5 text-sm empty:hidden">
+        {mailResult && (
+          <>
+            <p className="text-slate-700 dark:text-slate-200">
+              {t("{{count}} e-mails sent.", { count: mailResult.sent })}
+            </p>
+            {mailResult.failed.length > 0 && (
+              <p className="text-danger">
+                {t("Not delivered: {{names}}", { names: mailResult.failed.join(", ") })}
+              </p>
+            )}
+            {mailResult.no_email.length > 0 && (
+              <p className="text-slate-600 dark:text-slate-300">
+                {t("Without an e-mail address: {{names}}", { names: mailResult.no_email.join(", ") })}
+              </p>
+            )}
+          </>
+        )}
+      </div>
       <ErrorText text={error || copyError} />
     </div>
   );
