@@ -138,6 +138,8 @@ class MeetingInvite(models.Model):
     )
     # Set when the member enters the running meeting via their link.
     entered_at = models.DateTimeField(null=True, blank=True)
+    # Last time the personal link was sent by e-mail (subject/text are not kept).
+    mailed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

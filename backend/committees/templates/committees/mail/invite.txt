@@ -1,0 +1,7 @@
+{% load i18n %}{% autoescape off %}{% if message %}{{ message }}
+
+{% endif %}{% trans "Meeting" %}: {{ title }}
+{% if scheduled_at %}{% trans "Date" %}: {{ scheduled_at|date:"DATETIME_FORMAT" }}
+{% endif %}{% trans "Your personal link" %}: {{ url }}
+
+{% trans "This link is personal and valid for this meeting only. Please do not forward it." %}{% endautoescape %}

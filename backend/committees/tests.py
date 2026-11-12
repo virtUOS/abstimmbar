@@ -4497,3 +4497,211 @@ class MailSettingsTests(TestCase):
         for env, expected in cases:
             with self.subTest(env=env):
                 self.assertIs(mail_enabled(env), expected)
+
+
+@override_settings(MAIL_ENABLED=True, DEFAULT_FROM_EMAIL="Abstimmbar <noreply@example.org>")
+class InviteMailTests(MeetingFixture, ApiBase):
+    """POST /api/meetings/<pk>/invites/mail/: one personal mail per member."""
+
+    def setUp(self):
+        super().setUp()
+        self.make_fixture(room=self.room)
+        add_vote(self.meeting)
+        self.meeting.title_de = "Fakultätsrat"
+        self.meeting.title_en = "Faculty council"
+        self.meeting.scheduled_at = timezone.now() + timezone.timedelta(days=3)
+        self.meeting.save()
+        self.de = self.member("Anna", self.ga, email="anna@uni.de")
+        self.en = self.member("Bob", self.ga, email="bob@uni.de")
+        self.en.language = "en"
+        self.en.save()
+        self.nomail = self.member("Carla", self.gb)
+        self.url = f"/api/meetings/{self.meeting.pk}/invites/mail/"
+        from django.core import mail
+
+        self.outbox = mail.outbox
+
+    def post(self, body=None, client=None):
+        body = {"subject": "Einladung", "message": "Hallo"} if body is None else body
+        return (client or self.client).post(self.url, body, format="json")
+
+    def mail_to(self, member):
+        found = [m for m in self.outbox if m.to == [member.email]]
+        self.assertEqual(len(found), 1)
+        return found[0]
+
+    def test_sends_one_mail_per_member(self):
+        r = self.post()
+        self.assertEqual(r.status_code, 200, r.content)
+        data = r.json()
+        self.assertEqual(data["sent"], 2)
+        self.assertEqual(data["failed"], [])
+        self.assertEqual(data["no_email"], ["Carla"])
+        self.assertIn("invites", data["meeting"])
+        self.assertEqual(len(self.outbox), 2)
+        for member in (self.de, self.en):
+            msg = self.mail_to(member)
+            self.assertEqual(msg.cc, [])
+            self.assertEqual(msg.bcc, [])
+            self.assertEqual(msg.subject, "Einladung")
+            self.assertEqual(msg.from_email, "Abstimmbar <noreply@example.org>")
+            self.assertIn("Hallo", msg.body)
+            token = MeetingInvite.objects.get(meeting=self.meeting, member=member).token
+            self.assertIn(f"/g/{token}/", msg.body)
+            self.assertIn("http", msg.body)
+        invites = {i.member_id: i for i in MeetingInvite.objects.filter(meeting=self.meeting)}
+        self.assertIsNotNone(invites[self.de.pk].mailed_at)
+        self.assertIsNotNone(invites[self.en.pk].mailed_at)
+        self.assertIsNone(invites[self.nomail.pk].mailed_at)
+
+    def test_member_language(self):
+        self.assertEqual(self.post().status_code, 200)
+        en_body = self.mail_to(self.en).body
+        de_body = self.mail_to(self.de).body
+        self.assertIn("Faculty council", en_body)
+        self.assertIn("Your personal link", en_body)
+        self.assertNotIn("Fakultätsrat", en_body)
+        self.assertIn("Fakultätsrat", de_body)
+        self.assertIn("Ihr persönlicher Link", de_body)
+        self.assertIn("Sitzung", de_body)
+        self.assertIn("Termin", de_body)
+        self.assertIn("Bitte leiten Sie ihn nicht weiter.", de_body)
+        self.assertNotIn("&", de_body)  # no HTML escaping in plain text
+
+    def test_title_falls_back_to_canonical(self):
+        self.meeting.title_en = ""
+        self.meeting.scheduled_at = None
+        self.meeting.save()
+        self.assertEqual(self.post().status_code, 200)
+        en_body = self.mail_to(self.en).body
+        self.assertIn("Fakultätsrat", en_body)
+        self.assertNotIn("Date:", en_body)
+
+    def test_reply_to_is_chair(self):
+        self.user.email = "chair@uni.de"
+        self.user.save()
+        self.assertEqual(self.post().status_code, 200)
+        self.assertTrue(all(m.reply_to == ["chair@uni.de"] for m in self.outbox))
+        self.outbox.clear()
+        self.user.email = ""
+        self.user.save()
+        self.assertEqual(self.post({"subject": "x", "resend": True}).status_code, 200)
+        self.assertEqual(len(self.outbox), 2)
+        self.assertTrue(all(m.reply_to == [] for m in self.outbox))
+
+    def test_unsent_only_by_default(self):
+        self.assertEqual(self.post().json()["sent"], 2)
+        r = self.post()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["sent"], 0)
+        self.assertEqual(len(self.outbox), 2)
+        r = self.post({"subject": "Erinnerung", "resend": True})
+        self.assertEqual(r.json()["sent"], 2)
+        self.assertEqual(len(self.outbox), 4)
+        # resend must be literally true
+        r = self.post({"subject": "Erinnerung", "resend": "true"})
+        self.assertEqual(r.json()["sent"], 0)
+
+    def test_skips_invalid_invites(self):
+        dora = self.member("Dora", self.ga, role="deputy", rank=1, email="dora@uni.de")
+        services.add_substitution(self.meeting, self.en, dora)
+        r = self.post()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["sent"], 2)
+        self.assertEqual(sorted(m.to[0] for m in self.outbox), ["anna@uni.de", "dora@uni.de"])
+
+    def test_subject_newlines_flattened(self):
+        r = self.post({"subject": "A\r\nBcc: x@y", "message": ""})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(all(m.subject == "A Bcc: x@y" for m in self.outbox))
+        self.assertTrue(all(m.bcc == [] for m in self.outbox))
+
+    def test_validation(self):
+        for body in (
+            {"subject": "", "message": "x"},
+            {"subject": "   \n ", "message": "x"},
+            {"message": "x"},
+            {"subject": "x" * 201},
+        ):
+            with self.subTest(body=body):
+                r = self.post(body)
+                self.assertEqual(r.status_code, 400)
+                self.assertIn("subject", r.json())
+        r = self.post({"subject": "ok", "message": "x" * 5001})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("message", r.json())
+        r = self.post({"subject": "ok", "message": ["x"]})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.post({"subject": "x" * 200, "message": "x" * 5000}).status_code, 200)
+        self.assertEqual(len(self.outbox), 2)
+
+    @override_settings(MAIL_ENABLED=False)
+    def test_disabled(self):
+        r = self.post()
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "mail_disabled")
+        self.assertEqual(self.outbox, [])
+
+    def test_ended_meeting(self):
+        services.start_meeting(self.meeting)
+        services.end_meeting(self.meeting)
+        r = self.post()
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.outbox, [])
+
+    def test_smtp_failure_partial(self):
+        import smtplib
+
+        from django.core.mail.backends.locmem import EmailBackend
+
+        original = EmailBackend.send_messages
+
+        def flaky(backend, messages):
+            for msg in messages:
+                if self.en.email in msg.to:
+                    raise smtplib.SMTPRecipientsRefused({self.en.email: (550, b"no")})
+            return original(backend, messages)
+
+        with (
+            mock.patch.object(EmailBackend, "send_messages", flaky),
+            self.assertLogs("committees.mailing", "WARNING") as logs,
+        ):
+            r = self.post()
+        log = "\n".join(logs.output)
+        self.assertIn("SMTPRecipientsRefused", log)
+        self.assertNotIn("@", log)
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["sent"], 1)
+        self.assertEqual(r.json()["failed"], ["Bob"])
+        self.assertEqual([m.to for m in self.outbox], [[self.de.email]])
+        invites = {i.member_id: i for i in MeetingInvite.objects.filter(meeting=self.meeting)}
+        self.assertIsNotNone(invites[self.de.pk].mailed_at)
+        self.assertIsNone(invites[self.en.pk].mailed_at)
+
+    def test_connection_failure(self):
+        from django.core.mail.backends.locmem import EmailBackend
+
+        with (
+            mock.patch.object(EmailBackend, "open", side_effect=OSError("down")),
+            self.assertLogs("committees.mailing", "WARNING"),
+        ):
+            r = self.post()
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["sent"], 0)
+        self.assertEqual(r.json()["failed"], ["Anna", "Bob"])
+        self.assertFalse(MeetingInvite.objects.filter(mailed_at__isnull=False).exists())
+
+    def test_permissions(self):
+        self.assertEqual(self.post(client=self.foreign).status_code, 404)
+        self.assertEqual(self.outbox, [])
+
+    def test_serializer_fields(self):
+        data = self.client.get(f"/api/meetings/{self.meeting.pk}/").json()
+        self.assertIs(data["mail_enabled"], True)
+        self.client.post(f"/api/meetings/{self.meeting.pk}/invites/")
+        data = self.client.get(f"/api/meetings/{self.meeting.pk}/").json()
+        self.assertTrue(data["invites"])
+        self.assertTrue(all("mailed_at" in i for i in data["invites"]))
+        with override_settings(MAIL_ENABLED=False):
+            data = self.client.get(f"/api/meetings/{self.meeting.pk}/").json()
+            self.assertIs(data["mail_enabled"], False)

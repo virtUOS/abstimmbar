@@ -26,7 +26,7 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import ballots, live, payloads, protocol, protocol_pdf, seals, services
+from . import ballots, live, mailing, payloads, protocol, protocol_pdf, seals, services
 from .models import (
     Ballot,
     BallotSeat,
@@ -360,6 +360,44 @@ class MeetingViewSet(viewsets.GenericViewSet):
         )
         response["Content-Disposition"] = f'attachment; filename="links-{meeting.pk}.csv"'
         return response
+
+    def mail_invites(self, request, pk=None):
+        """Send each valid invite's personal link to its member by e-mail
+        (only not-yet-mailed ones unless ``resend`` is true)."""
+        meeting = self.get_object()
+        if not settings.MAIL_ENABLED:
+            raise ValidationError({
+                "detail": "E-mail sending is not configured.", "code": "mail_disabled",
+            })
+        try:
+            services.check_not_ended(meeting)
+        except DjangoValidationError as exc:
+            raise _detail(exc) from exc
+        subject = request.data.get("subject")
+        subject = " ".join(subject.split()) if isinstance(subject, str) else ""
+        if not subject:
+            raise ValidationError({"subject": "A subject is required."})
+        if len(subject) > 200:
+            raise ValidationError({"subject": "The subject is too long (max. 200 characters)."})
+        message = request.data.get("message", "")
+        if message is None:
+            message = ""
+        if not isinstance(message, str):
+            raise ValidationError({"message": "Invalid text."})
+        message = message.strip()
+        if len(message) > 5000:
+            raise ValidationError({"message": "The text is too long (max. 5000 characters)."})
+        result = mailing.send_invitations(
+            meeting, request=request, subject=subject, message=message,
+            resend=request.data.get("resend") is True,
+        )
+        meeting.refresh_from_db()
+        return Response({
+            "meeting": self.get_serializer(meeting).data,
+            "sent": len(result.sent),
+            "failed": [invite.member.name for invite in result.failed],
+            "no_email": [invite.member.name for invite in result.no_email],
+        })
 
     def suggest(self, request, pk=None):
         meeting = self.get_object()
