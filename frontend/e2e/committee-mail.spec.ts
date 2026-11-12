@@ -92,8 +92,10 @@ test('invite mail: send links, report members without address, resend', async ({
   await expect(rows.filter({ hasText: 'Ben Beispiel' })).toContainText('E-Mail:');
   await expect(rows.filter({ hasText: 'Carla Ohne' })).not.toContainText('E-Mail:');
 
-  // 5. Again: nobody left unless "send again" is ticked.
+  // 5. Again: nobody left unless "send again" is ticked; the old status
+  //    line is cleared when the dialog opens.
   await page.getByRole('button', { name: 'Per E-Mail einladen' }).click();
+  await expect(status).toBeEmpty();
   await expect(dialog.getByTestId('mail-recipients')).toHaveText('Geht an 0 Mitglieder');
   await expect(dialog.getByRole('button', { name: 'Senden' })).toBeDisabled();
   await dialog.getByLabel('Auch an bereits Eingeladene erneut senden').check();
@@ -101,6 +103,35 @@ test('invite mail: send links, report members without address, resend', async ({
   // An empty subject blocks sending.
   await dialog.getByLabel('Betreff').fill('  ');
   await expect(dialog.getByRole('button', { name: 'Senden' })).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Abbrechen' }).click();
+  await expect(dialog).toHaveCount(0);
+
+  // 6. A member added after the links were generated is counted: opening
+  //    the dialog creates the missing link first (no reload).
+  await api('post', '/api/committee-members/', {
+    room: room.id, group: voters.id, role: 'voting', name: 'Dora Neu', email: 'dora@example.org',
+  });
+  await page.getByRole('button', { name: 'Per E-Mail einladen' }).click();
+  await expect(dialog.getByTestId('mail-recipients')).toHaveText('Geht an 1 Mitglied');
+  await expect(rows).toHaveCount(4);
+
+  // 7. Rate limit and recipient cap show German texts (responses stubbed,
+  //    so the real hourly budget is not used up).
+  const mailUrl = `${API_BASE_URL}/api/meetings/${meeting.id}/invites/mail/`;
+  await page.route(mailUrl, (route) => route.fulfill({
+    status: 429, json: { detail: 'Request was throttled. Expected available in 3599 seconds.' },
+  }));
+  await dialog.getByRole('button', { name: 'Senden' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText(
+    'Zu viele E-Mail-Versände. Bitte versuchen Sie es später erneut.',
+  );
+  await page.unroute(mailUrl);
+  await page.route(mailUrl, (route) => route.fulfill({
+    status: 400, json: { detail: 'Too many recipients for one send.', code: 'too_many_recipients' },
+  }));
+  await dialog.getByRole('button', { name: 'Senden' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Zu viele Empfänger für einen Versand.');
+  await page.unroute(mailUrl);
   await dialog.getByRole('button', { name: 'Abbrechen' }).click();
   await expect(dialog).toHaveCount(0);
 });

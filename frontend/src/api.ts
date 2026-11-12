@@ -1048,7 +1048,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     } catch {
       /* keep status code */
     }
-    throw new Error(detail);
+    throw Object.assign(new Error(detail), { status: response.status });
   }
   if (response.status === 204) return undefined as T;
   return response.json();
@@ -1064,6 +1064,12 @@ export function requestBody(err: unknown): Record<string, unknown> | null {
     /* not JSON */
   }
   return null;
+}
+
+/** HTTP status of a failed `request()`, or undefined (e.g. network error). */
+export function requestStatus(err: unknown): number | undefined {
+  const status = (err as { status?: unknown } | null)?.status;
+  return typeof status === "number" ? status : undefined;
 }
 
 /** `detail` of a failed `request()`, or undefined when the body has none. */

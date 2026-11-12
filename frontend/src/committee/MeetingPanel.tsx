@@ -30,6 +30,7 @@ import { localizedText, stripHtml } from "@basicbar/ui";
 import {
   api,
   requestError,
+  requestStatus,
   type CommitteeGroup,
   type CommitteeMember,
   type InviteMailResult,
@@ -71,6 +72,9 @@ const INVITE_STATE_BADGE: Record<InviteState, string> = {
   inactive: "bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300",
   removed: "bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300",
 };
+
+/** Shown (translated via run()) when the mail action is rate-limited (429). */
+const MAIL_THROTTLED = "Too many e-mail sends. Please try again later.";
 
 /** Starting this much earlier or later than scheduled asks first. */
 const EARLY_MS = 15 * 60_000;
@@ -565,11 +569,19 @@ export default function MeetingPanel({
         busy={busy}
         error={linksError}
         onGenerate={() => void run(() => api.ensureMeetingInvites(set.id), setLinksError)}
+        onPrepareMail={() => void run(() => api.ensureMeetingInvites(set.id), setLinksError)}
         mailTitle={localizedText(set.title)}
         onMail={async (body, setError) => {
           const box: { result?: InviteMailResult } = {};
           const ok = await run(async () => {
-            box.result = await api.mailMeetingInvites(set.id, body);
+            try {
+              box.result = await api.mailMeetingInvites(set.id, body);
+            } catch (err) {
+              // DRF's throttle text says seconds and may be localized: own text.
+              if (requestStatus(err) === 429)
+                throw new Error(JSON.stringify({ detail: MAIL_THROTTLED }));
+              throw err;
+            }
             return box.result.meeting;
           }, setError);
           return ok ? box.result ?? null : null;
@@ -618,6 +630,7 @@ function InviteSection({
   busy,
   error,
   onGenerate,
+  onPrepareMail,
   mailTitle,
   onMail,
   onRemove,
@@ -631,6 +644,8 @@ function InviteSection({
   busy: boolean;
   error: string;
   onGenerate: () => void;
+  /** Called when the mail dialog opens: creates missing links. */
+  onPrepareMail: () => void;
   /** Meeting title (UI language) for the mail subject. */
   mailTitle: string;
   onMail: (
@@ -705,7 +720,13 @@ function InviteSection({
           {hasValid && meeting.mail_enabled && (
             <Button
               disabled={busy}
-              onClick={() => setMailing(true)}
+              onClick={() => {
+                // Fresh links for newly added members, so the preview count
+                // matches what the server will send.
+                setMailResult(null);
+                setMailing(true);
+                onPrepareMail();
+              }}
               className="inline-flex items-center gap-1.5"
             >
               <Mail aria-hidden className="h-4 w-4" />
