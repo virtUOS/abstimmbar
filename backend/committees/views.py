@@ -21,6 +21,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 
 from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
@@ -280,6 +281,14 @@ class MeetingViewSet(viewsets.GenericViewSet):
             room__in=managed_committee_rooms(self.request.user),
         )
 
+    def get_throttles(self):
+        # Abuse brake for invitation mails only (rate in settings,
+        # DEFAULT_THROTTLE_RATES["committee-mail"]); no global throttling.
+        if self.action == "mail_invites":
+            self.throttle_scope = "committee-mail"
+            return [ScopedRateThrottle()]
+        return super().get_throttles()
+
     def _respond(self, meeting, status_code=status.HTTP_200_OK):
         meeting.refresh_from_db()
         return Response(self.get_serializer(meeting).data, status=status_code)
@@ -387,10 +396,15 @@ class MeetingViewSet(viewsets.GenericViewSet):
         message = message.strip()
         if len(message) > 5000:
             raise ValidationError({"message": "The text is too long (max. 5000 characters)."})
-        result = mailing.send_invitations(
-            meeting, request=request, subject=subject, message=message,
-            resend=request.data.get("resend") is True,
-        )
+        try:
+            result = mailing.send_invitations(
+                meeting, request=request, subject=subject, message=message,
+                resend=request.data.get("resend") is True,
+            )
+        except mailing.TooManyRecipients as exc:
+            raise ValidationError({
+                "detail": "Too many recipients for one send.", "code": "too_many_recipients",
+            }) from exc
         meeting.refresh_from_db()
         return Response({
             "meeting": self.get_serializer(meeting).data,

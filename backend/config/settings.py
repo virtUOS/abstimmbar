@@ -237,6 +237,10 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_PAGINATION_CLASS": "common.pagination.StandardPagination",
     "PAGE_SIZE": 25,
+    # Only scoped throttles, applied per action (no DEFAULT_THROTTLE_CLASSES).
+    "DEFAULT_THROTTLE_RATES": {
+        "committee-mail": "10/hour",
+    },
 }
 
 # E-mail (committee invitations). Off unless EMAIL_HOST and

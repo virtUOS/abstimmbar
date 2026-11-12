@@ -30,6 +30,14 @@ _SEND_ERRORS = (smtplib.SMTPException, OSError)
 # must only fail that member, not abort the batch.
 _MESSAGE_ERRORS = (*_SEND_ERRORS, ValueError)
 
+# Abuse brake: one send may reach at most this many members (the view also
+# throttles sends per person, scope "committee-mail").
+MAX_RECIPIENTS = 200
+
+
+class TooManyRecipients(Exception):
+    """More members selected than ``MAX_RECIPIENTS``; nothing was sent."""
+
 
 @dataclass
 class MailResult:
@@ -75,6 +83,8 @@ def send_invitations(
     invites = _recipients(meeting, resend=resend, result=result)
     if not invites:
         return result
+    if len(invites) > MAX_RECIPIENTS:
+        raise TooManyRecipients
     chair_email = getattr(request.user, "email", "") or ""
     connection = get_connection(fail_silently=False)
     try:

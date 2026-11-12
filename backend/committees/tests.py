@@ -4518,8 +4518,10 @@ class InviteMailTests(MeetingFixture, ApiBase):
         self.nomail = self.member("Carla", self.gb)
         self.url = f"/api/meetings/{self.meeting.pk}/invites/mail/"
         from django.core import mail
+        from django.core.cache import cache
 
         self.outbox = mail.outbox
+        cache.clear()  # throttle history must not leak between tests
 
     def post(self, body=None, client=None):
         body = {"subject": "Einladung", "message": "Hallo"} if body is None else body
@@ -4704,6 +4706,25 @@ class InviteMailTests(MeetingFixture, ApiBase):
         self.assertNotIn("@", "\n".join(logs.output))
         self.assertIsNone(MeetingInvite.objects.get(member=self.en).mailed_at)
         self.assertIsNotNone(MeetingInvite.objects.get(member=self.de).mailed_at)
+
+    def test_throttled_per_hour(self):
+        for _ in range(10):
+            self.assertEqual(self.post({"subject": "x", "resend": True}).status_code, 200)
+        sent = len(self.outbox)
+        r = self.post({"subject": "x", "resend": True})
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(len(self.outbox), sent)
+
+    def test_too_many_recipients(self):
+        with mock.patch("committees.mailing.MAX_RECIPIENTS", 1):
+            r = self.post()
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "too_many_recipients")
+        self.assertEqual(r.json()["detail"], "Too many recipients for one send.")
+        self.assertEqual(self.outbox, [])
+        self.assertFalse(MeetingInvite.objects.filter(mailed_at__isnull=False).exists())
+        with mock.patch("committees.mailing.MAX_RECIPIENTS", 2):
+            self.assertEqual(self.post().json()["sent"], 2)
 
     def test_connection_failure(self):
         from django.core.mail.backends.locmem import EmailBackend
