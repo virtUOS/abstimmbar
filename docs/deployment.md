@@ -403,6 +403,36 @@ Beispielabfragen: [monitoring.md](monitoring.md).
   Sitzungsbezug und ohne Zeitstempel. Die Tabelle bleibt klein (wenige
   Zeilen pro Tag). Beispielräume zählen nicht in die Nutzungszahlen.
 
+### E-Mail-Versand (optional)
+
+Der Gremien-Raum kann Sitzungs-Einladungslinks per E-Mail verschicken. Ohne
+SMTP-Konfiguration bleibt die Funktion aus; die Links verteilen Sie dann
+über Kopieren bzw. CSV-Export. Eintragen in der `.env` (Werte wie in
+`.env.prod.example`):
+
+- `EMAIL_HOST`, `EMAIL_PORT` (Standard 587), `EMAIL_HOST_USER`,
+  `EMAIL_HOST_PASSWORD` — der SMTP-Server.
+- `DEFAULT_FROM_EMAIL` — Absender der Einladungen, z. B.
+  `Abstimmbar <abstimmbar@uni-example.de>`. Antworten gehen per
+  `Reply-To` an die Sitzungsleitung, nicht an diese Adresse.
+- `EMAIL_USE_TLS` (Standard `1`, Port 587 mit STARTTLS) bzw.
+  `EMAIL_USE_SSL=1` (implizites TLS, Port 465; dann ist STARTTLS aus).
+- `EMAIL_TIMEOUT` (Sekunden, Standard 10).
+- `MAIL_ENABLED` — optional. Leer: der Versand ist an, sobald `EMAIL_HOST`
+  **und** `DEFAULT_FROM_EMAIL` gesetzt sind; `0` schaltet ihn trotzdem ab.
+
+Bitte bedenken: Ist der Versand an, kann jede Person, die einen Gremien-Raum
+verwaltet, Mails mit eigenem Text vom `DEFAULT_FROM_EMAIL` an die Adressen
+ihrer Mitgliederliste schicken. Abstimmbar begrenzt das auf 10 Versände pro
+Stunde und Person und 200 Empfänger je Versand; `Reply-To` ist die
+Sitzungsleitung. Erwägen Sie eine eigene Absenderadresse und Limits auf
+Seiten des SMTP-Servers.
+
+Wie alle neuen Variablen müssen sie auch im `environment:`-Block des
+`app`-Service stehen (siehe „Neue Konfigurations-Variable?“ unten); die
+mitgelieferte `docker-compose.prod.yml` enthält sie bereits. Nach der
+Änderung `up -d` ausführen, damit der Container neu erstellt wird.
+
 ## Retention der Modus-Statistik
 
 Die Tabelle `DailyModeSession` wächst kontinuierlich. Ein
@@ -566,7 +596,7 @@ Gegenprüfen, was im laufenden Container ankommt:
 
 ```bash
 sudo docker compose -f docker-compose.prod.yml exec app env \
-  | grep -oE "^(DJANGO_|OIDC_|POSTGRES_|AI_|CSRF|FRONTEND|SESSION)[A-Z_]*" | sort
+  | grep -oE "^(DJANGO_|OIDC_|POSTGRES_|AI_|CSRF|FRONTEND|SESSION|EMAIL_|DEFAULT_FROM|MAIL_)[A-Z_]*" | sort
 ```
 
 ## HTTPS-Zertifikate (Caddy), im Klartext

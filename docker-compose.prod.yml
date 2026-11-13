@@ -108,6 +108,17 @@ services:
       # Match an existing account by username when the e-mail does not match.
       # Off by default — enable only if the IdP guarantees unique usernames.
       OIDC_MATCH_BY_USERNAME_FALLBACK: ${OIDC_MATCH_BY_USERNAME_FALLBACK:-0}
+      # Optional: committee invitations by e-mail. Off unless EMAIL_HOST and
+      # DEFAULT_FROM_EMAIL are set.
+      EMAIL_HOST: ${EMAIL_HOST:-}
+      EMAIL_PORT: ${EMAIL_PORT:-587}
+      EMAIL_HOST_USER: ${EMAIL_HOST_USER:-}
+      EMAIL_HOST_PASSWORD: ${EMAIL_HOST_PASSWORD:-}
+      EMAIL_USE_TLS: ${EMAIL_USE_TLS:-1}
+      EMAIL_USE_SSL: ${EMAIL_USE_SSL:-0}
+      EMAIL_TIMEOUT: ${EMAIL_TIMEOUT:-10}
+      DEFAULT_FROM_EMAIL: ${DEFAULT_FROM_EMAIL:-}
+      MAIL_ENABLED: ${MAIL_ENABLED:-}
       # Optional AI features (LiteLLM). Off unless all four are set.
       AI_PROVIDER: ${AI_PROVIDER:-none}
       AI_BASE_URL: ${AI_BASE_URL:-}

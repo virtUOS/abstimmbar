@@ -35,6 +35,7 @@ urlpatterns = [
     _meeting("end", {"post": "end"}, "end/"),
     _meeting("invites", {"post": "invites"}, "invites/"),
     _meeting("invites-csv", {"get": "invites_csv"}, "invites.csv"),
+    _meeting("invites-mail", {"post": "mail_invites"}, "invites/mail/"),
     _meeting("invite-remove", {"post": "remove_invite"}, "invites/<int:invite_id>/remove/"),
     _meeting("invite-readmit", {"post": "readmit_invite"}, "invites/<int:invite_id>/readmit/"),
     _meeting("substitution-suggest", {"get": "suggest"}, "substitutions/suggest/"),

@@ -2,6 +2,7 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 from typing import ClassVar
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
 
@@ -95,7 +96,9 @@ class MeetingInviteSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = MeetingInvite
-        fields: ClassVar = ["id", "member", "url", "removed_at", "removed_after", "state"]
+        fields: ClassVar = [
+            "id", "member", "url", "removed_at", "removed_after", "state", "mailed_at",
+        ]
 
     def get_url(self, obj):
         return invite_url(self.context["request"], obj)
@@ -117,13 +120,17 @@ class MeetingSerializer(serializers.ModelSerializer):
     ended_at = serializers.SerializerMethodField()
     chair_is_member = serializers.SerializerMethodField()
     trial = serializers.SerializerMethodField()
+    mail_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = QuestionSet
         fields: ClassVar = [
             "id", "meeting_state", "scheduled_at", "chair_votes", "invites", "substitutions",
-            "started_at", "ended_at", "chair_is_member", "trial",
+            "started_at", "ended_at", "chair_is_member", "trial", "mail_enabled",
         ]
+
+    def get_mail_enabled(self, obj):
+        return bool(settings.MAIL_ENABLED)
 
     def get_trial(self, obj):
         control = self._control(obj)

@@ -14,6 +14,7 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
   Links und Vertretungen. Abstimmen folgt.
 - Gremien-Raum: Wahlen mit mehreren Stimmen, Kumulieren und Stichwahl.
+- Gremien-Raum: persönliche Sitzungslinks per E-Mail verschicken (optional, SMTP).
 
 ### Geändert
 

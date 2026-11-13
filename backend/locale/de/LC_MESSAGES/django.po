@@ -930,3 +930,19 @@ msgstr "Jedes Ergebnis in diesem Protokoll ist versiegelt. Mit Kennung und Finge
 
 msgid "Note"
 msgstr "Notiz"
+
+#: committees/templates/committees/mail/invite.txt
+msgid "Meeting"
+msgstr "Sitzung"
+
+#: committees/templates/committees/mail/invite.txt
+msgid "Date"
+msgstr "Termin"
+
+#: committees/templates/committees/mail/invite.txt
+msgid "Your personal link"
+msgstr "Ihr persönlicher Link"
+
+#: committees/templates/committees/mail/invite.txt
+msgid "This link is personal and valid for this meeting only. Please do not forward it."
+msgstr "Dieser Link ist persönlich und gilt nur für diese Sitzung. Bitte leiten Sie ihn nicht weiter."
