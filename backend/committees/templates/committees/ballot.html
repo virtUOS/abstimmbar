@@ -99,6 +99,10 @@
   const BASE = "/g/" + encodeURIComponent(CONFIG.token) + "/";
   const OBSERVER = CONFIG.observer;
   const PREVIEW = !!CONFIG.preview; // editor preview: no stream, votes stay here
+  const LANG = CONFIG.lang;   // the page's language
+  const CANON = CONFIG.canon; // canonical content language
+  // Confirmed translation if the server sent one, else the original.
+  const pick = (obj) => (obj.text_i18n && obj.text_i18n[LANG]) || obj.text;
   const view = document.getElementById("view");
   const conn = document.getElementById("conn");
   const fill = (text, values) => text.replace(/\{(\w+)\}/g, (m, k) => (k in values ? values[k] : m));
@@ -246,15 +250,18 @@
     }
     view.appendChild(badges);
     const text = el("div", { class: "question-text" });
-    text.innerHTML = item.text || ""; // sanitized when authored (like participant.html)
+    text.innerHTML = pick(item) || ""; // sanitized when authored (like participant.html)
     view.appendChild(text);
+    if (LANG !== CANON && !item.translated) {
+      view.appendChild(el("p", { class: "soft untranslated" }, S.untranslated));
+    }
     const bundle = item.bundle || [];
     for (const extra of bundle) {
       const eb = el("div", { class: "badges" });
       eb.appendChild(el("span", { class: "badge" }, fill(S.top, { label: extra.label })));
       view.appendChild(eb);
       const et = el("div", { class: "question-text" });
-      et.innerHTML = extra.text || "";
+      et.innerHTML = pick(extra) || "";
       view.appendChild(et);
     }
   }
@@ -303,7 +310,7 @@
       }
     } else if (item.kind === "single_choice") {
       for (const option of item.options) {
-        view.appendChild(button(option.text, "", () => send({ option: option.id })));
+        view.appendChild(button(pick(option), "", () => send({ option: option.id })));
       }
       view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
     } else if (item.kind === "multiple_choice") {
@@ -321,7 +328,7 @@
           sync();
         });
         label.appendChild(box);
-        label.appendChild(el("span", {}, option.text));
+        label.appendChild(el("span", {}, pick(option)));
         view.appendChild(label);
       }
       view.appendChild(submit);
@@ -349,7 +356,7 @@
   function electionForm(item, election, send) {
     if (election.mode === "approval") {
       const candidate = item.options[0];
-      if (candidate) view.appendChild(el("p", { class: "candidate" }, candidate.text));
+      if (candidate) view.appendChild(el("p", { class: "candidate" }, pick(candidate)));
       for (const choice of ["yes", "no", "abstain"]) {
         view.appendChild(button(S[choice], "choice", () => send({ choice })));
       }
@@ -357,7 +364,7 @@
     }
     if (election.mode === "single") {
       for (const option of item.options) {
-        view.appendChild(button(option.text, "cand", () => send({ option: option.id })));
+        view.appendChild(button(pick(option), "cand", () => send({ option: option.id })));
       }
       view.appendChild(button(S.no, "choice", () => send({ choice: "no" })));
       view.appendChild(button(S.abstain, "abstain", () => send({ choice: "abstain" })));
@@ -388,7 +395,7 @@
     };
     for (const option of item.options) {
       if (!election.cumulate) {
-        const toggle = button(option.text, "toggle");
+        const toggle = button(pick(option), "toggle");
         toggle.addEventListener("click", () => change(option.id, draftVotes.has(option.id) ? -1 : 1));
         syncers.push((n) => {
           const on = draftVotes.has(option.id);
@@ -402,16 +409,16 @@
       // readers hear "Name – votes: n" when entering it; the buttons say
       // what they do.
       const row = el("div", { class: "stepper", role: "group" });
-      row.appendChild(el("span", { class: "name", "aria-hidden": "true" }, option.text));
-      const minus = el("button", { type: "button", "aria-label": pfill(S.voteLess, { name: option.text }) }, "−");
+      row.appendChild(el("span", { class: "name", "aria-hidden": "true" }, pick(option)));
+      const minus = el("button", { type: "button", "aria-label": pfill(S.voteLess, { name: pick(option) }) }, "−");
       const count = el("span", { class: "count", "aria-hidden": "true" });
-      const plus = el("button", { type: "button", "aria-label": pfill(S.voteMore, { name: option.text }) }, "+");
+      const plus = el("button", { type: "button", "aria-label": pfill(S.voteMore, { name: pick(option) }) }, "+");
       minus.addEventListener("click", () => change(option.id, -1));
       plus.addEventListener("click", () => change(option.id, 1));
       syncers.push((n) => {
         const mine = draftVotes.get(option.id) || 0;
         count.textContent = String(mine);
-        row.setAttribute("aria-label", pfill(S.candidateVotes, { name: option.text, n: mine }));
+        row.setAttribute("aria-label", pfill(S.candidateVotes, { name: pick(option), n: mine }));
         row.classList.toggle("checked", mine > 0);
         minus.disabled = busy || mine === 0;
         plus.disabled = busy || n >= max;
@@ -489,7 +496,7 @@
     if (key === "text") return S.answers;
     if (key.startsWith("opt:")) {
       const option = item.options.find((o) => "opt:" + o.id === key);
-      if (option) return option.text;
+      if (option) return pick(option);
     }
     return key;
   }
@@ -520,7 +527,7 @@
     if (!result) return;
     view.appendChild(el("h2", {}, S.result));
     if (item.kind === "election" && item.election && item.election.mode === "approval" && item.options[0]) {
-      view.appendChild(el("p", { class: "candidate" }, item.options[0].text));
+      view.appendChild(el("p", { class: "candidate" }, pick(item.options[0])));
     }
     view.appendChild(el("h3", {}, S.total));
     view.appendChild(countRows(item, result.total.counts, true));

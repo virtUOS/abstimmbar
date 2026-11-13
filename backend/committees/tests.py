@@ -1067,6 +1067,35 @@ class BallotPageTests(MeetingFixture, TestCase):
         ):
             self.assertIn(text, strings)
 
+    def _config(self, response):
+        match = re.search(
+            r'<script id="ballot-config" type="application/json">(.*?)</script>',
+            response.content.decode(),
+        )
+        self.assertIsNotNone(match)
+        return json.loads(match.group(1))
+
+    def test_ballot_strings_include_untranslated_hint(self):
+        self._start()
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=en")
+        self.assertIn(
+            "The translation has not been confirmed yet \u2014 the original text is shown.",
+            self._strings(r).values(),
+        )
+        r = self.client.get(f"/g/{self.anna_invite.token}/?lang=de")
+        self.assertIn(
+            "Die \u00dcbersetzung wurde noch nicht best\u00e4tigt \u2013 angezeigt wird der Originaltext.",
+            self._strings(r).values(),
+        )
+
+    def test_ballot_page_exposes_languages(self):
+        self._start()
+        config = self._config(self.client.get(f"/g/{self.anna_invite.token}/?lang=en"))
+        self.assertEqual(config["lang"], "en")
+        self.assertEqual(config["canon"], "de")
+        config = self._config(self.client.get(f"/g/{self.anna_invite.token}/?lang=de"))
+        self.assertEqual(config["lang"], "de")
+
     def test_ballot_strings_for_elections(self):
         self._start()
         r = self.client.get(f"/g/{self.anna_invite.token}/?lang=de")
@@ -4810,6 +4839,18 @@ class TranslationReviewTests(BallotBase):
         self.assertEqual(r.status_code, 200)
         self.assertNotIn(self.SECRET, r.content.decode())
         self.assertNotIn("Secret yes", r.content.decode())
+
+    def test_unconfirmed_translation_absent_from_preview_page_html(self):
+        self.show()
+        self.client.force_login(self.user)
+        r = self.client.get(f"/g/preview/{self.q.pk}/")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn(self.SECRET, r.content.decode())
+        self.assertNotIn("Secret yes", r.content.decode())
+        self.confirm()
+        r = self.client.get(f"/g/preview/{self.q.pk}/")
+        item = r.context["config"]["snapshot"]["item"]
+        self.assertEqual(item["text_i18n"], {"en": self.SECRET})
 
     def test_confirm_exposes_text_i18n_for_text_options_and_bundle(self):
         self.confirm()

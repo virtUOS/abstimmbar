@@ -715,6 +715,7 @@ BALLOT_STRINGS = {
     "top": _("TOP {label}"),
     "topTitle": _("TOP {number}: {title}"),
     "bundle": _("One vote for all of these resolutions."),
+    "untranslated": _("The translation has not been confirmed yet — the original text is shown."),
     "version": _("Version {number}"),
     "changed": _("changed"),
     "hintTap": _("One tap casts your vote immediately and for good."),
@@ -771,7 +772,10 @@ def entry_page(request, token):
             state=state, member=member, is_observer=member.group.is_observer,
             token=invite.token,
             strings=BALLOT_STRINGS,
-            config={"token": invite.token, "observer": member.group.is_observer, "state": state},
+            config={
+                "token": invite.token, "observer": member.group.is_observer, "state": state,
+                "lang": lang, "canon": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
+            },
             room_title=_localized(meeting.room, "title", lang),
             meeting_title=_localized(meeting, "title", lang),
             scheduled_at=meeting.scheduled_at,
@@ -810,6 +814,7 @@ def ballot_preview(request, question_id):
         "strings": BALLOT_STRINGS,
         "config": {
             "token": "", "observer": False, "state": "active", "preview": True,
+            "lang": lang, "canon": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
             "snapshot": payloads.preview_payload(question),
         },
         "room_title": _localized(room, "title", lang),
