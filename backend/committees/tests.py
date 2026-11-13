@@ -2786,8 +2786,8 @@ class BundleTests(BallotBase):
         self.assertEqual(item["id"], self.q1.pk)
         self.assertEqual(item["label"], "1a")
         self.assertEqual(item["bundle"], [
-            {"id": self.r2.pk, "label": "1c", "text": "Zwei", "version": 1},
-            {"id": self.r3.pk, "label": "2", "text": "Drei", "version": 1},
+            {"id": self.r2.pk, "label": "1c", "text": "Zwei", "text_i18n": {}, "version": 1},
+            {"id": self.r3.pk, "label": "2", "text": "Drei", "text_i18n": {}, "version": 1},
         ])
         self.assertEqual(payloads.preview_payload(self.r2)["item"]["bundle"], [])
 
@@ -4424,7 +4424,7 @@ class RunoffTests(BallotBase):
         b2 = ballots.open_runoff(self.meeting, b1, [a, b])
         item = payloads.public_payload(self.meeting)["item"]
         self.assertEqual([o["id"] for o in item["options"]], [a, b])
-        self.assertEqual(set(item["options"][0]), {"id", "text"})
+        self.assertEqual(set(item["options"][0]), {"id", "text", "text_i18n"})
         self.assertEqual(item["election"]["runoff"], True)
         self.assertEqual(
             item["ballot"]["election"],
@@ -4753,3 +4753,189 @@ class InviteMailTests(MeetingFixture, ApiBase):
         with override_settings(MAIL_ENABLED=False):
             data = self.client.get(f"/api/meetings/{self.meeting.pk}/").json()
             self.assertIs(data["mail_enabled"], False)
+
+
+class TranslationReviewTests(BallotBase):
+    """The chair confirms the other-language wording before members see it."""
+
+    SECRET = "Secret translation"
+
+    def setUp(self):
+        super().setUp()
+        self.q = Question.objects.create(
+            question_set=self.meeting, kind="single_choice", text_de="Deutsch",
+            text_en=self.SECRET, position=9,
+        )
+        self.opt = AnswerOption.objects.create(
+            question=self.q, text_de="Ja-Option", text_en="Secret yes", position=1,
+        )
+        AnswerOption.objects.create(
+            question=self.q, text_de="Nein-Option", text_en="Secret no", position=2,
+        )
+        versions.sync(self.q)  # started in setUp: freeze version 1
+        self.q.refresh_from_db()
+
+    def url(self, q=None):
+        return f"/api/meetings/{self.meeting.pk}/items/{(q or self.q).pk}/translation/"
+
+    def show(self, q=None):
+        control = MeetingControl.objects.get(meeting=self.meeting)
+        control.current_question = q or self.q
+        control.save()
+
+    def confirm(self, q=None):
+        body = self.client.get(self.url(q)).json()
+        r = self.client.post(self.url(q), {"digest": body["digest"]}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def test_status_none_without_translation(self):
+        self.assertEqual(self.client.get(self.url(self.q1)).json()["status"], "none")
+        self.assertEqual(self.client.get(self.url()).json()["status"], "pending")
+
+    def test_unconfirmed_translation_withheld_from_public_payload(self):
+        self.show()
+        for payload in (payloads.public_payload(self.meeting), payloads.preview_payload(self.q)):
+            dump = json.dumps(payload, ensure_ascii=False)
+            self.assertNotIn(self.SECRET, dump)
+            self.assertNotIn("Secret yes", dump)
+            self.assertEqual(payload["item"]["text_i18n"], {})
+            self.assertFalse(payload["item"]["translated"])
+            self.assertEqual(payload["item"]["options"][0]["text_i18n"], {})
+        self.assertNotIn(self.SECRET, json.dumps(payloads.manager_payload(self.meeting)))
+
+    def test_unconfirmed_translation_absent_from_ballot_page_html(self):
+        self.show()
+        r = self.client.get(f"/g/{self.invite(self.anna).token}/?lang=en")
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn(self.SECRET, r.content.decode())
+        self.assertNotIn("Secret yes", r.content.decode())
+
+    def test_confirm_exposes_text_i18n_for_text_options_and_bundle(self):
+        self.confirm()
+        item = payloads.preview_payload(self.q)["item"]
+        self.assertEqual(item["text"], "Deutsch")
+        self.assertEqual(item["text_i18n"], {"en": self.SECRET})
+        self.assertTrue(item["translated"])
+        self.assertEqual(item["options"][0]["text_i18n"], {"en": "Secret yes"})
+        # en bloc: a bundled item carries its confirmed translation
+        other = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Zweiter",
+            text_en="Second EN", position=10,
+        )
+        versions.sync(other)
+        unconfirmed = Question.objects.create(
+            question_set=self.meeting, kind="resolution", text_de="Dritter",
+            text_en="Third EN", position=11,
+        )
+        versions.sync(unconfirmed)
+        self.confirm(other)
+        ballots.open_bundle(self.meeting, [self.q1, other, unconfirmed])
+        self.show(self.q1)
+        bundle = payloads.public_payload(self.meeting)["item"]["bundle"]
+        by_id = {b["id"]: b for b in bundle}
+        self.assertEqual(by_id[other.pk]["text_i18n"], {"en": "Second EN"})
+        self.assertEqual(by_id[unconfirmed.pk]["text_i18n"], {})
+        self.assertNotIn("Third EN", json.dumps(payloads.public_payload(self.meeting)))
+
+    def test_edit_before_start_resets_confirmation(self):
+        meeting = QuestionSet.objects.create(
+            room=self.room, title="Draft", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(
+            question_set=meeting, kind="resolution", text_de="A", text_en="B", position=1,
+        )
+        url = f"/api/meetings/{meeting.pk}/items/{q.pk}/translation/"
+        digest = self.client.get(url).json()["digest"]
+        self.assertEqual(self.client.post(url, {"digest": digest}, format="json").status_code, 200)
+        self.assertEqual(self.client.get(url).json()["status"], "confirmed")
+        r = self.client.patch(f"/api/questions/{q.pk}/", {"text": {"de": "A", "en": "B2"}}, format="json")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(self.client.get(url).json()["status"], "pending")
+
+    def test_new_version_after_start_resets_confirmation(self):
+        self.confirm()
+        r = self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"text": {"de": "Deutsch 2", "en": self.SECRET}}, format="json",
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(self.q.motion_versions.count(), 2)
+        self.assertEqual(self.client.get(self.url()).json()["status"], "pending")
+        item = payloads.preview_payload(self.q)["item"]
+        self.assertEqual(item["text_i18n"], {})
+        self.assertNotIn(self.SECRET, json.dumps(item))
+
+    def test_start_keeps_confirmation_when_content_unchanged(self):
+        meeting = QuestionSet.objects.create(
+            room=self.room, title="Draft2", type=QuestionSet.SetType.MEETING,
+        )
+        q = Question.objects.create(
+            question_set=meeting, kind="resolution", text_de="A", text_en="B", position=1,
+        )
+        url = f"/api/meetings/{meeting.pk}/items/{q.pk}/translation/"
+        digest = self.client.get(url).json()["digest"]
+        self.client.post(url, {"digest": digest}, format="json")
+        services.start_meeting(meeting)
+        self.assertEqual(q.motion_versions.count(), 1)
+        body = self.client.get(url).json()
+        self.assertEqual((body["status"], body["version"], body["digest"]),
+                         ("confirmed", 1, digest))
+
+    def test_confirm_stale_digest_409(self):
+        digest = self.client.get(self.url()).json()["digest"]
+        self.client.patch(
+            f"/api/questions/{self.q.pk}/", {"text": {"de": "Deutsch", "en": "Changed"}}, format="json",
+        )
+        r = self.client.post(self.url(), {"digest": digest}, format="json")
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["code"], "stale")
+        self.assertEqual(self.client.get(self.url()).json()["status"], "pending")
+
+    def test_confirm_empty_translation_400(self):
+        digest = self.client.get(self.url(self.q1)).json()["digest"]
+        r = self.client.post(self.url(self.q1), {"digest": digest}, format="json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["code"], "empty")
+        r = self.client.post(self.url(), {}, format="json")
+        self.assertEqual(r.status_code, 400)
+
+    def test_confirm_while_vote_open_409(self):
+        digest = self.client.get(self.url()).json()["digest"]
+        ballots.open_ballot(self.meeting, self.q)
+        r = self.client.post(self.url(), {"digest": digest}, format="json")
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["code"], "vote_open")
+
+    def test_confirm_requires_chair(self):
+        digest = self.client.get(self.url()).json()["digest"]
+        self.assertEqual(self.foreign.get(self.url()).status_code, 404)
+        r = self.foreign.post(self.url(), {"digest": digest}, format="json")
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(self.client.get(self.url()).json()["status"], "pending")
+        self.assertEqual(APIClient().get(self.url()).status_code, 403)
+
+    def test_confirm_rebroadcasts(self):
+        digest = self.client.get(self.url()).json()["digest"]
+        with mock.patch("committees.live.broadcast_meeting") as broadcast:
+            with self.captureOnCommitCallbacks(execute=True):
+                self.client.post(self.url(), {"digest": digest}, format="json")
+        broadcast.assert_called()
+
+    def test_manager_items_carry_status(self):
+        items = {i["id"]: i for i in payloads.manager_payload(self.meeting)["items"]}
+        self.assertEqual(items[self.q1.pk]["translation"], "none")
+        self.assertEqual(items[self.q.pk]["translation"], "pending")
+        self.confirm()
+        items = {i["id"]: i for i in payloads.manager_payload(self.meeting)["items"]}
+        self.assertEqual(items[self.q.pk]["translation"], "confirmed")
+        self.assertNotIn("text_i18n", items[self.q.pk])
+
+    @override_settings(MODELTRANSLATION_DEFAULT_LANGUAGE="en")
+    def test_canonical_en_mirrors(self):
+        body = self.client.get(self.url()).json()
+        self.assertEqual((body["canonical"], body["other"]), ("en", "de"))
+        self.assertEqual(body["status"], "pending")
+        self.confirm()
+        item = payloads.preview_payload(self.q)["item"]
+        self.assertEqual(item["text"], self.SECRET)
+        self.assertEqual(item["text_i18n"], {"de": "Deutsch"})

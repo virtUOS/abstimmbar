@@ -4,21 +4,28 @@
 
 Secrecy (§ 8): before a ballot is closed no payload carries counts, only
 ``voted``/``eligible`` per group; free texts never carry a name. Content is
-shown in the canonical language only (PR 2; confirmation of translations
-follows in PR 4)."""
+shown in the canonical language (``text``); the other language appears as
+``text_i18n`` only once the chair has confirmed the translation of that
+wording (§ 7.6, ``translation_review``) — an unconfirmed translation never
+leaves the server in a member-facing payload."""
 from django.conf import settings
 from django.utils import translation
 
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import agenda, ballots, eligibility, versions
-from .models import Ballot, BallotText, CommitteeGroup, CommitteeMember, MeetingControl
+from . import agenda, ballots, eligibility, translation_review, versions
+from .models import (
+    Ballot,
+    BallotText,
+    CommitteeGroup,
+    CommitteeMember,
+    MeetingControl,
+    TranslationApproval,
+)
 from .presence import presence
 
-CHOICE_KINDS = (
-    Question.Kind.SINGLE_CHOICE, Question.Kind.MULTIPLE_CHOICE, Question.Kind.ELECTION,
-)
+CHOICE_KINDS = translation_review.CHOICE_KINDS
 
 
 def _canonical(value) -> str:
@@ -37,26 +44,28 @@ def _group_names(meeting: QuestionSet) -> dict[int, str]:
     }
 
 
-def _wording(question: Question) -> tuple[str, int | None, list[dict]]:
-    """Text, version number and options — from the frozen version if any."""
-    version = versions.current(question)
-    if version is None:
-        text = _canonical(translated_map(question, "text"))
-        options = [
-            {"id": o.pk, "text": _canonical(translated_map(o, "text"))}
-            for o in question.options.order_by("position", "id")
-        ]
-        number = None
-    else:
-        text = _canonical({"de": version.text_de, "en": version.text_en})
-        options = [
-            {"id": o["id"], "text": _canonical({"de": o["text_de"], "en": o["text_en"]})}
-            for o in version.options
-        ]
-        number = version.number
-    if question.kind not in CHOICE_KINDS:
-        options = []
-    return text, number, options
+def _wording(question: Question, approval=...) -> dict:
+    """Text, version, options and the confirmed translation — from the frozen
+    version if any. ``translation`` is the review status (manager only)."""
+    maps = translation_review.wording_maps(question)
+    if approval is ...:
+        approval = TranslationApproval.objects.filter(question=question).first()
+    confirmed = translation_review.is_confirmed(maps, approval)
+    return {
+        "text": _canonical(maps["text"]),
+        "text_i18n": translation_review.text_i18n(maps["text"], confirmed),
+        "version": maps["version"],
+        "translated": confirmed,
+        "translation": translation_review.status_of(maps, approval),
+        "options": [
+            {
+                "id": o["id"],
+                "text": _canonical(o["text"]),
+                "text_i18n": translation_review.text_i18n(o["text"], confirmed),
+            }
+            for o in maps["options"]
+        ],
+    }
 
 
 def _shown_ballot(question: Question) -> Ballot | None:
@@ -80,15 +89,20 @@ def _bundle(meeting, ballot: Ballot | None, question: Question, tops) -> list[di
     entries = sorted(
         (e for e in entries if e[0] != question.pk), key=lambda e: numbers.get(e[0], 0),
     )
-    return [
-        {
+    questions = Question.objects.in_bulk([qid for qid, _ in entries])
+    approved = translation_review.approvals(questions)
+    result = []
+    for qid, version in entries:
+        maps = translation_review.maps_of_version(questions[qid], version)
+        confirmed = translation_review.is_confirmed(maps, approved.get(qid))
+        result.append({
             "id": qid,
             "label": _label(agenda.top_of(meeting, qid, tops), qid),
-            "text": _canonical({"de": version.text_de, "en": version.text_en}),
+            "text": _canonical(maps["text"]),
+            "text_i18n": translation_review.text_i18n(maps["text"], confirmed),
             "version": version.number,
-        }
-        for qid, version in entries
-    ]
+        })
+    return result
 
 
 def _texts(ballot: Ballot, group_order: dict[int, int]) -> list[dict]:
@@ -267,13 +281,17 @@ def _public(meeting: QuestionSet, names, order) -> dict:
         return payload
     top = agenda.top_of(meeting, question.pk, tops)
     payload["top"] = _top_payload(top)
-    text, number, options = _wording(question)
+    wording = _wording(question)
+    options = wording["options"]
+    number = wording["version"]
     ballot = _shown_ballot(question)
     payload["item"] = {
         "id": question.pk,
         "label": _label(top, question.pk),
         "kind": question.kind,
-        "text": text,
+        "text": wording["text"],
+        "text_i18n": wording["text_i18n"],
+        "translated": wording["translated"],
         "version": number,
         "changed": (number or 0) > 1,
         "named": question.named_vote,
@@ -289,7 +307,9 @@ def preview_payload(question: Question) -> dict:
     """A snapshot with `question` on the beamer and an empty open ballot —
     for the editor's ballot preview; nothing is stored."""
     meeting = question.question_set
-    text, number, options = _wording(question)
+    wording = _wording(question)
+    options = wording["options"]
+    number = wording["version"]
     top = agenda.top_of(meeting, question.pk)
     election = _item_election(question, None, options)
     ballot_election = None
@@ -309,7 +329,9 @@ def preview_payload(question: Question) -> dict:
             "id": question.pk,
             "label": _label(top, question.pk),
             "kind": question.kind,
-            "text": text,
+            "text": wording["text"],
+            "text_i18n": wording["text_i18n"],
+            "translated": wording["translated"],
             "version": number,
             "changed": (number or 0) > 1,
             "named": question.named_vote,
@@ -350,8 +372,10 @@ def _items(meeting: QuestionSet, tops: list) -> list[dict]:
             for qid in bundled:
                 bundle_lead[qid] = ballot.question_id
     items = []
-    for question in eligibility.agenda(meeting):
-        text, version, _ = _wording(question)
+    agenda_questions = list(eligibility.agenda(meeting))
+    approved = translation_review.approvals(q.pk for q in agenda_questions)
+    for question in agenda_questions:
+        wording = _wording(question, approved.get(question.pk))
         own = statuses.get(question.pk, [])
         live = [s for s in own if s != Ballot.Status.DISCARDED]
         items.append({
@@ -359,8 +383,9 @@ def _items(meeting: QuestionSet, tops: list) -> list[dict]:
             "label": labels.get(question.pk, ""),
             "top": top_numbers.get(question.pk),
             "kind": question.kind,
-            "text": text,
-            "version": version,
+            "text": wording["text"],
+            "version": wording["version"],
+            "translation": wording["translation"],
             "named": question.named_vote,
             "ballot_status": (
                 Ballot.Status.OPEN if Ballot.Status.OPEN in live
