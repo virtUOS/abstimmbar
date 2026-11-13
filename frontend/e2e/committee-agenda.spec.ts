@@ -174,3 +174,33 @@ test('agenda: TOPs, spontaneous resolution, en bloc vote', async ({ page, browse
   await expect(page.getByTestId('top-note').filter({ hasText: 'Befangenheit' })).toBeVisible();
   await expect(page.getByTestId('protocol-note')).toHaveCount(2);
 });
+
+test('meeting item editor: no time limit and no AI rephrase helper', async ({ page, trackRoom }) => {
+  await login(page);
+  // AI on for this user, so a missing guard would show the rephrase panel.
+  await page.route(/\/api\/whoami\/(\?.*)?$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch();
+    const json = await response.json();
+    if (json.username) Object.assign(json, { onboarding_tour_seen: true, easy_mode: false, ai_enabled: true });
+    await route.fulfill({ response, json });
+  });
+  const headers = { 'X-CSRFToken': (await csrfToken(page.request)) ?? '' };
+  const post = async (path: string, data: unknown) => {
+    const response = await page.request.post(`${API_BASE_URL}${path}`, { headers, data });
+    expect(response.ok(), `${path}: ${response.status()} ${await response.text()}`).toBeTruthy();
+    return response.json();
+  };
+  const room = await post('/api/rooms/', { title: 'E2E Gremium Editor', kind: 'committee' });
+  trackRoom(room.id);
+  const meeting = await post('/api/question-sets/', {
+    room: room.id, type: 'meeting', title: 'E2E Sitzung', scheduled_at: '2030-01-15T10:00:00Z',
+  });
+  const item = await post('/api/questions/', {
+    question_set: meeting.id, kind: 'resolution', text: { de: 'Der Haushalt wird genehmigt.', en: 'The budget is approved.' },
+  });
+  await page.goto(`/sets/${meeting.id}/questions/${item.id}`);
+  await expect(page.getByTestId('translation-status')).toBeVisible();
+  await expect(page.getByText('Zeitbegrenzung', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Frage umformulieren')).toHaveCount(0);
+});

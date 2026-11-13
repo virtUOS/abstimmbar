@@ -308,7 +308,8 @@ export default function QuestionPage() {
         : window.matchMedia?.("(prefers-color-scheme: dark)").matches
           ? "dark"
           : "light";
-  const aiEnabled = !!whoami?.ai_enabled && !easyMode;
+  // Meeting items (resolutions, elections) get no generic AI helpers.
+  const aiEnabled = !!whoami?.ai_enabled && !easyMode && set?.type !== "meeting";
   const [aiBusy, setAiBusy] = useState<"" | "distractors" | "rephrase">("");
   const [aiError, setAiError] = useState("");
   const [aiDistractorError, setAiDistractorError] = useState("");
@@ -672,7 +673,9 @@ export default function QuestionPage() {
                     })),
             }
           : {}),
-        time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
+        ...(set?.type === "meeting"
+          ? {}
+          : { time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null }),
         // #91: report fields whose (non-canonical) translation now matches
         // what's being saved, so the API re-baselines their sync state.
         synced_fields: Array.from(new Set([...syncedFields, ...extraSynced])),
@@ -2202,6 +2205,7 @@ export default function QuestionPage() {
         )}
 
         {/* #onboarding question.timer anchor; plain block, layout-neutral. */}
+        {!isMeeting && (
         <div data-tour="question.timer">
           <Field label={t("Time limit")}>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2242,6 +2246,7 @@ export default function QuestionPage() {
             </div>
           </Field>
         </div>
+        )}
 
         {error && <p className="text-sm text-danger">{error}</p>}
         {confirmNoCorrect && missingSolutionForSelfCheck && (
