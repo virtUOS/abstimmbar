@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import TranslationStatusLine from "../committee/TranslationStatusLine";
 import { Check, ChevronLeft, ChevronRight, Eye, FileQuestion, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, TriangleAlert, X } from "lucide-react";
 import {
   API_BASE_URL,
@@ -1215,6 +1216,9 @@ export default function QuestionPage() {
           <p className="mt-1 text-sm text-danger">
             {t("Question text is required.")}
           </p>
+        )}
+        {isMeeting && !isNew && (
+          <TranslationStatusLine setId={set.id} questionId={question.id} savedKey={question} />
         )}
 
         {aiEnabled && (

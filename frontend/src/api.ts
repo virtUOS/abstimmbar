@@ -387,6 +387,20 @@ export interface MeetingPublic {
   top: MeetingTop | null;
 }
 
+export type TranslationStatus = "none" | "pending" | "confirmed";
+
+/** Wording of an agenda item in both languages, for the chair's review. */
+export interface ItemTranslation {
+  canonical: "de" | "en";
+  other: "de" | "en";
+  status: TranslationStatus;
+  /** Echo it back to confirm exactly this wording. */
+  digest: string;
+  text: { de: string; en: string };
+  options: { id: number; text: { de: string; en: string } }[];
+  version: number | null;
+}
+
 export interface MeetingAgendaItem {
   id: number;
   label: string;
@@ -401,6 +415,8 @@ export interface MeetingAgendaItem {
   discarded: number;
   /** Bundled into the en bloc vote led by this item (question id). */
   bundle_lead: number | null;
+  /** Review status of the other-language wording (chair only). */
+  translation?: TranslationStatus;
 }
 
 export interface MeetingAttendance {
@@ -1344,6 +1360,13 @@ export const api = {
     request<MeetingSummary>(`/api/meetings/${setId}/start/`, {
       method: "POST",
       ...(trial ? { body: JSON.stringify({ trial: true }) } : {}),
+    }),
+  getItemTranslation: (setId: number, questionId: number) =>
+    request<ItemTranslation>(`/api/meetings/${setId}/items/${questionId}/translation/`),
+  confirmItemTranslation: (setId: number, questionId: number, digest: string) =>
+    request<ItemTranslation>(`/api/meetings/${setId}/items/${questionId}/translation/`, {
+      method: "POST",
+      body: JSON.stringify({ digest }),
     }),
   endMeeting: (setId: number) =>
     request<MeetingSummary>(`/api/meetings/${setId}/end/`, { method: "POST" }),
