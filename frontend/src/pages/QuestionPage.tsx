@@ -186,6 +186,11 @@ function detectLikertPreset(left?: LocalizedText, right?: LocalizedText): string
 }
 
 /** Question editor: rich text, kind-specific options, save on demand. */
+/** Escape text for splicing into the rich-text HTML value. */
+function escapeHtmlText(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 export default function QuestionPage() {
   const { t } = useTranslation();
   const { setId, questionId } = useParams();
@@ -853,15 +858,30 @@ export default function QuestionPage() {
     }
   }
 
+  /** Position of the single occurrence of a suggestion's `original` in the
+   * HTML value (searched in its entity-escaped form), or -1 when it is
+   * missing, ambiguous or would sit inside a tag. */
+  function proofreadIndex(html: string, original: string) {
+    const needle = escapeHtmlText(original);
+    const idx = html.indexOf(needle);
+    if (idx < 0 || html.indexOf(needle, idx + 1) >= 0) return -1;
+    if (/<[^>]*$/.test(html.slice(0, idx))) return -1;
+    return idx;
+  }
+
   /** Replace the single exact occurrence of a suggestion in the canonical
-   * HTML value; the user still has to save. */
+   * HTML value; the user still has to save. AI output is untrusted, so the
+   * replacement is escaped before it is spliced into the HTML. */
   function applyProofread(index: number) {
     const item = proofreadItems[index];
     if (!item) return;
     const lang = getDefaultContentLang() as "de" | "en";
     const html = localizedMap(text)[lang] ?? "";
-    if (html.split(item.original).length !== 2) return;
-    const replaced = html.replace(item.original, () => item.replacement);
+    const at = proofreadIndex(html, item.original);
+    if (at < 0) return;
+    const needle = escapeHtmlText(item.original);
+    const replaced =
+      html.slice(0, at) + escapeHtmlText(item.replacement) + html.slice(at + needle.length);
     setText((current) => setLocalizedLang(current, lang, replaced));
     setProofreadItems((current) =>
       current.map((entry, i) => (i === index ? { ...entry, applied: true } : entry)),
@@ -1284,7 +1304,7 @@ export default function QuestionPage() {
                 {proofreadItems.map((item, index) => {
                   const html = localizedMap(text)[canonicalLang] ?? "";
                   const applicable =
-                    !item.applied && html.split(item.original).length === 2;
+                    !item.applied && proofreadIndex(html, item.original) >= 0;
                   return (
                     <li
                       key={index}

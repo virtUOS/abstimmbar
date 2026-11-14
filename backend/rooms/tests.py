@@ -6489,6 +6489,21 @@ class AiProofreadTests(ApiTestCase):
             {"original": "Beschluss ist", "replacement": "Beschluss sind", "reason": "Kongruenz"},
         ])
 
+    def test_drops_markup_and_unescapes_entities(self):
+        reply = {"suggestions": [
+            {"original": "Tisch", "replacement": "<img src=x onerror=1>", "reason": "x"},
+            {"original": "Stuhl", "replacement": "Stuhl</p>", "reason": "x"},
+            {"original": "Müller & Söhne", "replacement": "Müller & Söhne GmbH", "reason": "ok"},
+        ]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ) as chat:
+            r = self._post({"text": "<p>Tisch Stuhl Müller &amp; Söhne</p>", "language": "de"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([s["original"] for s in r.json()["suggestions"]], ["Müller & Söhne"])
+        self.assertIn("Müller & Söhne", chat.call_args[0][1])
+        self.assertNotIn("&amp;", chat.call_args[0][1])
+
     def test_ai_error_502(self):
         from basicbar_integrations.ai import AIError
         with self.override_settings(**AI_ON), self.mock.patch(

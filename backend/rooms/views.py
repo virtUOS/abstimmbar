@@ -7,6 +7,7 @@ Everything here requires a logged-in user (OIDC); visibility is limited to
 rooms the user owns (staff sees all). The anonymous participant side lives in
 the `live` app (M2) — never here.
 """
+import html
 import operator
 from functools import reduce
 from typing import ClassVar
@@ -764,7 +765,7 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 {"detail": "Proofreading is only available for meetings."},
                 status=400,
             )
-        plain = _plain(request.data.get("text") or "")
+        plain = html.unescape(_plain(request.data.get("text") or ""))
         if not plain:
             return Response({"detail": "The text is empty."}, status=400)
         language = request.data.get("language")
@@ -786,6 +787,10 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             replacement = str(item.get("replacement") or "")
             reason = str(item.get("reason") or "").strip()[:300]
             if not 1 <= len(original) <= 500 or original not in plain:
+                continue
+            # Markup characters never belong in a suggestion (the editor
+            # value is HTML; AI output is untrusted).
+            if any(c in original + replacement for c in "<>"):
                 continue
             if len(replacement) > 500 or replacement == original:
                 continue
