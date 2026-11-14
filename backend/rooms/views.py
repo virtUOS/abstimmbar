@@ -749,6 +749,51 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         self.get_object()  # ownership check
         return _ai_rephrase_response(request, fallback_question=None)
 
+    @action(detail=True, methods=["post"], url_path="ai-proofread")
+    def ai_proofread(self, request, pk=None):
+        """Optional AI proofreading of a motion text (meeting sets only).
+
+        Returns ``{original, replacement, reason}`` suggestions that are
+        never applied server-side; the editor offers them to the user.
+        """
+        question_set = self.get_object()  # editor permission check
+        if not ai.is_enabled():
+            return Response({"detail": "AI is not configured."}, status=503)
+        if question_set.type != QuestionSet.SetType.MEETING:
+            return Response(
+                {"detail": "Proofreading is only available for meetings."},
+                status=400,
+            )
+        plain = _plain(request.data.get("text") or "")
+        if not plain:
+            return Response({"detail": "The text is empty."}, status=400)
+        language = request.data.get("language")
+        if language not in ("de", "en"):
+            language = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+        try:
+            data = ai.chat_json(
+                ai_prompts.proofread_system(),
+                ai_prompts.build_proofread_prompt(plain, language),
+            )
+        except ai.AIError as exc:
+            return Response({"detail": f"AI error: {exc}"}, status=502)
+        suggestions = []
+        raw = data.get("suggestions", []) if isinstance(data, dict) else []
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            original = str(item.get("original") or "")
+            replacement = str(item.get("replacement") or "")
+            reason = str(item.get("reason") or "").strip()[:300]
+            if not 1 <= len(original) <= 500 or original not in plain:
+                continue
+            if len(replacement) > 500 or replacement == original:
+                continue
+            suggestions.append(
+                {"original": original, "replacement": replacement, "reason": reason}
+            )
+        return Response({"suggestions": suggestions[:20]})
+
     @action(detail=True, methods=["post"])
     def reorder(self, request, pk=None):
         """Persist a new question order: ``{"question_ids": [3, 1, 2]}``."""

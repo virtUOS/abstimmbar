@@ -1677,6 +1677,15 @@ export const api = {
       `/api/question-sets/${setId}/ai-rephrase/`,
       { method: "POST", body: JSON.stringify({ text }) },
     ),
+  /** Meeting sets only: optional AI proofreading of a motion text. Returns
+   * suggestions that are never applied automatically. */
+  aiProofreadForSet: (setId: number, text: string, language: string) =>
+    request<{
+      suggestions: { original: string; replacement: string; reason: string }[];
+    }>(`/api/question-sets/${setId}/ai-proofread/`, {
+      method: "POST",
+      body: JSON.stringify({ text, language }),
+    }),
   /** All of the user's sets (move target picker) — no room filter. */
   listAllQuestionSets: () =>
     request<Paginated<QuestionSet>>("/api/question-sets/"),

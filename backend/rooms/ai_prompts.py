@@ -43,3 +43,30 @@ def build_rephrase_prompt(question):
         "Sinn oder den Schwierigkeitsgrad zu verändern. "
         'Antworte als JSON: {"variants": ["...", "...", "..."]}'
     )
+
+
+def proofread_system():
+    return (
+        "Du bist ein sorgfältiger Korrektor für Beschlusstexte von Gremien. "
+        "Du korrigierst AUSSCHLIESSLICH Rechtschreibung, Grammatik und "
+        "Zeichensetzung. Du änderst niemals den Sinn, Namen, Zahlen, Fristen "
+        "oder die Wortwahl über die reine Korrektur hinaus. "
+        "Antworte AUSSCHLIESSLICH mit striktem JSON in der geforderten Form, "
+        "ohne weiteren Text, ohne Markdown."
+    )
+
+
+def build_proofread_prompt(text, language):
+    """Ask for minimal corrections of ``text`` (written in ``language``)."""
+    lang = {"de": "Deutsch", "en": "Englisch"}.get(language, language)
+    return (
+        f"Text ({lang}):\n{text}\n\n"
+        "Finde Rechtschreib-, Grammatik- und Zeichensetzungsfehler. Gib für "
+        "jeden Fehler einen Vorschlag an. 'original' MUSS wortwörtlich und "
+        "unverändert aus dem Text kopiert sein (möglichst kurzer, eindeutiger "
+        "Ausschnitt), 'replacement' ist die korrigierte Fassung dieses "
+        "Ausschnitts, 'reason' eine kurze Begründung. Ist nichts zu "
+        "korrigieren, ist die Liste leer. "
+        'Antworte als JSON: {"suggestions": [{"original": "...", '
+        '"replacement": "...", "reason": "..."}]}'
+    )

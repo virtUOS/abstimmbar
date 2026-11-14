@@ -310,6 +310,15 @@ export default function QuestionPage() {
           : "light";
   // Meeting items (resolutions, elections) get no generic AI helpers.
   const aiEnabled = !!whoami?.ai_enabled && !easyMode && set?.type !== "meeting";
+  // Optional AI proofreading of the motion text (meeting items only).
+  const proofreadEnabled =
+    !!whoami?.ai_enabled && !easyMode && set?.type === "meeting";
+  const [proofreadBusy, setProofreadBusy] = useState(false);
+  const [proofreadDone, setProofreadDone] = useState(false);
+  const [proofreadError, setProofreadError] = useState("");
+  const [proofreadItems, setProofreadItems] = useState<
+    { original: string; replacement: string; reason: string; applied: boolean }[]
+  >([]);
   const [aiBusy, setAiBusy] = useState<"" | "distractors" | "rephrase">("");
   const [aiError, setAiError] = useState("");
   const [aiDistractorError, setAiDistractorError] = useState("");
@@ -826,6 +835,39 @@ export default function QuestionPage() {
     }
   }
 
+  async function runProofread() {
+    setProofreadBusy(true);
+    setProofreadError("");
+    setProofreadItems([]);
+    setProofreadDone(false);
+    try {
+      const lang = getDefaultContentLang() as "de" | "en";
+      const html = localizedMap(text)[lang] ?? "";
+      const { suggestions } = await api.aiProofreadForSet(Number(setId), html, lang);
+      setProofreadItems(suggestions.map((item) => ({ ...item, applied: false })));
+      setProofreadDone(true);
+    } catch (err) {
+      setProofreadError(aiErrorText(err, t));
+    } finally {
+      setProofreadBusy(false);
+    }
+  }
+
+  /** Replace the single exact occurrence of a suggestion in the canonical
+   * HTML value; the user still has to save. */
+  function applyProofread(index: number) {
+    const item = proofreadItems[index];
+    if (!item) return;
+    const lang = getDefaultContentLang() as "de" | "en";
+    const html = localizedMap(text)[lang] ?? "";
+    if (html.split(item.original).length !== 2) return;
+    const replaced = html.replace(item.original, () => item.replacement);
+    setText((current) => setLocalizedLang(current, lang, replaced));
+    setProofreadItems((current) =>
+      current.map((entry, i) => (i === index ? { ...entry, applied: true } : entry)),
+    );
+  }
+
   function applyDistractor(value: string) {
     // Binary (Ja/Nein, Wahr/Falsch) must stay exactly two options — never add
     // a third one here (#101; the AI panel is also hidden for binary above,
@@ -1222,6 +1264,66 @@ export default function QuestionPage() {
         )}
         {isMeeting && !isNew && (
           <TranslationStatusLine setId={set.id} questionId={question.id} savedKey={question} />
+        )}
+
+        {proofreadEnabled && (
+          <AiAssistPanel title={t("Proofread motion text")}>
+            <Button
+              onClick={() => void runProofread()}
+              disabled={proofreadBusy || textMissing}
+            >
+              {proofreadBusy ? t("Checking …") : t("Proofread")}
+            </Button>
+            {proofreadDone && proofreadItems.length === 0 && (
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                {t("No corrections suggested.")}
+              </p>
+            )}
+            {proofreadItems.length > 0 && (
+              <ul className="mt-2 space-y-1.5">
+                {proofreadItems.map((item, index) => {
+                  const html = localizedMap(text)[canonicalLang] ?? "";
+                  const applicable =
+                    !item.applied && html.split(item.original).length === 2;
+                  return (
+                    <li
+                      key={index}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                    >
+                      <p>
+                        <span className="line-through">{item.original}</span>
+                        {" → "}
+                        <strong>{item.replacement}</strong>
+                      </p>
+                      {item.reason && (
+                        <p className="text-xs text-slate-500">{item.reason}</p>
+                      )}
+                      <div className="mt-1">
+                        {item.applied ? (
+                          <span className="text-xs text-slate-500">{t("Applied")}</span>
+                        ) : applicable ? (
+                          <button
+                            type="button"
+                            onClick={() => applyProofread(index)}
+                            className="text-xs font-medium text-brand-700 underline dark:text-brand-300"
+                          >
+                            {t("Apply")}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-500">
+                            {t("Cannot be applied automatically — please edit the text by hand.")}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {proofreadError && (
+              <p className="mt-1 text-sm text-danger">{proofreadError}</p>
+            )}
+          </AiAssistPanel>
         )}
 
         {aiEnabled && (
