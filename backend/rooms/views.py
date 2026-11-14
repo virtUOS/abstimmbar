@@ -9,6 +9,7 @@ the `live` app (M2) — never here.
 """
 import html
 import operator
+import re
 from functools import reduce
 from typing import ClassVar
 
@@ -83,6 +84,18 @@ def _owner_list(room, viewer):
 def _plain(html):
     """Strip all markup (plain-text preview of question texts)."""
     return " ".join(nh3.clean(html or "", tags=set()).split())
+
+
+_BLOCK_END = re.compile(r"</(?:p|li|h[1-6]|blockquote)\s*>|<br\s*/?>", re.IGNORECASE)
+
+
+def _plain_paragraphs(value):
+    """Like ``_plain`` but block ends become newlines, so paragraphs are not
+    glued together ("A.B") before they reach the AI."""
+    value = _BLOCK_END.sub("\n", value or "")
+    text = html.unescape(nh3.clean(value, tags=set()))
+    lines = (" ".join(line.split()) for line in text.split("\n"))
+    return "\n".join(line for line in lines if line)
 
 
 def _i18n_icontains(field, query):
@@ -765,10 +778,13 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 {"detail": "Proofreading is only available for meetings."},
                 status=400,
             )
-        plain = html.unescape(_plain(request.data.get("text") or ""))
+        body = request.data
+        if not isinstance(body, dict) or not isinstance(body.get("text") or "", str):
+            return Response({"detail": "text must be a string."}, status=400)
+        plain = _plain_paragraphs(body.get("text") or "")
         if not plain:
             return Response({"detail": "The text is empty."}, status=400)
-        language = request.data.get("language")
+        language = body.get("language")
         if language not in ("de", "en"):
             language = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
         try:
@@ -787,6 +803,9 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             replacement = str(item.get("replacement") or "")
             reason = str(item.get("reason") or "").strip()[:300]
             if not 1 <= len(original) <= 500 or original not in plain:
+                continue
+            # A suggestion must sit inside one paragraph to be applicable.
+            if "\n" in original:
                 continue
             # Markup characters never belong in a suggestion (the editor
             # value is HTML; AI output is untrusted).

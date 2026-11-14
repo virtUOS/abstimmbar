@@ -54,7 +54,12 @@ def sync(question) -> MotionVersion | None:
         or meeting.meeting_state != QuestionSet.MeetingState.STARTED
     ):
         return None
-    return _freeze(question)
+    version = _freeze(question)
+    if version is not None:
+        from .live import notify  # live imports this module
+
+        notify(meeting)  # members see the changed wording of the shown item
+    return version
 
 
 def lock_reason(question) -> str | None:

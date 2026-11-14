@@ -9,7 +9,10 @@ before the start or a new version after it — makes the stored digest stale,
 so the translation is withheld again until it is confirmed anew. Nothing
 here touches ``MotionVersion`` (seals hash its fields)."""
 import hashlib
+import html as html_lib
 import json
+
+import nh3
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
@@ -24,6 +27,16 @@ LANGUAGES = ("de", "en")
 CHOICE_KINDS = (
     Question.Kind.SINGLE_CHOICE, Question.Kind.MULTIPLE_CHOICE, Question.Kind.ELECTION,
 )
+
+
+def _has_text(value: str | None) -> bool:
+    """Rich-editor HTML with visible content: text after stripping tags
+    (the editor emits ``<p></p>`` for a cleared field) or an image."""
+    value = value or ""
+    if "<img" in value.lower():
+        return True
+    text = html_lib.unescape(nh3.clean(value, tags=set()))
+    return bool(" ".join(text.split()))
 
 
 def canonical_language() -> str:
@@ -80,7 +93,7 @@ def is_confirmed(maps: dict, approval: TranslationApproval | None) -> bool:
     exactly this wording."""
     return (
         approval is not None
-        and bool((maps["text"][other_language()] or "").strip())
+        and _has_text(maps["text"][other_language()])
         and approval.digest == digest(maps)
     )
 
@@ -93,7 +106,7 @@ def approvals(question_ids) -> dict[int, TranslationApproval]:
 
 
 def status_of(maps: dict, approval: TranslationApproval | None) -> str:
-    if not (maps["text"][other_language()] or "").strip():
+    if not _has_text(maps["text"][other_language()]):
         return "none"
     return "confirmed" if is_confirmed(maps, approval) else "pending"
 
@@ -106,7 +119,7 @@ def status(question: Question) -> str:
 def text_i18n(value: dict, confirmed: bool) -> dict:
     """``{other: text}`` for a confirmed translation, else empty."""
     other = other_language()
-    return {other: value[other]} if confirmed and (value[other] or "").strip() else {}
+    return {other: value[other]} if confirmed and _has_text(value[other]) else {}
 
 
 def review(question: Question) -> dict:
@@ -126,7 +139,7 @@ def confirm(question: Question, expected_digest: str) -> None:
     from .ballots import ballots_for  # ballots imports versions
 
     maps = wording_maps(question)
-    if not (maps["text"][other_language()] or "").strip():
+    if not _has_text(maps["text"][other_language()]):
         raise ValidationError("There is no translation to confirm.", code="empty")
     if ballots_for(question).filter(status=Ballot.Status.OPEN).exists():
         raise ValidationError("A vote on this item is open.", code="vote_open")

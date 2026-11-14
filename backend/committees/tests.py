@@ -14,7 +14,7 @@ from rest_framework.test import APIClient
 
 from rooms.models import AnswerOption, Question, QuestionSet, Room, Section
 
-from . import agenda, ballots, eligibility, payloads, seals, services, versions
+from . import agenda, ballots, eligibility, payloads, seals, services, translation_review, versions
 from .models import (
     Ballot,
     BallotSeat,
@@ -4939,6 +4939,32 @@ class TranslationReviewTests(BallotBase):
         self.assertEqual(r.json()["code"], "empty")
         r = self.client.post(self.url(), {}, format="json")
         self.assertEqual(r.status_code, 400)
+
+    def test_empty_editor_html_is_no_translation(self):
+        self.q.text_en = "<p></p>"
+        self.q.save()
+        versions.sync(self.q)
+        self.q.refresh_from_db()
+        body = self.client.get(self.url()).json()
+        self.assertEqual(body["status"], "none")
+        r = self.client.post(self.url(), {"digest": body["digest"]}, format="json")
+        self.assertEqual((r.status_code, r.json()["code"]), (400, "empty"))
+        self.assertEqual(
+            translation_review.text_i18n({"de": "x", "en": "<p></p>"}, True), {},
+        )
+        self.assertTrue(translation_review._has_text("<p><img src='a.png'></p>"))
+        self.assertTrue(translation_review._has_text("<p>Hi&nbsp;</p>"))
+
+    def test_edit_of_shown_item_rebroadcasts(self):
+        self.show()
+        with mock.patch("committees.live.broadcast_meeting") as broadcast:
+            with self.captureOnCommitCallbacks(execute=True):
+                r = self.client.patch(
+                    f"/api/questions/{self.q.pk}/",
+                    {"text": {"de": "Deutsch 3", "en": self.SECRET}}, format="json",
+                )
+        self.assertEqual(r.status_code, 200, r.content)
+        broadcast.assert_called()
 
     def test_confirm_while_vote_open_409(self):
         digest = self.client.get(self.url()).json()["digest"]

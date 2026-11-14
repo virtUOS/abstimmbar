@@ -185,12 +185,12 @@ function detectLikertPreset(left?: LocalizedText, right?: LocalizedText): string
   return match ? match.key : "custom";
 }
 
-/** Question editor: rich text, kind-specific options, save on demand. */
 /** Escape text for splicing into the rich-text HTML value. */
 function escapeHtmlText(value: string) {
   return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Question editor: rich text, kind-specific options, save on demand. */
 export default function QuestionPage() {
   const { t } = useTranslation();
   const { setId, questionId } = useParams();

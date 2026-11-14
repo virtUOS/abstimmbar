@@ -6504,6 +6504,25 @@ class AiProofreadTests(ApiTestCase):
         self.assertIn("Müller & Söhne", chat.call_args[0][1])
         self.assertNotIn("&amp;", chat.call_args[0][1])
 
+    def test_paragraphs_are_separated_and_multiline_originals_dropped(self):
+        reply = {"suggestions": [
+            {"original": "A.\nB", "replacement": "A. B", "reason": "x"},
+            {"original": "Zweiter", "replacement": "Zweite", "reason": "ok"},
+        ]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ) as chat:
+            r = self._post({"text": "<p>A.</p><p>Zweiter</p><ul><li>x</li><li>y</li></ul>", "language": "de"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIn("A.\nZweiter\nx\ny", chat.call_args[0][1])
+        self.assertEqual([s["original"] for s in r.json()["suggestions"]], ["Zweiter"])
+
+    def test_malformed_body_400(self):
+        with self.override_settings(**AI_ON):
+            self.assertEqual(self._post({"text": 5, "language": "de"}).status_code, 400)
+            self.assertEqual(self._post({"text": ["a"]}).status_code, 400)
+            self.assertEqual(self._post(["a"]).status_code, 400)
+
     def test_ai_error_502(self):
         from basicbar_integrations.ai import AIError
         with self.override_settings(**AI_ON), self.mock.patch(

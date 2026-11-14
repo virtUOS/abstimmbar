@@ -1,5 +1,5 @@
 /** The chair reviews the wording of an agenda item in both languages and
- *  confirms the translation; until then English-speaking members see the
+ *  confirms the translation; until then members who use the other language see the
  *  original text (spec § 7.6). Confirming is bound to the digest the dialog
  *  loaded, so a text changed in the meantime is never confirmed unseen. */
 import { useEffect, useState } from "react";
@@ -69,7 +69,9 @@ export default function TranslationReviewDialog({
       <div className="grid gap-3" data-testid="translation-dialog">
         <h2 className="font-semibold text-slate-900 dark:text-slate-100">{t("Review translation")}</h2>
         <p className="text-sm text-slate-600 dark:text-slate-400">
-          {t("English-speaking members see the original text until you confirm the translation.")}
+          {t("Members who use {{language}} see the original text until you confirm the translation.", {
+            language: data ? name(data.other) : "",
+          })}
         </p>
         {data && (
           <div className="grid gap-3 sm:grid-cols-2">

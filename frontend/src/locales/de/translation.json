@@ -1674,7 +1674,7 @@
   "Review and confirm": "Prüfen und bestätigen",
   "original": "Original",
   "(empty)": "(leer)",
-  "English-speaking members see the original text until you confirm the translation.": "Englischsprachige Mitglieder sehen den Originaltext, bis Sie die Übersetzung bestätigen.",
+  "Members who use {{language}} see the original text until you confirm the translation.": "Mitglieder, die {{language}} nutzen, sehen den Originaltext, bis Sie die Übersetzung bestätigen.",
   "The text has changed in the meantime. Please review it again.": "Der Text wurde inzwischen geändert. Bitte prüfen Sie ihn erneut.",
   "The translation cannot be confirmed while a vote is open.": "Während einer laufenden Abstimmung kann die Übersetzung nicht bestätigt werden.",
   "The translation is empty.": "Die Übersetzung ist leer."
