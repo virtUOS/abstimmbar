@@ -6428,3 +6428,111 @@ class ResolutionKindTests(ApiTestCase):
         self.assertEqual(response.status_code, 200, response.content)
         got = self.client.get(f"/api/questions/{created['id']}/")
         self.assertTrue(got.json()["named_vote"])
+
+
+class AiProofreadTests(ApiTestCase):
+    """AI proofreading of a motion text (meeting sets only, chat_json mocked)."""
+
+    def setUp(self):
+        super().setUp()
+        from unittest import mock
+
+        from django.test import override_settings
+        self.mock = mock
+        self.override_settings = override_settings
+        self.committee = Room.objects.create(title="Rat", kind=Room.Kind.COMMITTEE)
+        self.committee.owners.add(self.owner)
+        self.meeting = QuestionSet.objects.create(
+            room=self.committee, title="Sitzung", type=QuestionSet.SetType.MEETING
+        )
+        self.url = f"/api/question-sets/{self.meeting.pk}/ai-proofread/"
+
+    def _post(self, body, url=None):
+        return self.client.post(
+            url or self.url, body, content_type="application/json"
+        )
+
+    def test_disabled_503(self):
+        with self.override_settings(
+            AI_PROVIDER="none", AI_BASE_URL="", AI_API_KEY="", AI_MODEL=""
+        ):
+            r = self._post({"text": "<p>Text</p>", "language": "de"})
+        self.assertEqual(r.status_code, 503)
+
+    def test_non_meeting_set_400(self):
+        plain = QuestionSet.objects.create(room=self.room, title="T")
+        with self.override_settings(**AI_ON):
+            r = self._post(
+                {"text": "Text"}, f"/api/question-sets/{plain.pk}/ai-proofread/"
+            )
+        self.assertEqual(r.status_code, 400)
+
+    def test_empty_text_400(self):
+        with self.override_settings(**AI_ON):
+            r = self._post({"text": "<p> </p>", "language": "de"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_returns_validated_suggestions(self):
+        reply = {"suggestions": [
+            {"original": "Beschluss ist", "replacement": "Beschluss sind", "reason": "Kongruenz"},
+            {"original": "nicht im Text", "replacement": "x", "reason": "r"},
+            {"original": "Antrag", "replacement": "Antrag", "reason": "gleich"},
+            {"original": "", "replacement": "x", "reason": "leer"},
+            "kaputt",
+        ]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ):
+            r = self._post({"text": "<p>Der Beschluss ist <b>gut</b>. Antrag</p>", "language": "de"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["suggestions"], [
+            {"original": "Beschluss ist", "replacement": "Beschluss sind", "reason": "Kongruenz"},
+        ])
+
+    def test_drops_markup_and_unescapes_entities(self):
+        reply = {"suggestions": [
+            {"original": "Tisch", "replacement": "<img src=x onerror=1>", "reason": "x"},
+            {"original": "Stuhl", "replacement": "Stuhl</p>", "reason": "x"},
+            {"original": "Müller & Söhne", "replacement": "Müller & Söhne GmbH", "reason": "ok"},
+        ]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ) as chat:
+            r = self._post({"text": "<p>Tisch Stuhl Müller &amp; Söhne</p>", "language": "de"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([s["original"] for s in r.json()["suggestions"]], ["Müller & Söhne"])
+        self.assertIn("Müller & Söhne", chat.call_args[0][1])
+        self.assertNotIn("&amp;", chat.call_args[0][1])
+
+    def test_paragraphs_are_separated_and_multiline_originals_dropped(self):
+        reply = {"suggestions": [
+            {"original": "A.\nB", "replacement": "A. B", "reason": "x"},
+            {"original": "Zweiter", "replacement": "Zweite", "reason": "ok"},
+        ]}
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", return_value=reply
+        ) as chat:
+            r = self._post({"text": "<p>A.</p><p>Zweiter</p><ul><li>x</li><li>y</li></ul>", "language": "de"})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertIn("A.\nZweiter\nx\ny", chat.call_args[0][1])
+        self.assertEqual([s["original"] for s in r.json()["suggestions"]], ["Zweiter"])
+
+    def test_malformed_body_400(self):
+        with self.override_settings(**AI_ON):
+            self.assertEqual(self._post({"text": 5, "language": "de"}).status_code, 400)
+            self.assertEqual(self._post({"text": ["a"]}).status_code, 400)
+            self.assertEqual(self._post(["a"]).status_code, 400)
+
+    def test_ai_error_502(self):
+        from basicbar_integrations.ai import AIError
+        with self.override_settings(**AI_ON), self.mock.patch(
+            "rooms.views.ai.chat_json", side_effect=AIError("boom")
+        ):
+            r = self._post({"text": "Text", "language": "de"})
+        self.assertEqual(r.status_code, 502)
+
+    def test_requires_set_editor(self):
+        self.client.force_login(self.other)
+        with self.override_settings(**AI_ON):
+            r = self._post({"text": "Text", "language": "de"})
+        self.assertEqual(r.status_code, 404)

@@ -668,6 +668,10 @@ msgid "Item {number}"
 msgstr "TOP {number}"
 
 #: committees/views.py
+msgid "The translation has not been confirmed yet — the original text is shown."
+msgstr "Die Übersetzung wurde noch nicht bestätigt – angezeigt wird der Originaltext."
+
+#: committees/views.py
 #, python-brace-format
 msgid "Version {number}"
 msgstr "Fassung {number}"

@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
+import TranslationStatusLine from "../committee/TranslationStatusLine";
 import { Check, ChevronLeft, ChevronRight, Eye, FileQuestion, Files, FolderInput, ImageOff, ImagePlus, Link2, Pencil, Shuffle, TriangleAlert, X } from "lucide-react";
 import {
   API_BASE_URL,
@@ -184,6 +185,11 @@ function detectLikertPreset(left?: LocalizedText, right?: LocalizedText): string
   return match ? match.key : "custom";
 }
 
+/** Escape text for splicing into the rich-text HTML value. */
+function escapeHtmlText(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 /** Question editor: rich text, kind-specific options, save on demand. */
 export default function QuestionPage() {
   const { t } = useTranslation();
@@ -307,7 +313,17 @@ export default function QuestionPage() {
         : window.matchMedia?.("(prefers-color-scheme: dark)").matches
           ? "dark"
           : "light";
-  const aiEnabled = !!whoami?.ai_enabled && !easyMode;
+  // Meeting items (resolutions, elections) get no generic AI helpers.
+  const aiEnabled = !!whoami?.ai_enabled && !easyMode && set?.type !== "meeting";
+  // Optional AI proofreading of the motion text (meeting items only).
+  const proofreadEnabled =
+    !!whoami?.ai_enabled && !easyMode && set?.type === "meeting";
+  const [proofreadBusy, setProofreadBusy] = useState(false);
+  const [proofreadDone, setProofreadDone] = useState(false);
+  const [proofreadError, setProofreadError] = useState("");
+  const [proofreadItems, setProofreadItems] = useState<
+    { original: string; replacement: string; reason: string; applied: boolean }[]
+  >([]);
   const [aiBusy, setAiBusy] = useState<"" | "distractors" | "rephrase">("");
   const [aiError, setAiError] = useState("");
   const [aiDistractorError, setAiDistractorError] = useState("");
@@ -671,7 +687,9 @@ export default function QuestionPage() {
                     })),
             }
           : {}),
-        time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null,
+        ...(set?.type === "meeting"
+          ? {}
+          : { time_limit: Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : null }),
         // #91: report fields whose (non-canonical) translation now matches
         // what's being saved, so the API re-baselines their sync state.
         synced_fields: Array.from(new Set([...syncedFields, ...extraSynced])),
@@ -820,6 +838,54 @@ export default function QuestionPage() {
     } finally {
       setAiBusy("");
     }
+  }
+
+  async function runProofread() {
+    setProofreadBusy(true);
+    setProofreadError("");
+    setProofreadItems([]);
+    setProofreadDone(false);
+    try {
+      const lang = getDefaultContentLang() as "de" | "en";
+      const html = localizedMap(text)[lang] ?? "";
+      const { suggestions } = await api.aiProofreadForSet(Number(setId), html, lang);
+      setProofreadItems(suggestions.map((item) => ({ ...item, applied: false })));
+      setProofreadDone(true);
+    } catch (err) {
+      setProofreadError(aiErrorText(err, t));
+    } finally {
+      setProofreadBusy(false);
+    }
+  }
+
+  /** Position of the single occurrence of a suggestion's `original` in the
+   * HTML value (searched in its entity-escaped form), or -1 when it is
+   * missing, ambiguous or would sit inside a tag. */
+  function proofreadIndex(html: string, original: string) {
+    const needle = escapeHtmlText(original);
+    const idx = html.indexOf(needle);
+    if (idx < 0 || html.indexOf(needle, idx + 1) >= 0) return -1;
+    if (/<[^>]*$/.test(html.slice(0, idx))) return -1;
+    return idx;
+  }
+
+  /** Replace the single exact occurrence of a suggestion in the canonical
+   * HTML value; the user still has to save. AI output is untrusted, so the
+   * replacement is escaped before it is spliced into the HTML. */
+  function applyProofread(index: number) {
+    const item = proofreadItems[index];
+    if (!item) return;
+    const lang = getDefaultContentLang() as "de" | "en";
+    const html = localizedMap(text)[lang] ?? "";
+    const at = proofreadIndex(html, item.original);
+    if (at < 0) return;
+    const needle = escapeHtmlText(item.original);
+    const replaced =
+      html.slice(0, at) + escapeHtmlText(item.replacement) + html.slice(at + needle.length);
+    setText((current) => setLocalizedLang(current, lang, replaced));
+    setProofreadItems((current) =>
+      current.map((entry, i) => (i === index ? { ...entry, applied: true } : entry)),
+    );
   }
 
   function applyDistractor(value: string) {
@@ -1215,6 +1281,69 @@ export default function QuestionPage() {
           <p className="mt-1 text-sm text-danger">
             {t("Question text is required.")}
           </p>
+        )}
+        {isMeeting && !isNew && (
+          <TranslationStatusLine setId={set.id} questionId={question.id} savedKey={question} />
+        )}
+
+        {proofreadEnabled && (
+          <AiAssistPanel title={t("Proofread motion text")}>
+            <Button
+              onClick={() => void runProofread()}
+              disabled={proofreadBusy || textMissing}
+            >
+              {proofreadBusy ? t("Checking …") : t("Proofread")}
+            </Button>
+            {proofreadDone && proofreadItems.length === 0 && (
+              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+                {t("No corrections suggested.")}
+              </p>
+            )}
+            {proofreadItems.length > 0 && (
+              <ul className="mt-2 space-y-1.5">
+                {proofreadItems.map((item, index) => {
+                  const html = localizedMap(text)[canonicalLang] ?? "";
+                  const applicable =
+                    !item.applied && proofreadIndex(html, item.original) >= 0;
+                  return (
+                    <li
+                      key={index}
+                      className="rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-700"
+                    >
+                      <p>
+                        <span className="line-through">{item.original}</span>
+                        {" → "}
+                        <strong>{item.replacement}</strong>
+                      </p>
+                      {item.reason && (
+                        <p className="text-xs text-slate-500">{item.reason}</p>
+                      )}
+                      <div className="mt-1">
+                        {item.applied ? (
+                          <span className="text-xs text-slate-500">{t("Applied")}</span>
+                        ) : applicable ? (
+                          <button
+                            type="button"
+                            onClick={() => applyProofread(index)}
+                            className="text-xs font-medium text-brand-700 underline dark:text-brand-300"
+                          >
+                            {t("Apply")}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-slate-500">
+                            {t("Cannot be applied automatically — please edit the text by hand.")}
+                          </span>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {proofreadError && (
+              <p className="mt-1 text-sm text-danger">{proofreadError}</p>
+            )}
+          </AiAssistPanel>
         )}
 
         {aiEnabled && (
@@ -2198,6 +2327,7 @@ export default function QuestionPage() {
         )}
 
         {/* #onboarding question.timer anchor; plain block, layout-neutral. */}
+        {!isMeeting && (
         <div data-tour="question.timer">
           <Field label={t("Time limit")}>
             <div className="flex flex-wrap items-center gap-1.5">
@@ -2238,6 +2368,7 @@ export default function QuestionPage() {
             </div>
           </Field>
         </div>
+        )}
 
         {error && <p className="text-sm text-danger">{error}</p>}
         {confirmNoCorrect && missingSolutionForSelfCheck && (

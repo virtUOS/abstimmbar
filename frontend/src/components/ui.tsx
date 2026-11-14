@@ -16,6 +16,7 @@ import {
   type SelectHTMLAttributes,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { useDialogFocus } from "./useDialogFocus";
 
 export function Button({
   variant = "secondary",
@@ -237,6 +238,8 @@ export function ConfirmDialog({
   confirmVariant?: "primary" | "secondary" | "danger" | "ghost";
 }) {
   const { t } = useTranslation();
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useDialogFocus(dialogRef);
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onCancel();
@@ -246,6 +249,8 @@ export function ConfirmDialog({
   }, [onCancel]);
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-6"
       role="dialog"
       aria-modal="true"

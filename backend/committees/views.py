@@ -27,7 +27,17 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import ballots, live, mailing, payloads, protocol, protocol_pdf, seals, services
+from . import (
+    ballots,
+    live,
+    mailing,
+    payloads,
+    protocol,
+    protocol_pdf,
+    seals,
+    services,
+    translation_review,
+)
 from .models import (
     Ballot,
     BallotSeat,
@@ -554,6 +564,27 @@ class MeetingViewSet(viewsets.GenericViewSet):
             raise _coded(exc) from exc
         return self._console(meeting, status.HTTP_201_CREATED)
 
+    def translation(self, request, pk=None, question_id=None):
+        """GET: the wording in both languages with its digest; POST: the chair
+        confirms the translation as shown (``{"digest"}``)."""
+        meeting = self.get_object()
+        question = get_object_or_404(meeting.questions, pk=question_id)
+        if request.method == "POST":
+            digest = request.data.get("digest")
+            if not isinstance(digest, str):
+                raise ValidationError({"detail": "Invalid digest.", "code": "invalid"})
+            try:
+                translation_review.confirm(question, digest)
+            except DjangoValidationError as exc:
+                if exc.code in ("stale", "vote_open"):
+                    return Response(
+                        {"detail": exc.messages[0], "code": exc.code},
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                raise _coded(exc) from exc
+            services._notify(meeting)
+        return Response(translation_review.review(question))
+
     def open_bundle(self, request, pk=None):
         meeting = self.get_object()
         ids = request.data.get("questions")
@@ -684,6 +715,7 @@ BALLOT_STRINGS = {
     "top": _("TOP {label}"),
     "topTitle": _("TOP {number}: {title}"),
     "bundle": _("One vote for all of these resolutions."),
+    "untranslated": _("The translation has not been confirmed yet — the original text is shown."),
     "version": _("Version {number}"),
     "changed": _("changed"),
     "hintTap": _("One tap casts your vote immediately and for good."),
@@ -740,7 +772,10 @@ def entry_page(request, token):
             state=state, member=member, is_observer=member.group.is_observer,
             token=invite.token,
             strings=BALLOT_STRINGS,
-            config={"token": invite.token, "observer": member.group.is_observer, "state": state},
+            config={
+                "token": invite.token, "observer": member.group.is_observer, "state": state,
+                "lang": lang, "canon": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
+            },
             room_title=_localized(meeting.room, "title", lang),
             meeting_title=_localized(meeting, "title", lang),
             scheduled_at=meeting.scheduled_at,
@@ -779,6 +814,7 @@ def ballot_preview(request, question_id):
         "strings": BALLOT_STRINGS,
         "config": {
             "token": "", "observer": False, "state": "active", "preview": True,
+            "lang": lang, "canon": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
             "snapshot": payloads.preview_payload(question),
         },
         "room_title": _localized(room, "title", lang),

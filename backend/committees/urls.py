@@ -50,6 +50,10 @@ urlpatterns = [
     _meeting("show", {"post": "show"}, "show/"),
     _meeting("item-add", {"post": "add_item"}, "items/"),
     _meeting("notes", {"put": "set_note"}, "notes/"),
+    _meeting(
+        "item-translation", {"get": "translation", "post": "translation"},
+        "items/<int:question_id>/translation/",
+    ),
     _meeting("bundle-open", {"post": "open_bundle"}, "bundles/"),
     _meeting("item-open", {"post": "open_item"}, "items/<int:question_id>/open/"),
     _meeting("ballot-close", {"post": "close_ballot"}, "ballots/<int:ballot_id>/close/"),

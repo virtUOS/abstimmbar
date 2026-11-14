@@ -173,6 +173,17 @@ class MotionVersion(models.Model):
         ]
 
 
+class TranslationApproval(models.Model):
+    """The chair confirmed the other-language wording of an agenda item
+    (digest of text and options in both languages; see translation_review)."""
+
+    question = models.OneToOneField(
+        "rooms.Question", on_delete=models.CASCADE, related_name="translation_approval",
+    )
+    digest = models.CharField(max_length=64)
+    confirmed_at = models.DateTimeField()
+
+
 class MeetingControl(models.Model):
     """What the beamer of a running meeting shows."""
 

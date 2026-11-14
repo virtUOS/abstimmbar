@@ -15,6 +15,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Links und Vertretungen. Abstimmen folgt.
 - Gremien-Raum: Wahlen mit mehreren Stimmen, Kumulieren und Stichwahl.
 - Gremien-Raum: persönliche Sitzungslinks per E-Mail verschicken (optional, SMTP).
+- Gremien-Raum: Übersetzungen des Beschlusstexts werden erst nach
+  Bestätigung durch die Sitzungsleitung angezeigt; optionales
+  KI-Korrekturlesen; Tastaturfokus bleibt in Dialogen.
 
 ### Geändert
 
