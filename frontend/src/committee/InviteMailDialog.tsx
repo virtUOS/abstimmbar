@@ -9,7 +9,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { InviteMailResult, MeetingInvite } from "../api";
 import { Button } from "../components/ui";
-import { Modal } from "./MeetingAgenda";
+import Modal from "./Modal";
 
 export interface InviteMailBody {
   subject: string;

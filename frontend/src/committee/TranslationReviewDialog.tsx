@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { RichText } from "@basicbar/ui";
 import { api, requestBody, requestError, type ItemTranslation } from "../api";
 import { Button } from "../components/ui";
-import { Modal } from "./MeetingAgenda";
+import Modal from "./Modal";
 
 const CONFIRM_ERRORS: Record<string, string> = {
   stale: "The text has changed in the meantime. Please review it again.",

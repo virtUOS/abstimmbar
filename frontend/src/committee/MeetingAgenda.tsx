@@ -22,46 +22,10 @@ import {
 import { Button, ToggleSwitch } from "../components/ui";
 import TranslatableField from "../components/TranslatableField";
 import { TextList, groupNames } from "./MeetingBeamer";
+import Modal from "./Modal";
 import TranslationReviewDialog from "./TranslationReviewDialog";
 
 export type ConsoleAction = (fn: () => Promise<unknown>) => Promise<boolean>;
-
-/** A centered modal (backdrop + Escape/backdrop-click cancel), like ConfirmDialog. */
-export function Modal({
-  label,
-  onCancel,
-  children,
-  wide = false,
-}: {
-  label: string;
-  onCancel: () => void;
-  children: ReactNode;
-  wide?: boolean;
-}) {
-  useEffect(() => {
-    function onKey(event: KeyboardEvent) {
-      if (event.key === "Escape") onCancel();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/40 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      onClick={onCancel}
-    >
-      <div
-        className={`w-full ${wide ? "max-w-2xl" : "max-w-md"} rounded-2xl border border-slate-200 bg-white p-5 shadow-xl dark:border-slate-700 dark:bg-slate-900`}
-        onClick={(event) => event.stopPropagation()}
-      >
-        {children}
-      </div>
-    </div>
-  );
-}
 
 function ErrorText({ text }: { text: string }) {
   if (!text) return null;
