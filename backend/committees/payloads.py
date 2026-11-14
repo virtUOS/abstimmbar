@@ -14,7 +14,7 @@ from django.utils import translation
 from common.i18n_fields import resolve_translated_text, translated_map
 from rooms.models import Question, QuestionSet
 
-from . import agenda, ballots, eligibility, translation_review, versions
+from . import agenda, ballots, eligibility, translation_review
 from .models import (
     Ballot,
     BallotText,

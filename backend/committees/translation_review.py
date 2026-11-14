@@ -13,7 +13,6 @@ import html as html_lib
 import json
 
 import nh3
-
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone

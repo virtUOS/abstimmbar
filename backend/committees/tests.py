@@ -4957,12 +4957,14 @@ class TranslationReviewTests(BallotBase):
 
     def test_edit_of_shown_item_rebroadcasts(self):
         self.show()
-        with mock.patch("committees.live.broadcast_meeting") as broadcast:
-            with self.captureOnCommitCallbacks(execute=True):
-                r = self.client.patch(
-                    f"/api/questions/{self.q.pk}/",
-                    {"text": {"de": "Deutsch 3", "en": self.SECRET}}, format="json",
-                )
+        with (
+            mock.patch("committees.live.broadcast_meeting") as broadcast,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            r = self.client.patch(
+                f"/api/questions/{self.q.pk}/",
+                {"text": {"de": "Deutsch 3", "en": self.SECRET}}, format="json",
+            )
         self.assertEqual(r.status_code, 200, r.content)
         broadcast.assert_called()
 
@@ -4983,9 +4985,11 @@ class TranslationReviewTests(BallotBase):
 
     def test_confirm_rebroadcasts(self):
         digest = self.client.get(self.url()).json()["digest"]
-        with mock.patch("committees.live.broadcast_meeting") as broadcast:
-            with self.captureOnCommitCallbacks(execute=True):
-                self.client.post(self.url(), {"digest": digest}, format="json")
+        with (
+            mock.patch("committees.live.broadcast_meeting") as broadcast,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.client.post(self.url(), {"digest": digest}, format="json")
         broadcast.assert_called()
 
     def test_manager_items_carry_status(self):
