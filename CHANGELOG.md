@@ -43,6 +43,8 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Quiz-Block: Sortierfragen erhalten bei aktivem Sofort-Feedback
   „Richtig/Falsch“ samt richtiger Reihenfolge und zählen in der persönlichen
   Auswertung mit (#283).
+- Freitext: Zeilenumbrüche in Antworten bleiben in der Bestätigung für
+  Teilnehmende, am Beamer und auf der Ergebnisseite erhalten (#294).
 
 ### Sicherheit
 

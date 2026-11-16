@@ -228,7 +228,7 @@ function FreeTextResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
+              className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
               style={{ background: termColor(word.text), color: INK }}
             >
               {word.text} <span className="font-medium">×{word.count}</span>
@@ -274,7 +274,7 @@ function FreeTextResult({
                     <span
                       key={item.text}
                       title={item.note || undefined}
-                      className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
+                      className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
                       style={{ background: evalColor(i), color: INK }}
                     >
                       {item.text} <span className="font-medium">×{item.count}</span>

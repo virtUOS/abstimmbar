@@ -1138,7 +1138,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
         (isMine ? " · " + I18N.you : "");
       // Own term: its usual palette colour plus a frame — green would read as
       // "correct" on results pages.
-      chip.style.cssText = "display:inline-block;max-width:100%;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
+      chip.style.cssText = "display:inline-block;max-width:100%;white-space:pre-line;vertical-align:top;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
         "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)" +
         (isMine ? ";font-weight:700;outline:2px solid var(--ink);outline-offset:2px" : "");
       list.appendChild(chip);
@@ -1262,6 +1262,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       ans.append(I18N.yourAnswer);
       const strong = document.createElement("strong");
       strong.style.color = "var(--ink)";
+      strong.style.whiteSpace = "pre-line"; // keep free-text line breaks (#294)
       strong.textContent = item.priorities
         ? item.priorities.map((o) => o.text + ": " + o.points).join(", ")
         : item.answerOptions
@@ -2090,6 +2091,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       p.append(I18N.yourAnswer);
       const strong = document.createElement("strong");
       strong.style.color = "var(--ink)";
+      strong.style.whiteSpace = "pre-line"; // keep free-text line breaks (#294)
       strong.textContent = (ans.chosen && ans.chosen.text) || "";
       p.appendChild(strong);
       optionsBox.appendChild(p);
@@ -4893,6 +4895,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       p.append(I18N.yourAnswer);
       const strong = document.createElement("strong");
       strong.style.color = "var(--ink)";
+      strong.style.whiteSpace = "pre-line"; // keep free-text line breaks (#294)
       strong.textContent = (ans.chosen && ans.chosen.text) || "";
       p.appendChild(strong);
       optionsBox.appendChild(p);
