@@ -2,6 +2,7 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """Chunking, dedup and the background worker for async question generation."""
+import logging
 import math
 import re
 from concurrent.futures import ThreadPoolExecutor
@@ -13,7 +14,26 @@ from django.db import connections
 from . import ai_generate
 from .models import GenerationJob
 
+logger = logging.getLogger(__name__)
+
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ai-gen")
+
+# Output budget per AI call (#309): a generous estimate per question (German
+# JSON with options or a model solution) plus fixed overhead, never above the
+# configured AI_MAX_TOKENS. Too tight a budget would truncate the JSON.
+_TOKENS_PER_QUESTION = 500
+_TOKENS_OVERHEAD = 500
+
+
+def call_max_tokens(count):
+    return min(settings.AI_MAX_TOKENS, _TOKENS_OVERHEAD + _TOKENS_PER_QUESTION * count)
+
+
+def _is_cancelled(job_id):
+    status = (
+        GenerationJob.objects.filter(pk=job_id).values_list("status", flat=True).first()
+    )
+    return status == GenerationJob.Status.CANCELLED
 
 
 def chunk_text(text, *, chunk_chars, max_chunks):
@@ -124,30 +144,55 @@ def run_generation_job(job_id):
             target = job.target_count or settings.AI_GEN_MAX_QUESTIONS
             num = max(1, len(chunks))
             per = max(1, round(target / num))
-            for chunk in chunks:
-                status = (
-                    GenerationJob.objects.filter(pk=job_id)
-                    .values_list("status", flat=True)
-                    .first()
-                )
-                if status == GenerationJob.Status.CANCELLED:
-                    return
-                try:
-                    data = ai.chat_json(
-                        ai_generate.generate_system(),
-                        ai_generate.build_generate_prompt(
-                            chunk, per, job.kinds, job.level, job.guidance,
-                            focus_kinds=job.focus_kinds,
-                        ),
-                    )
-                    new = ai_generate.build_drafts(data, job.kinds, per)
-                    reason = reason or ai_generate.unsuitable_reason(data)
+            per_call = max(1, settings.AI_GEN_PER_CALL)
+            system = ai_generate.generate_system()
+            for index, chunk in enumerate(chunks):
+                # A chunk's quota is generated in calls of at most per_call
+                # questions (#309): one call asked for all of them outgrew
+                # AI_TIMEOUT / AI_MAX_TOKENS from ~10 questions on. Follow-up
+                # calls list the existing questions so the model adds new ones.
+                quota = min(per, target - len(drafts))
+                if quota <= 0:
+                    break
+                produced = 0
+                chunk_failed = False
+                for _ in range(math.ceil(quota / per_call) + 1):
+                    count = min(quota - produced, target - len(drafts), per_call)
+                    if count <= 0:
+                        break
+                    if _is_cancelled(job_id):
+                        return
+                    try:
+                        data = ai.chat_json(
+                            system,
+                            ai_generate.build_generate_prompt(
+                                chunk, count, job.kinds, job.level, job.guidance,
+                                focus_kinds=job.focus_kinds,
+                                avoid=[d.get("text", "") for d in drafts],
+                            ),
+                            max_tokens=call_max_tokens(count),
+                        )
+                        new = ai_generate.build_drafts(data, job.kinds, count)
+                        reason = reason or ai_generate.unsuitable_reason(data)
+                    except (ai.AIError, ValueError, KeyError, TypeError) as exc:
+                        logger.warning(
+                            "Question generation job %s, part %s/%s: AI call failed: %s",
+                            job_id, index + 1, len(chunks), exc,
+                        )
+                        chunk_failed = True
+                        break
+                    before = len(drafts)
                     drafts = merge_drafts(drafts, new)[:target]
-                except (ai.AIError, ValueError, KeyError, TypeError):
+                    added = len(drafts) - before
+                    produced += added
+                    # Progress write: never touches status, so a concurrent
+                    # CANCELLED persists instead of being clobbered.
+                    GenerationJob.objects.filter(pk=job_id).update(drafts=drafts)
+                    if added == 0:
+                        break  # nothing new from this part of the material
+                if chunk_failed and produced == 0:
                     failed_chunks += 1
                 done += 1
-                # Progress write: never touches status, so a concurrent
-                # CANCELLED persists instead of being clobbered.
                 GenerationJob.objects.filter(pk=job_id).update(
                     drafts=drafts, done_chunks=done
                 )

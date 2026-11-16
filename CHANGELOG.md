@@ -20,6 +20,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Behoben
 
+- Fragen aus Dokument: Bei etwa zehn oder mehr gewünschten Fragen entstanden
+  oft gar keine, weil eine einzige KI-Anfrage alle Fragen liefern sollte und
+  dabei an Zeit- oder Längengrenzen scheiterte. Die Fragen werden jetzt in
+  mehreren kleineren Anfragen erzeugt (höchstens `AI_GEN_PER_CALL`, Standard
+  5, je Anfrage), ohne Wiederholungen (#309).
 - Freitext: Beim Wechsel zur nächsten Freitext-Frage stand die vorige
   Antwort noch im Eingabefeld und wurde unbemerkt mit abgeschickt (#277).
 - Präsentation mit Abschnitten: Die Zwischenfolie erscheint jetzt an fester

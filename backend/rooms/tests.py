@@ -4689,6 +4689,8 @@ class GenerationWorkerTests(TransactionTestCase):
 
         from . import generation
         job = self._job("A " * 100 + " B " * 100)  # forces 2 chunks at small chunk size
+        job.target_count = 2  # one question per chunk
+        job.save(update_fields=["target_count"])
         replies = [
             {"questions": [{"kind": "open_text", "text": "Frage 1"}]},
             {"questions": [{"kind": "open_text", "text": "Frage 1"}]},  # dup across chunks
@@ -4793,6 +4795,8 @@ class GenerationWorkerTests(TransactionTestCase):
 
         from . import generation
         job = self._job("A " * 100 + " B " * 100)
+        job.target_count = 2  # one question per chunk
+        job.save(update_fields=["target_count"])
         with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
              mock.patch("rooms.generation.ai.chat_json",
                         side_effect=[AIError("boom"),
@@ -4863,6 +4867,75 @@ class GenerationWorkerTests(TransactionTestCase):
             generation.run_generation_job(job.id)
         job.refresh_from_db()
         self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
+
+
+    def _numbered_replies(self, calls):
+        """A chat_json stand-in that returns exactly as many new, distinct
+        questions as the prompt asks for, recording each call."""
+        import re
+        counter = iter(range(1, 1000))
+
+        def reply(system, prompt, **kwargs):
+            count = int(re.search(r"Erzeuge bis zu (\d+) Fragen", prompt).group(1))
+            calls.append({"count": count, "prompt": prompt, **kwargs})
+            return {"questions": [
+                {"kind": "open_text", "text": f"Frage {next(counter)}"}
+                for _ in range(count)
+            ]}
+        return reply
+
+    def test_per_call_cap_loops_until_target(self):
+        # #309: one call for all questions outgrew timeout/max_tokens; the
+        # quota is now fetched in calls of at most AI_GEN_PER_CALL questions.
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("Stoff " * 50)  # a single chunk
+        job.target_count = 12
+        job.save(update_fields=["target_count"])
+        calls = []
+        with override_settings(**AI_ON, AI_GEN_PER_CALL=5, AI_MAX_TOKENS=2000), \
+             mock.patch("rooms.generation.ai.chat_json",
+                        side_effect=self._numbered_replies(calls)):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 12)
+        self.assertEqual([c["count"] for c in calls], [5, 5, 2])
+        self.assertTrue(all(c["max_tokens"] <= 2000 for c in calls))
+        # Follow-up calls list what already exists so the model adds new ones.
+        self.assertNotIn("wiederhole", calls[0]["prompt"])
+        self.assertIn("- Frage 1\n", calls[1]["prompt"])
+        self.assertIn("- Frage 10\n", calls[2]["prompt"])
+
+    def test_per_call_loop_stops_when_nothing_new(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("Stoff " * 50)
+        job.target_count = 18
+        job.save(update_fields=["target_count"])
+        reply = {"questions": [{"kind": "open_text", "text": "Immer dieselbe"}]}
+        with override_settings(**AI_ON, AI_GEN_PER_CALL=5), \
+             mock.patch("rooms.generation.ai.chat_json", return_value=reply) as chat:
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 1)
+        self.assertEqual(chat.call_count, 2)  # second call added nothing → stop
+
+    def test_max_tokens_per_call_bounded_by_setting(self):
+        from django.test import override_settings
+
+        from . import generation
+        with override_settings(AI_MAX_TOKENS=20000):
+            self.assertLess(generation.call_max_tokens(5), 20000)
+        with override_settings(AI_MAX_TOKENS=1000):
+            self.assertEqual(generation.call_max_tokens(5), 1000)
 
 
 class MatrixAuthoringTests(ApiTestCase):
