@@ -71,6 +71,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Kärtchenfarbe. Die bisherigen wechselnden Farben hatten keine Bedeutung,
   wirkten aber wie Kategorien; farbig bleiben nur die benannten Gruppen der
   Ansicht „Gruppiert“ und die Bewertungsbalken (#295).
+- Präsentation: Wer bei laufender Abstimmung die Ergebnisse oder die Lösung
+  einblendet, wird vorher gefragt, weil das die Abstimmung beendet
+  (Abbrechen / „Abstimmung beenden und Ergebnisse zeigen“, für die
+  Präsentation abschaltbar); „Stoppen“ fragt nie nach (#289).
 
 ### Behoben
 

@@ -415,8 +415,10 @@ test('keyboard moves, footer views, help labels, zoom handle, axe, no overlap', 
     violations.map((v) => ({ rule: v.id, nodes: v.nodes.slice(0, 5).map((n) => n.target.join(' ')) })),
   ).toEqual([]);
 
-  // E closes onto the board, A switches to the question and back.
+  // E closes onto the board (after confirming that it ends the vote, #289),
+  // A switches to the question and back.
   await page.keyboard.press('e');
+  await page.getByTestId('close-warn').getByRole('button').last().click();
   await expect(seg(page, 'view.question')).not.toHaveAttribute('aria-disabled', 'true');
   await expect(seg(page, 'view.mx.raw')).toHaveAttribute('aria-checked', 'true');
   await expect(board(page)).toBeVisible();

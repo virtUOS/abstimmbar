@@ -49,7 +49,10 @@ answer has its own colour. In the solution view, the correct answer is
 marked **green** with “Correct”, the others turn a soft pink.
 
 - ++e++ jumps to the results (closing any vote in progress); pressing ++e++
-  again returns to the question.
+  again returns to the question. If the vote is still running, Abstimmbar
+  asks first – ++enter++ ends it and shows the results, ++esc++ cancels. The
+  prompt can be switched off for the current presentation; **Stop** (++s++)
+  never asks.
 - ++l++ shows the solution, pressing ++l++ again hides it.
 - ++a++ cycles through the views. ++a++ is purely a “viewing” key: it never
   closes a vote in progress.
