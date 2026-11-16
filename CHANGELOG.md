@@ -47,6 +47,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   die Titelfolie keinen; die gewünschte Anzahl wird genau angefragt und bei
   Bedarf nachgefordert. Jeder Vorschlag zeigt, auf welche Folie bzw. Seite er
   sich bezieht (#304).
+- „Aus Dokument“: Die „Zusätzlichen Vorgaben“ sind jetzt verbindlich. Sie
+  stehen im Auftrag an die KI direkt nach dem Material und haben Vorrang vor
+  Fragetyp-Verteilung und Frageniveau, z. B. für Fragen zu konkreten Zahlen
+  (#306).
 
 ### Behoben
 

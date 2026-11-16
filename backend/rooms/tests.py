@@ -3948,6 +3948,26 @@ class AiGenerateLevelsTests(TestCase):
         self.assertIn("Alltagsbeispiele verwenden", p)
         self.assertIn("Lehrperson", p)  # framed as subordinate teacher wishes
 
+    def test_guidance_is_binding_and_follows_the_material(self):
+        # #306: the teacher's wishes come after the material, right before
+        # the JSON spec, framed as binding (not "soweit … nicht aufheben").
+        p = ai_generate.build_generate_prompt(
+            "MATERIALTEXT", 5, ["single_choice"], "mixed",
+            "Mindestens eine Frage zu konkreten Zahlen",
+        )
+        material = p.index("MATERIALTEXT")
+        guidance = p.index("Mindestens eine Frage zu konkreten Zahlen")
+        spec = p.index("Gib JSON in genau dieser Form")
+        self.assertLess(material, guidance)
+        self.assertLess(guidance, spec)
+        self.assertIn("Verbindliche Vorgaben", p)
+        self.assertIn("Vorrang", p)
+        self.assertNotIn("heben die obigen Regeln nicht auf", p)
+        # The level hint yields to the guidance; format rules stay fixed.
+        self.assertIn("soweit die verbindlichen Vorgaben", p)
+        self.assertIn("JSON-Format", p[guidance:spec])
+        self.assertIn("Vorgaben der Lehrperson", ai_generate.generate_system())
+
     def test_prompt_omits_guidance_block_when_empty(self):
         p = ai_generate.build_generate_prompt(
             "Stoff", 5, ["single_choice"], "mixed", "   "

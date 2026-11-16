@@ -57,10 +57,14 @@ def generate_system():
     return (
         "Du erstellst aus bereitgestelltem Lehrmaterial Prüfungsfragen für "
         "eine Lehrveranstaltung. Formuliere klare, eigenständige Fragen und "
-        "stütze dich ausschließlich auf das Material. Decke unterschiedliche "
-        "kognitive Anforderungen ab – nicht nur Faktenwissen, sondern auch "
-        "Analyse, Reflexion und Transfer; Freitextfragen sollen zum Denken "
-        "anregen statt nur den Text nachzuerzählen. Bei Choice-Fragen sind "
+        "stütze dich ausschließlich auf das Material. Sofern die Lehrperson "
+        "nichts anderes vorgibt, deckst du unterschiedliche kognitive "
+        "Anforderungen ab – nicht nur Faktenwissen, sondern auch Analyse, "
+        "Reflexion und Transfer; Freitextfragen sollen zum Denken anregen "
+        "statt nur den Text nachzuerzählen. Zusätzliche Vorgaben der "
+        "Lehrperson setzt du verbindlich um; sie haben Vorrang vor diesen "
+        "allgemeinen Hinweisen, nicht aber vor der Treue zum Material und dem "
+        "Antwortformat. Bei Choice-Fragen sind "
         "die Antwortoptionen kurz und eindeutig; markiere die richtige(n) "
         "Antwort(en) korrekt (Single Choice: genau eine richtige). "
         "Gib bei Freitextfragen zusätzlich eine kurze Musterlösung an. "
@@ -130,15 +134,29 @@ def build_generate_prompt(
         "Verteile die Fragetypen in deiner Antwort möglichst nach diesem "
         f"Verhältnis: {mix}.\n\n"
     )
-    # Optional free-text wishes from the teacher (#84). They steer emphasis
-    # and style but must not override the material-fidelity and JSON rules
-    # above, so they are framed explicitly as subordinate.
+    # Optional free-text wishes from the teacher (#84). Binding (#306): they
+    # come right after the material — the last thing before the output
+    # format — and override the type mix, the cognitive level and the page
+    # spread; only material fidelity, the allowed kinds, the count and the
+    # JSON format stay fixed.
+    guidance = (guidance or "").strip()
     guidance_block = ""
-    if guidance and guidance.strip():
+    if guidance:
+        hint += (
+            " (Gilt nur, soweit die verbindlichen Vorgaben der Lehrperson unten "
+            "nichts anderes verlangen.)"
+        )
         guidance_block = (
-            "Zusätzliche Vorgaben der Lehrperson (befolge sie, soweit sie dem "
-            "Material treu bleiben – sie heben die obigen Regeln nicht auf):\n"
-            f"{guidance.strip()}\n\n"
+            "Verbindliche Vorgaben der Lehrperson – setze sie bei der Auswahl "
+            "und Formulierung der Fragen um:\n"
+            f"{guidance}\n"
+            "Diese Vorgaben haben Vorrang vor den obigen Hinweisen zur "
+            "Verteilung der Fragetypen, zur kognitiven Ausrichtung und zur "
+            "Verteilung über das Material; verlangen sie z. B. Fragen zu "
+            "konkreten Fakten oder Zahlen, stelle solche Fragen. Unverändert "
+            "gelten nur: Fragen ausschließlich aus dem Material, nur die "
+            f"erlaubten Fragetypen, genau {count} Fragen und das JSON-Format "
+            "unten.\n\n"
         )
     # Follow-up calls for the same material list what is already there, so
     # the model adds new questions instead of repeating earlier ones (#309).
@@ -166,10 +184,10 @@ def build_generate_prompt(
         f"{focus_block}"
         f"Kognitive Ausrichtung: {hint}\n\n"
         f"{_page_block(count, page_plan, page_label)}"
-        f"{guidance_block}"
         f"{avoid_block}"
         "Material:\n"
         f"{text}\n\n"
+        f"{guidance_block}"
         "Gib JSON in genau dieser Form zurück:\n"
         '{"questions": [{"kind": "single_choice", "text": "Fragetext", '
         f"{source_field}"
