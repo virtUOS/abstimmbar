@@ -134,7 +134,19 @@ test('single choice: Question · Results · Solution, keys A/E/L', async ({ page
   await shot(page, 'single-choice-open');
   await expectFitsAndNamed(page);
 
-  await page.keyboard.press('e'); // closes the vote onto the results
+  // E during an open vote asks first, because it ends the vote (#289):
+  // Esc keeps voting, Enter (or the button) ends it and shows the results.
+  await page.keyboard.press('e');
+  const prompt = page.getByTestId('close-warn');
+  await expect(prompt).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(prompt).toBeHidden();
+  await expectActive(page, 'view.question');
+  await expect(seg(page, 'toggle')).toContainText('Stop');
+  await page.keyboard.press('e');
+  await expect(prompt).toBeVisible();
+  await page.keyboard.press('Enter'); // closes the vote onto the results
+  await expect(prompt).toBeHidden();
   await expectActive(page, 'view.results');
   // The beamer hint names L (the solution key), not A.
   await expect(page.getByText('Reveal correct answer with')).toContainText('L');
@@ -177,6 +189,7 @@ test('single choice: Question · Results · Solution, keys A/E/L', async ({ page
     'position', 'qr', 'view.question', 'view.results', 'toggle', 'prev', 'next', 'help', 'end',
   ]);
   await page.keyboard.press('e');
+  await page.keyboard.press('Enter'); // confirm: ends the open vote (#289)
   await expectActive(page, 'view.results');
   await shot(page, 'likert-results');
   await page.keyboard.press('l'); // no solution: nothing happens
@@ -414,4 +427,37 @@ test('mind map, hidden rating then back to collecting: S only closes, A skips th
   await expect(seg(page, 'view.mm.ranking')).toBeVisible();
   // Positive counterpart of the count-0 check above: revealing shows scores.
   await expect(page.locator('[data-mm-score]').first()).toBeVisible();
+});
+
+test('results during an open vote: prompt can be silenced; Stop never asks (#289)', async ({ page, trackRoom }) => {
+  const seed = await seedSet(page, ['single_choice', 'single_choice', 'single_choice'], 'Close', trackRoom);
+  await openPresenter(page, seed.setId);
+  await page.keyboard.press('ArrowRight'); // first question (opens: open_on_show)
+  await expect(seg(page, 'toggle')).toContainText('Stop');
+  const prompt = page.getByTestId('close-warn');
+
+  // Clicking "Results" asks; "Don't ask again" + confirm ends the vote.
+  await seg(page, 'view.results').click();
+  await expect(prompt).toBeVisible();
+  await prompt.getByRole('checkbox').check();
+  await prompt.getByRole('button', { name: 'End vote and show results' }).click();
+  await expectActive(page, 'view.results');
+
+  // Next question: silenced for this presentation — E goes straight on.
+  await page.keyboard.press('ArrowRight');
+  await expect(footer(page).locator('[data-help="position"]')).toHaveText('2/3');
+  await expect(seg(page, 'toggle')).toContainText('Stop');
+  await page.keyboard.press('e');
+  await expect(prompt).toBeHidden();
+  await expectActive(page, 'view.results');
+});
+
+test('Stop ends an open vote without the results prompt (#289)', async ({ page, trackRoom }) => {
+  const seed = await seedSet(page, ['single_choice'], 'Stop', trackRoom);
+  await openPresenter(page, seed.setId);
+  await page.keyboard.press('ArrowRight');
+  await expect(seg(page, 'toggle')).toContainText('Stop');
+  await page.keyboard.press('s');
+  await expect(page.getByTestId('close-warn')).toBeHidden();
+  await expect(seg(page, 'toggle')).toContainText('Start');
 });

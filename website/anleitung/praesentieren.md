@@ -51,7 +51,10 @@ Lösung wird die richtige Antwort **grün** und mit „Richtig“ markiert, die
 übrigen werden zart rosé.
 
 - ++e++ springt zu den Ergebnissen (und schließt dabei eine laufende
-  Abstimmung); ein weiteres ++e++ kehrt zur Frage zurück.
+  Abstimmung); ein weiteres ++e++ kehrt zur Frage zurück. Läuft die
+  Abstimmung noch, fragt Abstimmbar vorher nach – ++enter++ beendet sie und
+  zeigt die Ergebnisse, ++esc++ bricht ab. Die Rückfrage lässt sich für die
+  laufende Präsentation abschalten; **Stoppen** (++s++) fragt nie nach.
 - ++l++ blendet die Lösung ein, ein erneutes ++l++ wieder aus.
 - ++a++ schaltet die Ansichten der Reihe nach durch. ++a++ ist eine reine
   „Ansehen“-Taste: Eine laufende Abstimmung schließt sie nie.

@@ -227,6 +227,11 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   >(null);
   const [suppressLeaveWarn, setSuppressLeaveWarn] = useState(false);
   const [dontAskAgain, setDontAskAgain] = useState(false);
+  // Showing results / the solution of an OPEN vote also ends it (#289):
+  // ask first, unless silenced for this presentation.
+  const [closeWarn, setCloseWarn] = useState<{ go: () => void } | null>(null);
+  const [suppressCloseWarn, setSuppressCloseWarn] = useState(false);
+  const [closeDontAsk, setCloseDontAsk] = useState(false);
   // After ending, dwell on a closing slide instead of jumping straight back
   // to the management screen (#32).
   const [ended, setEnded] = useState(false);
@@ -1241,7 +1246,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     if (runId && phase === "results") void live.control(runId, { phase: "closed" });
   }, [runId, phase]);
 
-  const showResults = useCallback(async () => {
+  const doShowResults = useCallback(async () => {
     if (!runId) return;
     if (phase === "results") {
       if (revealed) await live.control(runId, { reveal: false });
@@ -1260,13 +1265,43 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     }
   }, [runId, phase, revealed]);
 
-  const showSolution = useCallback(async () => {
+  const doShowSolution = useCallback(async () => {
     if (!runId) return;
     if (phase === "lobby" || phase === "finished") return; // no active question
     // Straight to "results" (also from an open vote — no transient "closed").
     if (phase !== "results") await live.control(runId, { phase: "results" });
     await live.control(runId, { reveal: true });
   }, [runId, phase]);
+
+  // From an open vote, results/solution end the vote — say so first (#289).
+  const confirmClosing = useCallback(
+    (go: () => Promise<void>) => {
+      if (phase === "open" && !suppressCloseWarn) {
+        setCloseWarn({ go: () => void go() });
+        return Promise.resolve();
+      }
+      return go();
+    },
+    [phase, suppressCloseWarn],
+  );
+  const showResults = useCallback(
+    () => confirmClosing(doShowResults),
+    [confirmClosing, doShowResults],
+  );
+  const showSolution = useCallback(
+    () => confirmClosing(doShowSolution),
+    [confirmClosing, doShowSolution],
+  );
+  function dismissCloseWarn() {
+    setCloseWarn(null);
+    setCloseDontAsk(false);
+  }
+  function proceedClose() {
+    if (closeDontAsk) setSuppressCloseWarn(true);
+    const go = closeWarn?.go;
+    dismissCloseWarn();
+    go?.();
+  }
 
   // Walkthrough navigation (#75): advancing past the last question hands off
   // to the existing closing slide instead of a dedicated "done" state.
@@ -1528,6 +1563,14 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       }
       if (!runId) return;
       const key = event.key.toLowerCase();
+      // The "results end the vote" prompt is modal: Esc cancels, Enter
+      // confirms, nothing else reaches the presentation (#289).
+      if (closeWarn) {
+        if (key === "escape") dismissCloseWarn();
+        else if (key === "enter") proceedClose();
+        event.preventDefault();
+        return;
+      }
       // Ctrl/Cmd/Alt + letter belongs to the browser / OS (Ctrl+A, Cmd+L, …),
       // never to a presenter shortcut.
       if ((event.ctrlKey || event.metaKey || event.altKey) && key.length === 1) return;
@@ -1598,8 +1641,9 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         if (phase === "open")
           // Word clouds and mindmaps freeze onto the results view (they stay
           // visible), matching the Stop button; other kinds just close.
+          // An explicit Stop: no "ends the vote" prompt (#289).
           (activeKind === "word_cloud" || activeKind === "mindmap" || activeKind === "matrix") && !stopCloses
-            ? void showResults()
+            ? void doShowResults()
             : void live.control(runId, { phase: "closed" });
         else if (phase === "preview" || phase === "closed" || phase === "results")
           void live.control(runId, { phase: "open" });
@@ -1617,7 +1661,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void leave();
       }
     },
-    [leave, runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, headerPrev, interstitial, selfPaced, ended, jumpToResults, cycleView, toggleSolution, startFromLobby, showResults, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown, mxShown, stopCloses, pendingFinish, backFromClosing, finishAndLeave],
+    [leave, runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, headerPrev, interstitial, selfPaced, ended, jumpToResults, cycleView, toggleSolution, startFromLobby, showResults, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown, mxShown, stopCloses, pendingFinish, backFromClosing, finishAndLeave, closeWarn, closeDontAsk, doShowResults],
   );
 
   useEffect(() => {
@@ -2082,7 +2126,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 // then hides it. Other kinds close first, reveal on demand.
                 (activeKind === "word_cloud" || activeKind === "mindmap" || activeKind === "matrix") &&
                 !stopCloses
-                ? void showResults()
+                ? void doShowResults() // explicit Stop: no prompt (#289)
                 : void live.control(runId!, { phase: "closed" })
               : phase === "lobby"
                 ? startFromLobby()
@@ -2108,6 +2152,48 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           disabledReason={disabledViewReason}
           onClose={() => setShowHelp(false)}
         />
+      )}
+      {closeWarn && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-6">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="close-warn-title"
+            data-testid="close-warn"
+            className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-xl"
+          >
+            <h2 id="close-warn-title" className="text-xl font-bold text-slate-900">
+              {t("Vote still running")}
+            </h2>
+            <p className="mt-2 text-slate-600">
+              {t("Showing the results ends the vote — participants can no longer answer.")}
+            </p>
+            <label className="mt-4 flex items-center justify-center gap-2 text-sm text-slate-600">
+              <input
+                type="checkbox"
+                checked={closeDontAsk}
+                onChange={(event) => setCloseDontAsk(event.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+              />
+              {t("Don't ask again in this presentation")}
+            </label>
+            <div className="mt-5 flex flex-wrap justify-center gap-3">
+              <button
+                className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                onClick={dismissCloseWarn}
+              >
+                {t("Cancel")}
+              </button>
+              <button
+                autoFocus
+                className="rounded-lg bg-brand-400 px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-brand-500"
+                onClick={proceedClose}
+              >
+                {t("End vote and show results")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {leaveWarn && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-6">
