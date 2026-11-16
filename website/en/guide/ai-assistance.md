@@ -24,6 +24,8 @@ and you always decide for yourself what to use.
   chart values and speaker notes are taken into account. The questions are
   spread evenly across the slides (nearly empty ones such as the title slide
   don't count); each proposal shows which slide it refers to.
+  You take over the proposals you like; the others are kept for later
+  review until you discard the rest.
 
 ## During the presentation
 

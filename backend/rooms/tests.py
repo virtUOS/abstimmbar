@@ -3174,6 +3174,92 @@ class GenerationEndpointTests(ApiTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, GenerationJob.Status.CANCELLED)
 
+    def _done_job(self, texts):
+        from .models import GenerationJob
+        return GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE,
+            drafts=[{"kind": "open_text", "text": t, "options": []} for t in texts],
+        )
+
+    def test_imported_keeps_unselected_proposals(self):
+        # #292: taking over some proposals keeps the others for later.
+        job = self._done_job(["A", "B", "C"])
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A", "C"]},
+                content_type="application/json",
+            )
+            # Repeating the request is harmless (texts, not indices).
+            again = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A", "C"]},
+                content_type="application/json",
+            )
+            active = self.client.get(f"{self.url}active/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([d["text"] for d in r.json()["drafts"]], ["B"])
+        self.assertEqual(r.json()["imported_count"], 2)
+        self.assertFalse(r.json()["reviewed"])
+        self.assertEqual(again.json()["imported_count"], 2)
+        self.assertEqual(active.json()["id"], job.pk)  # still offered for review
+        job.refresh_from_db()
+        self.assertFalse(job.reviewed)
+
+    def test_importing_the_last_proposals_marks_reviewed(self):
+        job = self._done_job(["A", "B"])
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A", "B"]},
+                content_type="application/json",
+            )
+            active = self.client.get(f"{self.url}active/")
+        self.assertTrue(r.json()["reviewed"])
+        self.assertEqual(r.json()["drafts"], [])
+        self.assertEqual(active.json(), {})
+
+    def test_discarding_the_rest_marks_reviewed(self):
+        job = self._done_job(["A", "B"])
+        with self.override_settings(**AI_ON):
+            self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A"]},
+                content_type="application/json",
+            )
+            self.client.post(f"{self.url}jobs/{job.pk}/reviewed/")
+        job.refresh_from_db()
+        self.assertTrue(job.reviewed)
+
+    def test_imported_rejects_running_job_and_bad_body(self):
+        from .models import GenerationJob
+        job = self._done_job(["A"])
+        GenerationJob.objects.filter(pk=job.pk).update(status=GenerationJob.Status.RUNNING)
+        with self.override_settings(**AI_ON):
+            running = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A"]},
+                content_type="application/json",
+            )
+            bad = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": "A"},
+                content_type="application/json",
+            )
+        self.assertEqual(running.status_code, 400)
+        self.assertEqual(bad.status_code, 400)
+        job.refresh_from_db()
+        self.assertEqual(len(job.drafts), 1)
+
+    def test_imported_foreign_job_returns_404(self):
+        from .models import GenerationJob
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        job = GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE, drafts=[{"text": "A"}],
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A"]},
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 404)
+
     def test_new_job_does_not_touch_other_sets_running_job(self):
         from .models import GenerationJob
         other_qs = QuestionSet.objects.create(room=self.room, title="Other")

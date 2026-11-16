@@ -114,10 +114,15 @@ export default function GenerationStatusBar() {
             </span>
           ) : (
             <span>
-              {t("{{n}} questions for “{{title}}” generated — review now.", {
-                n: job.drafts.length,
-                title: job.set_title ?? "",
-              })}
+              {job.imported_count
+                ? t("{{n}} more proposals for “{{title}}” are waiting for review.", {
+                    n: job.drafts.length,
+                    title: job.set_title ?? "",
+                  })
+                : t("{{n}} questions for “{{title}}” generated — review now.", {
+                    n: job.drafts.length,
+                    title: job.set_title ?? "",
+                  })}
             </span>
           )}
           {running && job.total_chunks > 0 && (

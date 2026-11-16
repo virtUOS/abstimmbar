@@ -1697,5 +1697,8 @@
   "{{pages}} pages × {{density}} = {{n}} questions": "{{pages}} Seiten × {{density}} = {{n}} Fragen",
   "{{pages}} pages or slides × {{density}} = {{n}} questions": "{{pages}} Seiten bzw. Folien × {{density}} = {{n}} Fragen",
   "Slide {{n}}": "Folie {{n}}",
-  "Page {{n}}": "Seite {{n}}"
+  "Page {{n}}": "Seite {{n}}",
+  "{{n}} more proposals are waiting for review.": "Noch {{n}} Vorschläge warten auf Ihre Prüfung.",
+  "{{n}} more proposals for “{{title}}” are waiting for review.": "Noch {{n}} Vorschläge für „{{title}}“ warten auf Ihre Prüfung.",
+  "Discard the rest": "Rest verwerfen"
 }

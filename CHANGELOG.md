@@ -51,6 +51,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   stehen im Auftrag an die KI direkt nach dem Material und haben Vorrang vor
   Fragetyp-Verteilung und Frageniveau, z. B. für Fragen zu konkreten Zahlen
   (#306).
+- „Aus Dokument“: Nicht ausgewählte Vorschläge bleiben nach „Ausgewählte
+  übernehmen“ erhalten. Der Hinweis im Fragenset zeigt, wie viele noch auf
+  Prüfung warten; erst „Rest verwerfen“ oder das Übernehmen des letzten
+  Vorschlags schließt die Erzeugung ab (#292).
 
 ### Behoben
 

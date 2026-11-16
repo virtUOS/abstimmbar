@@ -185,6 +185,7 @@ def _job_payload(job):
         "unsuitable_reason": job.unsuitable_reason, "error": job.error,
         "pages": job.pages, "density": job.density,
         "target_count": job.target_count, "reviewed": job.reviewed,
+        "imported_count": job.imported_count,
     }
 
 
@@ -790,6 +791,33 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         job.status = GenerationJob.Status.CANCELLED
         job.save(update_fields=["status", "updated_at"])
         return Response({"status": "ok"})
+
+    @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/imported")
+    def ai_generate_imported(self, request, pk=None, job_id=None):
+        """Record proposals the teacher took over into the set (#292):
+        ``{"texts": [...]}`` names them by question text (unique per job, the
+        worker dedupes), so a repeated request is harmless. They are removed
+        from the job; the rest stays open for later review. The job counts as
+        reviewed once no proposal remains."""
+        self.get_object()
+        texts = request.data.get("texts") if isinstance(request.data, dict) else None
+        if not isinstance(texts, list) or not all(isinstance(t, str) for t in texts):
+            return Response({"detail": "texts must be a list of strings."}, status=400)
+        with transaction.atomic():
+            job = get_object_or_404(
+                GenerationJob.objects.select_for_update(), pk=job_id, question_set_id=pk
+            )
+            if job.is_active:
+                # The worker still rewrites the drafts from memory.
+                return Response({"detail": "This generation is still running."}, status=400)
+            used = set(texts)
+            remaining = [d for d in job.drafts if d.get("text") not in used]
+            job.imported_count += len(job.drafts) - len(remaining)
+            job.drafts = remaining
+            if not remaining:
+                job.reviewed = True
+            job.save(update_fields=["drafts", "imported_count", "reviewed", "updated_at"])
+        return Response(_job_payload(job))
 
     @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/reviewed")
     def ai_generate_reviewed(self, request, pk=None, job_id=None):

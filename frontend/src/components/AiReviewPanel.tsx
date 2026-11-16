@@ -5,8 +5,9 @@
  * set's review hint or the app-wide status bar (NOT from the "from document"
  * button, which only starts runs). Attaches to the set's latest un-reviewed
  * job, shows live progress while it runs, then a selectable draft list to
- * import or discard. Importing or discarding marks the job reviewed, so the
- * hint and status bar stop surfacing it. */
+ * import or discard. Imported proposals leave the job and the unselected
+ * ones stay for later review (#292); once none remain, or on discard, the job
+ * is reviewed, so the hint and status bar stop surfacing it. */
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -169,7 +170,9 @@ export default function AiReviewPanel({
   }
 
   async function importSelected() {
-    const drafts = job?.drafts ?? [];
+    if (!job) return;
+    const drafts = job.drafts;
+    const imported: string[] = [];
     setImporting(true);
     setError("");
     try {
@@ -188,14 +191,30 @@ export default function AiReviewPanel({
           model_solution: draft.model_solution ?? "",
           ai_evaluate: draft.kind === "open_text" && !!draft.model_solution,
         });
+        imported.push(draft.text);
       }
-      await markReviewed();
-      await onImported();
-      onClose();
     } catch (err) {
       setError(aiErrorText(err, t));
-      setImporting(false);
     }
+    // Take the created questions out of the job — also after a failure
+    // midway, so a second attempt does not create them twice. The unselected
+    // proposals stay; the set's hint offers them again (#292).
+    const wanted = selected.size;
+    let recorded = imported.length === 0;
+    if (imported.length > 0) {
+      try {
+        setJob(await api.aiGenerateImported(setId, job.id, imported));
+        recorded = true;
+      } catch (err) {
+        setError(aiErrorText(err, t));
+      }
+      setSelected(new Set());
+      await onImported();
+    }
+    setImporting(false);
+    // All selected ones made it: close — with proposals left, the set's
+    // hint shows how many are still waiting. On an error stay open.
+    if (imported.length === wanted && recorded) onClose();
   }
 
   function sourceLabel(draft: GeneratedQuestion): string {
@@ -398,7 +417,7 @@ export default function AiReviewPanel({
               : t("Use selected ({{count}})", { count: selected.size })}
           </Button>
           <Button variant="ghost" onClick={() => void discard()}>
-            {t("Discard")}
+            {job.imported_count ? t("Discard the rest") : t("Discard")}
           </Button>
         </div>
       </div>

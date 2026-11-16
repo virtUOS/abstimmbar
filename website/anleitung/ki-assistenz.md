@@ -25,6 +25,8 @@ optional — Sie entscheiden immer selbst, was Sie übernehmen.
   auch Tabellen, Diagrammwerte und Sprechernotizen ein. Die Fragen verteilen
   sich gleichmäßig über die Folien (fast leere wie die Titelfolie zählen
   nicht mit); bei jedem Vorschlag steht, auf welche Folie er sich bezieht.
+  Sie übernehmen die passenden Vorschläge; die übrigen bleiben erhalten und
+  lassen sich später prüfen, bis Sie den Rest verwerfen.
 
 ## In der Präsentation
 
