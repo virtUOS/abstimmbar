@@ -1077,6 +1077,18 @@ function csrfToken(): string {
   return document.cookie.match(/(?:^|;\s*)abstimmbar_csrftoken=([^;]*)/)?.[1] ?? "";
 }
 
+/** Listeners told about every 401/403 answer (#298): the presenter uses it
+ *  to notice a session that ended in another tab (it then asks `whoami`
+ *  whether the user is still signed in — a 403 alone may be a plain
+ *  permission error). Returns the unsubscribe function. */
+const authErrorListeners = new Set<(status: number) => void>();
+export function onAuthError(listener: (status: number) => void): () => void {
+  authErrorListeners.add(listener);
+  return () => {
+    authErrorListeners.delete(listener);
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     credentials: "include",
@@ -1093,6 +1105,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
   });
   if (!response.ok) {
+    if (response.status === 401 || response.status === 403) {
+      for (const listener of authErrorListeners) listener(response.status);
+    }
     let detail = `${response.status}`;
     try {
       detail = JSON.stringify(await response.json());

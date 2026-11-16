@@ -40,7 +40,7 @@ const REDIRECT_KEY = "postLoginRedirect";
 
 /** Remember an in-app destination to return to after sign-in. The landing page
  *  ("/" and its ?sso markers) is never a destination. */
-function rememberRedirect(path: string): void {
+export function rememberRedirect(path: string): void {
   if (path && path !== "/" && !path.startsWith("/?")) {
     sessionStorage.setItem(REDIRECT_KEY, path);
   }

@@ -74,6 +74,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Behoben
 
+- Präsentation nach dem Abmelden (z. B. in einem anderen Tab): Bedienelemente
+  scheiterten stumm, und nach dem Neuladen hing die Seite bei „Verbinde …“.
+  Jetzt erscheint „Sie wurden abgemeldet. Bitte melden Sie sich erneut an.“
+  mit einer Schaltfläche zur Anmeldung, die danach zur Präsentation
+  zurückführt (#298).
 - Fragen aus Dokument: Bei etwa zehn oder mehr gewünschten Fragen entstanden
   oft gar keine, weil eine einzige KI-Anfrage alle Fragen liefern sollte und
   dabei an Zeit- oder Längengrenzen scheiterte. Die Fragen werden jetzt in

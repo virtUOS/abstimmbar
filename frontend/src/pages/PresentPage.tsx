@@ -17,6 +17,9 @@ import {
   detailText,
   errorDetail,
   live,
+  loginUrl,
+  onAuthError,
+  requestStatus,
   results,
   type LiveCounter,
   type LiveState,
@@ -42,6 +45,7 @@ import MindmapModerationList from "../results/MindmapModerationList";
 import { Footer, FooterIconButton, buildViewSegments, type ViewSegment } from "./presenter/footer";
 import HelpOverlay from "./presenter/HelpOverlay";
 import MatrixPanel from "./presenter/MatrixPanel";
+import { rememberRedirect } from "../App";
 import { INK, NEUTRAL_EDGE, NEUTRAL_TILE, evalColor, categoryColor, categoryDeep, categoryHue } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
@@ -105,13 +109,22 @@ function useCountdown(endsAt: string | undefined) {
   return remaining;
 }
 
-function useEventSource(code: string | null, onState: (s: LiveState) => void) {
+function useEventSource(
+  code: string | null,
+  onState: (s: LiveState) => void,
+  onClosed?: () => void,
+) {
   useEffect(() => {
     if (!code) return;
     const source = new EventSource(live.streamUrl(code), { withCredentials: true });
     source.onmessage = (event) => onState(JSON.parse(event.data));
+    // The browser retries a dropped stream by itself, but gives up for good
+    // on an HTTP error (e.g. 403 after the session ended, #298).
+    source.onerror = () => {
+      if (source.readyState === EventSource.CLOSED) onClosed?.();
+    };
     return () => source.close();
-  }, [code, onState]);
+  }, [code, onState, onClosed]);
 }
 
 /** True while the presenter types in a text field (drawer inputs, the AI
@@ -281,6 +294,27 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // whoami bits the AI panel needs (easy mode, AI provider configured).
   // Until whoami answers, assume easy mode: no editing/AI handles flash up.
   const [whoAi, setWhoAi] = useState({ easy: true, ai: false });
+
+  // Signed out (#298): the session ended (e.g. logout in another tab), so
+  // control actions fail and a reload cannot connect. Any 401/403 from the
+  // API or a closed presenter stream asks whoami; when it says anonymous, a
+  // sign-in screen replaces the silent failure / endless "Connecting …".
+  const [signedOut, setSignedOut] = useState(false);
+  const authCheck = useRef(false);
+  const checkSignedIn = useCallback(() => {
+    if (authCheck.current) return;
+    authCheck.current = true;
+    api
+      .whoami()
+      .then((who) => {
+        if (!who.authenticated) setSignedOut(true);
+      })
+      .catch(() => {})
+      .finally(() => {
+        authCheck.current = false;
+      });
+  }, []);
+  useEffect(() => onAuthError(checkSignedIn), [checkSignedIn]);
   const activeAiRef = useRef<number | null>(null);
 
   // --- setup: load questions, ask about old results, start the run --------
@@ -289,13 +323,27 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // shell), so the outlet context useApp() relies on is unavailable.
   useEffect(() => {
     void (async () => {
-      const [page, status, setData, sectionPage, who] = await Promise.all([
-        api.listQuestions(id),
-        live.status(id),
-        api.getQuestionSet(id),
-        api.listSections(id),
-        api.whoami(),
-      ]);
+      let loaded;
+      try {
+        loaded = await Promise.all([
+          api.listQuestions(id),
+          live.status(id),
+          api.getQuestionSet(id),
+          api.listSections(id),
+          api.whoami(),
+        ]);
+      } catch (err) {
+        // Not signed in (#298): the auth-error listener shows the sign-in
+        // screen; anything else stays an (unhandled) error as before.
+        const status = requestStatus(err);
+        if (status === 401 || status === 403) return;
+        throw err;
+      }
+      const [page, status, setData, sectionPage, who] = loaded;
+      if (!who.authenticated) {
+        setSignedOut(true);
+        return;
+      }
       const easyMode = !!who.easy_mode;
       setWhoAi({ easy: easyMode, ai: !!who.ai_enabled });
       setQuestions(page.results);
@@ -343,7 +391,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const handleState = useCallback((s: LiveState) => {
     setState(s);
   }, []);
-  useEventSource(code, handleState);
+  useEventSource(code, handleState, checkSignedIn);
 
   // Track which question is active (for ←/→ navigation).
   const activeId = state?.question?.id;
@@ -1610,6 +1658,29 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
 
 
   // --- rendering --------------------------------------------------------------
+  if (signedOut) {
+    return (
+      <Shell>
+        <div
+          role="alertdialog"
+          aria-labelledby="signed-out-title"
+          className="mx-auto mt-16 max-w-xl rounded-2xl border border-slate-200 p-8 text-center"
+        >
+          <h2 id="signed-out-title" className="text-2xl font-bold">
+            {t("You have been signed out. Please sign in again.")}
+          </h2>
+          <a
+            href={loginUrl}
+            // Back to this presentation after signing in (App restores it).
+            onClick={() => rememberRedirect(window.location.pathname + window.location.search)}
+            className="mt-6 inline-block rounded-xl bg-brand-400 px-6 py-3 text-lg font-semibold text-slate-900 hover:bg-brand-500"
+          >
+            {t("Sign in")}
+          </a>
+        </div>
+      </Shell>
+    );
+  }
   if (dialog) {
     return (
       <Shell>
