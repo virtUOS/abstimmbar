@@ -14,6 +14,7 @@ import PageView from "./pages/PageView";
 import PresentPage from "./pages/PresentPage";
 import QuestionPage from "./pages/QuestionPage";
 import ResultsPage from "./pages/ResultsPage";
+import RouteError from "./pages/RouteError";
 import RoomPage from "./pages/RoomPage";
 import SetPage from "./pages/SetPage";
 import SharedPage from "./pages/SharedPage";
@@ -30,6 +31,9 @@ const router = createBrowserRouter([
     // the app shell and the fullscreen present/quiz routes, so the guided-tour
     // state + driver overlay survive navigation across that boundary.
     element: <TourHost />,
+    // Friendly page for unknown addresses and render errors, instead of
+    // React Router's developer fallback (#279).
+    errorElement: <RouteError />,
     children: [
       {
         path: "/",

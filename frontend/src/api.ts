@@ -2142,8 +2142,13 @@ export const selfCheck = {
     request<unknown>(`/api/question-sets/${setId}/self-check/stats/`, {
       method: "DELETE",
     }),
+  /** Absolute: this is the link teachers copy and hand out (#279) — in
+   *  production API_BASE_URL is empty, which made it a bare "/c/…" path. */
   url: (token: string, questionId?: number) =>
-    `${API_BASE_URL}/c/${token}/${questionId ? `?q=${questionId}` : ""}`,
+    new URL(
+      `${API_BASE_URL}/c/${token}/${questionId ? `?q=${questionId}` : ""}`,
+      window.location.href,
+    ).href,
   qrUrl: (token: string, questionId?: number) =>
     `${API_BASE_URL}/c/${token}/qr.png${questionId ? `?q=${questionId}` : ""}`,
 };
