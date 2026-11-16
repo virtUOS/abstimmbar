@@ -44,6 +44,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - KI-Kurzbericht: Der Bericht gab die Zahl der Antworten als Zahl der
   Teilnehmenden aus („8 Teilnehmer“ bei 8 Antworten). Das Modell erhält
   jetzt beide Zahlen getrennt (#285).
+- Wortwolke: Ausgeblendete und zusammengeführte Begriffe stehen in der
+  Moderationsliste der Präsentation jetzt in der Schreibweise, in der sie
+  auch in der Wolke erscheinen („Python“ statt „python“) (#296).
 
 ### Sicherheit
 

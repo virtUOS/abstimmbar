@@ -4691,6 +4691,30 @@ class WordCloudModerationAggregationTests(LiveTestCase):
         self.assertEqual(words[0]["count"], 2)  # wut's votes are NOT counted
 
 
+    def test_moderation_payload_shows_display_spelling(self):
+        # #296: hidden keys/merge members are casefolded; the presenter's
+        # panel gets the most frequent raw spelling as "text".
+        from .models import WordCloudModeration
+        from .results import moderation_payload
+        self._cast("Python", 2)
+        self._cast("python", 1)
+        self._cast("Java", 1)
+        mod = WordCloudModeration.objects.create(
+            run=self.run, question=self.q, hidden=["python", "gone"],
+            merges=[{"keys": ["java", "python"], "label": "Sprachen"}],
+        )
+        payload = moderation_payload(self.run, self.q, mod)
+        self.assertEqual(
+            payload["hidden"],
+            [{"key": "python", "text": "Python"}, {"key": "gone", "text": "gone"}],
+        )
+        self.assertEqual(
+            payload["merges"],
+            [{"keys": ["java", "python"], "label": "Sprachen", "texts": ["Java", "Python"]}],
+        )
+        self.assertEqual(moderation_payload(self.run, self.q, None), {"hidden": [], "merges": []})
+
+
 class WordCloudModerationApiTests(LiveTestCase):
     def setUp(self):
         super().setUp()

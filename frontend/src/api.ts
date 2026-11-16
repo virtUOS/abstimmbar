@@ -1389,9 +1389,11 @@ export type MindmapLogEntry = { id: number; created_at: string } & (
 /** Presenter-side moderation state for a word cloud (#Wortwolke): terms hidden
  *  from the live view and manual merges (grouping several keys under one
  *  label), independent of the AI cleanup view. */
+/** `key`s are casefolded; `text`/`texts` carry the display spelling (most
+ *  frequent raw variant, #296). */
 export interface WordCloudModeration {
-  hidden: { key: string }[];
-  merges: { keys: string[]; label: string }[];
+  hidden: { key: string; text?: string }[];
+  merges: { keys: string[]; label: string; texts?: string[] }[];
 }
 
 /** A word of the AI views: `keys` are the raw casefold terms it stands for. */

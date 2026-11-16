@@ -216,6 +216,31 @@ def words_with_counts(run, question, limit=150):
     return words[:limit]
 
 
+def moderation_payload(run, question, mod):
+    """Presenter view of a word cloud's moderation (#296): hidden keys and
+    merge members are casefolded, so each also carries its display ``text``
+    — the most frequent raw spelling in this run, as in
+    :func:`words_with_counts` (falls back to the key without votes)."""
+    variants = {}
+    for text in run.votes.filter(question=question).exclude(text="").values_list(
+        "text", flat=True
+    ):
+        variants.setdefault(text.casefold(), []).append(text)
+
+    def display(key):
+        found = variants.get(key)
+        return Counter(found).most_common(1)[0][0] if found else key
+
+    hidden = mod.hidden if mod else []
+    merges = mod.merges if mod else []
+    return {
+        "hidden": [{"key": k, "text": display(k)} for k in hidden],
+        "merges": [
+            {**m, "texts": [display(k) for k in m.get("keys", [])]} for m in merges
+        ],
+    }
+
+
 def freetext_evaluation(run, question):
     """Live free-text evaluation summary (v2 KI): distinct answers grouped by
     the stored verdict along the question's chosen scale, plus how many answers
