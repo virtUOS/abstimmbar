@@ -66,6 +66,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   unpassende Begriffe bzw. Antworten mit × ausblenden und über den Stift
   wieder einblenden. Zusammenführen, Umbenennen und KI-Ansichten bleiben dem
   Modus „Experte“ vorbehalten (#297).
+- Freitext-Antworten und KI-Kernaussagen erscheinen am Beamer, auf der
+  Ergebnisseite und auf den Geräten in einer einheitlichen, neutralen
+  Kärtchenfarbe. Die bisherigen wechselnden Farben hatten keine Bedeutung,
+  wirkten aber wie Kategorien; farbig bleiben nur die benannten Gruppen der
+  Ansicht „Gruppiert“ und die Bewertungsbalken (#295).
 
 ### Behoben
 

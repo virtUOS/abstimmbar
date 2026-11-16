@@ -26,7 +26,8 @@ export function hashHue(text: string): number {
   return categoryHue(Math.abs(h));
 }
 
-/** Pastel fill for a free-form term (free-text chips), stable per text. */
+/** Pastel fill for a word-cloud term chip, stable per text (free-text
+ *  answers use the neutral card style instead, #295). */
 export const termColor = (text: string) => `oklch(0.80 0.095 ${hashHue(text)})`;
 
 export const CORRECT = "oklch(0.70 0.14 150)";
@@ -35,6 +36,9 @@ export const CORRECT_TINT = "oklch(0.90 0.06 150)";
 export const WRONG = "oklch(0.88 0.045 20)";
 export const WRONG_TINT = "oklch(0.94 0.02 20)";
 export const NEUTRAL_TILE = "oklch(0.93 0.006 220)";
+/** Edge/badge tone of a neutral free-text card (#295): free-text answers and
+ *  key statements share one uniform style — per-text hues read as categories. */
+export const NEUTRAL_EDGE = "oklch(0.82 0.012 220)";
 export const INK = "oklch(0.28 0.02 220)";
 /** Mind-map rating "minus" (rosé, a touch deeper than WRONG so it reads on
  *  white) and its text colour; "plus" uses CORRECT / CORRECT_STRONG. */

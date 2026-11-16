@@ -1125,8 +1125,9 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   function renderResultBlock(list, data, mine, emptyHint) {
     mine = mine || {};
     const myOptionIds = new Set((mine.answerOptions || []).map((o) => o.id));
+    const kind = (data.question && data.question.kind) || data.kind || mine.kind;
     if (emptyHint && resultIsEmpty(data)) {
-      appendEmptyResultHint(list, (data.question && data.question.kind) || data.kind || mine.kind);
+      appendEmptyResultHint(list, kind);
       // Choice/ordering: still list the options (0 %) / the correct order;
       // empty word lists, priority bars and the Likert bar add nothing.
       if (data.likert || data.words || data.priorities) return;
@@ -1173,9 +1174,12 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       chip.textContent = word.text + (word.count > 1 ? " ×" + word.count : "") +
         (isMine ? " · " + I18N.you : "");
       // Own term: its usual palette colour plus a frame — green would read as
-      // "correct" on results pages.
+      // "correct" on results pages. Free-text answers get one neutral card
+      // style: per-text pastel hues looked like categories (#295).
       chip.style.cssText = "display:inline-block;max-width:100%;white-space:pre-line;vertical-align:top;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
-        "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)" +
+        (kind === "open_text"
+          ? "background:var(--surface);border:1px solid var(--line);color:var(--ink)"
+          : "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)") +
         (isMine ? ";font-weight:700;outline:2px solid var(--ink);outline-offset:2px" : "");
       list.appendChild(chip);
     }

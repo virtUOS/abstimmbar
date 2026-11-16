@@ -42,7 +42,7 @@ import MindmapModerationList from "../results/MindmapModerationList";
 import { Footer, FooterIconButton, buildViewSegments, type ViewSegment } from "./presenter/footer";
 import HelpOverlay from "./presenter/HelpOverlay";
 import MatrixPanel from "./presenter/MatrixPanel";
-import { INK, evalColor, categoryColor, categoryDeep, categoryHue, termColor } from "../results/palette";
+import { INK, NEUTRAL_EDGE, NEUTRAL_TILE, evalColor, categoryColor, categoryDeep, categoryHue } from "../results/palette";
 
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
@@ -4075,7 +4075,10 @@ function AnswerChips({
               className={`ab-chip-in group relative whitespace-pre-line px-4 py-2 text-xl ${entry.text.includes("\n") ? "rounded-2xl" : "rounded-full"} ${cp.className}`}
               style={{
                 ...cp.style,
-                background: termColor(entry.text),
+                // One neutral card style (#295): the former per-text pastel
+                // hues encoded nothing but looked like categories.
+                background: NEUTRAL_TILE,
+                boxShadow: `inset 0 0 0 1px ${NEUTRAL_EDGE}`,
                 color: INK,
                 animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms`,
               }}
@@ -4249,7 +4252,9 @@ function FreeTextAiView({
       <div className="mt-8" style={fit.outerStyle}>
       <div ref={fit.ref} className={WIDE} style={fit.innerStyle}>
         <ol className={`grid gap-3 ${top.length > 6 ? "lg:grid-cols-2" : ""}`}>
-          {top.map((w, i) => row(w, termColor(w.text), i, true))}
+          {/* Neutral (#295); only the grouped view's colours mean something
+              (one per group, named in its heading). */}
+          {top.map((w, i) => row(w, NEUTRAL_EDGE, i, true))}
         </ol>
         {sorted.length > top.length && (
           <p className="mt-4 text-center text-sm text-slate-400">
