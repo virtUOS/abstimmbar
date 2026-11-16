@@ -477,6 +477,7 @@ cd /opt/abstimmbar
 sudo git pull
 sudo docker compose -f docker-compose.prod.yml build
 sudo docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d --force-recreate caddy
 ```
 
 Or use a published release image (no local build). Run `git pull` here as
@@ -498,10 +499,19 @@ cd /opt/abstimmbar
 sudo git pull
 sudo docker compose -f docker-compose.prod.yml pull
 sudo docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d --force-recreate caddy
 ```
 
 Database migrations and `collectstatic` run automatically on startup — do
 not run any of this by hand.
+
+The last line restarts Caddy. This is needed because `up -d` does not
+recreate the Caddy container when `git pull` only changed the `Caddyfile`
+— Caddy would keep running with the old configuration and not forward
+newly added paths to Django (e.g. `/question-preview/` for the preview in
+the question editor or `/c/` for self-check links). You can tell by a
+“Page not found” page that points to the web server in front. The
+certificates are kept (volume `caddy_data`).
 
 **`git pull` stops because of local changes?** This happens when files
 from the repository were edited on the server (formerly typical: domain
