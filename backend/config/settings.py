@@ -256,6 +256,9 @@ AI_CHUNK_CHARS = _int_or_default("AI_CHUNK_CHARS", 12000)
 AI_GEN_MAX_CHUNKS = _int_or_default("AI_GEN_MAX_CHUNKS", 40)
 AI_GEN_MAX_QUESTIONS = _int_or_default("AI_GEN_MAX_QUESTIONS", 150)
 AI_GEN_DEFAULT_DENSITY = _float_or_default("AI_GEN_DEFAULT_DENSITY", 1.0)
+# Questions requested per AI call (#309): a chunk's quota is generated in
+# several small calls, so no single call outgrows AI_TIMEOUT / AI_MAX_TOKENS.
+AI_GEN_PER_CALL = max(1, _int_or_default("AI_GEN_PER_CALL", 5))
 
 # Bearer token protecting the Prometheus metrics endpoint (admin stats).
 # Empty by default (disabled); set in production to enable scraping.

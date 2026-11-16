@@ -3263,6 +3263,105 @@ class GenerationEndpointTests(ApiTestCase):
             r = self.client.post(f"{self.url}jobs/{foreign.pk}/reviewed/")
         self.assertEqual(r.status_code, 404)
 
+    def _finished_job(self, **kwargs):
+        from .models import GenerationJob
+        fields = {
+            "question_set": self.qs, "created_by": self.owner, "source_text": "Stoff " * 10,
+            "source_chars": 60, "kinds": ["open_text"], "focus_kinds": [], "level": "deep",
+            "guidance": "Bitte konkret", "pages": 3, "density": 2.0, "target_count": 6,
+            "status": GenerationJob.Status.FAILED, "error": "Fehler",
+        }
+        fields.update(kwargs)
+        return GenerationJob.objects.create(**fields)
+
+    def test_retry_clones_failed_job_and_starts_it(self):
+        from .models import GenerationJob
+        old = self._finished_job()
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job") as start:
+            r = self.client.post(f"{self.url}jobs/{old.pk}/retry/")
+        self.assertEqual(r.status_code, 201)
+        new = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertNotEqual(new.pk, old.pk)
+        start.assert_called_once_with(new)
+        self.assertEqual(new.status, GenerationJob.Status.PENDING)
+        for field in ("source_text", "source_chars", "kinds", "focus_kinds", "level",
+                      "guidance", "pages", "density", "target_count"):
+            self.assertEqual(getattr(new, field), getattr(old, field), field)
+        self.assertEqual(new.created_by, self.owner)
+        old.refresh_from_db()
+        self.assertTrue(old.reviewed)
+        with self.override_settings(**AI_ON):
+            active = self.client.get(f"{self.url}active/").json()
+        self.assertEqual(active["id"], new.pk)
+
+    def test_retry_accepts_empty_done_but_not_jobs_with_drafts_or_running(self):
+        from .models import GenerationJob
+        empty = self._finished_job(status=GenerationJob.Status.DONE, error="")
+        with_drafts = self._finished_job(
+            status=GenerationJob.Status.DONE, drafts=[{"kind": "open_text", "text": "F"}])
+        running = self._finished_job(status=GenerationJob.Status.RUNNING)
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job"):
+            # (a successful retry cancels the set's running job, so check it first)
+            self.assertEqual(
+                self.client.post(f"{self.url}jobs/{running.pk}/retry/").status_code, 400)
+            self.assertEqual(
+                self.client.post(f"{self.url}jobs/{with_drafts.pk}/retry/").status_code, 400)
+            self.assertEqual(
+                self.client.post(f"{self.url}jobs/{empty.pk}/retry/").status_code, 201)
+
+    def test_retry_foreign_job_404_and_disabled_503(self):
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        foreign = self._finished_job(question_set=other_qs)
+        mine = self._finished_job()
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job") as start:
+            r = self.client.post(f"{self.url}jobs/{foreign.pk}/retry/")
+        self.assertEqual(r.status_code, 404)
+        with self.override_settings(
+            AI_PROVIDER="none", AI_BASE_URL="", AI_API_KEY="", AI_MODEL=""
+        ), self.mock.patch("rooms.views.generation.start_job") as start:
+            r = self.client.post(f"{self.url}jobs/{mine.pk}/retry/")
+        self.assertEqual(r.status_code, 503)
+        start.assert_not_called()
+
+    def test_new_generation_dismisses_older_unreviewed_jobs(self):
+        # #303: an old finished run with pending proposals must not resurface
+        # once the new run is reviewed/discarded.
+        from .models import GenerationJob
+        old_done = self._finished_job(
+            status=GenerationJob.Status.DONE, drafts=[{"kind": "open_text", "text": "Alt"}])
+        old_failed = self._finished_job()
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        elsewhere = self._finished_job(question_set=other_qs, status=GenerationJob.Status.DONE)
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {"text": "Neues Material"})
+        self.assertEqual(r.status_code, 201)
+        new = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertFalse(new.reviewed)
+        for job in (old_done, old_failed):
+            job.refresh_from_db()
+            self.assertTrue(job.reviewed)
+        elsewhere.refresh_from_db()
+        self.assertFalse(elsewhere.reviewed)  # other sets untouched
+        # The new run is dismissed → the old proposals do not come back.
+        with self.override_settings(**AI_ON):
+            self.client.post(f"{self.url}jobs/{new.pk}/reviewed/")
+            self.assertEqual(self.client.get(f"{self.url}active/").json(), {})
+
+    def test_invalid_start_keeps_older_proposals(self):
+        from .models import GenerationJob
+        old_done = self._finished_job(
+            status=GenerationJob.Status.DONE, drafts=[{"kind": "open_text", "text": "Alt"}])
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {"text": ""})
+        self.assertEqual(r.status_code, 400)
+        old_done.refresh_from_db()
+        self.assertFalse(old_done.reviewed)
+
     def test_set_active_returns_only_unreviewed(self):
         from .models import GenerationJob
         GenerationJob.objects.create(
@@ -4689,6 +4788,8 @@ class GenerationWorkerTests(TransactionTestCase):
 
         from . import generation
         job = self._job("A " * 100 + " B " * 100)  # forces 2 chunks at small chunk size
+        job.target_count = 2  # one question per chunk
+        job.save(update_fields=["target_count"])
         replies = [
             {"questions": [{"kind": "open_text", "text": "Frage 1"}]},
             {"questions": [{"kind": "open_text", "text": "Frage 1"}]},  # dup across chunks
@@ -4793,6 +4894,8 @@ class GenerationWorkerTests(TransactionTestCase):
 
         from . import generation
         job = self._job("A " * 100 + " B " * 100)
+        job.target_count = 2  # one question per chunk
+        job.save(update_fields=["target_count"])
         with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
              mock.patch("rooms.generation.ai.chat_json",
                         side_effect=[AIError("boom"),
@@ -4863,6 +4966,149 @@ class GenerationWorkerTests(TransactionTestCase):
             generation.run_generation_job(job.id)
         job.refresh_from_db()
         self.assertEqual(job.status, self.GenerationJob.Status.CANCELLED)
+
+
+    def _numbered_replies(self, calls):
+        """A chat_json stand-in that returns exactly as many new, distinct
+        questions as the prompt asks for, recording each call."""
+        import re
+        counter = iter(range(1, 1000))
+
+        def reply(system, prompt, **kwargs):
+            count = int(re.search(r"Erzeuge bis zu (\d+) Fragen", prompt).group(1))
+            calls.append({"count": count, "prompt": prompt, **kwargs})
+            return {"questions": [
+                {"kind": "open_text", "text": f"Frage {next(counter)}"}
+                for _ in range(count)
+            ]}
+        return reply
+
+    def test_per_call_cap_loops_until_target(self):
+        # #309: one call for all questions outgrew timeout/max_tokens; the
+        # quota is now fetched in calls of at most AI_GEN_PER_CALL questions.
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("Stoff " * 50)  # a single chunk
+        job.target_count = 12
+        job.save(update_fields=["target_count"])
+        calls = []
+        with override_settings(**AI_ON, AI_GEN_PER_CALL=5, AI_MAX_TOKENS=2000), \
+             mock.patch("rooms.generation.ai.chat_json",
+                        side_effect=self._numbered_replies(calls)):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 12)
+        self.assertEqual([c["count"] for c in calls], [5, 5, 2])
+        self.assertTrue(all(c["max_tokens"] <= 2000 for c in calls))
+        # Follow-up calls list what already exists so the model adds new ones.
+        self.assertNotIn("wiederhole", calls[0]["prompt"])
+        self.assertIn("- Frage 1\n", calls[1]["prompt"])
+        self.assertIn("- Frage 10\n", calls[2]["prompt"])
+
+    def test_per_call_loop_stops_when_nothing_new(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("Stoff " * 50)
+        job.target_count = 18
+        job.save(update_fields=["target_count"])
+        reply = {"questions": [{"kind": "open_text", "text": "Immer dieselbe"}]}
+        with override_settings(**AI_ON, AI_GEN_PER_CALL=5), \
+             mock.patch("rooms.generation.ai.chat_json", return_value=reply) as chat:
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 1)
+        self.assertEqual(chat.call_count, 2)  # second call added nothing → stop
+
+    def test_all_calls_timing_out_fails_with_german_reason(self):
+        # #302: no drafts + failed calls → FAILED with an actionable reason
+        # instead of DONE with "0 questions generated".
+        from unittest import mock
+
+        from basicbar_integrations.ai import AIError
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)  # 2 chunks
+        job.target_count = 4
+        job.save(update_fields=["target_count"])
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json",
+                        side_effect=AIError("AI request failed: timed out")):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.FAILED)
+        self.assertEqual(job.drafts, [])
+        self.assertEqual(job.error, generation.ERROR_MESSAGES["timeout"])
+        self.assertIn("nicht rechtzeitig", job.error)
+        self.assertNotIn("AI request", job.error)
+
+    def test_partial_failure_stays_done_with_plain_notice(self):
+        from unittest import mock
+
+        from basicbar_integrations.ai import AIError
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("A " * 100 + " B " * 100)  # 2 chunks
+        job.target_count = 2
+        job.save(update_fields=["target_count"])
+        with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
+             mock.patch("rooms.generation.ai.chat_json",
+                        side_effect=[{"questions": [{"kind": "open_text", "text": "F1"}]},
+                                     AIError("AI request failed: HTTP Error 502")]):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual([d["text"] for d in job.drafts], ["F1"])
+        self.assertEqual(job.notice, generation.PARTIAL_FAILURE_NOTICE)
+        self.assertNotIn("Abschnitt", job.notice)
+
+    def test_classify_error(self):
+        import json
+        from urllib import error as urlerror
+
+        from basicbar_integrations.ai import AIError
+
+        from . import generation
+
+        def wrapped(cause):
+            try:
+                raise AIError(f"AI request failed: {cause}") from cause
+            except AIError as exc:
+                return exc
+
+        self.assertEqual(generation.classify_error(wrapped(TimeoutError("timed out"))), "timeout")
+        self.assertEqual(
+            generation.classify_error(wrapped(urlerror.URLError(TimeoutError()))), "timeout"
+        )
+        self.assertEqual(
+            generation.classify_error(wrapped(json.JSONDecodeError("Expecting ','", "{", 1))),
+            "truncated",
+        )
+        self.assertEqual(
+            generation.classify_error(wrapped(urlerror.URLError("refused"))), "unavailable"
+        )
+        self.assertEqual(
+            generation.classify_error(AIError("empty response from model")), "truncated"
+        )
+        self.assertEqual(generation.classify_error(AIError("strange")), "other")
+
+    def test_max_tokens_per_call_bounded_by_setting(self):
+        from django.test import override_settings
+
+        from . import generation
+        with override_settings(AI_MAX_TOKENS=20000):
+            self.assertLess(generation.call_max_tokens(5), 20000)
+        with override_settings(AI_MAX_TOKENS=1000):
+            self.assertEqual(generation.call_max_tokens(5), 1000)
 
 
 class MatrixAuthoringTests(ApiTestCase):

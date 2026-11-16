@@ -436,6 +436,29 @@ export interface GenerationJob {
   set_title?: string;
 }
 
+/** A finished run without any proposals counts as failed (#302): either the
+ *  backend marked it failed, or it ended without a single draft — the UI then
+ *  explains why and offers "Try again" instead of "0 questions — review". */
+export function generationFailed(job: GenerationJob): boolean {
+  return job.status === "failed" || (job.status === "done" && job.drafts.length === 0);
+}
+
+/** Why a failed/empty run produced nothing (see `generationFailed`). */
+export function generationFailureText(job: GenerationJob, t: TFunction): string {
+  if (job.status === "failed") return job.error || t("Question generation failed.");
+  if (job.unsuitable_reason)
+    return t("The material is not suitable: {{reason}}", { reason: job.unsuitable_reason });
+  if (job.notice && !job.truncated) return job.notice;
+  return t("No questions generated.");
+}
+
+/** Python's `round()` (half to even) for non-negative numbers, so client-side
+ *  estimates match the backend's page/question counts (2.5 → 2, 3.5 → 4). */
+export function roundHalfEven(x: number): number {
+  const r = Math.round(x);
+  return x % 1 === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
 /** Live free-text evaluation summary (presenter + stored results). The
  *  ``verdict`` is a category label from the question's chosen scale; groups
  *  come in the configured order. */
@@ -1060,6 +1083,12 @@ export const api = {
   aiGenerateActive: (setId: number) =>
     request<GenerationJob | Record<string, never>>(
       `/api/question-sets/${setId}/ai-generate/active/`,
+    ),
+  /** Re-run a failed or empty job with the same material and settings (#302). */
+  aiGenerateRetry: (setId: number, jobId: number) =>
+    request<{ job_id: number }>(
+      `/api/question-sets/${setId}/ai-generate/jobs/${jobId}/retry/`,
+      { method: "POST" },
     ),
   /** Cancel an async question generation job. */
   aiGenerateCancel: (setId: number, jobId: number) =>
