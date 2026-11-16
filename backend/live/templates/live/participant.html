@@ -1011,14 +1011,16 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     chart.style.cssText = "position:relative;margin-top:28px";
     const bar = document.createElement("div");
     bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:26px;border-radius:8px;font-size:11px";
-    let myMidPct = null, cursor = 0;
-    steps.forEach((step) => {
+    // Own-vote marker at the chosen step's SCALE position (equal-width step
+    // columns, like the mean tick's mean_pct) — not the middle of its
+    // vote-share segment, which drifts with the distribution (#281).
+    let myMidPct = null;
+    steps.forEach((step, idx) => {
       const seg = document.createElement("div");
       seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
       seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
       if (step.pct >= 12) seg.textContent = Math.round(step.pct) + " %";
-      if (myOptionIds.has(step.id)) myMidPct = cursor + step.pct / 2;
-      cursor += step.pct;
+      if (myOptionIds.has(step.id)) myMidPct = (idx + 0.5) / steps.length * 100;
       bar.appendChild(seg);
     });
     chart.appendChild(bar);

@@ -34,6 +34,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   die Webserver-Konfiguration (#279, #299).
 - Mehrere Tabs desselben Browsers zählen am Beamer nur einmal; ein zweiter
   Tab kennt die bereits abgegebenen Begriffe der Wortwolke (#286).
+- Likert-Ergebnis auf Teilnehmergeräten: Der Marker „▲ Sie“ steht an der
+  Skalenposition der gewählten Stufe (wie der ø-Strich) statt in der Mitte
+  des eigenen Segments (#281).
 
 ### Sicherheit
 
