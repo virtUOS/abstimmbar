@@ -2967,7 +2967,8 @@ def results_csv(request, set_id):
             # CSV needs a plain string (#33 MR2): resolve the {de, en} map to
             # the canonical/active language rather than exporting a dict.
             question_text = resolve_translated_text(translated_map(question, "text"))
-            base = [run.pk, started.strftime("%Y-%m-%d %H:%M"),
+            # Local time with its UTC offset (#284): the stored value is UTC.
+            base = [run.pk, timezone.localtime(started).strftime("%Y-%m-%d %H:%M %z"),
                     question.position + 1, _plain(question_text)]
             if question.kind == Question.Kind.MINDMAP:
                 # One row per visible node: its path from the root's branch
@@ -3050,6 +3051,15 @@ def results_csv(request, set_id):
                 )
                 # Per-step %s over the scale (excluding abstentions) for Likert.
                 step_pct = {s["id"]: s["pct"] for s in summary["steps"]} if summary else {}
+                if not summary:
+                    # Choice kinds (#284): share of the question's votes, as
+                    # on the results page (abstentions count as votes; with
+                    # multiple choice the shares may add up to over 100).
+                    votes = run.votes.filter(question=question).count()
+                    step_pct = {
+                        o["id"]: round(100 * o["count"] / votes, 1) if votes else 0.0
+                        for o in options
+                    }
                 for option in options:
                     writer.writerow(
                         base

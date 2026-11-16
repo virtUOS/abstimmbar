@@ -55,13 +55,13 @@ run**. The columns:
 | Column | Content |
 |---|---|
 | `durchfuehrung` | Run number |
-| `gestartet` | Start of the run (date and time) |
+| `gestartet` | Start of the run (local date and time with the offset to UTC, e.g. `2026-11-13 11:18 +0100`) |
 | `frage_nr`, `frage` | Position and text of the question |
 | `antwort` | Answer text, term, mind map path (“Branch > Term”) or card title |
 | `richtig` | `x` for correct answers |
 | `stimmen` | Number of votes or mentions |
 | `vor_ort`, `aufzeichnung` | Split of votes when voting from a recording (on-site / recording) |
-| `prozent` | For the Likert scale, the share per scale level |
+| `prozent` | Share of the question's votes as on the results page (with multiple choice the sum can exceed 100); for the Likert scale, the share per scale level without abstentions |
 | `bewertung` | Result of a rating phase (mind map, four-field matrix) |
 | `beschreibung`, `kategorie`, `zone`, `x`, `y`, `stapel` | Four-field matrix only: details of each card (description, category, zone, position, stack) |
 

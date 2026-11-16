@@ -37,6 +37,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Datei zu groß ist, zeigt der Editor jetzt eine verständliche Meldung,
   auch bei Bildern an Antwortoptionen, die bisher kommentarlos fehlschlugen
   (#280).
+- CSV-Export: Die Spalte `gestartet` zeigt die Ortszeit samt Abstand zu UTC
+  (vorher UTC ohne Kennzeichnung, also eine Stunde zu früh), und `prozent`
+  ist jetzt auch bei Einfach- und Mehrfachauswahl sowie Ja/Nein-Fragen
+  gefüllt, mit denselben Anteilen wie in der Ergebnisansicht (#284).
 
 ### Sicherheit
 

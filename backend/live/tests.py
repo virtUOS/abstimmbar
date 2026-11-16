@@ -1270,6 +1270,28 @@ class ResultsApiTests(LiveTestCase):
         self.assertNotIn("{", body)
         self.assertNotIn("'de'", body)
 
+    def test_csv_choice_percent_and_local_start_time(self):
+        """#284: choice rows carry the percentage the results page shows
+        (share of the question's votes, one decimal), and "gestartet" is
+        local time with its UTC offset, not bare UTC."""
+        import csv
+        import datetime
+        import io
+
+        run = self._run_with_votes()
+        Run.objects.filter(pk=run.pk).update(
+            first_opened_at=datetime.datetime(2026, 11, 13, 10, 18, tzinfo=datetime.UTC)
+        )
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8-sig")
+        rows = list(csv.DictReader(io.StringIO(body), delimiter=";"))
+        by_answer = {row["antwort"]: row for row in rows}
+        self.assertEqual(by_answer["4"]["prozent"], "66.7")
+        self.assertEqual(by_answer["5"]["prozent"], "33.3")
+        self.assertEqual(by_answer["4"]["gestartet"], "2026-11-13 11:18 +0100")
+
     def test_csv_neutralises_every_text_cell(self):
         """Formula-looking authored text (question, options, Likert steps,
         priorities items) never reaches the CSV unescaped, whatever the kind."""
