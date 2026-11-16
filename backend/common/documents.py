@@ -136,11 +136,13 @@ def _pptx_chart_lines(chart):
 
 def _pptx_shape_lines(shape):
     """Text of one shape (recursing into groups); never raises."""
-    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    from pptx.shapes.group import GroupShape
 
     lines = []
     try:
-        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+        # isinstance, not shape_type: the latter raises NotImplementedError
+        # for some ordinary shapes, which would drop their text.
+        if isinstance(shape, GroupShape):
             for child in shape.shapes:
                 lines.extend(_pptx_shape_lines(child))
             return lines

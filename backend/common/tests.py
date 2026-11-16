@@ -463,6 +463,34 @@ class StructuredExtractionTests(SimpleTestCase):
         buf.seek(0)
         self.assertNotIn("Sprechernotizen", extract_text(buf, "f.pptx"))
 
+    def test_pptx_shape_of_unrecognised_type_keeps_its_text(self):
+        # python-pptx's shape_type raises for a p:sp that is neither
+        # placeholder, autoshape, textbox nor freeform; its text must survive.
+        import io
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from common.documents import extract_text
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Ungewoehnliche Form"
+        # Drop the txBox marker and the preset geometry: shape_type now raises.
+        box._element.nvSpPr.cNvSpPr.attrib.pop("txBox", None)
+        prst = box._element.spPr.find(
+            "{http://schemas.openxmlformats.org/drawingml/2006/main}prstGeom"
+        )
+        if prst is not None:
+            box._element.spPr.remove(prst)
+        with self.assertRaises(NotImplementedError):
+            _ = box.shape_type
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        self.assertIn("Ungewoehnliche Form", extract_text(buf, "f.pptx"))
+
     def test_empty_slides_raise_and_keep_numbering(self):
         import io
 
