@@ -183,7 +183,8 @@ and **After**. The votes are counted separately.
   your rooms; that way you can reuse it next semester, for example.
 - **Export (JSON)** (expert mode) — saves the set as a file. In a room, you
   bring such a file back in via the ⋮ menu → **Import question set (JSON)**,
-  for example on another Abstimmbar instance.
+  for example on another Abstimmbar instance. Uploaded images are included
+  in the file and come along on import; an import file may be up to 32 MiB.
 - **Copy set (share link)** (expert mode) — creates a link that colleagues
   can use to take a copy of the set **into their own room**; your original
   remains unchanged. Optionally, you specify a **license for sharing**

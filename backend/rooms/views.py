@@ -47,7 +47,14 @@ from common.i18n_fields import resolve_translated_text, translated_map
 from live.models import MatrixCard, MindmapContribution, MindmapNode, Vote
 
 from . import ai_generate, ai_prompts, generation, set_types
-from .images import InvalidImageError, normalize_image
+from .images import (
+    # The size caps live in images.py (shared with the JSON import, #290);
+    # they stay importable — and patchable — as rooms.views names.
+    MAX_ANIMATED_IMAGE_BYTES,
+    MAX_IMAGE_BYTES,
+    InvalidImageError,
+    normalize_image,
+)
 from .models import GenerationJob, Question, QuestionSet, Room, Section
 from .serializers import (
     AgendaLocked,
@@ -60,15 +67,6 @@ from .serializers import (
     next_outline_position,
 )
 from .transfer import duplicate_question, duplicate_set, export_set, import_set
-
-# Upload gate before normalization (#280). Phone photos easily exceed 5 MB;
-# normalize_image() downsizes them to IMAGE_MAX_EDGE and re-encodes as WebP,
-# so the stored file stays small. Pillow's MAX_IMAGE_PIXELS check (raised as
-# DecompressionBombError → InvalidImageError) still guards the decode.
-MAX_IMAGE_BYTES = 20 * 1024 * 1024
-# Animated GIF/WebP are stored as uploaded (not transcoded), so they keep
-# the old, tighter limit.
-MAX_ANIMATED_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _display_name(user):
@@ -515,12 +513,17 @@ class RoomViewSet(viewsets.ModelViewSet):
     def import_set(self, request, pk=None):
         """Create a question set from an export file's JSON (roadmap M3)."""
         room = self.get_object()
-        question_set = import_set(room, request.data)
+        stats = {}
+        question_set = import_set(room, request.data, user=request.user, stats=stats)
         serializer = QuestionSetSerializer(
             question_set, context={"request": request}
         )
         data = dict(serializer.data)
         data["question_count"] = question_set.questions.count()
+        # Embedded images (#290): how many were stored, how many were dropped
+        # (invalid base64, not an image, over the size cap).
+        data["images_imported"] = stats.get("images_imported", 0)
+        data["images_skipped"] = stats.get("images_skipped", 0)
         return Response(data, status=status.HTTP_201_CREATED)
 
 

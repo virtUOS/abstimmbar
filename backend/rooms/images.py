@@ -16,6 +16,16 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 _META_KEYS = ("exif", "icc_profile", "xmp")
 
+# Upload gate before normalization (#280). Phone photos easily exceed 5 MB;
+# normalize_image() downsizes them to IMAGE_MAX_EDGE and re-encodes as WebP,
+# so the stored file stays small. Pillow's MAX_IMAGE_PIXELS check (raised as
+# DecompressionBombError → InvalidImageError) still guards the decode.
+# Shared by the upload view and the JSON import of embedded images (#290).
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+# Animated GIF/WebP are stored as uploaded (not transcoded), so they keep
+# the old, tighter limit.
+MAX_ANIMATED_IMAGE_BYTES = 5 * 1024 * 1024
+
 
 class InvalidImageError(Exception):
     """Raised when the uploaded bytes cannot be decoded as an image."""
