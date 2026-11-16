@@ -2049,11 +2049,38 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
 
   // Answered and locked against changes (feedback on, or back-nav off):
   // read-only review. Choice kinds get the same correct/wrong visual as
-  // showQuizFeedback; text kinds show the given text; priorities/ordering
-  // (no stored ``correct``) just confirm they were answered.
+  // showQuizFeedback; text kinds show the given text; graded ordering
+  // (#283) shows the own order (✓ per correctly placed item) and the
+  // correct order; priorities and ungraded ordering just confirm they were
+  // answered.
   function renderQuizReview(q, ans, optionsBox) {
     const chosen = (ans.chosen && ans.chosen.options) || [];
-    if (q.kind === "priorities" || q.kind === "ordering") {
+    if (q.kind === "ordering" && ans.correct_order) {
+      const own = ((ans.chosen && ans.chosen.order) || []).map(String);
+      const solution = ans.correct_order.map(String);
+      const byId = new Map(q.options.map((o) => [String(o.id), locText(o.text)]));
+      const label = document.createElement("p");
+      label.className = "soft";
+      label.style.cssText = "margin:0 0 4px;font-weight:600";
+      label.textContent = I18N.yourOrder;
+      const ol = document.createElement("ol");
+      ol.style.cssText = "margin:0 0 12px;padding-left:22px;color:var(--ink)";
+      own.forEach((id, i) => {
+        const li = document.createElement("li");
+        li.textContent = byId.get(id) || "";
+        if (id === solution[i]) {
+          const tick = document.createElement("span");
+          tick.textContent = " ✓";
+          tick.style.color = "var(--correct-strong)";
+          li.appendChild(tick);
+        }
+        ol.appendChild(li);
+      });
+      optionsBox.append(label, ol);
+      const solutionBox = document.createElement("div");
+      renderCorrectOrder(solutionBox, { options: q.options, correct_order: ans.correct_order });
+      optionsBox.appendChild(solutionBox);
+    } else if (q.kind === "priorities" || q.kind === "ordering") {
       const note = document.createElement("p");
       note.className = "soft";
       note.textContent = I18N.alreadyAnswered;
@@ -2080,10 +2107,11 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       }
     }
     const feedback = document.getElementById("quiz-feedback");
-    feedback.textContent = ans.correct
+    const graded = !!(ans.correct || ans.correct_order);
+    feedback.textContent = graded
       ? (ans.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect)
       : I18N.answerSaved;
-    feedback.style.color = ans.correct
+    feedback.style.color = graded
       ? (ans.is_correct ? "var(--brand-strong)" : "var(--danger-strong)")
       : "var(--ink-soft)";
     feedback.hidden = false;
@@ -2107,13 +2135,19 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     // resume — #75 Task 2), so back-navigation and review render
     // consistently whether the answer came from this submit or a reload.
     quiz.answered[String(q.id)] = {
-      is_correct: data.correct ? data.is_correct : null,
+      is_correct: data.correct || data.correct_order ? data.is_correct : null,
       chosen: payload,
       correct: data.correct || null,
+      correct_order: data.correct_order || null,
     };
     if (data.correct) {
       // Fresh choice answer with feedback on: the familiar inline reveal.
       showQuizFeedback(q, payload.options || [], data);
+    } else if (data.correct_order) {
+      // Graded ordering (#283): the read-only review carries the ✓/✗ line,
+      // the own order and the correct order.
+      renderQuizQuestion();
+      document.getElementById("quiz-next").focus();
     } else {
       // No reveal (feedback off, or a non-choice kind) — re-render the
       // question so it shows as editable (canChange) or read-only review,

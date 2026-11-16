@@ -40,6 +40,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Likert: Die Bestätigung „Ihre Antwort:“ zeigt bei unbeschrifteten Stufen
   die Skalenposition (z. B. „4 von 5“) statt eines leeren Werts, auch in
   „Meine Antworten“ und nach dem Neuladen (#282).
+- Quiz-Block: Sortierfragen erhalten bei aktivem Sofort-Feedback
+  „Richtig/Falsch“ samt richtiger Reihenfolge und zählen in der persönlichen
+  Auswertung mit (#283).
 
 ### Sicherheit
 

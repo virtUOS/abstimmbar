@@ -437,7 +437,13 @@ def vote(request, code):
         except IntegrityError:
             return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
         broadcast(room, debounce=True)
-        return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+        payload = {"status": "ok"}
+        if run.mode == Run.Mode.SELF_PACED:
+            # Quiz block: graded like a choice question (#283).
+            feedback = _self_paced_feedback(run, question, set(), order=order)
+            if feedback is not None:
+                payload.update(feedback)
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     if question.kind in Question.TEXT_KINDS:
         text = strip_control_chars(str(request.data.get("text", ""))).strip()
@@ -531,11 +537,29 @@ def retract(request, code):
     return Response({"deleted": deleted})
 
 
-def _self_paced_feedback(run, question, chosen_ids):
+def _ordering_solution(question):
+    """The authored solution of an ``ordering`` question: its option ids in
+    ``position`` order (the same key the self-check and the beamer grade
+    against)."""
+    return [o.pk for o in sorted(question.options.all(), key=lambda o: (o.position, o.pk))]
+
+
+def _self_paced_feedback(run, question, chosen_ids, order=None):
     """Instant right/wrong feedback (concept §6.3), unless the set says
-    "never reveal" or the question has no correct answer marked."""
+    "never reveal" or the question has no correct answer marked.
+
+    Ordering questions (#283) are graded against their authored order when
+    the submitted ``order`` is given: ``correct_order`` + ``is_correct`` —
+    only ever in the response to the participant's own answer."""
     if run.question_set.reveal_answers == "never":
         return None
+    if question.kind == Question.Kind.ORDERING:
+        if order is None:
+            return None
+        solution = _ordering_solution(question)
+        if not solution:
+            return None
+        return {"correct_order": solution, "is_correct": list(order) == solution}
     if question.kind not in Question.CHOICE_KINDS:
         return None
     correct_ids = set(
@@ -605,15 +629,20 @@ def quiz(request, code):
                     }
                 }
             elif kind == Question.Kind.ORDERING:
-                entry["chosen"] = {
-                    "order": [
-                        r.option_id
-                        for r in sorted(
-                            vote_obj.ordering_responses.all(),
-                            key=lambda r: r.position,
-                        )
-                    ]
-                }
+                own_order = [
+                    r.option_id
+                    for r in sorted(
+                        vote_obj.ordering_responses.all(),
+                        key=lambda r: r.position,
+                    )
+                ]
+                entry["chosen"] = {"order": own_order}
+                if feedback:
+                    # Graded like choice questions on resume, too (#283).
+                    solution = _ordering_solution(question)
+                    if solution:
+                        entry["correct_order"] = solution
+                        entry["is_correct"] = own_order == solution
             answered[str(vote_obj.question_id)] = entry
 
     return Response(

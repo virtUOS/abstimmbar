@@ -1663,6 +1663,70 @@ class SelfPacedTests(LiveTestCase):
             {"order": [o2.pk, o1.pk]},
         )
 
+    def _ordering_question(self):
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        o3 = AnswerOption.objects.create(question=oq, text="C", position=2)
+        return oq, [o1.pk, o2.pk, o3.pk]
+
+    def _vote_order(self, token, question, order):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/vote/",
+            {"token": token, "question": question.pk, "order": order},
+            content_type="application/json",
+        )
+
+    def test_ordering_vote_gets_feedback(self):
+        # #283: ordering in a quiz block is graded like a choice question.
+        oq, solution = self._ordering_question()
+        self.start()
+        right = self._vote_order(self.join(), oq, solution)
+        self.assertEqual(right.status_code, 201)
+        self.assertTrue(right.json()["is_correct"])
+        self.assertEqual(right.json()["correct_order"], solution)
+        wrong = self._vote_order(self.join(), oq, list(reversed(solution)))
+        self.assertEqual(wrong.status_code, 201)
+        self.assertFalse(wrong.json()["is_correct"])
+        self.assertEqual(wrong.json()["correct_order"], solution)
+
+    def test_ordering_no_feedback_when_reveal_never(self):
+        oq, solution = self._ordering_question()
+        self.question_set.reveal_answers = "never"
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        response = self._vote_order(token, oq, solution)
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn("correct_order", response.json())
+        self.assertNotIn("is_correct", response.json())
+        entry = self.quiz(token).json()["answered"][str(oq.pk)]
+        self.assertIsNone(entry["is_correct"])
+        self.assertNotIn("correct_order", entry)
+
+    def test_quiz_resume_grades_ordering(self):
+        oq, solution = self._ordering_question()
+        self.start()
+        token = self.join()
+        self._vote_order(token, oq, [solution[1], solution[0], solution[2]])
+        payload = self.quiz(token).json()
+        entry = payload["answered"][str(oq.pk)]
+        self.assertFalse(entry["is_correct"])
+        self.assertEqual(entry["correct_order"], solution)
+        # The solution is never part of the question payload itself.
+        question = next(q for q in payload["questions"] if q["id"] == oq.pk)
+        self.assertNotIn("correct_order", question)
+
+    def test_live_ordering_vote_gets_no_feedback(self):
+        oq, solution = self._ordering_question()
+        self.open_question(oq)
+        response = self._vote_order(self.join(), oq, solution)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"status": "ok"})
+
     def test_quiz_includes_allow_back(self):
         # Default is True (model default); explicit False must round-trip.
         self.start()
