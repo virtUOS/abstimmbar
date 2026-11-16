@@ -15,6 +15,7 @@ import { localizedText } from "@basicbar/ui";
 import CountUp from "../results/CountUp";
 import { EASE, useGrown, useReducedMotion, useSettled } from "../results/motion";
 import { INK, likertFill } from "../results/palette";
+import { fmtPct } from "../format";
 
 interface Colored extends LikertStep {
   fill: string;
@@ -91,7 +92,7 @@ export default function LikertResult({
                 color: INK,
                 transition: `flex-basis 900ms ${EASE} ${entrance ? i * 90 : 0}ms`,
               }}
-              title={`${localizedText(step.text)}: ${step.count} · ${step.pct} %`}
+              title={`${localizedText(step.text)}: ${step.count} · ${fmtPct(step.pct)}`}
             >
               {step.pct >= labelThreshold && (
                 <CountUp value={Math.round(step.pct)} animate={anim} delay={entrance ? i * 90 : 0} />
@@ -148,16 +149,16 @@ export default function LikertResult({
         {/* Left→right to match the bar: low (red) first, then neutral, then
             high (green) — so "Stimme nicht zu" reads on the left. */}
         <span className="text-rose-700 dark:text-rose-300">
-          <span className="font-semibold">{summary.low_pct} %</span>{" "}
+          <span className="font-semibold">{fmtPct(summary.low_pct)}</span>{" "}
           {localizedText(summary.low_label) || t("low")}
         </span>
         {summary.neutral > 0 && (
           <span className="text-slate-500 dark:text-slate-400">
-            <span className="font-semibold">{summary.neutral_pct} %</span> {t("neutral")}
+            <span className="font-semibold">{fmtPct(summary.neutral_pct)}</span> {t("neutral")}
           </span>
         )}
         <span className="text-brand-700 dark:text-brand-300">
-          <span className="font-semibold">{summary.high_pct} %</span>{" "}
+          <span className="font-semibold">{fmtPct(summary.high_pct)}</span>{" "}
           {localizedText(summary.high_label) || t("high")}
         </span>
         {summary.abstentions > 0 && (

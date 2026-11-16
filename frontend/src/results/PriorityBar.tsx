@@ -7,6 +7,7 @@
  * from the average to both sides, then the end points fade in. Values are
  * points out of 100, used directly as track percentages. */
 import { categoryColor, categoryDeep } from "./palette";
+import { fmtNum } from "../format";
 import { EASE, STAGGER_MS, useGrown, useReducedMotion, useSettled } from "./motion";
 
 export default function PriorityBar({
@@ -62,7 +63,7 @@ export default function PriorityBar({
       <div className={`mb-1 flex items-center justify-between gap-4 ${present ? "text-xl" : "text-sm"}`}>
         <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
         <span className={`shrink-0 whitespace-nowrap tabular-nums text-slate-500${darkText}`}>
-          Ø {avg} · {min}–{max}
+          Ø {fmtNum(avg)} · {fmtNum(min)}–{fmtNum(max)}
         </span>
       </div>
       <div className={`relative bg-slate-100${darkTrack}`} style={{ height: trackH, borderRadius: radius }}>

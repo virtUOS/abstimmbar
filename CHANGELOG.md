@@ -32,6 +32,22 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   die Oberfläche bei unbekannten Adressen eine verständliche Fehlerseite;
   bei Adressen, die der Server bereitstellen müsste, mit einem Hinweis auf
   die Webserver-Konfiguration (#279, #299).
+- Mehrere Tabs desselben Browsers zählen am Beamer nur einmal; ein zweiter
+  Tab kennt die bereits abgegebenen Begriffe der Wortwolke (#286).
+- Likert-Ergebnis auf Teilnehmergeräten: Der Marker „▲ Sie“ steht an der
+  Skalenposition der gewählten Stufe (wie der ø-Strich) statt in der Mitte
+  des eigenen Segments (#281).
+- Likert: Die Bestätigung „Ihre Antwort:“ zeigt bei unbeschrifteten Stufen
+  die Skalenposition (z. B. „4 von 5“) statt eines leeren Werts, auch in
+  „Meine Antworten“ und nach dem Neuladen (#282).
+- Quiz-Block: Sortierfragen erhalten bei aktivem Sofort-Feedback
+  „Richtig/Falsch“ samt richtiger Reihenfolge und zählen in der persönlichen
+  Auswertung mit (#283).
+- Freitext: Zeilenumbrüche in Antworten bleiben in der Bestätigung für
+  Teilnehmende, am Beamer und auf der Ergebnisseite erhalten (#294).
+- Ergebnisse zeigen Dezimalzahlen und Prozente in der Schreibweise der
+  Oberflächensprache, z. B. „66,7 %“ und „Ø 5,3“ statt „66.7%“ und „Ø 5.3“
+  (#293).
 - Bilder bis 20 MB (vorher 5 MB) lassen sich hochladen; sie werden wie
   bisher verkleinert gespeichert. Scheitert ein Bild-Upload, etwa weil die
   Datei zu groß ist, zeigt der Editor jetzt eine verständliche Meldung,
@@ -49,8 +65,8 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   auch in der Wolke erscheinen („Python“ statt „python“) (#296).
 - Sprachmischung: Wer im selben Browser die Teilnahmeseite in einer anderen
   Sprache geöffnet hatte, bekam danach auch in der Verwaltung Meldungen des
-  Servers in dieser Sprache. Angemeldete Personen erhalten jetzt immer die
-  in ihrem Konto gewählte Sprache, und die Suche auf der Startseite zeigt
+  Servers in dieser Sprache. Angemeldete Personen erhalten jetzt die Sprache
+  ihrer Oberfläche, und die Suche auf der Startseite zeigt
   Titel und Fragen in der Sprache der Oberfläche. In der Lernkontrolle
   begründet die KI ihre Bewertung von Freitextantworten in der Sprache der
   Teilnahmeseite statt immer auf Deutsch (#300).

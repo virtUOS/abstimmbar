@@ -85,7 +85,8 @@ export function useCountUp(
       const eased = 1 - Math.pow(1 - t, 3);
       const v = origin + (target - origin) * eased;
       from.current = v;
-      setValue(Math.round(v));
+      // Whole numbers while counting; the exact target (e.g. 66.7) at the end.
+      setValue(t < 1 ? Math.round(v) : target);
       if (t < 1) raf = requestAnimationFrame(tick);
       else from.current = target;
     };
