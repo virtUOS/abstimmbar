@@ -3795,13 +3795,13 @@ function ModerationPanel({
           <h3 className="mb-1 font-semibold text-slate-600">{t("Hidden")}</h3>
           {mod.hidden.map((h) => (
             <div key={h.key} className="flex items-center justify-between py-0.5">
-              <span className="truncate">{h.key}</span>
+              <span className="truncate">{h.text ?? h.key}</span>
               <button
                 type="button"
                 className="ml-2 shrink-0 text-brand-700 hover:underline"
                 onClick={() => onRestore(h.key)}
                 title={t("Show this entry on the beamer again")}
-                aria-label={t("Show again: {{word}}", { word: h.key })}
+                aria-label={t("Show again: {{word}}", { word: h.text ?? h.key })}
               >
                 {t("Show again")}
               </button>
@@ -3836,7 +3836,7 @@ function ModerationPanel({
                   <Unlink className="h-5 w-5" aria-hidden />
                 </button>
               </div>
-              <p className="mt-0.5 truncate text-xs text-slate-400">{m.keys.join(", ")}</p>
+              <p className="mt-0.5 truncate text-xs text-slate-400">{(m.texts ?? m.keys).join(", ")}</p>
             </div>
           ))}
         </>
@@ -4027,7 +4027,7 @@ function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: Mo
   const { shown, drag, chipProps } = useChipDrag(words, findChip, onModerate);
   return (
     <>
-      <ul className="mt-6 flex max-h-96 flex-wrap gap-3 overflow-auto p-2">
+      <ul className="mt-6 flex max-h-96 flex-wrap items-start gap-3 overflow-auto p-2">
         {shown.map((entry, i) => {
           const can = !!onModerate && !!entry.keys?.length;
           const cp = chipProps(entry);
@@ -4035,7 +4035,9 @@ function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: Mo
             <li
               key={wordId(entry)}
               {...cp}
-              className={`ab-chip-in group relative rounded-full px-4 py-2 text-xl ${cp.className}`}
+              // Keep the answer's own line breaks (#294); a multi-line
+              // answer gets a softer rounding than the single-line pill.
+              className={`ab-chip-in group relative whitespace-pre-line px-4 py-2 text-xl ${entry.text.includes("\n") ? "rounded-2xl" : "rounded-full"} ${cp.className}`}
               style={{
                 ...cp.style,
                 background: termColor(entry.text),

@@ -294,6 +294,7 @@ export default function QuestionPage() {
   const [tab, setTab] = useState<"edit" | "preview">("edit");
   const [previewNonce, setPreviewNonce] = useState(0);
   const [error, setError] = useState("");
+  const [optionImageError, setOptionImageError] = useState("");
   const [moveTargets, setMoveTargets] = useState<QuestionSet[] | null>(null);
   const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
   const [moveRooms, setMoveRooms] = useState<{ id: number; title: string }[]>([]);
@@ -503,8 +504,16 @@ export default function QuestionPage() {
   }
 
   async function uploadOptionImage(clientId: number, file: File) {
-    const uploaded = await api.uploadImage(file);
-    updateOption(clientId, { image: uploaded.url });
+    setOptionImageError("");
+    try {
+      const uploaded = await api.uploadImage(file);
+      updateOption(clientId, { image: uploaded.url });
+    } catch (err) {
+      // #280: a rejected upload used to fail silently.
+      setOptionImageError(
+        t("Image upload failed: {{error}}", { error: t(requestError(err)) }),
+      );
+    }
   }
 
   function setCorrect(clientId: number, checked: boolean) {
@@ -1579,6 +1588,11 @@ export default function QuestionPage() {
                   </Button>
                 )}
               </div>
+              {optionImageError && (
+                <p role="alert" className="mt-2 text-sm text-danger">
+                  {optionImageError}
+                </p>
+              )}
               {optionsMissing && (
                 <p className="mt-2 text-sm text-danger">
                   {isElection

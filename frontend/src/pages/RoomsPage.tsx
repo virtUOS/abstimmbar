@@ -750,7 +750,7 @@ function SearchView({
           {results.rooms.map((room) => (
             <Link key={room.id} to={`/rooms/${room.id}`} className={rowClass}>
               <span className="font-medium text-slate-900 dark:text-slate-100">
-                {room.title}
+                {localizedText(room.title)}
               </span>
               <span className={`ml-2 font-mono ${crumb}`}>{room.code}</span>
             </Link>
@@ -763,10 +763,10 @@ function SearchView({
           {results.sets.map((set) => (
             <Link key={set.id} to={`/sets/${set.id}`} className={rowClass}>
               <span className="font-medium text-slate-900 dark:text-slate-100">
-                {set.title}
+                {localizedText(set.title)}
               </span>
               <span className={`ml-2 ${crumb}`}>
-                {t("in {{room}}", { room: set.room_title })}
+                {t("in {{room}}", { room: localizedText(set.room_title) })}
               </span>
             </Link>
           ))}
@@ -782,10 +782,10 @@ function SearchView({
               className={rowClass}
             >
               <span className="text-slate-900 dark:text-slate-100">
-                {question.text}
+                {localizedText(question.text) || t("No question text")}
               </span>
               <span className={`mt-0.5 block ${crumb}`}>
-                {question.set_title} · {question.room_title}
+                {localizedText(question.set_title)} · {localizedText(question.room_title)}
               </span>
             </Link>
           ))}

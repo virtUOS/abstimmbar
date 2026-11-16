@@ -29,6 +29,7 @@ from .progress import progress_payload
 from .results import (
     freetext_evaluation,
     likert_summary,
+    moderation_payload,
     options_with_counts,
     ordered_options,
     ordering_stats,
@@ -264,10 +265,7 @@ def build_payloads(room):
         elif question.kind in Question.TEXT_KINDS:
             presenter["words"] = words_with_counts(run, question)
             mod = WordCloudModeration.objects.filter(run=run, question=question).first()
-            presenter["wordcloud_moderation"] = {
-                "hidden": [{"key": k} for k in (mod.hidden if mod else [])],
-                "merges": (mod.merges if mod else []),
-            }
+            presenter["wordcloud_moderation"] = moderation_payload(run, question, mod)
             if question.kind == Question.Kind.OPEN_TEXT and question.ai_evaluate:
                 presenter["evaluation"] = freetext_evaluation(run, question)
             # Live AI views (word cloud: consolidated/grouped; free text: key

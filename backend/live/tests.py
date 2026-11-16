@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import connections
-from django.test import Client, TestCase, TransactionTestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone, translation
 
 from common.i18n_fields import resolve_translated_text, translated_map
@@ -33,7 +33,7 @@ from .models import (
     SelfCheckAttempt,
     Vote,
 )
-from .results import freetext_evaluation
+from .results import freetext_evaluation, participant_total
 from .state import active_run, build_payloads
 
 User = get_user_model()
@@ -1270,6 +1270,28 @@ class ResultsApiTests(LiveTestCase):
         self.assertNotIn("{", body)
         self.assertNotIn("'de'", body)
 
+    def test_csv_choice_percent_and_local_start_time(self):
+        """#284: choice rows carry the percentage the results page shows
+        (share of the question's votes, one decimal), and "gestartet" is
+        local time with its UTC offset, not bare UTC."""
+        import csv
+        import datetime
+        import io
+
+        run = self._run_with_votes()
+        Run.objects.filter(pk=run.pk).update(
+            first_opened_at=datetime.datetime(2026, 11, 13, 10, 18, tzinfo=datetime.UTC)
+        )
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8-sig")
+        rows = list(csv.DictReader(io.StringIO(body), delimiter=";"))
+        by_answer = {row["antwort"]: row for row in rows}
+        self.assertEqual(by_answer["4"]["prozent"], "66.7")
+        self.assertEqual(by_answer["5"]["prozent"], "33.3")
+        self.assertEqual(by_answer["4"]["gestartet"], "2026-11-13 11:18 +0100")
+
     def test_csv_neutralises_every_text_cell(self):
         """Formula-looking authored text (question, options, Likert steps,
         priorities items) never reaches the CSV unescaped, whatever the kind."""
@@ -1662,6 +1684,70 @@ class SelfPacedTests(LiveTestCase):
             payload["answered"][str(oq.pk)]["chosen"],
             {"order": [o2.pk, o1.pk]},
         )
+
+    def _ordering_question(self):
+        oq = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.ORDERING,
+            text="<p>Bring in order</p>", position=3,
+        )
+        o1 = AnswerOption.objects.create(question=oq, text="A", position=0)
+        o2 = AnswerOption.objects.create(question=oq, text="B", position=1)
+        o3 = AnswerOption.objects.create(question=oq, text="C", position=2)
+        return oq, [o1.pk, o2.pk, o3.pk]
+
+    def _vote_order(self, token, question, order):
+        return self.client.post(
+            f"/api/live/rooms/{self.room.code}/vote/",
+            {"token": token, "question": question.pk, "order": order},
+            content_type="application/json",
+        )
+
+    def test_ordering_vote_gets_feedback(self):
+        # #283: ordering in a quiz block is graded like a choice question.
+        oq, solution = self._ordering_question()
+        self.start()
+        right = self._vote_order(self.join(), oq, solution)
+        self.assertEqual(right.status_code, 201)
+        self.assertTrue(right.json()["is_correct"])
+        self.assertEqual(right.json()["correct_order"], solution)
+        wrong = self._vote_order(self.join(), oq, list(reversed(solution)))
+        self.assertEqual(wrong.status_code, 201)
+        self.assertFalse(wrong.json()["is_correct"])
+        self.assertEqual(wrong.json()["correct_order"], solution)
+
+    def test_ordering_no_feedback_when_reveal_never(self):
+        oq, solution = self._ordering_question()
+        self.question_set.reveal_answers = "never"
+        self.question_set.save()
+        self.start()
+        token = self.join()
+        response = self._vote_order(token, oq, solution)
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn("correct_order", response.json())
+        self.assertNotIn("is_correct", response.json())
+        entry = self.quiz(token).json()["answered"][str(oq.pk)]
+        self.assertIsNone(entry["is_correct"])
+        self.assertNotIn("correct_order", entry)
+
+    def test_quiz_resume_grades_ordering(self):
+        oq, solution = self._ordering_question()
+        self.start()
+        token = self.join()
+        self._vote_order(token, oq, [solution[1], solution[0], solution[2]])
+        payload = self.quiz(token).json()
+        entry = payload["answered"][str(oq.pk)]
+        self.assertFalse(entry["is_correct"])
+        self.assertEqual(entry["correct_order"], solution)
+        # The solution is never part of the question payload itself.
+        question = next(q for q in payload["questions"] if q["id"] == oq.pk)
+        self.assertNotIn("correct_order", question)
+
+    def test_live_ordering_vote_gets_no_feedback(self):
+        oq, solution = self._ordering_question()
+        self.open_question(oq)
+        response = self._vote_order(self.join(), oq, solution)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json(), {"status": "ok"})
 
     def test_quiz_includes_allow_back(self):
         # Default is True (model default); explicit False must round-trip.
@@ -2388,7 +2474,48 @@ class AiReportTests(LiveTestCase):
         self.assertIn("<li>Punkt</li>", report)
         # The prompt carries the aggregated numbers, not raw personal data.
         prompt = chat.call_args.args[1]
-        self.assertIn("Antworten insgesamt: 2", prompt)
+        self.assertIn("Antworten insgesamt (alle Fragen zusammen): 2", prompt)
+        self.assertIn("Teilnehmende Personen: 2", prompt)
+
+    @override_settings(**AI_ON)
+    def test_prompt_counts_persons_not_answers(self):
+        # #285: two persons answering two questions are 4 answers but 2
+        # persons; the prompt must give the model both numbers.
+        run = self._run_with_votes()
+        second = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="Zweite Frage", position=1,
+        )
+        option = AnswerOption.objects.create(question=second, text="A", position=0)
+        for token in ParticipantToken.objects.filter(votes__run=run).distinct():
+            Vote.objects.create(run=run, question=second, token=token).options.add(option)
+        self.assertEqual(participant_total(run), 2)
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"report": "ok"}
+        ) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(f"/api/runs/{run.pk}/ai-summary/")
+        prompt = chat.call_args.args[1]
+        self.assertIn("Teilnehmende Personen: 2", prompt)
+        self.assertIn("Antworten insgesamt (alle Fragen zusammen): 4", prompt)
+        self.assertIn("Personen und Antworten", chat.call_args.args[0])
+
+    def test_participant_total_includes_mindmap_and_matrix(self):
+        run = Run.objects.create(question_set=self.question_set)
+        a, b, c = (ParticipantToken.objects.create(room=self.room) for _ in range(3))
+        node = MindmapNode.objects.create(
+            run=run, question=self.question, text="Wind", text_key="wind"
+        )
+        MindmapContribution.objects.create(node=node, token=a)
+        MindmapRating.objects.create(node=node, token=b, value=1)
+        MatrixCard.objects.create(
+            run=run, question=self.question, token=c, title="X", zone="q1", x=0, y=0
+        )
+        MatrixCard.objects.create(
+            run=run, question=self.question, title="Lehrkraft", zone="q1", x=0, y=0,
+            teacher=True,
+        )
+        self.assertEqual(participant_total(run), 3)
 
     @override_settings(**AI_OFF)
     def test_disabled_returns_503(self):
@@ -4470,6 +4597,23 @@ class SelfCheckGradeTests(TestCase):
         self.assertEqual(data["index"], 2)
         self.assertFalse(data["correct"])
 
+    def test_grade_note_follows_participant_language(self):
+        # #300: the note comes back in the participant's language; the
+        # dedup cache is per language, so the same answer is graded anew.
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            return_value={"verdict": "korrekt", "note": "fine"},
+        ) as chat:
+            self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+            self.assertEqual(self._grade("Paris").status_code, 200)
+            self.assertIn("auf Englisch", chat.call_args.args[0])
+            self._grade("Paris")
+            self.assertEqual(chat.call_count, 1)  # cached for English
+            self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "de"
+            self._grade("Paris")
+            self.assertEqual(chat.call_count, 2)
+            self.assertIn("auf Deutsch", chat.call_args.args[0])
+
     def test_grade_rejects_non_open_text(self):
         mc = Question.objects.create(
             question_set=self.qs, kind="single_choice", text_de="x", text_en="x",
@@ -4626,6 +4770,30 @@ class WordCloudModerationAggregationTests(LiveTestCase):
         self.assertEqual(len(words), 1)
         self.assertEqual(words[0]["text"], "zorn")
         self.assertEqual(words[0]["count"], 2)  # wut's votes are NOT counted
+
+
+    def test_moderation_payload_shows_display_spelling(self):
+        # #296: hidden keys/merge members are casefolded; the presenter's
+        # panel gets the most frequent raw spelling as "text".
+        from .models import WordCloudModeration
+        from .results import moderation_payload
+        self._cast("Python", 2)
+        self._cast("python", 1)
+        self._cast("Java", 1)
+        mod = WordCloudModeration.objects.create(
+            run=self.run, question=self.q, hidden=["python", "gone"],
+            merges=[{"keys": ["java", "python"], "label": "Sprachen"}],
+        )
+        payload = moderation_payload(self.run, self.q, mod)
+        self.assertEqual(
+            payload["hidden"],
+            [{"key": "python", "text": "Python"}, {"key": "gone", "text": "gone"}],
+        )
+        self.assertEqual(
+            payload["merges"],
+            [{"keys": ["java", "python"], "label": "Sprachen", "texts": ["Java", "Python"]}],
+        )
+        self.assertEqual(moderation_payload(self.run, self.q, None), {"hidden": [], "merges": []})
 
 
 class WordCloudModerationApiTests(LiveTestCase):
@@ -10666,3 +10834,25 @@ class CommitteeRoomCodeTests(TestCase):
     def test_participant_stream_not_found(self):
         response = self.client.get(f"/api/live/rooms/{self.room.code}/stream/")
         self.assertEqual(response.status_code, 404)
+
+
+class HubParticipantCountTests(SimpleTestCase):
+    """#286: tabs of one browser (same device id) count as one participant."""
+
+    async def test_tabs_of_one_browser_count_once(self):
+        from live.hub import RoomHub
+
+        hub = RoomHub()
+        subs = [
+            hub.subscribe(1, "participant", device="abcdefgh12"),
+            hub.subscribe(1, "participant", device="abcdefgh12"),  # 2nd tab
+            hub.subscribe(1, "participant", device="zyxwvuts98"),
+            hub.subscribe(1, "participant"),  # old page without id
+            hub.subscribe(1, "participant", device="bad id!"),  # ignored id
+            hub.subscribe(1, "presenter", device="abcdefgh12"),
+        ]
+        self.assertEqual(hub.participant_count(1), 4)
+        hub.unsubscribe(1, subs[0])
+        self.assertEqual(hub.participant_count(1), 4)  # the other tab stays
+        hub.unsubscribe(1, subs[1])
+        self.assertEqual(hub.participant_count(1), 3)

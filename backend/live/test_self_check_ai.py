@@ -44,6 +44,35 @@ class SelfCheckAiTests(TestCase):
         self.assertEqual(args[3], ["korrekt", "unklar", "falsch"])
         self.assertEqual(kwargs["model_solution"], "Paris")
 
+    @patch("live.self_check_ai.classify", return_value=("korrekt", ""))
+    def test_grade_language_in_cache_key_and_prompt(self, mock_classify):
+        # #300: same answer, different participant language -> graded anew,
+        # with the language handed to the classifier.
+        self_check_ai.grade(self.q, "x", language="en")
+        self_check_ai.grade(self.q, "x", language="en")
+        self_check_ai.grade(self.q, "x", language="de")
+        self.assertEqual(mock_classify.call_count, 2)
+        self.assertEqual(
+            [c.kwargs["note_language"] for c in mock_classify.call_args_list], ["en", "de"]
+        )
+
+    def test_grade_defaults_to_active_language(self):
+        from django.utils import translation
+        with patch("live.self_check_ai.classify", return_value=("korrekt", "")) as mock_classify, \
+                translation.override("en"):
+            self_check_ai.grade(self.q, "y")
+        self.assertEqual(mock_classify.call_args.kwargs["note_language"], "en")
+
+    def test_classify_appends_note_language(self):
+        from live.ai_evaluation import classify
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"verdict": "korrekt"}
+        ) as chat:
+            classify("Q", "", "a", ["korrekt", "falsch"], note_language="en")
+            self.assertIn("auf Englisch", chat.call_args.args[0])
+            classify("Q", "", "a", ["korrekt", "falsch"])
+            self.assertNotIn("Schreibe die Begründung", chat.call_args.args[0])
+
     def test_allow_unlimited_when_zero(self):
         SiteConfig.objects.update_or_create(pk=1, defaults={"self_check_ai_per_minute": 0})
         for _ in range(100):

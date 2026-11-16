@@ -20,6 +20,7 @@ import {
   type WordCloudOptimization,
 } from "../api";
 import { useApp, useEasyMode } from "../App";
+import { fmtNum, fmtPct } from "../format";
 import { localizedText, RichText, stripHtml } from "@basicbar/ui";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
@@ -228,7 +229,7 @@ function FreeTextResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
+              className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
               style={{ background: termColor(word.text), color: INK }}
             >
               {word.text} <span className="font-medium">×{word.count}</span>
@@ -274,7 +275,7 @@ function FreeTextResult({
                     <span
                       key={item.text}
                       title={item.note || undefined}
-                      className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
+                      className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
                       style={{ background: evalColor(i), color: INK }}
                     >
                       {item.text} <span className="font-medium">×{item.count}</span>
@@ -629,7 +630,7 @@ export default function ResultsPage() {
                                 <>
                                   <div className="mb-2 text-sm font-semibold text-slate-700 dark:text-slate-300">
                                     {t("{{pct}}% got the full order correct", {
-                                      pct: question.ordering.full_correct_rate,
+                                      pct: fmtNum(question.ordering.full_correct_rate),
                                     })}
                                   </div>
                                   <div className="inline-grid max-w-full gap-x-2" style={{ gridTemplateColumns: "minmax(0, max-content) auto" }}>
@@ -657,7 +658,7 @@ export default function ResultsPage() {
                                               className="rounded-full border border-brand-600/[var(--rate)] bg-slate-100 px-1.5 text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                                               style={{ "--rate": 0.15 + 0.85 * (link.rate / 100) } as CSSProperties}
                                             >
-                                              {t("{{pct}}% in a row", { pct: link.rate })}
+                                              {t("{{pct}}% in a row", { pct: fmtNum(link.rate) })}
                                             </span>
                                           </div>,
                                         );
@@ -672,7 +673,7 @@ export default function ResultsPage() {
                                       >
                                         <div className="h-full w-1.5 rounded-r-md border-y-2 border-r-2 border-brand-400" />
                                         <span className="text-xs font-medium tabular-nums text-brand-700 dark:text-brand-300">
-                                          {c.rate}%
+                                          {fmtPct(c.rate)}
                                         </span>
                                       </div>
                                     ))}

@@ -13,7 +13,13 @@ from rooms.models import Question
 
 from . import matrix, matrix_rating, mindmap_rating
 from .mindmap import build_tree, contribution_total
-from .models import Vote
+from .models import (
+    MatrixCard,
+    MatrixRating,
+    MindmapContribution,
+    MindmapRating,
+    Vote,
+)
 
 
 def ordered_options(question, seed):
@@ -210,6 +216,31 @@ def words_with_counts(run, question, limit=150):
     return words[:limit]
 
 
+def moderation_payload(run, question, mod):
+    """Presenter view of a word cloud's moderation (#296): hidden keys and
+    merge members are casefolded, so each also carries its display ``text``
+    — the most frequent raw spelling in this run, as in
+    :func:`words_with_counts` (falls back to the key without votes)."""
+    variants = {}
+    for text in run.votes.filter(question=question).exclude(text="").values_list(
+        "text", flat=True
+    ):
+        variants.setdefault(text.casefold(), []).append(text)
+
+    def display(key):
+        found = variants.get(key)
+        return Counter(found).most_common(1)[0][0] if found else key
+
+    hidden = mod.hidden if mod else []
+    merges = mod.merges if mod else []
+    return {
+        "hidden": [{"key": k, "text": display(k)} for k in hidden],
+        "merges": [
+            {**m, "texts": [display(k) for k in m.get("keys", [])]} for m in merges
+        ],
+    }
+
+
 def freetext_evaluation(run, question):
     """Live free-text evaluation summary (v2 KI): distinct answers grouped by
     the stored verdict along the question's chosen scale, plus how many answers
@@ -370,6 +401,28 @@ def ordering_stats(run, question):
         "links": links,
         "chains": chains,
     }
+
+
+def participant_total(run):
+    """Distinct participants (tokens) with any stored answer in the run:
+    votes, mind-map terms and ratings, matrix cards and ratings (#285).
+    Unlike ``votes_total`` this counts persons, not answers."""
+    tokens = set(run.votes.values_list("token_id", flat=True))
+    tokens |= set(
+        MindmapContribution.objects.filter(node__run=run).values_list("token_id", flat=True)
+    )
+    tokens |= set(
+        MindmapRating.objects.filter(node__run=run).values_list("token_id", flat=True)
+    )
+    tokens |= set(
+        MatrixCard.objects.filter(run=run, token__isnull=False).values_list(
+            "token_id", flat=True
+        )
+    )
+    tokens |= set(
+        MatrixRating.objects.filter(card__run=run).values_list("token_id", flat=True)
+    )
+    return len(tokens)
 
 
 def run_results(run):
