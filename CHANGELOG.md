@@ -8,6 +8,31 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ## [Unreleased]
 
+> ### Hinweise für den Betrieb
+>
+> - **Caddy nach dem Update neu starten.** `up -d` übernimmt ein per
+>   `git pull` geändertes `Caddyfile` nicht; Caddy lief dann mit alter
+>   Konfiguration weiter, sodass z. B. die Vorschau im Frage-Editor und
+>   Lernkontroll-Links eine Fehlerseite zeigten. Die Update-Anleitung enthält
+>   dafür jetzt `docker compose -f docker-compose.prod.yml up -d
+>   --force-recreate caddy`. Führen Sie den Befehl auch einmalig aus, wenn
+>   Sie bisher ohne ihn aktualisiert haben (#299, #279).
+
+### Behoben
+
+- Freitext: Beim Wechsel zur nächsten Freitext-Frage stand die vorige
+  Antwort noch im Eingabefeld und wurde unbemerkt mit abgeschickt (#277).
+- Präsentation mit Abschnitten: Die Zwischenfolie erscheint jetzt an fester
+  Stelle (vor- und zurückblättern), ein Sprung über die Fragenliste landet
+  direkt auf der gewählten Frage, und beim Verlassen der Zwischenfolie blitzt
+  nicht mehr kurz die vorherige Frage auf (#278).
+- Lernkontrolle: „Link kopieren“ liefert den vollständigen Link samt Domain
+  statt nur des Pfads (#279).
+- Statt der Entwickler-Fehlerseite („Unexpected Application Error“) zeigt
+  die Oberfläche bei unbekannten Adressen eine verständliche Fehlerseite;
+  bei Adressen, die der Server bereitstellen müsste, mit einem Hinweis auf
+  die Webserver-Konfiguration (#279, #299).
+
 ### Sicherheit
 
 - pypdf 6.21.1 → 6.21.4: behebt mehrere Fälle, in denen präparierte

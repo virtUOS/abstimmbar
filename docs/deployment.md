@@ -463,6 +463,7 @@ cd /opt/abstimmbar
 sudo git pull
 sudo docker compose -f docker-compose.prod.yml build
 sudo docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d --force-recreate caddy
 ```
 
 Oder ein veröffentlichtes Release-Image nutzen (kein lokaler Build). Auch
@@ -486,10 +487,20 @@ cd /opt/abstimmbar
 sudo git pull
 sudo docker compose -f docker-compose.prod.yml pull
 sudo docker compose -f docker-compose.prod.yml up -d
+sudo docker compose -f docker-compose.prod.yml up -d --force-recreate caddy
 ```
 
 Datenbank-Migrationen und `collectstatic` laufen beim Start automatisch —
 nichts davon von Hand ausführen.
+
+Die letzte Zeile startet Caddy neu. Nötig ist das, weil `up -d` den
+Caddy-Container nicht neu erzeugt, wenn `git pull` nur das `Caddyfile`
+geändert hat — Caddy liefe dann mit der alten Konfiguration weiter und
+reichte neu hinzugekommene Pfade nicht an Django weiter (z. B.
+`/question-preview/` für die Vorschau im Frage-Editor oder `/c/` für
+Lernkontroll-Links). Erkennbar ist das an einer Seite „Seite nicht
+gefunden“ mit Hinweis auf den vorgeschalteten Webserver. Die Zertifikate
+bleiben dabei erhalten (Volume `caddy_data`).
 
 **`git pull` bricht ab wegen lokaler Änderungen?** Das passiert, wenn
 Dateien aus dem Repository auf dem Server bearbeitet wurden (früher

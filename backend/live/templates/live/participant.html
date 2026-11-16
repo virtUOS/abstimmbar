@@ -670,6 +670,12 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   // this device submitted (one per person, removable, #14). All reset when the
   // question or run changes (a re-run drops the old, uncounted terms).
   let wcKey = null;
+  // Free text: which run+question the textarea's content belongs to. The
+  // field is shared by every open_text question, so a change of question (or
+  // run) must clear it — otherwise the previous answer stays in the field and
+  // gets mixed into the next one (#277). Background broadcasts for the SAME
+  // question keep the text being typed.
+  let otKey = null;
   // Same idea for the priorities slider: its in-progress point allocation
   // must survive background vote broadcasts (a peer submitting re-renders
   // everyone), so we don't rebuild it while the same run+question is shown (#67).
@@ -1643,6 +1649,13 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       }
       if (batch) renderWcBatch();
       updateWcLimit(); // reflect the per-person cap (#76) on every render
+    }
+    if (q.kind === "open_text") {
+      const key = (state.run_id ?? "") + ":" + q.id;
+      if (otKey !== key) {
+        otKey = key;
+        document.getElementById("opentext-input").value = "";
+      }
     }
     if (q.kind === "word_cloud" || q.kind === "open_text") return;
     if (q.kind === "priorities") {
