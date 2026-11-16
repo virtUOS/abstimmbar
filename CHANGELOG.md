@@ -40,6 +40,28 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Behoben
 
+- Fragen aus Dokument: Bei etwa zehn oder mehr gewünschten Fragen entstanden
+  oft gar keine, weil eine einzige KI-Anfrage alle Fragen liefern sollte und
+  dabei an Zeit- oder Längengrenzen scheiterte. Die Fragen werden jetzt in
+  mehreren kleineren Anfragen erzeugt (höchstens `AI_GEN_PER_CALL`, Standard
+  5, je Anfrage), ohne Wiederholungen (#309).
+- Fragen aus Dokument: Scheitert die Erzeugung, erscheint nicht mehr
+  „0 Fragen wurden erzeugt – jetzt prüfen“, sondern eine verständliche
+  Ursache (z. B. KI antwortet nicht rechtzeitig, KI-Dienst nicht erreichbar)
+  und „Erneut versuchen“, das mit demselben Dokument und denselben
+  Einstellungen neu startet, ohne erneutes Hochladen. Konnte nur für einen
+  Teil des Dokuments nichts erzeugt werden, weist ein Hinweis darauf hin
+  (#302).
+- Fragen aus Dokument: Eine neue Erzeugung zeigte unter Umständen die
+  Vorschläge des vorigen Durchlaufs an. Eine neue Erzeugung ersetzt jetzt
+  ältere, noch nicht geprüfte Vorschläge des Sets, die Prüfansicht folgt
+  immer dem aktuellen Durchlauf, und das Formular weist vor dem Start auf
+  noch ungeprüfte Vorschläge hin (#303).
+- Fragen aus Dokument: „Fragen pro Seite“ heißt jetzt „Fragen pro
+  Dokumentseite bzw. Folie“. Der Hilfetext erklärt, dass bei eingefügtem
+  Text je etwa 2000 Zeichen als eine Seite zählen, und zeigt die daraus
+  folgende Fragenzahl (z. B. „3 Seiten × 2 = 6 Fragen“), ebenso der
+  Fortschrittshinweis während der Erzeugung (#292).
 - Freitext: Beim Wechsel zur nächsten Freitext-Frage stand die vorige
   Antwort noch im Eingabefeld und wurde unbemerkt mit abgeschickt (#277).
 - Präsentation mit Abschnitten: Die Zwischenfolie erscheint jetzt an fester

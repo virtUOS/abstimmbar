@@ -1,7 +1,7 @@
 /** AI question generation: when the model declines (no questions, with an
- *  "unsuitable_reason"), the review panel explains why instead of a bare
- *  "No questions generated". The job is stubbed; only an "E2E AI" room is
- *  seeded and deleted. */
+ *  "unsuitable_reason"), the set's hint explains why instead of offering to
+ *  review "0 questions" (#302), and offers to try again. The job is stubbed;
+ *  only an "E2E AI" room is seeded and deleted. */
 import { test, expect, API_BASE_URL } from './fixtures';
 import { createRoomWithQuestions } from './helpers/seed';
 
@@ -22,7 +22,7 @@ test.beforeEach(async ({ page }) => {
   await page.waitForURL('http://localhost:5174/**');
 });
 
-test('review panel shows why the material was unsuitable', async ({ page, trackRoom }) => {
+test('set hint shows why the material was unsuitable', async ({ page, trackRoom }) => {
   const room = await createRoomWithQuestions(page.request, [], 'KI ungeeignet', trackRoom, 'E2E AI');
   const job = {
     id: 1, status: 'done', done_chunks: 1, total_chunks: 1, drafts: [], truncated: false,
@@ -34,8 +34,9 @@ test('review panel shows why the material was unsuitable', async ({ page, trackR
   await page.route(/\/api\/question-sets\/active-generation\/$/, (route) => route.fulfill({ json: {} }));
 
   await page.goto(`/sets/${room.setId}`);
-  await page.getByRole('button', { name: 'Prüfen', exact: true }).click();
   await expect(
     page.getByText('Das Material ist nicht geeignet: Es ist nur ein Inhaltsverzeichnis.'),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Erneut versuchen', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Prüfen', exact: true })).toHaveCount(0);
 });

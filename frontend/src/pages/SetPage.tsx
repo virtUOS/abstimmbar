@@ -6,8 +6,12 @@ import { Trans, useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, Vote, X, type LucideIcon } from "lucide-react";
 import {
+  aiErrorText,
   api,
+  generationFailed,
+  generationFailureText,
   live,
+  roundHalfEven,
   requestDetail,
   requestError,
   results,
@@ -751,21 +755,40 @@ function SectionDescriptionField({
 
 /** Inline hint above the question list when this set has an un-reviewed
  * generation job: shows running progress or a "N questions ready — review"
- * call to action, and is the entry point to the review panel. */
+ * call to action, and is the entry point to the review panel. A failed or
+ * empty run shows why and offers "Try again" with the same settings (#302). */
 function GenerationReviewHint({
   job,
   onReview,
-  onRestart,
+  onRetry,
+  onChangeSettings,
   onDiscard,
 }: {
   job: GenerationJob;
   onReview: () => void;
-  onRestart: () => void;
+  onRetry: () => Promise<void>;
+  onChangeSettings: () => void;
   onDiscard: () => void | Promise<void>;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
   const running = job.status === "pending" || job.status === "running";
   if (job.status === "cancelled") return null;
+  const failed = generationFailed(job);
+
+  async function retry() {
+    setRetrying(true);
+    setRetryError("");
+    try {
+      await onRetry();
+    } catch (err) {
+      setRetryError(aiErrorText(err, t));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
   return (
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-brand-200 bg-brand-50/60 px-4 py-3 dark:border-brand-900 dark:bg-brand-950/30">
       <div className="min-w-0 text-sm text-slate-700 dark:text-slate-200">
@@ -782,9 +805,28 @@ function GenerationReviewHint({
                 {t("{{n}} questions so far", { n: job.drafts.length })}
               </>
             )}
+            {/* How the target came about, e.g. "9 pages × 2 = 18 questions"
+                (#292) — only when it isn't distorted by the safety cap. */}
+            {job.pages > 0 && roundHalfEven(job.pages * job.density) === job.target_count && (
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                {t("{{pages}} pages or slides × {{density}} = {{n}} questions", {
+                  pages: job.pages,
+                  density: job.density.toLocaleString(i18n.language),
+                  n: job.target_count,
+                })}
+              </span>
+            )}
           </span>
-        ) : job.status === "failed" ? (
-          <span>{t("Question generation failed.")}</span>
+        ) : failed ? (
+          <>
+            <span className="font-medium">
+              {job.status === "failed"
+                ? t("Question generation failed.")
+                : t("No questions generated.")}
+            </span>{" "}
+            <span>{generationFailureText(job, t)}</span>
+            {retryError && <p className="mt-1 text-danger">{retryError}</p>}
+          </>
         ) : (
           <span>
             {t("{{n}} questions were generated — review and use them now.", {
@@ -793,11 +835,14 @@ function GenerationReviewHint({
           </span>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {job.status === "failed" ? (
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        {failed ? (
           <>
-            <Button variant="primary" onClick={onRestart}>
+            <Button variant="primary" disabled={retrying} onClick={() => void retry()}>
               {t("Try again")}
+            </Button>
+            <Button variant="ghost" onClick={onChangeSettings}>
+              {t("Change settings")}
             </Button>
             <Button variant="ghost" onClick={() => void onDiscard()}>
               {t("Discard")}
@@ -1844,8 +1889,14 @@ export default function SetPage() {
             setId={id}
             maxQuestions={maxQuestions}
             initialFile={pendingUpload}
+            pendingProposals={
+              reviewJob && reviewJob.status === "done" ? reviewJob.drafts.length : 0
+            }
             onStarted={() => {
+              // The new run supersedes older proposals (#303): close a review
+              // panel that may still show them; the hint follows the new job.
               setGenerateOpen(false);
+              setReviewOpen(false);
               setPendingUpload(null);
               void refreshReviewHint();
             }}
@@ -1860,12 +1911,16 @@ export default function SetPage() {
       {aiAllowed && reviewOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiReviewPanel
+            // Remount when the set's current job changes, so the panel never
+            // keeps showing a superseded run's proposals (#303).
+            key={reviewJob?.id ?? "none"}
             setId={id}
             onClose={() => {
               setReviewOpen(false);
               void refreshReviewHint();
             }}
             onImported={reloadQuestions}
+            onRetried={() => void refreshReviewHint()}
           />
         </div>
       )}
@@ -1874,7 +1929,11 @@ export default function SetPage() {
         <GenerationReviewHint
           job={reviewJob}
           onReview={() => setReviewOpen(true)}
-          onRestart={() => {
+          onRetry={async () => {
+            await api.aiGenerateRetry(id, reviewJob.id);
+            await refreshReviewHint();
+          }}
+          onChangeSettings={() => {
             setGenerateOpen(true);
           }}
           onDiscard={async () => {
@@ -1991,6 +2050,7 @@ export default function SetPage() {
               <Button
                 onClick={() => {
                   setGenerateOpen(true);
+                  setReviewOpen(false);
                   setEditingSections(false);
                 }}
                 className="inline-flex items-center gap-1.5"
@@ -2087,6 +2147,7 @@ export default function SetPage() {
                 onFile={(f) => {
                   setPendingUpload(f);
                   setGenerateOpen(true);
+                  setReviewOpen(false);
                 }}
                 hint={t("Generate questions from a document (PDF, PPTX or ODP)")}
                 className="w-full"

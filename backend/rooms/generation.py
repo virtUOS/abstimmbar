@@ -2,9 +2,13 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """Chunking, dedup and the background worker for async question generation."""
+import json
+import logging
 import math
 import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from urllib import error as urlerror
 
 from basicbar_integrations import ai
 from django.conf import settings
@@ -13,7 +17,79 @@ from django.db import connections
 from . import ai_generate
 from .models import GenerationJob
 
+logger = logging.getLogger(__name__)
+
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ai-gen")
+
+# Output budget per AI call (#309): a generous estimate per question (German
+# JSON with options or a model solution) plus fixed overhead, never above the
+# configured AI_MAX_TOKENS. Too tight a budget would truncate the JSON.
+_TOKENS_PER_QUESTION = 500
+_TOKENS_OVERHEAD = 500
+
+
+def call_max_tokens(count):
+    return min(settings.AI_MAX_TOKENS, _TOKENS_OVERHEAD + _TOKENS_PER_QUESTION * count)
+
+
+# User-facing reasons for a run that produced nothing (#302). Short and free of
+# internals; German like the rest of the stored job messages.
+ERROR_MESSAGES = {
+    "timeout": (
+        "Die KI hat nicht rechtzeitig geantwortet. Bitte versuchen Sie es erneut; "
+        "besteht das Problem weiter, wenden Sie sich an die Administration."
+    ),
+    "truncated": (
+        "Die Antwort der KI war unvollständig oder nicht verwertbar. Bitte "
+        "versuchen Sie es erneut; besteht das Problem weiter, wenden Sie sich an "
+        "die Administration."
+    ),
+    "unavailable": (
+        "Der KI-Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es "
+        "später erneut."
+    ),
+    "other": "Die Fragen konnten nicht erzeugt werden. Bitte versuchen Sie es erneut.",
+}
+PARTIAL_FAILURE_NOTICE = "Für einen Teil des Dokuments konnten keine Fragen erzeugt werden."
+
+_TRUNCATED_HINTS = ("expecting", "unterminated", "extra data", "invalid control", "empty response")
+_UNAVAILABLE_HINTS = ("http error", "urlopen error", "connection", "not configured")
+
+
+def classify_error(exc):
+    """Map a failed AI call to a category of ERROR_MESSAGES. ``chat_json``
+    wraps everything in ``AIError("AI request failed: …")`` (raised ``from``
+    the original), so inspect the cause first and fall back to the message."""
+    for err in (exc.__cause__, exc):
+        if err is None:
+            continue
+        if isinstance(err, TimeoutError):
+            return "timeout"
+        if isinstance(err, urlerror.HTTPError):
+            return "unavailable"
+        if isinstance(err, urlerror.URLError):
+            return "timeout" if isinstance(err.reason, TimeoutError) else "unavailable"
+        if isinstance(err, ConnectionError):
+            return "unavailable"
+        if isinstance(err, json.JSONDecodeError):
+            return "truncated"
+    message = str(exc).lower()
+    if "timed out" in message or "timeout" in message:
+        return "timeout"
+    if any(hint in message for hint in _TRUNCATED_HINTS):
+        return "truncated"
+    if any(hint in message for hint in _UNAVAILABLE_HINTS):
+        return "unavailable"
+    if isinstance(exc, (ValueError, KeyError, TypeError)) and not isinstance(exc, ai.AIError):
+        return "truncated"  # the reply parsed but had an unusable shape
+    return "other"
+
+
+def _is_cancelled(job_id):
+    status = (
+        GenerationJob.objects.filter(pk=job_id).values_list("status", flat=True).first()
+    )
+    return status == GenerationJob.Status.CANCELLED
 
 
 def chunk_text(text, *, chunk_chars, max_chunks):
@@ -100,8 +176,8 @@ def run_generation_job(job_id):
             if truncated:
                 notice = (
                     f"Das Dokument ({job.source_chars or len(job.source_text)} Zeichen) "
-                    f"überschreitet die Verarbeitungsgrenze — es wurden die ersten "
-                    f"{len(chunks)} Abschnitte ausgewertet."
+                    "überschreitet die Verarbeitungsgrenze — es wurde nur der "
+                    "vordere Teil ausgewertet."
                 )
             # Move to RUNNING, but never resurrect a job the request thread has
             # already CANCELLED (a full-row save would otherwise clobber it).
@@ -118,44 +194,83 @@ def run_generation_job(job_id):
             if not started:
                 return  # cancelled before we could start
             failed_chunks = 0
+            errors = []  # categories of failed calls (classify_error)
             done = 0
             drafts = list(job.drafts)
             reason = ""
             target = job.target_count or settings.AI_GEN_MAX_QUESTIONS
             num = max(1, len(chunks))
             per = max(1, round(target / num))
-            for chunk in chunks:
-                status = (
-                    GenerationJob.objects.filter(pk=job_id)
-                    .values_list("status", flat=True)
-                    .first()
-                )
-                if status == GenerationJob.Status.CANCELLED:
-                    return
-                try:
-                    data = ai.chat_json(
-                        ai_generate.generate_system(),
-                        ai_generate.build_generate_prompt(
-                            chunk, per, job.kinds, job.level, job.guidance,
-                            focus_kinds=job.focus_kinds,
-                        ),
-                    )
-                    new = ai_generate.build_drafts(data, job.kinds, per)
-                    reason = reason or ai_generate.unsuitable_reason(data)
+            per_call = max(1, settings.AI_GEN_PER_CALL)
+            system = ai_generate.generate_system()
+            for index, chunk in enumerate(chunks):
+                # A chunk's quota is generated in calls of at most per_call
+                # questions (#309): one call asked for all of them outgrew
+                # AI_TIMEOUT / AI_MAX_TOKENS from ~10 questions on. Follow-up
+                # calls list the existing questions so the model adds new ones.
+                quota = min(per, target - len(drafts))
+                if quota <= 0:
+                    break
+                produced = 0
+                chunk_failed = False
+                for _ in range(math.ceil(quota / per_call) + 1):
+                    count = min(quota - produced, target - len(drafts), per_call)
+                    if count <= 0:
+                        break
+                    if _is_cancelled(job_id):
+                        return
+                    try:
+                        data = ai.chat_json(
+                            system,
+                            ai_generate.build_generate_prompt(
+                                chunk, count, job.kinds, job.level, job.guidance,
+                                focus_kinds=job.focus_kinds,
+                                avoid=[d.get("text", "") for d in drafts],
+                            ),
+                            max_tokens=call_max_tokens(count),
+                        )
+                        new = ai_generate.build_drafts(data, job.kinds, count)
+                        reason = reason or ai_generate.unsuitable_reason(data)
+                    except (ai.AIError, ValueError, KeyError, TypeError) as exc:
+                        logger.warning(
+                            "Question generation job %s, part %s/%s: AI call failed: %s",
+                            job_id, index + 1, len(chunks), exc,
+                        )
+                        errors.append(classify_error(exc))
+                        chunk_failed = True
+                        break
+                    before = len(drafts)
                     drafts = merge_drafts(drafts, new)[:target]
-                except (ai.AIError, ValueError, KeyError, TypeError):
+                    added = len(drafts) - before
+                    produced += added
+                    # Progress write: never touches status, so a concurrent
+                    # CANCELLED persists instead of being clobbered.
+                    GenerationJob.objects.filter(pk=job_id).update(drafts=drafts)
+                    if added == 0:
+                        break  # nothing new from this part of the material
+                if chunk_failed and produced == 0:
                     failed_chunks += 1
                 done += 1
-                # Progress write: never touches status, so a concurrent
-                # CANCELLED persists instead of being clobbered.
                 GenerationJob.objects.filter(pk=job_id).update(
                     drafts=drafts, done_chunks=done
                 )
                 if len(drafts) >= target:
                     break
+            if not drafts and errors:
+                # Nothing came out and calls failed: a real failure with a
+                # reason the teacher can act on, not "0 questions generated" (#302).
+                category = Counter(errors).most_common(1)[0][0]
+                GenerationJob.objects.filter(pk=job_id).exclude(
+                    status=GenerationJob.Status.CANCELLED
+                ).update(
+                    status=GenerationJob.Status.FAILED,
+                    drafts=[],
+                    done_chunks=done,
+                    error=ERROR_MESSAGES[category],
+                )
+                return
             if failed_chunks:
-                extra = f" {failed_chunks} Abschnitt(e) konnten nicht ausgewertet werden."
-                notice = (notice + extra).strip()
+                notice = (notice + " " + PARTIAL_FAILURE_NOTICE).strip()
             if not drafts and not notice:
                 notice = "Aus dem Material ließen sich keine sinnvollen Fragen bilden."
             # Finish, unless the job was cancelled meanwhile — conditional so a
@@ -169,10 +284,11 @@ def run_generation_job(job_id):
                 notice=notice,
                 unsuitable_reason="" if drafts else reason,
             )
-        except Exception as exc:  # noqa: BLE001 -- never leave a job stuck in running
+        except Exception:  # never leave a job stuck in running
+            logger.exception("Question generation job %s failed", job_id)
             GenerationJob.objects.filter(pk=job_id).exclude(
                 status=GenerationJob.Status.CANCELLED
-            ).update(status=GenerationJob.Status.FAILED, error=str(exc)[:2000])
+            ).update(status=GenerationJob.Status.FAILED, error=ERROR_MESSAGES["other"])
     finally:
         # Return the worker's pooled connection (skip a mid-transaction one, as
         # TestCase wraps each test in an atomic block).

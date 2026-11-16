@@ -126,6 +126,7 @@ services:
       AI_MODEL: ${AI_MODEL:-}
       AI_TIMEOUT: ${AI_TIMEOUT:-30}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
+      AI_GEN_PER_CALL: ${AI_GEN_PER_CALL:-5}
       AI_DISABLE_THINKING: ${AI_DISABLE_THINKING:-1}
       # Prometheus /metrics scrape token (unset = endpoint off / 404).
       METRICS_TOKEN: ${METRICS_TOKEN:-}

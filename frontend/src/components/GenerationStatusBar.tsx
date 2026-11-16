@@ -10,7 +10,13 @@ import { X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useLocation, useNavigate } from "react-router";
-import { api, type GenerationJob } from "../api";
+import {
+  aiErrorText,
+  api,
+  generationFailed,
+  generationFailureText,
+  type GenerationJob,
+} from "../api";
 import { Button } from "./ui";
 
 export default function GenerationStatusBar() {
@@ -18,6 +24,8 @@ export default function GenerationStatusBar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [job, setJob] = useState<GenerationJob | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState("");
 
   useEffect(() => {
     let stopped = false;
@@ -42,9 +50,25 @@ export default function GenerationStatusBar() {
   if (location.pathname === `/sets/${job.set_id}`) return null;
 
   const running = job.status === "pending" || job.status === "running";
+  // A failed or empty run never claims "0 questions — review" (#302).
+  const failed = generationFailed(job);
 
   async function review() {
     navigate(`/sets/${job!.set_id}`, { state: { openReview: true } });
+  }
+
+  async function retry() {
+    setRetrying(true);
+    setRetryError("");
+    try {
+      await api.aiGenerateRetry(job!.set_id!, job!.id);
+      const active = await api.aiGenerateActiveForUser();
+      setJob("id" in active ? (active as GenerationJob) : null);
+    } catch (err) {
+      setRetryError(aiErrorText(err, t));
+    } finally {
+      setRetrying(false);
+    }
   }
 
   async function dismiss() {
@@ -74,8 +98,20 @@ export default function GenerationStatusBar() {
                 </>
               )}
             </span>
-          ) : job.status === "failed" ? (
-            <span>{t("Question generation failed.")}</span>
+          ) : failed ? (
+            <span>
+              <span className="font-medium">
+                {job.status === "failed"
+                  ? t("Question generation for “{{title}}” failed.", {
+                      title: job.set_title ?? "",
+                    })
+                  : t("No questions generated for “{{title}}”.", {
+                      title: job.set_title ?? "",
+                    })}
+              </span>{" "}
+              {generationFailureText(job, t)}
+              {retryError && <span className="block text-danger">{retryError}</span>}
+            </span>
           ) : (
             <span>
               {t("{{n}} questions for “{{title}}” generated — review now.", {
@@ -96,8 +132,13 @@ export default function GenerationStatusBar() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {failed && (
+            <Button variant="ghost" disabled={retrying} onClick={() => void retry()}>
+              {t("Try again")}
+            </Button>
+          )}
           <Button variant="ghost" onClick={() => void review()}>
-            {running || job.status === "failed" ? t("To the set") : t("Review")}
+            {running || failed ? t("To the set") : t("Review")}
           </Button>
           {!running && (
             <button
