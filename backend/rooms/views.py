@@ -129,6 +129,20 @@ def _job_payload(job):
     }
 
 
+def _start_generation_job(question_set, user, **fields):
+    """Create and start a generation job for a set. Any still-active job of
+    *this* set is cancelled (superseded by the new request) — scoped to this
+    set only, so it can't touch another set's legitimately RUNNING job
+    (restart-orphan handling lives in rooms.apps.ready())."""
+    GenerationJob.objects.filter(
+        question_set=question_set,
+        status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
+    ).update(status=GenerationJob.Status.CANCELLED)
+    job = GenerationJob.objects.create(question_set=question_set, created_by=user, **fields)
+    generation.start_job(job)
+    return job
+
+
 def _ai_distractors_response(request, fallback_question=None):
     """Suggest plausible-but-wrong answer options (not saved). AI only.
 
@@ -633,22 +647,38 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         # Optional free-text guidance from the teacher (#84), capped so it
         # can't crowd out the material in the prompt.
         guidance = str(request.data.get("guidance") or "").strip()[:1000]
-        # Cancel any still-active job for *this* set (superseded by this new
-        # request) — scoped to this set only, so it can't touch another
-        # user's legitimately RUNNING job (restart-orphan handling lives in
-        # rooms.apps.ready(), which runs once at process start).
-        GenerationJob.objects.filter(
-            question_set=self.get_object(), status__in=[
-                GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING]
-        ).update(status=GenerationJob.Status.CANCELLED)
         target = max(1, min(round(density * pages), settings.AI_GEN_MAX_QUESTIONS))
-        job = GenerationJob.objects.create(
-            question_set=self.get_object(), created_by=request.user,
+        job = _start_generation_job(
+            self.get_object(), request.user,
             source_text=text, source_chars=len(text), kinds=kinds, focus_kinds=focus_kinds,
             level=level, guidance=guidance,
             pages=pages, density=density, target_count=target,
         )
-        generation.start_job(job)
+        return Response({"job_id": job.id}, status=201)
+
+    @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/retry")
+    def ai_generate_retry(self, request, pk=None, job_id=None):
+        """Run a failed (or empty) generation again with the same material and
+        settings, so the teacher need not re-upload the document (#302)."""
+        question_set = self.get_object()
+        if not ai.is_enabled():
+            return Response({"detail": "AI is not configured."}, status=503)
+        old = get_object_or_404(GenerationJob, pk=job_id, question_set_id=pk)
+        if old.is_active:
+            return Response({"detail": "This generation is still running."}, status=400)
+        if old.status == GenerationJob.Status.DONE and old.drafts:
+            return Response(
+                {"detail": "Only a failed generation can be retried."}, status=400
+            )
+        old.reviewed = True
+        old.save(update_fields=["reviewed", "updated_at"])
+        job = _start_generation_job(
+            question_set, request.user,
+            source_text=old.source_text, source_chars=old.source_chars,
+            kinds=old.kinds, focus_kinds=old.focus_kinds, level=old.level,
+            guidance=old.guidance, pages=old.pages, density=old.density,
+            target_count=old.target_count,
+        )
         return Response({"job_id": job.id}, status=201)
 
     @action(detail=True, methods=["get"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)")

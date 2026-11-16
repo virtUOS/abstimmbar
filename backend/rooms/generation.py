@@ -2,10 +2,13 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """Chunking, dedup and the background worker for async question generation."""
+import json
 import logging
 import math
 import re
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from urllib import error as urlerror
 
 from basicbar_integrations import ai
 from django.conf import settings
@@ -27,6 +30,59 @@ _TOKENS_OVERHEAD = 500
 
 def call_max_tokens(count):
     return min(settings.AI_MAX_TOKENS, _TOKENS_OVERHEAD + _TOKENS_PER_QUESTION * count)
+
+
+# User-facing reasons for a run that produced nothing (#302). Short and free of
+# internals; German like the rest of the stored job messages.
+ERROR_MESSAGES = {
+    "timeout": (
+        "Die KI hat nicht rechtzeitig geantwortet. Bitte versuchen Sie es erneut; "
+        "besteht das Problem weiter, wenden Sie sich an die Administration."
+    ),
+    "truncated": (
+        "Die Antwort der KI war unvollständig oder nicht verwertbar. Bitte "
+        "versuchen Sie es erneut; besteht das Problem weiter, wenden Sie sich an "
+        "die Administration."
+    ),
+    "unavailable": (
+        "Der KI-Dienst ist derzeit nicht erreichbar. Bitte versuchen Sie es "
+        "später erneut."
+    ),
+    "other": "Die Fragen konnten nicht erzeugt werden. Bitte versuchen Sie es erneut.",
+}
+PARTIAL_FAILURE_NOTICE = "Für einen Teil des Dokuments konnten keine Fragen erzeugt werden."
+
+_TRUNCATED_HINTS = ("expecting", "unterminated", "extra data", "invalid control", "empty response")
+_UNAVAILABLE_HINTS = ("http error", "urlopen error", "connection", "not configured")
+
+
+def classify_error(exc):
+    """Map a failed AI call to a category of ERROR_MESSAGES. ``chat_json``
+    wraps everything in ``AIError("AI request failed: …")`` (raised ``from``
+    the original), so inspect the cause first and fall back to the message."""
+    for err in (exc.__cause__, exc):
+        if err is None:
+            continue
+        if isinstance(err, TimeoutError):
+            return "timeout"
+        if isinstance(err, urlerror.HTTPError):
+            return "unavailable"
+        if isinstance(err, urlerror.URLError):
+            return "timeout" if isinstance(err.reason, TimeoutError) else "unavailable"
+        if isinstance(err, ConnectionError):
+            return "unavailable"
+        if isinstance(err, json.JSONDecodeError):
+            return "truncated"
+    message = str(exc).lower()
+    if "timed out" in message or "timeout" in message:
+        return "timeout"
+    if any(hint in message for hint in _TRUNCATED_HINTS):
+        return "truncated"
+    if any(hint in message for hint in _UNAVAILABLE_HINTS):
+        return "unavailable"
+    if isinstance(exc, (ValueError, KeyError, TypeError)) and not isinstance(exc, ai.AIError):
+        return "truncated"  # the reply parsed but had an unusable shape
+    return "other"
 
 
 def _is_cancelled(job_id):
@@ -120,8 +176,8 @@ def run_generation_job(job_id):
             if truncated:
                 notice = (
                     f"Das Dokument ({job.source_chars or len(job.source_text)} Zeichen) "
-                    f"überschreitet die Verarbeitungsgrenze — es wurden die ersten "
-                    f"{len(chunks)} Abschnitte ausgewertet."
+                    "überschreitet die Verarbeitungsgrenze — es wurde nur der "
+                    "vordere Teil ausgewertet."
                 )
             # Move to RUNNING, but never resurrect a job the request thread has
             # already CANCELLED (a full-row save would otherwise clobber it).
@@ -138,6 +194,7 @@ def run_generation_job(job_id):
             if not started:
                 return  # cancelled before we could start
             failed_chunks = 0
+            errors = []  # categories of failed calls (classify_error)
             done = 0
             drafts = list(job.drafts)
             reason = ""
@@ -179,6 +236,7 @@ def run_generation_job(job_id):
                             "Question generation job %s, part %s/%s: AI call failed: %s",
                             job_id, index + 1, len(chunks), exc,
                         )
+                        errors.append(classify_error(exc))
                         chunk_failed = True
                         break
                     before = len(drafts)
@@ -198,9 +256,21 @@ def run_generation_job(job_id):
                 )
                 if len(drafts) >= target:
                     break
+            if not drafts and errors:
+                # Nothing came out and calls failed: a real failure with a
+                # reason the teacher can act on, not "0 questions generated" (#302).
+                category = Counter(errors).most_common(1)[0][0]
+                GenerationJob.objects.filter(pk=job_id).exclude(
+                    status=GenerationJob.Status.CANCELLED
+                ).update(
+                    status=GenerationJob.Status.FAILED,
+                    drafts=[],
+                    done_chunks=done,
+                    error=ERROR_MESSAGES[category],
+                )
+                return
             if failed_chunks:
-                extra = f" {failed_chunks} Abschnitt(e) konnten nicht ausgewertet werden."
-                notice = (notice + extra).strip()
+                notice = (notice + " " + PARTIAL_FAILURE_NOTICE).strip()
             if not drafts and not notice:
                 notice = "Aus dem Material ließen sich keine sinnvollen Fragen bilden."
             # Finish, unless the job was cancelled meanwhile — conditional so a
@@ -214,10 +284,11 @@ def run_generation_job(job_id):
                 notice=notice,
                 unsuitable_reason="" if drafts else reason,
             )
-        except Exception as exc:  # noqa: BLE001 -- never leave a job stuck in running
+        except Exception:  # never leave a job stuck in running
+            logger.exception("Question generation job %s failed", job_id)
             GenerationJob.objects.filter(pk=job_id).exclude(
                 status=GenerationJob.Status.CANCELLED
-            ).update(status=GenerationJob.Status.FAILED, error=str(exc)[:2000])
+            ).update(status=GenerationJob.Status.FAILED, error=ERROR_MESSAGES["other"])
     finally:
         # Return the worker's pooled connection (skip a mid-transaction one, as
         # TestCase wraps each test in an atomic block).

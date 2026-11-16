@@ -25,6 +25,13 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   dabei an Zeit- oder Längengrenzen scheiterte. Die Fragen werden jetzt in
   mehreren kleineren Anfragen erzeugt (höchstens `AI_GEN_PER_CALL`, Standard
   5, je Anfrage), ohne Wiederholungen (#309).
+- Fragen aus Dokument: Scheitert die Erzeugung, erscheint nicht mehr
+  „0 Fragen wurden erzeugt – jetzt prüfen“, sondern eine verständliche
+  Ursache (z. B. KI antwortet nicht rechtzeitig, KI-Dienst nicht erreichbar)
+  und „Erneut versuchen“, das mit demselben Dokument und denselben
+  Einstellungen neu startet, ohne erneutes Hochladen. Konnte nur für einen
+  Teil des Dokuments nichts erzeugt werden, weist ein Hinweis darauf hin
+  (#302).
 - Freitext: Beim Wechsel zur nächsten Freitext-Frage stand die vorige
   Antwort noch im Eingabefeld und wurde unbemerkt mit abgeschickt (#277).
 - Präsentation mit Abschnitten: Die Zwischenfolie erscheint jetzt an fester
