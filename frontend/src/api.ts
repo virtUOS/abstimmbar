@@ -452,6 +452,13 @@ export function generationFailureText(job: GenerationJob, t: TFunction): string 
   return t("No questions generated.");
 }
 
+/** Python's `round()` (half to even) for non-negative numbers, so client-side
+ *  estimates match the backend's page/question counts (2.5 → 2, 3.5 → 4). */
+export function roundHalfEven(x: number): number {
+  const r = Math.round(x);
+  return x % 1 === 0.5 && r % 2 !== 0 ? r - 1 : r;
+}
+
 /** Live free-text evaluation summary (presenter + stored results). The
  *  ``verdict`` is a category label from the question's chosen scale; groups
  *  come in the configured order. */

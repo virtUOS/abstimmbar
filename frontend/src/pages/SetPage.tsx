@@ -11,6 +11,7 @@ import {
   generationFailed,
   generationFailureText,
   live,
+  roundHalfEven,
   requestDetail,
   requestError,
   results,
@@ -743,7 +744,7 @@ function GenerationReviewHint({
   onChangeSettings: () => void;
   onDiscard: () => void | Promise<void>;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState("");
   const running = job.status === "pending" || job.status === "running";
@@ -777,6 +778,17 @@ function GenerationReviewHint({
                 {" · "}
                 {t("{{n}} questions so far", { n: job.drafts.length })}
               </>
+            )}
+            {/* How the target came about, e.g. "9 pages × 2 = 18 questions"
+                (#292) — only when it isn't distorted by the safety cap. */}
+            {job.pages > 0 && roundHalfEven(job.pages * job.density) === job.target_count && (
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
+                {t("{{pages}} pages or slides × {{density}} = {{n}} questions", {
+                  pages: job.pages,
+                  density: job.density.toLocaleString(i18n.language),
+                  n: job.target_count,
+                })}
+              </span>
             )}
           </span>
         ) : failed ? (

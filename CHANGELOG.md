@@ -37,6 +37,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   ältere, noch nicht geprüfte Vorschläge des Sets, die Prüfansicht folgt
   immer dem aktuellen Durchlauf, und das Formular weist vor dem Start auf
   noch ungeprüfte Vorschläge hin (#303).
+- Fragen aus Dokument: „Fragen pro Seite“ heißt jetzt „Fragen pro
+  Dokumentseite bzw. Folie“. Der Hilfetext erklärt, dass bei eingefügtem
+  Text je etwa 2000 Zeichen als eine Seite zählen, und zeigt die daraus
+  folgende Fragenzahl (z. B. „3 Seiten × 2 = 6 Fragen“), ebenso der
+  Fortschrittshinweis während der Erzeugung (#292).
 - Freitext: Beim Wechsel zur nächsten Freitext-Frage stand die vorige
   Antwort noch im Eingabefeld und wurde unbemerkt mit abgeschickt (#277).
 - Präsentation mit Abschnitten: Die Zwischenfolie erscheint jetzt an fester

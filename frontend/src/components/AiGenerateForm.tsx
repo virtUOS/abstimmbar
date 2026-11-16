@@ -9,7 +9,7 @@
 import { Star } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { aiErrorText, api } from "../api";
+import { aiErrorText, api, roundHalfEven } from "../api";
 import AiAssistPanel from "./AiAssistPanel";
 import FileDropzone from "./FileDropzone";
 import { Button, TextInput } from "./ui";
@@ -45,7 +45,7 @@ export default function AiGenerateForm({
   /** Unreviewed proposals of an earlier run; a new run discards them (#303). */
   pendingProposals?: number;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [file, setFile] = useState<File | null>(initialFile);
   const [text, setText] = useState("");
   const [density, setDensity] = useState(1);
@@ -102,6 +102,19 @@ export default function AiGenerateForm({
     }
   }
 
+  // For pasted text the page count is known up front (backend: ~2000
+  // characters per page), so show the resulting number of questions (#292).
+  const pastedChars = file ? 0 : text.trim().length;
+  const pastedEstimate =
+    pastedChars > 0 && density > 0
+      ? (() => {
+          const pages = Math.max(1, roundHalfEven(pastedChars / 2000));
+          let n = Math.max(1, roundHalfEven(density * pages));
+          if (maxQuestions) n = Math.min(n, maxQuestions);
+          return { pages, density: density.toLocaleString(i18n.language), n };
+        })()
+      : null;
+
   const canGenerate =
     !starting && (file !== null || text.trim().length > 0) && kinds.length > 0;
 
@@ -142,7 +155,7 @@ export default function AiGenerateForm({
           </div>
           <div className="flex flex-wrap items-center gap-4">
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
-              {t("Questions per page")}
+              {t("Questions per document page or slide")}
               <TextInput
                 type="number"
                 min={0.1}
@@ -171,10 +184,17 @@ export default function AiGenerateForm({
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {maxQuestions
               ? t(
-                  "Covers the whole document; more per page means more questions (at most {{max}}).",
+                  "Covers the whole document; more per page or slide means more questions (at most {{max}}).",
                   { max: maxQuestions },
                 )
-              : t("Covers the whole document; more per page means more questions.")}
+              : t("Covers the whole document; more per page or slide means more questions.")}{" "}
+            {t("For pasted text, about 2,000 characters count as one page.")}
+            {pastedEstimate && (
+              <>
+                {" "}
+                {t("{{pages}} pages × {{density}} = {{n}} questions", pastedEstimate)}
+              </>
+            )}
           </p>
           <div className="flex flex-wrap items-center gap-2">
             {KIND_OPTIONS.map((option) => {

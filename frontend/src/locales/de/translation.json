@@ -674,9 +674,6 @@
   "Generation failed.": "Erzeugung fehlgeschlagen.",
   "Generation was cancelled.": "Erzeugung abgebrochen.",
   "The document is long — only its first sections were used for generation.": "Das Dokument ist lang — es wurden nur die ersten Abschnitte für die Erzeugung verwendet.",
-  "Questions per page": "Fragen pro Seite",
-  "Covers the whole document; more per page means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen.",
-  "Covers the whole document; more per page means more questions (at most {{max}}).": "Deckt das ganze Dokument ab; mehr pro Seite = mehr Fragen (höchstens {{max}}).",
   "Review generated questions": "Erzeugte Fragen prüfen",
   "Nothing to review.": "Nichts zu prüfen.",
   "Review": "Prüfen",
@@ -1310,5 +1307,11 @@
   "This generation is still running.": "Diese Erzeugung läuft noch.",
   "Only a failed generation can be retried.": "Nur eine fehlgeschlagene Erzeugung kann wiederholt werden.",
   "No questions generated for “{{title}}”.": "Keine Fragen für „{{title}}“ erzeugt.",
-  "There are still {{n}} unreviewed proposals — a new generation discards them.": "Es gibt noch {{n}} ungeprüfte Vorschläge – eine neue Erzeugung verwirft sie."
+  "There are still {{n}} unreviewed proposals — a new generation discards them.": "Es gibt noch {{n}} ungeprüfte Vorschläge – eine neue Erzeugung verwirft sie.",
+  "Questions per document page or slide": "Fragen pro Dokumentseite bzw. Folie",
+  "Covers the whole document; more per page or slide means more questions (at most {{max}}).": "Deckt das ganze Dokument ab; mehr pro Seite bzw. Folie = mehr Fragen (höchstens {{max}}).",
+  "Covers the whole document; more per page or slide means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite bzw. Folie = mehr Fragen.",
+  "For pasted text, about 2,000 characters count as one page.": "Bei eingefügtem Text zählen je etwa 2000 Zeichen als eine Seite.",
+  "{{pages}} pages × {{density}} = {{n}} questions": "{{pages}} Seiten × {{density}} = {{n}} Fragen",
+  "{{pages}} pages or slides × {{density}} = {{n}} questions": "{{pages}} Seiten bzw. Folien × {{density}} = {{n}} Fragen"
 }
