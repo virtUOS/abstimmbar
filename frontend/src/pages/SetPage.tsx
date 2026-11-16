@@ -1790,8 +1790,14 @@ export default function SetPage() {
             setId={id}
             maxQuestions={maxQuestions}
             initialFile={pendingUpload}
+            pendingProposals={
+              reviewJob && reviewJob.status === "done" ? reviewJob.drafts.length : 0
+            }
             onStarted={() => {
+              // The new run supersedes older proposals (#303): close a review
+              // panel that may still show them; the hint follows the new job.
               setGenerateOpen(false);
+              setReviewOpen(false);
               setPendingUpload(null);
               void refreshReviewHint();
             }}
@@ -1806,6 +1812,9 @@ export default function SetPage() {
       {aiEnabled && reviewOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiReviewPanel
+            // Remount when the set's current job changes, so the panel never
+            // keeps showing a superseded run's proposals (#303).
+            key={reviewJob?.id ?? "none"}
             setId={id}
             onClose={() => {
               setReviewOpen(false);
@@ -1941,6 +1950,7 @@ export default function SetPage() {
               <Button
                 onClick={() => {
                   setGenerateOpen(true);
+                  setReviewOpen(false);
                   setEditingSections(false);
                 }}
                 className="inline-flex items-center gap-1.5"
@@ -2011,6 +2021,7 @@ export default function SetPage() {
                 onFile={(f) => {
                   setPendingUpload(f);
                   setGenerateOpen(true);
+                  setReviewOpen(false);
                 }}
                 hint={t("Generate questions from a document (PDF, PPTX or ODP)")}
                 className="w-full"

@@ -3326,6 +3326,42 @@ class GenerationEndpointTests(ApiTestCase):
         self.assertEqual(r.status_code, 503)
         start.assert_not_called()
 
+    def test_new_generation_dismisses_older_unreviewed_jobs(self):
+        # #303: an old finished run with pending proposals must not resurface
+        # once the new run is reviewed/discarded.
+        from .models import GenerationJob
+        old_done = self._finished_job(
+            status=GenerationJob.Status.DONE, drafts=[{"kind": "open_text", "text": "Alt"}])
+        old_failed = self._finished_job()
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        elsewhere = self._finished_job(question_set=other_qs, status=GenerationJob.Status.DONE)
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {"text": "Neues Material"})
+        self.assertEqual(r.status_code, 201)
+        new = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertFalse(new.reviewed)
+        for job in (old_done, old_failed):
+            job.refresh_from_db()
+            self.assertTrue(job.reviewed)
+        elsewhere.refresh_from_db()
+        self.assertFalse(elsewhere.reviewed)  # other sets untouched
+        # The new run is dismissed → the old proposals do not come back.
+        with self.override_settings(**AI_ON):
+            self.client.post(f"{self.url}jobs/{new.pk}/reviewed/")
+            self.assertEqual(self.client.get(f"{self.url}active/").json(), {})
+
+    def test_invalid_start_keeps_older_proposals(self):
+        from .models import GenerationJob
+        old_done = self._finished_job(
+            status=GenerationJob.Status.DONE, drafts=[{"kind": "open_text", "text": "Alt"}])
+        with self.override_settings(**AI_ON), \
+             self.mock.patch("rooms.views.generation.start_job"):
+            r = self.client.post(self.url, {"text": ""})
+        self.assertEqual(r.status_code, 400)
+        old_done.refresh_from_db()
+        self.assertFalse(old_done.reviewed)
+
     def test_set_active_returns_only_unreviewed(self):
         from .models import GenerationJob
         GenerationJob.objects.create(

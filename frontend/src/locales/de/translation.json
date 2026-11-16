@@ -1309,5 +1309,6 @@
   "Question generation for “{{title}}” failed.": "Fragenerzeugung für „{{title}}“ fehlgeschlagen.",
   "This generation is still running.": "Diese Erzeugung läuft noch.",
   "Only a failed generation can be retried.": "Nur eine fehlgeschlagene Erzeugung kann wiederholt werden.",
-  "No questions generated for “{{title}}”.": "Keine Fragen für „{{title}}“ erzeugt."
+  "No questions generated for “{{title}}”.": "Keine Fragen für „{{title}}“ erzeugt.",
+  "There are still {{n}} unreviewed proposals — a new generation discards them.": "Es gibt noch {{n}} ungeprüfte Vorschläge – eine neue Erzeugung verwirft sie."
 }

@@ -33,6 +33,7 @@ export default function AiGenerateForm({
   onClose,
   maxQuestions,
   initialFile = null,
+  pendingProposals = 0,
 }: {
   setId: number;
   onStarted: () => void;
@@ -41,6 +42,8 @@ export default function AiGenerateForm({
   maxQuestions?: number;
   /** Pre-loaded file (e.g. dropped onto the empty-set upload box). */
   initialFile?: File | null;
+  /** Unreviewed proposals of an earlier run; a new run discards them (#303). */
+  pendingProposals?: number;
 }) {
   const { t } = useTranslation();
   const [file, setFile] = useState<File | null>(initialFile);
@@ -106,6 +109,14 @@ export default function AiGenerateForm({
     <div className="mb-4">
       <AiAssistPanel title={t("Generate questions from document")}>
         <div className="space-y-3">
+          {pendingProposals > 0 && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
+              {t(
+                "There are still {{n}} unreviewed proposals — a new generation discards them.",
+                { n: pendingProposals },
+              )}
+            </p>
+          )}
           <div>
             <label className="mb-1 block text-sm text-slate-600 dark:text-slate-300">
               {t("Document (PDF, PPTX or ODP)")}

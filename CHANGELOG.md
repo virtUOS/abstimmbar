@@ -32,6 +32,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Einstellungen neu startet, ohne erneutes Hochladen. Konnte nur für einen
   Teil des Dokuments nichts erzeugt werden, weist ein Hinweis darauf hin
   (#302).
+- Fragen aus Dokument: Eine neue Erzeugung zeigte unter Umständen die
+  Vorschläge des vorigen Durchlaufs an. Eine neue Erzeugung ersetzt jetzt
+  ältere, noch nicht geprüfte Vorschläge des Sets, die Prüfansicht folgt
+  immer dem aktuellen Durchlauf, und das Formular weist vor dem Start auf
+  noch ungeprüfte Vorschläge hin (#303).
 - Freitext: Beim Wechsel zur nächsten Freitext-Frage stand die vorige
   Antwort noch im Eingabefeld und wurde unbemerkt mit abgeschickt (#277).
 - Präsentation mit Abschnitten: Die Zwischenfolie erscheint jetzt an fester

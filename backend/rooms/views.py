@@ -133,11 +133,16 @@ def _start_generation_job(question_set, user, **fields):
     """Create and start a generation job for a set. Any still-active job of
     *this* set is cancelled (superseded by the new request) — scoped to this
     set only, so it can't touch another set's legitimately RUNNING job
-    (restart-orphan handling lives in rooms.apps.ready())."""
+    (restart-orphan handling lives in rooms.apps.ready()). Older unreviewed
+    jobs of the set are dismissed too, so their proposals can't resurface
+    once the new run is reviewed or discarded (#303)."""
     GenerationJob.objects.filter(
         question_set=question_set,
         status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
     ).update(status=GenerationJob.Status.CANCELLED)
+    GenerationJob.objects.filter(question_set=question_set, reviewed=False).update(
+        reviewed=True
+    )
     job = GenerationJob.objects.create(question_set=question_set, created_by=user, **fields)
     generation.start_job(job)
     return job
