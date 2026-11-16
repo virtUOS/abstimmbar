@@ -190,8 +190,12 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     void api.getSite().then((s) => setLogoUrl(s.logo)).catch(() => setLogoUrl(null));
   }, []);
   const beamerLogo = state?.room.show_logo && logoUrl ? logoUrl : null;
-  const [interstitial, setInterstitial] = useState<(SectionSlide & { index: number }) | null>(null);
-  const announcedRef = useRef<Set<number>>(new Set());
+  // `pendingId`: the header was confirmed (or left backwards) and stays up
+  // until the server shows that question — clearing it right away flashed the
+  // previous question on the beamer (#278).
+  const [interstitial, setInterstitial] = useState<
+    (SectionSlide & { index: number; pendingId: number | null }) | null
+  >(null);
   const indexRef = useRef(-1);
   // #7 deep link: index the lobby Start should open, and a one-shot guard.
   const pendingStartIndexRef = useRef<number | null>(null);
@@ -1003,26 +1007,75 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     [runId, questions, openOnShow],
   );
 
-  // Navigate, but first show the section interstitial when entering a
-  // section for the first time this run (v2 "Zwischenfolie").
   // Plain-text question titles for the footer's jump menu ("3/12").
   const jumpTitles = useMemo(
     () => questions.map((q) => stripHtml(localizedText(q.text)).replace(/\s+/g, " ").trim()),
     [questions],
   );
+
+  // Section headers ("Zwischenfolie") sit at a fixed place in the sequence
+  // (#278): one step forward into a section's first question shows its
+  // header, one step back from that question shows it again — every time,
+  // not just the first time per run. Jumps (the "3/12" list, deep links)
+  // land on the chosen question itself.
+  const startsSection = useCallback(
+    (index: number) => {
+      const section = questions[index]?.section;
+      return section != null && (index === 0 || questions[index - 1].section !== section);
+    },
+    [questions],
+  );
+  const showHeader = useCallback(
+    (index: number) => {
+      const section = questions[index]?.section;
+      if (section == null) return;
+      setInterstitial({ ...sectionSlide(sectionInfo, section), index, pendingId: null });
+    },
+    [questions, sectionInfo],
+  );
+
+  // One step forward onto `index`: through its section header if it opens one.
   const requestGoto = useCallback(
     (index: number) => {
       if (!runId || questions.length === 0) return;
       const clamped = Math.max(0, Math.min(questions.length - 1, index));
-      const section = questions[clamped].section;
-      if (section !== null && !announcedRef.current.has(section)) {
-        setInterstitial({ ...sectionSlide(sectionInfo, section), index: clamped });
+      if (startsSection(clamped)) {
+        showHeader(clamped);
         return;
       }
       void goto(clamped);
     },
-    [runId, questions, sectionInfo, goto],
+    [runId, questions, startsSection, showHeader, goto],
   );
+
+  // Leave the header for question `index`, keeping the header on the beamer
+  // until the server reports that question (no flash of the old one).
+  const leaveHeader = useCallback(
+    (index: number) => {
+      const target = questions[index];
+      if (!target) return;
+      if (state?.question?.id === target.id) {
+        // Already the live question (back from it to its header and forward
+        // again): just reveal it, without resetting its phase.
+        setInterstitial(null);
+        return;
+      }
+      setInterstitial((current) => current && { ...current, pendingId: target.id });
+      goto(index).catch(() => setInterstitial(null));
+    },
+    [questions, state?.question?.id, goto],
+  );
+  useEffect(() => {
+    const pending = interstitial?.pendingId;
+    if (pending == null) return;
+    if (activeId === pending) {
+      setInterstitial(null);
+      return;
+    }
+    // Safety net: never leave the header stuck if the update doesn't arrive.
+    const timer = window.setTimeout(() => setInterstitial(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [interstitial?.pendingId, activeId]);
 
   // Start from the lobby into the armed deep-link question (#7), or the first
   // question when there is no target.
@@ -1049,29 +1102,25 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   }, [runId, questions, state, targetQuestionId, goto]);
 
   const confirmInterstitial = useCallback(() => {
-    if (!interstitial) return;
-    const section = questions[interstitial.index]?.section;
-    if (section !== null && section !== undefined) announcedRef.current.add(section);
-    const target = interstitial.index;
-    setInterstitial(null);
-    void goto(target);
-  }, [interstitial, questions, goto]);
+    if (!interstitial || interstitial.pendingId != null) return;
+    leaveHeader(interstitial.index);
+  }, [interstitial, leaveHeader]);
+
+  // Back from a header: the previous question itself (never its header).
+  const headerPrev = useCallback(() => {
+    if (!interstitial || interstitial.pendingId != null || interstitial.index === 0) return;
+    leaveHeader(interstitial.index - 1);
+  }, [interstitial, leaveHeader]);
 
   // Going back from a section's first question lands on the section header
-  // again (#7), rather than skipping straight to the previous question.
+  // again (#7), rather than skipping straight to the previous question; any
+  // other step back goes to the previous question directly.
   const goPrev = useCallback(() => {
     const idx = indexRef.current;
-    const current = questions[idx];
-    if (
-      current &&
-      current.section != null &&
-      (idx === 0 || questions[idx - 1].section !== current.section)
-    ) {
-      setInterstitial({ ...sectionSlide(sectionInfo, current.section), index: idx });
-    } else {
-      requestGoto(idx - 1);
-    }
-  }, [questions, sectionInfo, requestGoto]);
+    if (idx < 0) return;
+    if (startsSection(idx)) showHeader(idx);
+    else if (idx > 0) void goto(idx - 1);
+  }, [startsSection, showHeader, goto]);
 
   // Guarded "advance" (#10). Quick paging stays silent; only when a slide was
   // dwelled on do we prompt — either "you didn't start this vote" (preview,
@@ -1471,6 +1520,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
       // While the interstitial is up, S/→/Enter/Space confirm it, Esc dismisses.
       if (interstitial) {
         if (advance || key === "arrowright") confirmInterstitial();
+        else if (key === "arrowleft") headerPrev();
         else if (key === "escape") setInterstitial(null);
         return;
       }
@@ -1517,7 +1567,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
         void leave();
       }
     },
-    [leave, runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, interstitial, selfPaced, ended, jumpToResults, cycleView, toggleSolution, startFromLobby, showResults, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown, mxShown, stopCloses, pendingFinish, backFromClosing, finishAndLeave],
+    [leave, runId, phase, activeKind, requestGoto, goPrev, advanceNext, confirmInterstitial, headerPrev, interstitial, selfPaced, ended, jumpToResults, cycleView, toggleSolution, startFromLobby, showResults, showJoin, showAiPanel, showModPanel, walk, walkAdvance, walkBack, cycleWalkView, leavePresentation, mmShown, mxShown, stopCloses, pendingFinish, backFromClosing, finishAndLeave],
   );
 
   useEffect(() => {
@@ -1835,10 +1885,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             index={target}
             count={questions.length}
             variant="section"
-            onPrev={() => {
-              setInterstitial(null);
-              requestGoto(target - 1);
-            }}
+            onPrev={headerPrev}
             onNext={confirmInterstitial}
             onLeave={() => void leave()}
             onHelp={() => setShowHelp(true)}
@@ -1954,7 +2001,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           onPrev={goPrev}
           onNext={advanceNext}
           questionTitles={jumpTitles}
-          onJump={(i) => requestGoto(i)}
+          onJump={(i) => void goto(i)}
           onToggle={() =>
             phase === "open"
               ? // Word clouds jump straight to results on close so the cloud
