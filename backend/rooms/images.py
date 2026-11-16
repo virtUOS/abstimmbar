@@ -52,8 +52,9 @@ def normalize_image(django_file):
     ) as exc:
         raise InvalidImageError(str(exc)) from exc
 
-    # Animated images (GIF / animated WebP): pass through unchanged. The 5 MB
-    # input gate still applies; transcoding animation is out of scope.
+    # Animated images (GIF / animated WebP): pass through unchanged. The view
+    # applies a tighter 5 MB limit to them; transcoding animation is out of
+    # scope.
     if getattr(img, "is_animated", False):
         django_file.seek(0)
         return django_file

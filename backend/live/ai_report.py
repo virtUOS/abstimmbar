@@ -35,15 +35,22 @@ def report_system():
         "Überblick, danach wenige Stichpunkte zu Auffälligkeiten (klare "
         "Mehrheiten, Uneinigkeit, häufige Freitext-Themen, auffällige "
         "Verteilungen). Verwende ausschließlich die angegebenen Zahlen und "
-        "Begriffe und erfinde nichts. Antworte ausschließlich mit JSON der "
+        "Begriffe und erfinde nichts. Unterscheide Personen und Antworten: "
+        "„Teilnehmende Personen“ ist die Zahl der Personen, „Antworten“ "
+        "zählt abgegebene Antworten (eine Person beantwortet meist mehrere "
+        "Fragen); nenne Antwortzahlen nie als Personenzahl. Antworte "
+        "ausschließlich mit JSON der "
         'Form {"report": "..."}.'
     )
 
 
-def build_report_prompt(set_title, results):
+def build_report_prompt(set_title, results, participants):
+    """``participants``: distinct persons (``results.participant_total``),
+    so the model does not report the answer count as persons (#285)."""
     lines = [
         f"Fragenset: {set_title}",
-        f"Antworten insgesamt: {results['votes_total']}",
+        f"Teilnehmende Personen: {participants}",
+        f"Antworten insgesamt (alle Fragen zusammen): {results['votes_total']}",
         "",
     ]
     for question in results["questions"]:

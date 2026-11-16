@@ -33,7 +33,7 @@ from .models import (
     SelfCheckAttempt,
     Vote,
 )
-from .results import freetext_evaluation
+from .results import freetext_evaluation, participant_total
 from .state import active_run, build_payloads
 
 User = get_user_model()
@@ -1270,6 +1270,28 @@ class ResultsApiTests(LiveTestCase):
         self.assertNotIn("{", body)
         self.assertNotIn("'de'", body)
 
+    def test_csv_choice_percent_and_local_start_time(self):
+        """#284: choice rows carry the percentage the results page shows
+        (share of the question's votes, one decimal), and "gestartet" is
+        local time with its UTC offset, not bare UTC."""
+        import csv
+        import datetime
+        import io
+
+        run = self._run_with_votes()
+        Run.objects.filter(pk=run.pk).update(
+            first_opened_at=datetime.datetime(2026, 11, 13, 10, 18, tzinfo=datetime.UTC)
+        )
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv"
+        ).content.decode("utf-8-sig")
+        rows = list(csv.DictReader(io.StringIO(body), delimiter=";"))
+        by_answer = {row["antwort"]: row for row in rows}
+        self.assertEqual(by_answer["4"]["prozent"], "66.7")
+        self.assertEqual(by_answer["5"]["prozent"], "33.3")
+        self.assertEqual(by_answer["4"]["gestartet"], "2026-11-13 11:18 +0100")
+
     def test_csv_neutralises_every_text_cell(self):
         """Formula-looking authored text (question, options, Likert steps,
         priorities items) never reaches the CSV unescaped, whatever the kind."""
@@ -2452,7 +2474,48 @@ class AiReportTests(LiveTestCase):
         self.assertIn("<li>Punkt</li>", report)
         # The prompt carries the aggregated numbers, not raw personal data.
         prompt = chat.call_args.args[1]
-        self.assertIn("Antworten insgesamt: 2", prompt)
+        self.assertIn("Antworten insgesamt (alle Fragen zusammen): 2", prompt)
+        self.assertIn("Teilnehmende Personen: 2", prompt)
+
+    @override_settings(**AI_ON)
+    def test_prompt_counts_persons_not_answers(self):
+        # #285: two persons answering two questions are 4 answers but 2
+        # persons; the prompt must give the model both numbers.
+        run = self._run_with_votes()
+        second = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="Zweite Frage", position=1,
+        )
+        option = AnswerOption.objects.create(question=second, text="A", position=0)
+        for token in ParticipantToken.objects.filter(votes__run=run).distinct():
+            Vote.objects.create(run=run, question=second, token=token).options.add(option)
+        self.assertEqual(participant_total(run), 2)
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"report": "ok"}
+        ) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(f"/api/runs/{run.pk}/ai-summary/")
+        prompt = chat.call_args.args[1]
+        self.assertIn("Teilnehmende Personen: 2", prompt)
+        self.assertIn("Antworten insgesamt (alle Fragen zusammen): 4", prompt)
+        self.assertIn("Personen und Antworten", chat.call_args.args[0])
+
+    def test_participant_total_includes_mindmap_and_matrix(self):
+        run = Run.objects.create(question_set=self.question_set)
+        a, b, c = (ParticipantToken.objects.create(room=self.room) for _ in range(3))
+        node = MindmapNode.objects.create(
+            run=run, question=self.question, text="Wind", text_key="wind"
+        )
+        MindmapContribution.objects.create(node=node, token=a)
+        MindmapRating.objects.create(node=node, token=b, value=1)
+        MatrixCard.objects.create(
+            run=run, question=self.question, token=c, title="X", zone="q1", x=0, y=0
+        )
+        MatrixCard.objects.create(
+            run=run, question=self.question, title="Lehrkraft", zone="q1", x=0, y=0,
+            teacher=True,
+        )
+        self.assertEqual(participant_total(run), 3)
 
     @override_settings(**AI_OFF)
     def test_disabled_returns_503(self):
@@ -4534,6 +4597,23 @@ class SelfCheckGradeTests(TestCase):
         self.assertEqual(data["index"], 2)
         self.assertFalse(data["correct"])
 
+    def test_grade_note_follows_participant_language(self):
+        # #300: the note comes back in the participant's language; the
+        # dedup cache is per language, so the same answer is graded anew.
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            return_value={"verdict": "korrekt", "note": "fine"},
+        ) as chat:
+            self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+            self.assertEqual(self._grade("Paris").status_code, 200)
+            self.assertIn("auf Englisch", chat.call_args.args[0])
+            self._grade("Paris")
+            self.assertEqual(chat.call_count, 1)  # cached for English
+            self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "de"
+            self._grade("Paris")
+            self.assertEqual(chat.call_count, 2)
+            self.assertIn("auf Deutsch", chat.call_args.args[0])
+
     def test_grade_rejects_non_open_text(self):
         mc = Question.objects.create(
             question_set=self.qs, kind="single_choice", text_de="x", text_en="x",
@@ -4690,6 +4770,30 @@ class WordCloudModerationAggregationTests(LiveTestCase):
         self.assertEqual(len(words), 1)
         self.assertEqual(words[0]["text"], "zorn")
         self.assertEqual(words[0]["count"], 2)  # wut's votes are NOT counted
+
+
+    def test_moderation_payload_shows_display_spelling(self):
+        # #296: hidden keys/merge members are casefolded; the presenter's
+        # panel gets the most frequent raw spelling as "text".
+        from .models import WordCloudModeration
+        from .results import moderation_payload
+        self._cast("Python", 2)
+        self._cast("python", 1)
+        self._cast("Java", 1)
+        mod = WordCloudModeration.objects.create(
+            run=self.run, question=self.q, hidden=["python", "gone"],
+            merges=[{"keys": ["java", "python"], "label": "Sprachen"}],
+        )
+        payload = moderation_payload(self.run, self.q, mod)
+        self.assertEqual(
+            payload["hidden"],
+            [{"key": "python", "text": "Python"}, {"key": "gone", "text": "gone"}],
+        )
+        self.assertEqual(
+            payload["merges"],
+            [{"keys": ["java", "python"], "label": "Sprachen", "texts": ["Java", "Python"]}],
+        )
+        self.assertEqual(moderation_payload(self.run, self.q, None), {"hidden": [], "merges": []})
 
 
 class WordCloudModerationApiTests(LiveTestCase):

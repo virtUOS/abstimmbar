@@ -87,6 +87,9 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    # After auth: the signed-in user's stored UI language wins over the
+    # participant page's language cookie on the management API (#300).
+    "accounts.middleware.UserLanguageMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "basicbar_lti.middleware.LtiFrameAncestorsMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",

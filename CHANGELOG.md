@@ -48,6 +48,28 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Ergebnisse zeigen Dezimalzahlen und Prozente in der Schreibweise der
   Oberflächensprache, z. B. „66,7 %“ und „Ø 5,3“ statt „66.7%“ und „Ø 5.3“
   (#293).
+- Bilder bis 20 MB (vorher 5 MB) lassen sich hochladen; sie werden wie
+  bisher verkleinert gespeichert. Scheitert ein Bild-Upload, etwa weil die
+  Datei zu groß ist, zeigt der Editor jetzt eine verständliche Meldung,
+  auch bei Bildern an Antwortoptionen, die bisher kommentarlos fehlschlugen
+  (#280).
+- CSV-Export: Die Spalte `gestartet` zeigt die Ortszeit samt Abstand zu UTC
+  (vorher UTC ohne Kennzeichnung, also eine Stunde zu früh), und `prozent`
+  ist jetzt auch bei Einfach- und Mehrfachauswahl sowie Ja/Nein-Fragen
+  gefüllt, mit denselben Anteilen wie in der Ergebnisansicht (#284).
+- KI-Kurzbericht: Der Bericht gab die Zahl der Antworten als Zahl der
+  Teilnehmenden aus („8 Teilnehmer“ bei 8 Antworten). Das Modell erhält
+  jetzt beide Zahlen getrennt (#285).
+- Wortwolke: Ausgeblendete und zusammengeführte Begriffe stehen in der
+  Moderationsliste der Präsentation jetzt in der Schreibweise, in der sie
+  auch in der Wolke erscheinen („Python“ statt „python“) (#296).
+- Sprachmischung: Wer im selben Browser die Teilnahmeseite in einer anderen
+  Sprache geöffnet hatte, bekam danach auch in der Verwaltung Meldungen des
+  Servers in dieser Sprache. Angemeldete Personen erhalten jetzt die Sprache
+  ihrer Oberfläche, und die Suche auf der Startseite zeigt
+  Titel und Fragen in der Sprache der Oberfläche. In der Lernkontrolle
+  begründet die KI ihre Bewertung von Freitextantworten in der Sprache der
+  Teilnahmeseite statt immer auf Deutsch (#300).
 
 ### Sicherheit
 

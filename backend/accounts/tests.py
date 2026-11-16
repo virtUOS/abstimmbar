@@ -632,3 +632,44 @@ class TourEventTests(TestCase):
         # Only a day, never a timestamp — events must not be linkable in time.
         self.assertFalse([f.name for f in fields if isinstance(f, models.DateTimeField)])
 
+
+
+class UserLanguageMiddlewareTests(TestCase):
+    """#300: the participant page's language cookie must not switch a
+    signed-in teacher's management API to another language."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(username="lena", language="de")
+        self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+
+    def test_stored_language_beats_cookie_on_management_api(self):
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/whoami/")
+        self.assertEqual(resp["Content-Language"], "de")
+        # A DRF message from a management endpoint comes back in German.
+        resp = self.client.delete("/api/translate/")
+        self.assertEqual(resp.status_code, 405)
+        self.assertEqual(resp["Content-Language"], "de")
+        self.assertNotIn("not allowed", resp.json()["detail"])
+
+    def test_participant_api_keeps_the_cookie_language(self):
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/live/check/nope/")
+        self.assertEqual(resp["Content-Language"], "en")
+
+    def test_without_stored_language_the_ui_language_header_applies(self):
+        # The management UI sends its current language as Accept-Language.
+        self.user.language = ""
+        self.user.save(update_fields=["language"])
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/whoami/", HTTP_ACCEPT_LANGUAGE="de")
+        self.assertEqual(resp["Content-Language"], "de")
+
+    def test_without_any_language_hint_the_cookie_applies(self):
+        self.user.language = ""
+        self.user.save(update_fields=["language"])
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get("/api/whoami/")["Content-Language"], "en")
+
+    def test_anonymous_requests_are_untouched(self):
+        self.assertEqual(self.client.get("/api/whoami/")["Content-Language"], "en")

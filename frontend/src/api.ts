@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import type { LocalizedText } from "@basicbar/ui";
+import { i18n, type LocalizedText } from "@basicbar/ui";
 import type { TFunction } from "i18next";
 import type { MatrixColor } from "./matrixPalette";
 import type { SetType } from "./setTypes";
@@ -494,17 +494,19 @@ export interface LikertSummary {
 }
 
 /** Start-page keyword search across the user's rooms, sets and questions. */
+/** Titles/texts are {de, en} maps (#300); `text` is a plain-text snippet
+ *  per language. */
 export interface SearchResults {
-  rooms: { id: number; code: string; title: string }[];
-  sets: { id: number; title: string; room: number; room_title: string }[];
+  rooms: { id: number; code: string; title: LocalizedText }[];
+  sets: { id: number; title: LocalizedText; room: number; room_title: LocalizedText }[];
   questions: {
     id: number;
-    text: string;
+    text: LocalizedText;
     kind: QuestionKind;
     question_set: number;
-    set_title: string;
+    set_title: LocalizedText;
     room: number;
-    room_title: string;
+    room_title: LocalizedText;
   }[];
 }
 
@@ -689,6 +691,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         ? {}
         : { "Content-Type": "application/json" }),
       "X-CSRFToken": csrfToken(),
+      // The UI's current language, so server-side strings follow it rather
+      // than the participant page's language cookie (#300).
+      ...(i18n.language ? { "Accept-Language": i18n.language.split("-")[0] } : {}),
       ...init.headers,
     },
     ...init,
@@ -752,6 +757,10 @@ export function detailText(detail: string, t: TFunction): string {
 export function aiErrorText(err: unknown, t: TFunction): string {
   return detailText(errorDetail(err), t);
 }
+
+/** Upload limit of `/api/images/` (backend `MAX_IMAGE_BYTES`, #280). */
+export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
+const IMAGE_TOO_LARGE = "The image is larger than 20 MB.";
 
 export const api = {
   whoami: async () => {
@@ -1126,7 +1135,11 @@ export const api = {
       { method: "POST", body: JSON.stringify({ room }) },
     ),
 
+  /** Rejects with the same error shape as a failed request (so
+   *  `requestError` works), checking the size client-side first (#280). */
   uploadImage: (file: File) => {
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES)
+      return Promise.reject(new Error(JSON.stringify({ detail: IMAGE_TOO_LARGE })));
     const body = new FormData();
     body.append("file", file);
     return request<{ id: number; url: string }>("/api/images/", {
@@ -1381,9 +1394,11 @@ export type MindmapLogEntry = { id: number; created_at: string } & (
 /** Presenter-side moderation state for a word cloud (#Wortwolke): terms hidden
  *  from the live view and manual merges (grouping several keys under one
  *  label), independent of the AI cleanup view. */
+/** `key`s are casefolded; `text`/`texts` carry the display spelling (most
+ *  frequent raw variant, #296). */
 export interface WordCloudModeration {
-  hidden: { key: string }[];
-  merges: { keys: string[]; label: string }[];
+  hidden: { key: string; text?: string }[];
+  merges: { keys: string[]; label: string; texts?: string[] }[];
 }
 
 /** A word of the AI views: `keys` are the raw casefold terms it stands for. */
