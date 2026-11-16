@@ -77,8 +77,38 @@ AVOID_MAX_ITEMS = 40
 AVOID_STEM_CHARS = 150
 
 
+def _page_block(count, page_plan, page_label):
+    """How to spread the questions over the pages/slides of this part (#304),
+    plus a note on how the extraction marks tables, charts and notes (#305).
+    Empty for unstructured (pasted) text."""
+    if not page_label:
+        return ""
+    plural = "Folien" if page_label == "Folie" else "Seiten"
+    block = (
+        f"Das Material ist in {plural} gegliedert; jede beginnt mit einer Zeile "
+        f"„=== {page_label} N ===“. Tabellen stehen zeilenweise (Spalten durch "
+        "„|“ getrennt, erste Zeile = Kopfzeile), Diagramme mit Titel und Werten "
+        "(„Diagramm:“), Sprechernotizen sind mit „Sprechernotizen:“ "
+        "gekennzeichnet. Beziehe all das wie normalen Inhalt ein, auch mit "
+        "konkreten Zahlen.\n"
+    )
+    if page_plan and sum(n for _, n in page_plan) == count:
+        split = ", ".join(f"{page_label} {page}: {n}" for page, n in page_plan)
+        block += (
+            f"Verteile die Fragen so auf die {plural}: {split}. Jede Frage "
+            f"bezieht sich auf die angegebene {page_label}.\n"
+        )
+    else:
+        block += (
+            f"Verteile die Fragen möglichst gleichmäßig über die {plural} dieses "
+            "Materials, statt dich auf eine einzelne zu konzentrieren.\n"
+        )
+    return block + "\n"
+
+
 def build_generate_prompt(
-    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=(), avoid=()
+    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=(), avoid=(),
+    page_plan=(), page_label="",
 ):
     allowed = [k for k in ALLOWED_KINDS if k in kinds] or list(ALLOWED_KINDS)
     kind_lines = "\n".join(f"- {k}: {KIND_LABELS[k]}" for k in allowed)
@@ -123,19 +153,30 @@ def build_generate_prompt(
             + "\n".join(f"- {s}" for s in stems)
             + "\n\n"
         )
+    # Where a question came from (#304): only asked for when the material
+    # carries page markers; shown to the teacher in the review list.
+    source_field = '"source_page": 1, ' if page_label else ""
+    source_note = (
+        f'"source_page" ist die Nummer der {page_label}, auf die sich die Frage '
+        "bezieht. "
+        if page_label else ""
+    )
     return (
-        f"Erzeuge bis zu {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
+        f"Erzeuge genau {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
         f"{focus_block}"
         f"Kognitive Ausrichtung: {hint}\n\n"
+        f"{_page_block(count, page_plan, page_label)}"
         f"{guidance_block}"
         f"{avoid_block}"
         "Material:\n"
         f"{text}\n\n"
         "Gib JSON in genau dieser Form zurück:\n"
         '{"questions": [{"kind": "single_choice", "text": "Fragetext", '
+        f"{source_field}"
         '"options": [{"text": "Antwort", "is_correct": true}, '
         '{"text": "Antwort", "is_correct": false}]}], '
         '"unsuitable_reason": ""}\n'
+        f"{source_note}"
         'Bei "open_text" lasse "options" weg oder leer und gib zusätzlich '
         '"model_solution": "..." an – eine knappe Musterlösung (Referenz- '
         'bzw. Idealantwort) in derselben Sprache wie die Frage. Bei '
@@ -147,7 +188,21 @@ def build_generate_prompt(
     )
 
 
-def build_drafts(data, kinds, count):
+def _source_page(item, pages):
+    """The question's ``source_page`` if it names one of ``pages``, else
+    None (missing, malformed or out of range — tolerated, #304)."""
+    value = item.get("source_page")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return value if isinstance(value, int) and value in pages else None
+
+
+def build_drafts(data, kinds, count, pages=()):
+    pages = set(pages or ())
     allowed = {k for k in ALLOWED_KINDS if k in kinds} or set(ALLOWED_KINDS)
     questions = data.get("questions") if isinstance(data, dict) else None
     drafts = []
@@ -192,6 +247,9 @@ def build_drafts(data, kinds, count):
                 continue  # a choice question needs at least two options
             _fix_answer_key(kind, options)
             drafts.append({"kind": kind, "text": text, "options": options})
+        page = _source_page(item, pages)
+        if page is not None:
+            drafts[-1]["source_page"] = page
         if len(drafts) >= count:
             break
     return drafts

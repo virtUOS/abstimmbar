@@ -1695,5 +1695,7 @@
   "Covers the whole document; more per page or slide means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite bzw. Folie = mehr Fragen.",
   "For pasted text, about 2,000 characters count as one page.": "Bei eingefügtem Text zählen je etwa 2000 Zeichen als eine Seite.",
   "{{pages}} pages × {{density}} = {{n}} questions": "{{pages}} Seiten × {{density}} = {{n}} Fragen",
-  "{{pages}} pages or slides × {{density}} = {{n}} questions": "{{pages}} Seiten bzw. Folien × {{density}} = {{n}} Fragen"
+  "{{pages}} pages or slides × {{density}} = {{n}} questions": "{{pages}} Seiten bzw. Folien × {{density}} = {{n}} Fragen",
+  "Slide {{n}}": "Folie {{n}}",
+  "Page {{n}}": "Seite {{n}}"
 }

@@ -166,8 +166,18 @@ def _clamp_float(value, default, lo, hi):
         return default
 
 
+def _page_label(job):
+    """"slide"/"page" when the job's material carries the extraction's page
+    markers (so drafts' ``source_page`` reads "Folie 3"/"Seite 3"), else ""."""
+    match = documents.PAGE_MARKER_RE.search(job.source_text or "")
+    if not match:
+        return ""
+    return "slide" if match.group(1) == documents.PAGE_LABEL_SLIDE else "page"
+
+
 def _job_payload(job):
     return {
+        "page_label": _page_label(job),
         "id": job.id, "status": job.status,
         "done_chunks": job.done_chunks, "total_chunks": job.total_chunks,
         "drafts": job.drafts, "truncated": job.truncated,

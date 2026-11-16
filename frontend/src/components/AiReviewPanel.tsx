@@ -198,11 +198,22 @@ export default function AiReviewPanel({
     }
   }
 
+  function sourceLabel(draft: GeneratedQuestion): string {
+    if (!draft.source_page || !job?.page_label) return "";
+    return job.page_label === "slide"
+      ? t("Slide {{n}}", { n: draft.source_page })
+      : t("Page {{n}}", { n: draft.source_page });
+  }
+
   function draftBody(draft: GeneratedQuestion) {
+    const source = sourceLabel(draft);
     return (
       <div className="min-w-0 flex-1">
         <div className="text-xs uppercase tracking-wide text-slate-400">
           {KIND_LABEL[draft.kind] ? t(KIND_LABEL[draft.kind]) : draft.kind}
+          {source && (
+            <span className="normal-case tracking-normal"> · {source}</span>
+          )}
         </div>
         <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
           {draft.text}

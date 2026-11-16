@@ -22,7 +22,9 @@ optional — Sie entscheiden immer selbst, was Sie übernehmen.
   PowerPoint (PPTX) oder LibreOffice (ODP). *Beispiel:* Sie laden Ihre Folien
   hoch, wählen ein Frageniveau, und die KI schlägt Einzel-,
   Mehrfachauswahl- und Freitextfragen vor. Neben dem Folientext fließen
-  auch Tabellen, Diagrammwerte und Sprechernotizen ein.
+  auch Tabellen, Diagrammwerte und Sprechernotizen ein. Die Fragen verteilen
+  sich gleichmäßig über die Folien (fast leere wie die Titelfolie zählen
+  nicht mit); bei jedem Vorschlag steht, auf welche Folie er sich bezieht.
 
 ## In der Präsentation
 

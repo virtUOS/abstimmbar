@@ -42,6 +42,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   zeilenweise, Diagramme mit Titel und Werten, Sprechernotizen gekennzeichnet
   (PPTX auch aus gruppierten Formen). Die KI kann so Fragen zu konkreten
   Tabellen- und Diagrammwerten und zu Notizen stellen (#305).
+- „Aus Dokument“ verteilt die Fragen gleichmäßig über die Folien bzw.
+  Seiten: Jede inhaltliche Folie bekommt ihren Anteil, fast leere Folien wie
+  die Titelfolie keinen; die gewünschte Anzahl wird genau angefragt und bei
+  Bedarf nachgefordert. Jeder Vorschlag zeigt, auf welche Folie bzw. Seite er
+  sich bezieht (#304).
 
 ### Behoben
 

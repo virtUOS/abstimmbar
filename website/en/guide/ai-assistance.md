@@ -21,7 +21,9 @@ and you always decide for yourself what to use.
   from PDF, PowerPoint (PPTX) or LibreOffice (ODP). *Example:* you upload
   your slides, pick a question level, and the AI suggests single-choice,
   multiple-choice and free-text questions. Besides the slide text, tables,
-  chart values and speaker notes are taken into account.
+  chart values and speaker notes are taken into account. The questions are
+  spread evenly across the slides (nearly empty ones such as the title slide
+  don't count); each proposal shows which slide it refers to.
 
 ## During the presentation
 
