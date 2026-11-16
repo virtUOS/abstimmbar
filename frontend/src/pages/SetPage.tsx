@@ -37,6 +37,7 @@ import { allowedKindsFor, SET_TYPES, type SetType } from "../setTypes";
 import { localizedMap, localizedText, type LocalizedText, RichText, stripHtml, TranslationControlsSlot } from "@basicbar/ui";
 import {
   Button,
+  ConfirmDialog,
   ConfirmInline,
   EmptyState,
   Field,
@@ -873,6 +874,7 @@ export default function SetPage() {
   const [set, setSet] = useState<QuestionSet | null>(null);
   const [questions, setQuestions] = useState<Question[] | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+  const [confirmDeleteSection, setConfirmDeleteSection] = useState<number | null>(null);
   const [copyOpen, setCopyOpen] = useState(false);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [copyTarget, setCopyTarget] = useState<number | null>(null);
@@ -2200,12 +2202,27 @@ export default function SetPage() {
                             section={row.section}
                             onRename={(id, title) => void renameSection(id, title)}
                           />
+                          {confirmDeleteSection === row.section.id && (
+                            // #288: confirm with the section's name (it used
+                            // to vanish on the first click). A modal: a long
+                            // title would overflow the header row inline.
+                            <ConfirmDialog
+                              message={t("Delete section “{{title}}”? Its questions are kept.", {
+                                title: localizedText(row.section.title),
+                              })}
+                              onConfirm={() => {
+                                setConfirmDeleteSection(null);
+                                void deleteSection(row.section.id);
+                              }}
+                              onCancel={() => setConfirmDeleteSection(null)}
+                            />
+                          )}
                           <Button
                             variant="ghost"
                             aria-label={t("Delete section {{title}}", {
                               title: localizedText(row.section.title),
                             })}
-                            onClick={() => void deleteSection(row.section.id)}
+                            onClick={() => setConfirmDeleteSection(row.section.id)}
                           >
                             <Trash2 aria-hidden className="h-4 w-4" />
                           </Button>

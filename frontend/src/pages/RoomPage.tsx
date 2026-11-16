@@ -911,13 +911,26 @@ export default function RoomPage() {
         </div>
       )}
 
-      {confirmDelete !== null && (
+      {confirmDelete !== null && (() => {
+        // #288: name the set — duplicated/imported sets often look alike.
+        const target = sets?.find((s) => s.id === confirmDelete);
+        const title = target ? localizedText(target.title) : "";
+        return (
         <ConfirmDialog
-          message={committee ? t("Delete meeting?") : t("Delete question set?")}
+          message={
+            committee
+              ? title
+                ? t("Delete meeting “{{title}}”?", { title })
+                : t("Delete meeting?")
+              : title
+                ? t("Delete question set “{{title}}”?", { title })
+                : t("Delete question set?")
+          }
           onConfirm={() => void handleDelete(confirmDelete)}
           onCancel={() => setConfirmDelete(null)}
         />
-      )}
+        );
+      })()}
       {confirmArchive !== null && (
         <ConfirmDialog
           message={t("Archive results? The next presentation starts fresh.")}

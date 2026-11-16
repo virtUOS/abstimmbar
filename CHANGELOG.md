@@ -55,6 +55,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   übernehmen“ erhalten. Der Hinweis im Fragenset zeigt, wie viele noch auf
   Prüfung warten; erst „Rest verwerfen“ oder das Übernehmen des letzten
   Vorschlags schließt die Erzeugung ab (#292).
+- Lösch-Rückfragen nennen jetzt, was gelöscht wird, z. B. „Fragenset
+  „Testset (2)“ löschen?“; das gilt auch für Räume und Sitzungen. Abschnitte
+  werden nicht mehr beim ersten Klick gelöscht, sondern nach einer Rückfrage
+  mit Namen (#288).
 
 ### Behoben
 

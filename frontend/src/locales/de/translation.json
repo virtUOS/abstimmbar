@@ -1700,5 +1700,10 @@
   "Page {{n}}": "Seite {{n}}",
   "{{n}} more proposals are waiting for review.": "Noch {{n}} Vorschläge warten auf Ihre Prüfung.",
   "{{n}} more proposals for “{{title}}” are waiting for review.": "Noch {{n}} Vorschläge für „{{title}}“ warten auf Ihre Prüfung.",
-  "Discard the rest": "Rest verwerfen"
+  "Discard the rest": "Rest verwerfen",
+  "Delete question set “{{title}}”?": "Fragenset „{{title}}“ löschen?",
+  "Delete meeting “{{title}}”?": "Sitzung „{{title}}“ löschen?",
+  "Delete room “{{title}}”?": "Raum „{{title}}“ löschen?",
+  "Delete room “{{title}}” for all {{count}} people?": "Raum „{{title}}“ für alle {{count}} Personen löschen?",
+  "Delete section “{{title}}”? Its questions are kept.": "Abschnitt „{{title}}“ löschen? Die Fragen bleiben erhalten."
 }

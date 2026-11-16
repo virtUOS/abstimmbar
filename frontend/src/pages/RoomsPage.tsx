@@ -410,9 +410,15 @@ export default function RoomsPage() {
         return (
           <ConfirmDialog
             message={
+              // #288: name the room in the confirmation.
               sharedByMe
-                ? t("Delete room for all {{count}} people?", { count: r!.owner_count })
-                : t("Delete room?")
+                ? t("Delete room “{{title}}” for all {{count}} people?", {
+                    count: r!.owner_count,
+                    title: localizedText(r!.title),
+                  })
+                : r
+                  ? t("Delete room “{{title}}”?", { title: localizedText(r.title) })
+                  : t("Delete room?")
             }
             confirmLabel={t("Delete")}
             onConfirm={() => handleDelete(confirmDelete)}
