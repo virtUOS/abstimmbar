@@ -494,17 +494,19 @@ export interface LikertSummary {
 }
 
 /** Start-page keyword search across the user's rooms, sets and questions. */
+/** Titles/texts are {de, en} maps (#300); `text` is a plain-text snippet
+ *  per language. */
 export interface SearchResults {
-  rooms: { id: number; code: string; title: string }[];
-  sets: { id: number; title: string; room: number; room_title: string }[];
+  rooms: { id: number; code: string; title: LocalizedText }[];
+  sets: { id: number; title: LocalizedText; room: number; room_title: LocalizedText }[];
   questions: {
     id: number;
-    text: string;
+    text: LocalizedText;
     kind: QuestionKind;
     question_set: number;
-    set_title: string;
+    set_title: LocalizedText;
     room: number;
-    room_title: string;
+    room_title: LocalizedText;
   }[];
 }
 

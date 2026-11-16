@@ -1786,16 +1786,18 @@ class GlobalSearchTests(ApiTestCase):
 
     def test_matches_room_set_and_question(self):
         rooms = self._search("photosynth")
-        self.assertEqual([r["title"] for r in rooms["rooms"]],
+        self.assertEqual([resolve_translated_text(r["title"]) for r in rooms["rooms"]],
                          ["Photosynthese-Vorlesung"])
-        self.assertEqual([s["title"] for s in self._search("grundlagen")["sets"]],
+        self.assertEqual([resolve_translated_text(s["title"]) for s in self._search("grundlagen")["sets"]],
                          ["Grundlagen"])
         # Question text is matched and returned as plain text with context.
         questions = self._search("chlorophyll")["questions"]
         self.assertEqual(len(questions), 1)
-        self.assertEqual(questions[0]["text"], "Was ist Chlorophyll?")
-        self.assertEqual(questions[0]["set_title"], "Grundlagen")
-        self.assertEqual(questions[0]["room_title"], "Photosynthese-Vorlesung")
+        self.assertEqual(resolve_translated_text(questions[0]["text"]), "Was ist Chlorophyll?")
+        self.assertEqual(resolve_translated_text(questions[0]["set_title"]), "Grundlagen")
+        self.assertEqual(
+            resolve_translated_text(questions[0]["room_title"]), "Photosynthese-Vorlesung"
+        )
         # Answer-option text matches too.
         self.assertEqual(len(self._search("blattgr")["questions"]), 1)
 
@@ -1810,9 +1812,9 @@ class GlobalSearchTests(ApiTestCase):
         QuestionSet.objects.create(room=foreign, title="Photo-Fremdset")
         result = self._search("photo")
         self.assertNotIn(
-            "Photosynthese-Fremdraum", [r["title"] for r in result["rooms"]]
+            "Photosynthese-Fremdraum", [resolve_translated_text(r["title"]) for r in result["rooms"]]
         )
-        self.assertNotIn("Photo-Fremdset", [s["title"] for s in result["sets"]])
+        self.assertNotIn("Photo-Fremdset", [resolve_translated_text(s["title"]) for s in result["sets"]])
 
     def test_requires_login(self):
         self.client.logout()
@@ -1834,16 +1836,35 @@ class GlobalSearchTests(ApiTestCase):
             "/api/search/?q=deutschlandkunde", HTTP_ACCEPT_LANGUAGE="en"
         )
         self.assertEqual(
-            [r["title"] for r in response.json()["rooms"]],
+            [resolve_translated_text(r["title"]) for r in response.json()["rooms"]],
             ["Deutschlandkunde-Vorlesung"],
         )
         response = self.client.get(
             "/api/search/?q=verfasst", HTTP_ACCEPT_LANGUAGE="en"
         )
         self.assertEqual(
-            [s["title"] for s in response.json()["sets"]],
+            [resolve_translated_text(s["title"]) for s in response.json()["sets"]],
             ["Nur auf Deutsch verfasst"],
         )
+
+    def test_returns_language_maps_not_the_active_language(self):
+        # #300: titles/texts are {de, en} maps, independent of the request's
+        # active language, so the client shows them in its UI language.
+        room = Room.objects.create(title_de="Raum DE", title_en="Room EN")
+        room.owners.add(self.owner)
+        qset = QuestionSet.objects.create(room=room, title_de="Satz DE", title_en="Set EN")
+        Question.objects.create(
+            question_set=qset, kind="single_choice",
+            text_de="<p>Frage zu Zebras</p>", text_en="",
+        )
+        for lang in ("de", "en"):
+            result = self.client.get("/api/search/?q=zebra", HTTP_ACCEPT_LANGUAGE=lang).json()
+            [question] = result["questions"]
+            self.assertEqual(question["text"], {"de": "Frage zu Zebras", "en": ""})
+            self.assertEqual(question["set_title"], {"de": "Satz DE", "en": "Set EN"})
+            self.assertEqual(question["room_title"], {"de": "Raum DE", "en": "Room EN"})
+        result = self.client.get("/api/search/?q=raum", HTTP_ACCEPT_LANGUAGE="en").json()
+        self.assertIn({"de": "Raum DE", "en": "Room EN"}, [r["title"] for r in result["rooms"]])
 
 
 AI_ON = {

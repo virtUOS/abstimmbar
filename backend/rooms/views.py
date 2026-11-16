@@ -1072,7 +1072,8 @@ class SearchView(APIView):
     Matches room titles/codes, set titles/descriptions and question/answer
     texts. Scoped to rooms the user owns (staff sees all). Each group is
     capped so the start page stays responsive; question text is stripped to
-    plain text for a readable snippet.
+    plain text for a readable snippet. Titles and texts are {de, en} maps
+    like everywhere else in the API (#300); the client resolves them.
     """
 
     permission_classes: ClassVar = [IsAuthenticated]
@@ -1092,7 +1093,8 @@ class SearchView(APIView):
             | Q(code__icontains=query)
         ).order_by(f"title_{settings.MODELTRANSLATION_DEFAULT_LANGUAGE}")[: self.LIMIT]
         result["rooms"] = [
-            {"id": r.pk, "code": r.code, "title": r.title} for r in matched_rooms
+            {"id": r.pk, "code": r.code, "title": translated_map(r, "title")}
+            for r in matched_rooms
         ]
 
         matched_sets = (
@@ -1105,8 +1107,8 @@ class SearchView(APIView):
         )
         result["sets"] = [
             {
-                "id": s.pk, "title": s.title,
-                "room": s.room_id, "room_title": s.room.title,
+                "id": s.pk, "title": translated_map(s, "title"),
+                "room": s.room_id, "room_title": translated_map(s.room, "title"),
             }
             for s in matched_sets
         ]
@@ -1126,12 +1128,17 @@ class SearchView(APIView):
         result["questions"] = [
             {
                 "id": q.pk,
-                "text": strip_tags(q.text).strip()[:160] or "(ohne Fragentext)",
+                # Per-language plain-text snippet; "" = no text in that
+                # language (the client falls back / shows a placeholder).
+                "text": {
+                    lang: strip_tags(text).strip()[:160]
+                    for lang, text in translated_map(q, "text").items()
+                },
                 "kind": q.kind,
                 "question_set": q.question_set_id,
-                "set_title": q.question_set.title,
+                "set_title": translated_map(q.question_set, "title"),
                 "room": q.question_set.room_id,
-                "room_title": q.question_set.room.title,
+                "room_title": translated_map(q.question_set.room, "title"),
             }
             for q in matched_questions
         ]

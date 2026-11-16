@@ -47,6 +47,13 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Wortwolke: Ausgeblendete und zusammengeführte Begriffe stehen in der
   Moderationsliste der Präsentation jetzt in der Schreibweise, in der sie
   auch in der Wolke erscheinen („Python“ statt „python“) (#296).
+- Sprachmischung: Wer im selben Browser die Teilnahmeseite in einer anderen
+  Sprache geöffnet hatte, bekam danach auch in der Verwaltung Meldungen des
+  Servers in dieser Sprache. Angemeldete Personen erhalten jetzt immer die
+  in ihrem Konto gewählte Sprache, und die Suche auf der Startseite zeigt
+  Titel und Fragen in der Sprache der Oberfläche. In der Lernkontrolle
+  begründet die KI ihre Bewertung von Freitextantworten in der Sprache der
+  Teilnahmeseite statt immer auf Deutsch (#300).
 
 ### Sicherheit
 

@@ -4533,6 +4533,23 @@ class SelfCheckGradeTests(TestCase):
         self.assertEqual(data["index"], 2)
         self.assertFalse(data["correct"])
 
+    def test_grade_note_follows_participant_language(self):
+        # #300: the note comes back in the participant's language; the
+        # dedup cache is per language, so the same answer is graded anew.
+        with patch(
+            "basicbar_integrations.ai.chat_json",
+            return_value={"verdict": "korrekt", "note": "fine"},
+        ) as chat:
+            self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "en"
+            self.assertEqual(self._grade("Paris").status_code, 200)
+            self.assertIn("auf Englisch", chat.call_args.args[0])
+            self._grade("Paris")
+            self.assertEqual(chat.call_count, 1)  # cached for English
+            self.client.cookies[settings.LANGUAGE_COOKIE_NAME] = "de"
+            self._grade("Paris")
+            self.assertEqual(chat.call_count, 2)
+            self.assertIn("auf Deutsch", chat.call_args.args[0])
+
     def test_grade_rejects_non_open_text(self):
         mc = Question.objects.create(
             question_set=self.qs, kind="single_choice", text_de="x", text_en="x",
