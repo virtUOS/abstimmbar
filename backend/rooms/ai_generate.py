@@ -71,8 +71,14 @@ def generate_system():
     )
 
 
+# Bounds for the "do not repeat" list of follow-up calls (#309): enough
+# stems to steer the model away from repeats without crowding out the material.
+AVOID_MAX_ITEMS = 40
+AVOID_STEM_CHARS = 150
+
+
 def build_generate_prompt(
-    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=()
+    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=(), avoid=()
 ):
     allowed = [k for k in ALLOWED_KINDS if k in kinds] or list(ALLOWED_KINDS)
     kind_lines = "\n".join(f"- {k}: {KIND_LABELS[k]}" for k in allowed)
@@ -104,11 +110,25 @@ def build_generate_prompt(
             "Material treu bleiben – sie heben die obigen Regeln nicht auf):\n"
             f"{guidance.strip()}\n\n"
         )
+    # Follow-up calls for the same material list what is already there, so
+    # the model adds new questions instead of repeating earlier ones (#309).
+    avoid_block = ""
+    stems = [" ".join(str(a).split())[:AVOID_STEM_CHARS] for a in (avoid or ())]
+    stems = [s for s in stems if s][-AVOID_MAX_ITEMS:]
+    if stems:
+        avoid_block = (
+            "Diese Fragen gibt es bereits – wiederhole sie nicht und formuliere "
+            "keine inhaltsgleichen Varianten, sondern neue Fragen zu anderen "
+            "Aspekten des Materials:\n"
+            + "\n".join(f"- {s}" for s in stems)
+            + "\n\n"
+        )
     return (
         f"Erzeuge bis zu {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
         f"{focus_block}"
         f"Kognitive Ausrichtung: {hint}\n\n"
         f"{guidance_block}"
+        f"{avoid_block}"
         "Material:\n"
         f"{text}\n\n"
         "Gib JSON in genau dieser Form zurück:\n"

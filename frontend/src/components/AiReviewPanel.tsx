@@ -10,7 +10,14 @@
 import { Check } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { aiErrorText, api, type GeneratedQuestion, type GenerationJob } from "../api";
+import {
+  aiErrorText,
+  api,
+  generationFailed,
+  generationFailureText,
+  type GeneratedQuestion,
+  type GenerationJob,
+} from "../api";
 import AiAssistPanel from "./AiAssistPanel";
 import { Button } from "./ui";
 
@@ -28,15 +35,19 @@ export default function AiReviewPanel({
   setId,
   onClose,
   onImported,
+  onRetried,
 }: {
   setId: number;
   onClose: () => void;
   onImported: () => void | Promise<void>;
+  /** A failed run was restarted (the panel follows the new job itself). */
+  onRetried?: () => void;
 }) {
   const { t } = useTranslation();
   const [job, setJob] = useState<GenerationJob | null>(null);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [importing, setImporting] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState("");
   const [pollError, setPollError] = useState("");
 
@@ -123,6 +134,35 @@ export default function AiReviewPanel({
     onClose();
   }
 
+  async function retry() {
+    if (!job) return;
+    setRetrying(true);
+    setError("");
+    try {
+      const { job_id } = await api.aiGenerateRetry(setId, job.id);
+      setJob(await api.aiGenerateJob(setId, job_id));
+      setSelected(new Set());
+      onRetried?.();
+    } catch (err) {
+      setError(aiErrorText(err, t));
+    } finally {
+      setRetrying(false);
+    }
+  }
+
+  function failedActions() {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="primary" disabled={retrying} onClick={() => void retry()}>
+          {t("Try again")}
+        </Button>
+        <Button variant="ghost" onClick={() => void discard()}>
+          {t("Discard")}
+        </Button>
+      </div>
+    );
+  }
+
   async function discard() {
     await markReviewed();
     onClose();
@@ -198,7 +238,11 @@ export default function AiReviewPanel({
   }
 
   function truncationBanner() {
-    if (!job?.truncated) return null;
+    // Also carries the partial-failure notice of a finished run with drafts
+    // (#302); for an empty run the notice is the failure text itself.
+    const partialNotice =
+      job?.status === "done" && job.drafts.length > 0 && !!job.notice;
+    if (!job?.truncated && !partialNotice) return null;
     return (
       <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
         {job.notice ||
@@ -221,13 +265,21 @@ export default function AiReviewPanel({
       );
     }
 
-    if (job.status === "failed") {
+    // Failed, or finished without a single proposal (#302): say why and
+    // offer to run it again with the same material and settings.
+    if (generationFailed(job)) {
       return (
         <div className="space-y-3">
-          <p className="text-sm text-danger">{job.error || t("Generation failed.")}</p>
-          <Button variant="ghost" onClick={() => void discard()}>
-            {t("Discard")}
-          </Button>
+          {truncationBanner()}
+          <p
+            className={
+              "text-sm " +
+              (job.status === "failed" ? "text-danger" : "text-slate-500 dark:text-slate-400")
+            }
+          >
+            {generationFailureText(job, t)}
+          </p>
+          {failedActions()}
         </div>
       );
     }
@@ -287,25 +339,6 @@ export default function AiReviewPanel({
 
     // Done → selectable drafts + import.
     const drafts = job.drafts;
-    if (drafts.length === 0) {
-      return (
-        <div className="space-y-3">
-          {truncationBanner()}
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            {job.unsuitable_reason
-              ? t("The material is not suitable: {{reason}}", {
-                  reason: job.unsuitable_reason,
-                })
-              : job.truncated
-                ? t("No questions generated.")
-                : job.notice || t("No questions generated.")}
-          </p>
-          <Button variant="ghost" onClick={() => void discard()}>
-            {t("Discard")}
-          </Button>
-        </div>
-      );
-    }
     const allSelected = selected.size === drafts.length;
     return (
       <div className="space-y-2">
