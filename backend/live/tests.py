@@ -1147,6 +1147,15 @@ class ParticipantI18nTests(LiveTestCase):
         self.assertIn('<html lang="de">', html)
         self.assertIn("Meine Antworten", html)
 
+    def test_empty_results_hint_is_translated(self):
+        # #287: the participant page's "no terms/answers yet" hint for a
+        # released result without answers comes from the gettext catalog.
+        html = self.client.get(
+            f"/p/{self.room.code}/", HTTP_ACCEPT_LANGUAGE="de"
+        ).content.decode()
+        self.assertIn("Noch keine Begriffe …", html)
+        self.assertIn("Noch keine Antworten …", html)
+
     def test_participant_page_defaults_to_english(self):
         # No Accept-Language header at all — the true default (English).
         resp = self.client.get(f"/p/{self.room.code}/")

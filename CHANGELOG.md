@@ -59,6 +59,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   „Testset (2)“ löschen?“; das gilt auch für Räume und Sitzungen. Abschnitte
   werden nicht mehr beim ersten Klick gelöscht, sondern nach einer Rückfrage
   mit Namen (#288).
+- Ergebnisse auf dem eigenen Gerät: Liegen noch keine Antworten vor (z. B.
+  eine Wortwolke ohne Begriffe), zeigen die Geräte wie der Beamer „Noch keine
+  Begriffe …“ bzw. „Noch keine Antworten …“ statt nur des Fragetexts (#287).
 
 ### Behoben
 
