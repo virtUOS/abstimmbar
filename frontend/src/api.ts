@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import type { LocalizedText } from "@basicbar/ui";
+import { i18n, type LocalizedText } from "@basicbar/ui";
 import type { TFunction } from "i18next";
 import type { MatrixColor } from "./matrixPalette";
 import type { SetType } from "./setTypes";
@@ -691,6 +691,9 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
         ? {}
         : { "Content-Type": "application/json" }),
       "X-CSRFToken": csrfToken(),
+      // The UI's current language, so server-side strings follow it rather
+      // than the participant page's language cookie (#300).
+      ...(i18n.language ? { "Accept-Language": i18n.language.split("-")[0] } : {}),
       ...init.headers,
     },
     ...init,

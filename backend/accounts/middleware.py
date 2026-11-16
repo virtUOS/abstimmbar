@@ -5,6 +5,7 @@
 from django.conf import settings
 from django.utils import translation
 from django.utils.deprecation import MiddlewareMixin
+from django.utils.translation import trans_real
 
 # Participant-facing API (participant, recording and self-check pages): these
 # follow the participant page's own language choice (?lang=, cookie,
@@ -31,6 +32,22 @@ class UserLanguageMiddleware(MiddlewareMixin):
         if user is None or not user.is_authenticated:
             return
         language = getattr(user, "language", "")
-        if language in dict(settings.LANGUAGES):
+        if language not in dict(settings.LANGUAGES):
+            # No stored choice: the management UI sends its current language
+            # as Accept-Language (frontend api.ts) — use that, not the cookie.
+            language = _accept_language(request)
+        if language:
             translation.activate(language)
             request.LANGUAGE_CODE = language
+
+
+def _accept_language(request):
+    header = request.META.get("HTTP_ACCEPT_LANGUAGE", "")
+    for code, _quality in trans_real.parse_accept_lang_header(header):
+        if code == "*":
+            continue
+        try:
+            return translation.get_supported_language_variant(code)
+        except LookupError:
+            continue
+    return None

@@ -657,7 +657,15 @@ class UserLanguageMiddlewareTests(TestCase):
         resp = self.client.get("/api/live/check/nope/")
         self.assertEqual(resp["Content-Language"], "en")
 
-    def test_without_stored_language_the_cookie_applies(self):
+    def test_without_stored_language_the_ui_language_header_applies(self):
+        # The management UI sends its current language as Accept-Language.
+        self.user.language = ""
+        self.user.save(update_fields=["language"])
+        self.client.force_login(self.user)
+        resp = self.client.get("/api/whoami/", HTTP_ACCEPT_LANGUAGE="de")
+        self.assertEqual(resp["Content-Language"], "de")
+
+    def test_without_any_language_hint_the_cookie_applies(self):
         self.user.language = ""
         self.user.save(update_fields=["language"])
         self.client.force_login(self.user)
