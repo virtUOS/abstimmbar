@@ -41,6 +41,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   (vorher UTC ohne Kennzeichnung, also eine Stunde zu früh), und `prozent`
   ist jetzt auch bei Einfach- und Mehrfachauswahl sowie Ja/Nein-Fragen
   gefüllt, mit denselben Anteilen wie in der Ergebnisansicht (#284).
+- KI-Kurzbericht: Der Bericht gab die Zahl der Antworten als Zahl der
+  Teilnehmenden aus („8 Teilnehmer“ bei 8 Antworten). Das Modell erhält
+  jetzt beide Zahlen getrennt (#285).
 
 ### Sicherheit
 

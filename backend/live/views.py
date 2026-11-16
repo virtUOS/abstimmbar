@@ -67,6 +67,7 @@ from .results import (
     likert_summary,
     options_with_counts,
     ordering_stats,
+    participant_total,
     priority_stats,
     run_results,
     words_with_counts,
@@ -2870,6 +2871,7 @@ def run_summary(request, run_id):
                 # active UI language.
                 resolve_translated_text(translated_map(run.question_set, "title")),
                 results,
+                participant_total(run),
             ),
         )
     except ai.AIError as exc:

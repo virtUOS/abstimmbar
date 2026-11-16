@@ -33,7 +33,7 @@ from .models import (
     SelfCheckAttempt,
     Vote,
 )
-from .results import freetext_evaluation
+from .results import freetext_evaluation, participant_total
 from .state import active_run, build_payloads
 
 User = get_user_model()
@@ -2410,7 +2410,48 @@ class AiReportTests(LiveTestCase):
         self.assertIn("<li>Punkt</li>", report)
         # The prompt carries the aggregated numbers, not raw personal data.
         prompt = chat.call_args.args[1]
-        self.assertIn("Antworten insgesamt: 2", prompt)
+        self.assertIn("Antworten insgesamt (alle Fragen zusammen): 2", prompt)
+        self.assertIn("Teilnehmende Personen: 2", prompt)
+
+    @override_settings(**AI_ON)
+    def test_prompt_counts_persons_not_answers(self):
+        # #285: two persons answering two questions are 4 answers but 2
+        # persons; the prompt must give the model both numbers.
+        run = self._run_with_votes()
+        second = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.SINGLE_CHOICE,
+            text="Zweite Frage", position=1,
+        )
+        option = AnswerOption.objects.create(question=second, text="A", position=0)
+        for token in ParticipantToken.objects.filter(votes__run=run).distinct():
+            Vote.objects.create(run=run, question=second, token=token).options.add(option)
+        self.assertEqual(participant_total(run), 2)
+        with patch(
+            "basicbar_integrations.ai.chat_json", return_value={"report": "ok"}
+        ) as chat:
+            self.client.force_login(self.owner)
+            self.client.post(f"/api/runs/{run.pk}/ai-summary/")
+        prompt = chat.call_args.args[1]
+        self.assertIn("Teilnehmende Personen: 2", prompt)
+        self.assertIn("Antworten insgesamt (alle Fragen zusammen): 4", prompt)
+        self.assertIn("Personen und Antworten", chat.call_args.args[0])
+
+    def test_participant_total_includes_mindmap_and_matrix(self):
+        run = Run.objects.create(question_set=self.question_set)
+        a, b, c = (ParticipantToken.objects.create(room=self.room) for _ in range(3))
+        node = MindmapNode.objects.create(
+            run=run, question=self.question, text="Wind", text_key="wind"
+        )
+        MindmapContribution.objects.create(node=node, token=a)
+        MindmapRating.objects.create(node=node, token=b, value=1)
+        MatrixCard.objects.create(
+            run=run, question=self.question, token=c, title="X", zone="q1", x=0, y=0
+        )
+        MatrixCard.objects.create(
+            run=run, question=self.question, title="Lehrkraft", zone="q1", x=0, y=0,
+            teacher=True,
+        )
+        self.assertEqual(participant_total(run), 3)
 
     @override_settings(**AI_OFF)
     def test_disabled_returns_503(self):
