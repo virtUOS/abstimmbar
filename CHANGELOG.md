@@ -45,6 +45,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Auswertung mit (#283).
 - Freitext: Zeilenumbrüche in Antworten bleiben in der Bestätigung für
   Teilnehmende, am Beamer und auf der Ergebnisseite erhalten (#294).
+- Ergebnisse zeigen Dezimalzahlen und Prozente in der Schreibweise der
+  Oberflächensprache, z. B. „66,7 %“ und „Ø 5,3“ statt „66.7%“ und „Ø 5.3“
+  (#293).
 
 ### Sicherheit
 

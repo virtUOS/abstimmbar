@@ -651,6 +651,13 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     return v[lang] || v["{{ CONTENT_DEFAULT_LANGUAGE|default:'de' }}"] ||
       Object.values(v).find(Boolean) || "";
   }
+  // Numbers in the page language (#293): "66,7 %" / "5,3" in German,
+  // "66.7%" / "5.3" in English. CSS widths keep the raw numbers.
+  const NUM_LANG = (document.documentElement.lang || "de").split("-")[0];
+  const NUM_FMT = new Intl.NumberFormat(NUM_LANG, { maximumFractionDigits: 1 });
+  const PCT_FMT = new Intl.NumberFormat(NUM_LANG, { style: "percent", maximumFractionDigits: 1 });
+  const fmt = (n) => NUM_FMT.format(Number(n) || 0);
+  const fmtPct = (n) => PCT_FMT.format((Number(n) || 0) / 100);
   const sections = ["waiting", "question", "done", "closed", "paused", "finished",
                     "resultsview", "review", "quiz", "quiz-done", "recording", "mindmap", "matrix",
                     "check", "check-done", "check-unavailable"].reduce(
@@ -1030,8 +1037,8 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     steps.forEach((step, idx) => {
       const seg = document.createElement("div");
       seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
-      seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
-      if (step.pct >= 12) seg.textContent = Math.round(step.pct) + " %";
+      seg.title = locText(step.text) + ": " + step.count + " · " + fmtPct(step.pct);
+      if (step.pct >= 12) seg.textContent = fmtPct(Math.round(step.pct));
       if (myOptionIds.has(step.id)) myMidPct = (idx + 0.5) / steps.length * 100;
       bar.appendChild(seg);
     });
@@ -1061,14 +1068,14 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     const line = document.createElement("div");
     line.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px";
     const lowS = document.createElement("span"); lowS.style.color = "var(--danger-strong)";
-    lowS.innerHTML = "<strong>" + summary.low_pct + " %</strong> "; lowS.append(locText(summary.low_label) || "");
+    lowS.innerHTML = "<strong>" + fmtPct(summary.low_pct) + "</strong> "; lowS.append(locText(summary.low_label) || "");
     line.appendChild(lowS);
     if (summary.neutral > 0) {
       const nS = document.createElement("span"); nS.style.color = "var(--ink-soft)";
-      nS.innerHTML = "<strong>" + summary.neutral_pct + " %</strong> " + I18N.neutral; line.appendChild(nS);
+      nS.innerHTML = "<strong>" + fmtPct(summary.neutral_pct) + "</strong> " + I18N.neutral; line.appendChild(nS);
     }
     const highS = document.createElement("span"); highS.style.color = "var(--brand-strong)";
-    highS.innerHTML = "<strong>" + summary.high_pct + " %</strong> "; highS.append(locText(summary.high_label) || "");
+    highS.innerHTML = "<strong>" + fmtPct(summary.high_pct) + "</strong> "; highS.append(locText(summary.high_label) || "");
     line.appendChild(highS);
     if (summary.abstentions > 0) {
       const aS = document.createElement("span"); aS.style.cssText = "margin-left:auto;color:var(--ink-soft)";
@@ -1118,7 +1125,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       }
       const nums = document.createElement("span");
       nums.className = "rnums";
-      nums.textContent = row.count + " · " + percent + " %";
+      nums.textContent = row.count + " · " + fmtPct(percent);
       label.append(name, nums);
       const track = document.createElement("div");
       track.className = "rtrack";
@@ -1152,7 +1159,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       name.textContent = locText(opt.text);
       const nums = document.createElement("span");
       nums.className = "rnums";
-      nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
+      nums.textContent = "Ø " + fmt(opt.avg) + " · " + fmt(opt.min) + "–" + fmt(opt.max);
       label.append(name, nums);
       const track = document.createElement("div");
       track.className = "rtrack";
