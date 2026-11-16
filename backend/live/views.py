@@ -3104,7 +3104,8 @@ async def stream(request, code):
             return JsonResponse({"detail": "Forbidden"}, status=403)
         role = "presenter"
 
-    subscriber = hub.subscribe(room.pk, role)
+    device = request.GET.get("d", "")
+    subscriber = hub.subscribe(room.pk, role, device=device)
     # Joining/leaving changes the participant counter on the beamer.
     if role == "participant":
         broadcast(room, debounce=True)

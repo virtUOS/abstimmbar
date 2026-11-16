@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import connections
-from django.test import Client, TestCase, TransactionTestCase, override_settings
+from django.test import Client, SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.utils import timezone, translation
 
 from common.i18n_fields import resolve_translated_text, translated_map
@@ -10600,3 +10600,25 @@ class PresenterProgressTests(LiveTestCase):
             self.progress(),
             {"answered": 1, "items": 2, "per_person": 2, "unit": "ratings"},
         )
+
+
+class HubParticipantCountTests(SimpleTestCase):
+    """#286: tabs of one browser (same device id) count as one participant."""
+
+    async def test_tabs_of_one_browser_count_once(self):
+        from live.hub import RoomHub
+
+        hub = RoomHub()
+        subs = [
+            hub.subscribe(1, "participant", device="abcdefgh12"),
+            hub.subscribe(1, "participant", device="abcdefgh12"),  # 2nd tab
+            hub.subscribe(1, "participant", device="zyxwvuts98"),
+            hub.subscribe(1, "participant"),  # old page without id
+            hub.subscribe(1, "participant", device="bad id!"),  # ignored id
+            hub.subscribe(1, "presenter", device="abcdefgh12"),
+        ]
+        self.assertEqual(hub.participant_count(1), 4)
+        hub.unsubscribe(1, subs[0])
+        self.assertEqual(hub.participant_count(1), 4)  # the other tab stays
+        hub.unsubscribe(1, subs[1])
+        self.assertEqual(hub.participant_count(1), 3)

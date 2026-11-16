@@ -656,6 +656,18 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     (acc, id) => (acc[id] = document.getElementById(id), acc), {});
   const subtitle = document.getElementById("subtitle");
   let token = localStorage.getItem(TOKEN_KEY) || "";
+  // Random per-browser id (shared by its tabs) so the beamer counts a person
+  // with two tabs once (#286). Not the voting token: it is only a counting
+  // key, carries no answers and is never stored server-side.
+  function deviceId() {
+    let id = "";
+    try { id = localStorage.getItem("abstimmbar_device") || ""; } catch { /* ignore */ }
+    if (!/^[a-z0-9]{8,32}$/.test(id)) {
+      id = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+      try { localStorage.setItem("abstimmbar_device", id); } catch { /* ignore */ }
+    }
+    return id;
+  }
   let state = null;
   let selected = new Set();
 
@@ -2423,10 +2435,20 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     }
     const response = await post(`/api/live/rooms/${CODE}/vote/`, { token, text: word });
     if (response.status !== 201) {
-      // Backstop: server also rejects a repeated term (case-insensitive).
+      // Backstop: server also rejects a repeated term (case-insensitive) and
+      // terms beyond the cap. Another tab of this browser may have added
+      // terms this one doesn't know (#286) — resync, then say which it was.
       if (response.status === 409) {
-        hint.textContent = I18N.alreadySubmitted;
+        let detail = "";
+        try { detail = (await response.clone().json()).detail || ""; } catch { /* ignore */ }
+        await syncWcFromServer();
+        if (detail === "Maximum reached.") {
+          hint.textContent = I18N.wcLimitReached;
+        } else {
+          hint.textContent = I18N.alreadySubmitted;
+        }
         hint.hidden = false;
+        updateWcLimit();
       }
       return;
     }
@@ -2436,6 +2458,26 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     renderWcChips();
     input.value = "";
     input.focus();
+  }
+
+  // Merge the terms the server has for me into the chip list (cap + dedupe
+  // right again), e.g. after another tab of this browser answered (#286).
+  async function syncWcFromServer() {
+    if (!state || !state.question) return;
+    const mark = voteMark();
+    const data = await fetchMyAnswer(mark, state.question.id);
+    if (data.error || !data.answered || wcKey !== mark) return;
+    let added = false;
+    for (const word of (data.answer && data.answer.text) || []) {
+      const key = wcNorm(word);
+      if (!key || wcWords.has(key)) continue;
+      wcWords.add(key);
+      wcList.push({ word, key });
+      added = true;
+    }
+    if (!added) return;
+    renderWcChips();
+    if (state.question.wordcloud_batch_submit) renderWcBatch();
   }
 
   // Withdraw one of my own terms while the question is open (#14).
@@ -2646,7 +2688,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     if (source) source.close();
     clearTimeout(retryTimer);
     retryTimer = null;
-    const es = new EventSource(`/api/live/rooms/${CODE}/stream/`);
+    const es = new EventSource(`/api/live/rooms/${CODE}/stream/?d=${encodeURIComponent(deviceId())}`);
     source = es;
     lastSeen = Date.now();
     es.onopen = () => {
