@@ -32,6 +32,8 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   die Oberfläche bei unbekannten Adressen eine verständliche Fehlerseite;
   bei Adressen, die der Server bereitstellen müsste, mit einem Hinweis auf
   die Webserver-Konfiguration (#279, #299).
+- Mehrere Tabs desselben Browsers zählen am Beamer nur einmal; ein zweiter
+  Tab kennt die bereits abgegebenen Begriffe der Wortwolke (#286).
 
 ### Sicherheit
 
