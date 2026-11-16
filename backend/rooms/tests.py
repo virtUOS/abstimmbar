@@ -1152,6 +1152,38 @@ class TransferTests(ApiTestCase):
         )
         self.assertEqual(response.status_code, 400)
 
+    def test_import_as_file_upload_above_json_body_limit(self):
+        """#290: exports with embedded images come as a multipart file, which
+        may exceed DATA_UPLOAD_MAX_MEMORY_SIZE (only this endpoint)."""
+        import json as _json
+
+        from django.conf import settings
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        payload = {
+            "format": "abstimmbar-set-v1",
+            "title": "Gross",
+            "description": "x" * (settings.DATA_UPLOAD_MAX_MEMORY_SIZE + 1024),
+            "questions": [],
+        }
+        upload = SimpleUploadedFile(
+            "set.json", _json.dumps(payload).encode(), content_type="application/json"
+        )
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", {"file": upload}
+        )
+        self.assertEqual(response.status_code, 201, response.content[:300])
+
+    def test_import_file_over_cap_or_not_json_is_400(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+
+        url = f"/api/rooms/{self.room.pk}/import-set/"
+        with self.settings(SET_IMPORT_MAX_BYTES=100):
+            big = SimpleUploadedFile("set.json", b"{" + b" " * 200 + b"}")
+            self.assertEqual(self.client.post(url, {"file": big}).status_code, 400)
+        junk = SimpleUploadedFile("set.json", b"\xff\xfe not json")
+        self.assertEqual(self.client.post(url, {"file": junk}).status_code, 400)
+
     def test_import_v2_sanitizes_non_canonical_language(self):
         """A v2 file's per-language map is sanitized in EVERY language, not
         just the canonical one — a <script> hidden in the "en" entry must

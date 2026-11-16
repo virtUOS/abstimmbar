@@ -8,6 +8,7 @@ rooms the user owns (staff sees all). The anonymous participant side lives in
 the `live` app (M2) — never here.
 """
 import html
+import json
 import operator
 import re
 from functools import reduce
@@ -509,12 +510,38 @@ class RoomViewSet(viewsets.ModelViewSet):
         room.save(update_fields=["owner"])
         return Response({"owners": _owner_list(room, request.user)})
 
-    @action(detail=True, methods=["post"], url_path="import-set")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="import-set",
+        parser_classes=[parsers.MultiPartParser, parsers.JSONParser],
+    )
     def import_set(self, request, pk=None):
-        """Create a question set from an export file's JSON (roadmap M3)."""
+        """Create a question set from an export file (roadmap M3).
+
+        The file comes as a multipart upload (``file``): with embedded images
+        (#290) it can exceed the global JSON body limit, so only this endpoint
+        accepts up to SET_IMPORT_MAX_BYTES. A plain JSON body still works."""
         room = self.get_object()
+        upload = request.FILES.get("file")
+        if upload is not None:
+            if upload.size > settings.SET_IMPORT_MAX_BYTES:
+                limit = settings.SET_IMPORT_MAX_BYTES // (1024 * 1024)
+                return Response(
+                    {"detail": f"The file is larger than {limit} MB."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                data = json.loads(upload.read().decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                return Response(
+                    {"detail": "Not a valid export file."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            data = request.data
         stats = {}
-        question_set = import_set(room, request.data, user=request.user, stats=stats)
+        question_set = import_set(room, data, user=request.user, stats=stats)
         serializer = QuestionSetSerializer(
             question_set, context={"request": request}
         )

@@ -460,6 +460,7 @@ export default function RoomPage() {
   const [setsPage, setSetsPage] = useState(1);
   const [setsPageSize, setSetsPageSize] = useState(20);
   const [importError, setImportError] = useState("");
+  const [importInfo, setImportInfo] = useState("");
   const [ownersOpen, setOwnersOpen] = useState(false);
   const [newSet, setNewSet] = useState<SetSettings | null>(null);
   // Committee rooms: the new meeting's date (`datetime-local` value).
@@ -581,10 +582,23 @@ export default function RoomPage() {
 
   async function handleImportFile(file: File) {
     setImportError("");
+    setImportInfo("");
     try {
-      const data = JSON.parse(await file.text());
-      await api.importQuestionSet(id, data);
+      const result = await api.importQuestionSet(id, file);
       await reload();
+      // Embedded images (#290): say how many came along, and if some didn't.
+      const imported = result.images_imported ?? 0;
+      const skipped = result.images_skipped ?? 0;
+      if (skipped > 0) {
+        setImportInfo(
+          t("Imported with {{imported}} images; {{skipped}} images could not be used.", {
+            imported,
+            skipped,
+          }),
+        );
+      } else if (imported > 0) {
+        setImportInfo(t("Imported with {{n}} images.", { n: imported }));
+      }
     } catch (error) {
       setImportError(t("Import failed: {{error}}", { error: String(error) }));
     }
@@ -870,6 +884,11 @@ export default function RoomPage() {
         </div>
       </div>
       {importError && <p className="mb-4 text-sm text-danger">{importError}</p>}
+      {importInfo && (
+        <p role="status" className="mb-4 text-sm text-slate-600 dark:text-slate-400">
+          {importInfo}
+        </p>
+      )}
 
       {newSet && (
         <div className="mb-6 max-w-2xl rounded-2xl border border-brand-200 bg-brand-50/50 p-4 dark:border-brand-900 dark:bg-brand-950/40">
