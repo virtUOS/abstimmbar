@@ -44,7 +44,14 @@ from .serializers import (
 )
 from .transfer import duplicate_question, duplicate_set, export_set, import_set
 
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# Upload gate before normalization (#280). Phone photos easily exceed 5 MB;
+# normalize_image() downsizes them to IMAGE_MAX_EDGE and re-encodes as WebP,
+# so the stored file stays small. Pillow's MAX_IMAGE_PIXELS check (raised as
+# DecompressionBombError → InvalidImageError) still guards the decode.
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+# Animated GIF/WebP are stored as uploaded (not transcoded), so they keep
+# the old, tighter limit.
+MAX_ANIMATED_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _display_name(user):
@@ -1146,7 +1153,7 @@ class ImageUploadView(APIView):
             )
         if file.size > MAX_IMAGE_BYTES:
             return Response(
-                {"detail": "Image exceeds the 5 MB limit."},
+                {"detail": "The image is larger than 20 MB."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -1154,6 +1161,11 @@ class ImageUploadView(APIView):
         except InvalidImageError:
             return Response(
                 {"detail": "Not a valid image."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if normalized is file and file.size > MAX_ANIMATED_IMAGE_BYTES:
+            return Response(
+                {"detail": "Animated images must not be larger than 5 MB."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         serializer = UploadedImageSerializer(data={"file": normalized})

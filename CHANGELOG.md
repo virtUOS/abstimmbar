@@ -32,6 +32,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   die Oberfläche bei unbekannten Adressen eine verständliche Fehlerseite;
   bei Adressen, die der Server bereitstellen müsste, mit einem Hinweis auf
   die Webserver-Konfiguration (#279, #299).
+- Bilder bis 20 MB (vorher 5 MB) lassen sich hochladen; sie werden wie
+  bisher verkleinert gespeichert. Scheitert ein Bild-Upload, etwa weil die
+  Datei zu groß ist, zeigt der Editor jetzt eine verständliche Meldung,
+  auch bei Bildern an Antwortoptionen, die bisher kommentarlos fehlschlugen
+  (#280).
 
 ### Sicherheit
 

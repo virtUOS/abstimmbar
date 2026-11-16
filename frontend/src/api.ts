@@ -753,6 +753,10 @@ export function aiErrorText(err: unknown, t: TFunction): string {
   return detailText(errorDetail(err), t);
 }
 
+/** Upload limit of `/api/images/` (backend `MAX_IMAGE_BYTES`, #280). */
+export const MAX_IMAGE_UPLOAD_BYTES = 20 * 1024 * 1024;
+const IMAGE_TOO_LARGE = "The image is larger than 20 MB.";
+
 export const api = {
   whoami: async () => {
     const who = await request<Whoami>("/api/whoami/");
@@ -1126,7 +1130,11 @@ export const api = {
       { method: "POST", body: JSON.stringify({ room }) },
     ),
 
+  /** Rejects with the same error shape as a failed request (so
+   *  `requestError` works), checking the size client-side first (#280). */
   uploadImage: (file: File) => {
+    if (file.size > MAX_IMAGE_UPLOAD_BYTES)
+      return Promise.reject(new Error(JSON.stringify({ detail: IMAGE_TOO_LARGE })));
     const body = new FormData();
     body.append("file", file);
     return request<{ id: number; url: string }>("/api/images/", {
