@@ -547,6 +547,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     wcLimitReached: "{% trans 'You have reached the maximum number of terms.' %}",
     removeTerm: "{% trans 'Remove term “{word}”' %}",
     yourAnswer: "{% trans 'Your answer: ' %}",
+    likertStepOf: "{% trans '{i} of {n}' %}",
     notAnswered: "{% trans 'Not answered.' %}",
     alreadyAnswered: "{% trans 'You already answered this question.' %}",
     answerReceived: "{% trans 'Your answer was received.' %}",
@@ -715,12 +716,23 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     item.kind = question.kind;
     return item;
   }
+  // Display text of a chosen option. Likert steps are usually unlabeled
+  // (only the endpoints carry a caption), so an empty step label falls back
+  // to its scale position "{i} of {n}" (#282); abstention keeps its label.
+  function optionAnswerText(question, option) {
+    const text = locText(option.text) || "";
+    if (question.kind !== "likert" || option.is_abstention || text.trim()) return text;
+    const scale = (question.options || []).filter((o) => !o.is_abstention);
+    const i = scale.findIndex((o) => o.id === option.id);
+    if (i < 0) return text;
+    return I18N.likertStepOf.replace("{i}", String(i + 1)).replace("{n}", String(scale.length));
+  }
   function recordAnswer(question, payload) {
     const item = historyItem(question);
     if (payload.text != null) {
       item.answerText = payload.text;
     } else if (payload.options) {
-      const byId = new Map((question.options || []).map((o) => [o.id, locText(o.text)]));
+      const byId = new Map((question.options || []).map((o) => [o.id, optionAnswerText(question, o)]));
       item.answerOptions = payload.options.map((id) => ({ id, text: byId.get(id) || "" }));
     } else if (question.kind === "priorities" && payload.points) {
       item.priorities = (question.options || []).map((o) => ({

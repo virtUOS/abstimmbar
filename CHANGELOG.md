@@ -37,6 +37,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Likert-Ergebnis auf Teilnehmergeräten: Der Marker „▲ Sie“ steht an der
   Skalenposition der gewählten Stufe (wie der ø-Strich) statt in der Mitte
   des eigenen Segments (#281).
+- Likert: Die Bestätigung „Ihre Antwort:“ zeigt bei unbeschrifteten Stufen
+  die Skalenposition (z. B. „4 von 5“) statt eines leeren Werts, auch in
+  „Meine Antworten“ und nach dem Neuladen (#282).
 
 ### Sicherheit
 
