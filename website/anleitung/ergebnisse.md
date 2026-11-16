@@ -57,13 +57,13 @@ Durchführung**. Die Spalten:
 | Spalte | Inhalt |
 |---|---|
 | `durchfuehrung` | Nummer der Durchführung |
-| `gestartet` | Beginn der Durchführung (Datum und Uhrzeit) |
+| `gestartet` | Beginn der Durchführung (Datum und Uhrzeit in Ortszeit mit Abstand zu UTC, z. B. `2026-11-13 11:18 +0100`) |
 | `frage_nr`, `frage` | Position und Text der Frage |
 | `antwort` | Antworttext, Begriff, Mindmap-Pfad („Ast > Begriff“) oder Kartentitel |
 | `richtig` | `x` bei richtigen Antworten |
 | `stimmen` | Anzahl der Stimmen bzw. Nennungen |
 | `vor_ort`, `aufzeichnung` | Aufteilung der Stimmen bei Abstimmung aus einer Aufzeichnung |
-| `prozent` | bei der Likert-Skala der Anteil je Skalenstufe |
+| `prozent` | Anteil an den Stimmen der Frage wie in der Ergebnisansicht (bei Mehrfachauswahl kann die Summe über 100 liegen); bei der Likert-Skala der Anteil je Skalenstufe ohne Enthaltungen |
 | `bewertung` | Ergebnis einer Bewertungsphase (Mindmap, Vier-Felder-Matrix) |
 | `beschreibung`, `kategorie`, `zone`, `x`, `y`, `stapel` | nur Vier-Felder-Matrix: Details jeder Karte |
 

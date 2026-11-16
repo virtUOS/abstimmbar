@@ -12,6 +12,7 @@ Single-process by design — see ADR-0003 for the Redis scale-out path.
 """
 import asyncio
 import json
+import re
 import threading
 from collections import defaultdict
 
@@ -24,12 +25,17 @@ def sse_frame(payload):
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
-class _Subscriber:
-    __slots__ = ("queue", "role")
+_DEVICE_RE = re.compile(r"^[a-z0-9]{8,32}$")
 
-    def __init__(self, role):
+
+class _Subscriber:
+    __slots__ = ("device", "queue", "role")
+
+    def __init__(self, role, device=None):
         self.queue = asyncio.Queue(maxsize=QUEUE_SIZE)
         self.role = role
+        # Per-browser counting key (#286): tabs of one browser count once.
+        self.device = device if device and _DEVICE_RE.match(device) else None
 
 
 class RoomHub:
@@ -41,9 +47,9 @@ class RoomHub:
 
     # -- called from the async stream view (event loop thread) ------------
 
-    def subscribe(self, room_id, role):
+    def subscribe(self, room_id, role, device=None):
         self._loop = asyncio.get_running_loop()
-        subscriber = _Subscriber(role)
+        subscriber = _Subscriber(role, device)
         with self._lock:
             self._rooms[room_id].add(subscriber)
         return subscriber
@@ -56,7 +62,19 @@ class RoomHub:
 
     def participant_count(self, room_id):
         with self._lock:
-            return sum(1 for s in self._rooms.get(room_id, ()) if s.role == "participant")
+            # Distinct browsers: subscribers sharing a device id are one
+            # person's tabs; those without one count individually.
+            seen = set()
+            count = 0
+            for s in self._rooms.get(room_id, ()):
+                if s.role != "participant":
+                    continue
+                if s.device is None:
+                    count += 1
+                elif s.device not in seen:
+                    seen.add(s.device)
+                    count += 1
+            return count
 
     # -- called from sync views (threadpool) -------------------------------
 

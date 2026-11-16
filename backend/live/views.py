@@ -67,6 +67,7 @@ from .results import (
     likert_summary,
     options_with_counts,
     ordering_stats,
+    participant_total,
     priority_stats,
     run_results,
     words_with_counts,
@@ -442,7 +443,13 @@ def vote(request, code):
         except IntegrityError:
             return Response({"detail": "Already voted."}, status=status.HTTP_409_CONFLICT)
         broadcast(room, debounce=True)
-        return Response({"status": "ok"}, status=status.HTTP_201_CREATED)
+        payload = {"status": "ok"}
+        if run.mode == Run.Mode.SELF_PACED:
+            # Quiz block: graded like a choice question (#283).
+            feedback = _self_paced_feedback(run, question, set(), order=order)
+            if feedback is not None:
+                payload.update(feedback)
+        return Response(payload, status=status.HTTP_201_CREATED)
 
     if question.kind in Question.TEXT_KINDS:
         text = strip_control_chars(str(request.data.get("text", ""))).strip()
@@ -536,11 +543,29 @@ def retract(request, code):
     return Response({"deleted": deleted})
 
 
-def _self_paced_feedback(run, question, chosen_ids):
+def _ordering_solution(question):
+    """The authored solution of an ``ordering`` question: its option ids in
+    ``position`` order (the same key the self-check and the beamer grade
+    against)."""
+    return [o.pk for o in sorted(question.options.all(), key=lambda o: (o.position, o.pk))]
+
+
+def _self_paced_feedback(run, question, chosen_ids, order=None):
     """Instant right/wrong feedback (concept §6.3), unless the set says
-    "never reveal" or the question has no correct answer marked."""
+    "never reveal" or the question has no correct answer marked.
+
+    Ordering questions (#283) are graded against their authored order when
+    the submitted ``order`` is given: ``correct_order`` + ``is_correct`` —
+    only ever in the response to the participant's own answer."""
     if run.question_set.reveal_answers == "never":
         return None
+    if question.kind == Question.Kind.ORDERING:
+        if order is None:
+            return None
+        solution = _ordering_solution(question)
+        if not solution:
+            return None
+        return {"correct_order": solution, "is_correct": list(order) == solution}
     if question.kind not in Question.CHOICE_KINDS:
         return None
     correct_ids = set(
@@ -610,15 +635,20 @@ def quiz(request, code):
                     }
                 }
             elif kind == Question.Kind.ORDERING:
-                entry["chosen"] = {
-                    "order": [
-                        r.option_id
-                        for r in sorted(
-                            vote_obj.ordering_responses.all(),
-                            key=lambda r: r.position,
-                        )
-                    ]
-                }
+                own_order = [
+                    r.option_id
+                    for r in sorted(
+                        vote_obj.ordering_responses.all(),
+                        key=lambda r: r.position,
+                    )
+                ]
+                entry["chosen"] = {"order": own_order}
+                if feedback:
+                    # Graded like choice questions on resume, too (#283).
+                    solution = _ordering_solution(question)
+                    if solution:
+                        entry["correct_order"] = solution
+                        entry["is_correct"] = own_order == solution
             answered[str(vote_obj.question_id)] = entry
 
     return Response(
@@ -2882,6 +2912,7 @@ def run_summary(request, run_id):
                 # active UI language.
                 resolve_translated_text(translated_map(run.question_set, "title")),
                 results,
+                participant_total(run),
             ),
         )
     except ai.AIError as exc:
@@ -2981,7 +3012,8 @@ def results_csv(request, set_id):
             # CSV needs a plain string (#33 MR2): resolve the {de, en} map to
             # the canonical/active language rather than exporting a dict.
             question_text = resolve_translated_text(translated_map(question, "text"))
-            base = [run.pk, started.strftime("%Y-%m-%d %H:%M"),
+            # Local time with its UTC offset (#284): the stored value is UTC.
+            base = [run.pk, timezone.localtime(started).strftime("%Y-%m-%d %H:%M %z"),
                     question.position + 1, _plain(question_text)]
             if question.kind == Question.Kind.MINDMAP:
                 # One row per visible node: its path from the root's branch
@@ -3064,6 +3096,15 @@ def results_csv(request, set_id):
                 )
                 # Per-step %s over the scale (excluding abstentions) for Likert.
                 step_pct = {s["id"]: s["pct"] for s in summary["steps"]} if summary else {}
+                if not summary:
+                    # Choice kinds (#284): share of the question's votes, as
+                    # on the results page (abstentions count as votes; with
+                    # multiple choice the shares may add up to over 100).
+                    votes = run.votes.filter(question=question).count()
+                    step_pct = {
+                        o["id"]: round(100 * o["count"] / votes, 1) if votes else 0.0
+                        for o in options
+                    }
                 for option in options:
                     writer.writerow(
                         base
@@ -3121,7 +3162,8 @@ async def stream(request, code):
         # No participant stream by room code for committee rooms.
         raise Http404
 
-    subscriber = hub.subscribe(room.pk, role)
+    device = request.GET.get("d", "")
+    subscriber = hub.subscribe(room.pk, role, device=device)
     # Joining/leaving changes the participant counter on the beamer.
     if role == "participant":
         broadcast(room, debounce=True)

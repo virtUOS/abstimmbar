@@ -547,6 +547,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     wcLimitReached: "{% trans 'You have reached the maximum number of terms.' %}",
     removeTerm: "{% trans 'Remove term “{word}”' %}",
     yourAnswer: "{% trans 'Your answer: ' %}",
+    likertStepOf: "{% trans '{i} of {n}' %}",
     notAnswered: "{% trans 'Not answered.' %}",
     alreadyAnswered: "{% trans 'You already answered this question.' %}",
     answerReceived: "{% trans 'Your answer was received.' %}",
@@ -650,12 +651,31 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     return v[lang] || v["{{ CONTENT_DEFAULT_LANGUAGE|default:'de' }}"] ||
       Object.values(v).find(Boolean) || "";
   }
+  // Numbers in the page language (#293): "66,7 %" / "5,3" in German,
+  // "66.7%" / "5.3" in English. CSS widths keep the raw numbers.
+  const NUM_LANG = (document.documentElement.lang || "de").split("-")[0];
+  const NUM_FMT = new Intl.NumberFormat(NUM_LANG, { maximumFractionDigits: 1 });
+  const PCT_FMT = new Intl.NumberFormat(NUM_LANG, { style: "percent", maximumFractionDigits: 1 });
+  const fmt = (n) => NUM_FMT.format(Number(n) || 0);
+  const fmtPct = (n) => PCT_FMT.format((Number(n) || 0) / 100);
   const sections = ["waiting", "question", "done", "closed", "paused", "finished",
                     "resultsview", "review", "quiz", "quiz-done", "recording", "mindmap", "matrix",
                     "check", "check-done", "check-unavailable"].reduce(
     (acc, id) => (acc[id] = document.getElementById(id), acc), {});
   const subtitle = document.getElementById("subtitle");
   let token = localStorage.getItem(TOKEN_KEY) || "";
+  // Random per-browser id (shared by its tabs) so the beamer counts a person
+  // with two tabs once (#286). Not the voting token: it is only a counting
+  // key, carries no answers and is never stored server-side.
+  function deviceId() {
+    let id = "";
+    try { id = localStorage.getItem("abstimmbar_device") || ""; } catch { /* ignore */ }
+    if (!/^[a-z0-9]{8,32}$/.test(id)) {
+      id = Math.random().toString(36).slice(2, 12) + Date.now().toString(36);
+      try { localStorage.setItem("abstimmbar_device", id); } catch { /* ignore */ }
+    }
+    return id;
+  }
   let state = null;
   let selected = new Set();
 
@@ -703,12 +723,23 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     item.kind = question.kind;
     return item;
   }
+  // Display text of a chosen option. Likert steps are usually unlabeled
+  // (only the endpoints carry a caption), so an empty step label falls back
+  // to its scale position "{i} of {n}" (#282); abstention keeps its label.
+  function optionAnswerText(question, option) {
+    const text = locText(option.text) || "";
+    if (question.kind !== "likert" || option.is_abstention || text.trim()) return text;
+    const scale = (question.options || []).filter((o) => !o.is_abstention);
+    const i = scale.findIndex((o) => o.id === option.id);
+    if (i < 0) return text;
+    return I18N.likertStepOf.replace("{i}", String(i + 1)).replace("{n}", String(scale.length));
+  }
   function recordAnswer(question, payload) {
     const item = historyItem(question);
     if (payload.text != null) {
       item.answerText = payload.text;
     } else if (payload.options) {
-      const byId = new Map((question.options || []).map((o) => [o.id, locText(o.text)]));
+      const byId = new Map((question.options || []).map((o) => [o.id, optionAnswerText(question, o)]));
       item.answerOptions = payload.options.map((id) => ({ id, text: byId.get(id) || "" }));
     } else if (question.kind === "priorities" && payload.points) {
       item.priorities = (question.options || []).map((o) => ({
@@ -999,14 +1030,16 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     chart.style.cssText = "position:relative;margin-top:28px";
     const bar = document.createElement("div");
     bar.style.cssText = "position:relative;display:flex;overflow:hidden;height:26px;border-radius:8px;font-size:11px";
-    let myMidPct = null, cursor = 0;
-    steps.forEach((step) => {
+    // Own-vote marker at the chosen step's SCALE position (equal-width step
+    // columns, like the mean tick's mean_pct) — not the middle of its
+    // vote-share segment, which drifts with the distribution (#281).
+    let myMidPct = null;
+    steps.forEach((step, idx) => {
       const seg = document.createElement("div");
       seg.style.cssText = "flex:0 0 " + step.pct + "%;display:flex;align-items:center;justify-content:center;background:" + step.fill + ";color:" + step.ink;
-      seg.title = locText(step.text) + ": " + step.count + " · " + step.pct + " %";
-      if (step.pct >= 12) seg.textContent = Math.round(step.pct) + " %";
-      if (myOptionIds.has(step.id)) myMidPct = cursor + step.pct / 2;
-      cursor += step.pct;
+      seg.title = locText(step.text) + ": " + step.count + " · " + fmtPct(step.pct);
+      if (step.pct >= 12) seg.textContent = fmtPct(Math.round(step.pct));
+      if (myOptionIds.has(step.id)) myMidPct = (idx + 0.5) / steps.length * 100;
       bar.appendChild(seg);
     });
     chart.appendChild(bar);
@@ -1035,14 +1068,14 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     const line = document.createElement("div");
     line.style.cssText = "display:flex;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px";
     const lowS = document.createElement("span"); lowS.style.color = "var(--danger-strong)";
-    lowS.innerHTML = "<strong>" + summary.low_pct + " %</strong> "; lowS.append(locText(summary.low_label) || "");
+    lowS.innerHTML = "<strong>" + fmtPct(summary.low_pct) + "</strong> "; lowS.append(locText(summary.low_label) || "");
     line.appendChild(lowS);
     if (summary.neutral > 0) {
       const nS = document.createElement("span"); nS.style.color = "var(--ink-soft)";
-      nS.innerHTML = "<strong>" + summary.neutral_pct + " %</strong> " + I18N.neutral; line.appendChild(nS);
+      nS.innerHTML = "<strong>" + fmtPct(summary.neutral_pct) + "</strong> " + I18N.neutral; line.appendChild(nS);
     }
     const highS = document.createElement("span"); highS.style.color = "var(--brand-strong)";
-    highS.innerHTML = "<strong>" + summary.high_pct + " %</strong> "; highS.append(locText(summary.high_label) || "");
+    highS.innerHTML = "<strong>" + fmtPct(summary.high_pct) + "</strong> "; highS.append(locText(summary.high_label) || "");
     line.appendChild(highS);
     if (summary.abstentions > 0) {
       const aS = document.createElement("span"); aS.style.cssText = "margin-left:auto;color:var(--ink-soft)";
@@ -1092,7 +1125,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       }
       const nums = document.createElement("span");
       nums.className = "rnums";
-      nums.textContent = row.count + " · " + percent + " %";
+      nums.textContent = row.count + " · " + fmtPct(percent);
       label.append(name, nums);
       const track = document.createElement("div");
       track.className = "rtrack";
@@ -1112,7 +1145,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
         (isMine ? " · " + I18N.you : "");
       // Own term: its usual palette colour plus a frame — green would read as
       // "correct" on results pages.
-      chip.style.cssText = "display:inline-block;max-width:100%;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
+      chip.style.cssText = "display:inline-block;max-width:100%;white-space:pre-line;vertical-align:top;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
         "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)" +
         (isMine ? ";font-weight:700;outline:2px solid var(--ink);outline-offset:2px" : "");
       list.appendChild(chip);
@@ -1126,7 +1159,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       name.textContent = locText(opt.text);
       const nums = document.createElement("span");
       nums.className = "rnums";
-      nums.textContent = "Ø " + opt.avg + " · " + opt.min + "–" + opt.max;
+      nums.textContent = "Ø " + fmt(opt.avg) + " · " + fmt(opt.min) + "–" + fmt(opt.max);
       label.append(name, nums);
       const track = document.createElement("div");
       track.className = "rtrack";
@@ -1236,6 +1269,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       ans.append(I18N.yourAnswer);
       const strong = document.createElement("strong");
       strong.style.color = "var(--ink)";
+      strong.style.whiteSpace = "pre-line"; // keep free-text line breaks (#294)
       strong.textContent = item.priorities
         ? item.priorities.map((o) => o.text + ": " + o.points).join(", ")
         : item.answerOptions
@@ -2023,11 +2057,38 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
 
   // Answered and locked against changes (feedback on, or back-nav off):
   // read-only review. Choice kinds get the same correct/wrong visual as
-  // showQuizFeedback; text kinds show the given text; priorities/ordering
-  // (no stored ``correct``) just confirm they were answered.
+  // showQuizFeedback; text kinds show the given text; graded ordering
+  // (#283) shows the own order (✓ per correctly placed item) and the
+  // correct order; priorities and ungraded ordering just confirm they were
+  // answered.
   function renderQuizReview(q, ans, optionsBox) {
     const chosen = (ans.chosen && ans.chosen.options) || [];
-    if (q.kind === "priorities" || q.kind === "ordering") {
+    if (q.kind === "ordering" && ans.correct_order) {
+      const own = ((ans.chosen && ans.chosen.order) || []).map(String);
+      const solution = ans.correct_order.map(String);
+      const byId = new Map(q.options.map((o) => [String(o.id), locText(o.text)]));
+      const label = document.createElement("p");
+      label.className = "soft";
+      label.style.cssText = "margin:0 0 4px;font-weight:600";
+      label.textContent = I18N.yourOrder;
+      const ol = document.createElement("ol");
+      ol.style.cssText = "margin:0 0 12px;padding-left:22px;color:var(--ink)";
+      own.forEach((id, i) => {
+        const li = document.createElement("li");
+        li.textContent = byId.get(id) || "";
+        if (id === solution[i]) {
+          const tick = document.createElement("span");
+          tick.textContent = " ✓";
+          tick.style.color = "var(--correct-strong)";
+          li.appendChild(tick);
+        }
+        ol.appendChild(li);
+      });
+      optionsBox.append(label, ol);
+      const solutionBox = document.createElement("div");
+      renderCorrectOrder(solutionBox, { options: q.options, correct_order: ans.correct_order });
+      optionsBox.appendChild(solutionBox);
+    } else if (q.kind === "priorities" || q.kind === "ordering") {
       const note = document.createElement("p");
       note.className = "soft";
       note.textContent = I18N.alreadyAnswered;
@@ -2037,6 +2098,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       p.append(I18N.yourAnswer);
       const strong = document.createElement("strong");
       strong.style.color = "var(--ink)";
+      strong.style.whiteSpace = "pre-line"; // keep free-text line breaks (#294)
       strong.textContent = (ans.chosen && ans.chosen.text) || "";
       p.appendChild(strong);
       optionsBox.appendChild(p);
@@ -2054,10 +2116,11 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       }
     }
     const feedback = document.getElementById("quiz-feedback");
-    feedback.textContent = ans.correct
+    const graded = !!(ans.correct || ans.correct_order);
+    feedback.textContent = graded
       ? (ans.is_correct ? "✓ " + I18N.correct : "✗ " + I18N.incorrect)
       : I18N.answerSaved;
-    feedback.style.color = ans.correct
+    feedback.style.color = graded
       ? (ans.is_correct ? "var(--brand-strong)" : "var(--danger-strong)")
       : "var(--ink-soft)";
     feedback.hidden = false;
@@ -2081,13 +2144,19 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     // resume — #75 Task 2), so back-navigation and review render
     // consistently whether the answer came from this submit or a reload.
     quiz.answered[String(q.id)] = {
-      is_correct: data.correct ? data.is_correct : null,
+      is_correct: data.correct || data.correct_order ? data.is_correct : null,
       chosen: payload,
       correct: data.correct || null,
+      correct_order: data.correct_order || null,
     };
     if (data.correct) {
       // Fresh choice answer with feedback on: the familiar inline reveal.
       showQuizFeedback(q, payload.options || [], data);
+    } else if (data.correct_order) {
+      // Graded ordering (#283): the read-only review carries the ✓/✗ line,
+      // the own order and the correct order.
+      renderQuizQuestion();
+      document.getElementById("quiz-next").focus();
     } else {
       // No reveal (feedback off, or a non-choice kind) — re-render the
       // question so it shows as editable (canChange) or read-only review,
@@ -2423,10 +2492,20 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     }
     const response = await post(`/api/live/rooms/${CODE}/vote/`, { token, text: word });
     if (response.status !== 201) {
-      // Backstop: server also rejects a repeated term (case-insensitive).
+      // Backstop: server also rejects a repeated term (case-insensitive) and
+      // terms beyond the cap. Another tab of this browser may have added
+      // terms this one doesn't know (#286) — resync, then say which it was.
       if (response.status === 409) {
-        hint.textContent = I18N.alreadySubmitted;
+        let detail = "";
+        try { detail = (await response.clone().json()).detail || ""; } catch { /* ignore */ }
+        await syncWcFromServer();
+        if (detail === "Maximum reached.") {
+          hint.textContent = I18N.wcLimitReached;
+        } else {
+          hint.textContent = I18N.alreadySubmitted;
+        }
         hint.hidden = false;
+        updateWcLimit();
       }
       return;
     }
@@ -2436,6 +2515,26 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     renderWcChips();
     input.value = "";
     input.focus();
+  }
+
+  // Merge the terms the server has for me into the chip list (cap + dedupe
+  // right again), e.g. after another tab of this browser answered (#286).
+  async function syncWcFromServer() {
+    if (!state || !state.question) return;
+    const mark = voteMark();
+    const data = await fetchMyAnswer(mark, state.question.id);
+    if (data.error || !data.answered || wcKey !== mark) return;
+    let added = false;
+    for (const word of (data.answer && data.answer.text) || []) {
+      const key = wcNorm(word);
+      if (!key || wcWords.has(key)) continue;
+      wcWords.add(key);
+      wcList.push({ word, key });
+      added = true;
+    }
+    if (!added) return;
+    renderWcChips();
+    if (state.question.wordcloud_batch_submit) renderWcBatch();
   }
 
   // Withdraw one of my own terms while the question is open (#14).
@@ -2646,7 +2745,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     if (source) source.close();
     clearTimeout(retryTimer);
     retryTimer = null;
-    const es = new EventSource(`/api/live/rooms/${CODE}/stream/`);
+    const es = new EventSource(`/api/live/rooms/${CODE}/stream/?d=${encodeURIComponent(deviceId())}`);
     source = es;
     lastSeen = Date.now();
     es.onopen = () => {
@@ -4803,6 +4902,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       p.append(I18N.yourAnswer);
       const strong = document.createElement("strong");
       strong.style.color = "var(--ink)";
+      strong.style.whiteSpace = "pre-line"; // keep free-text line breaks (#294)
       strong.textContent = (ans.chosen && ans.chosen.text) || "";
       p.appendChild(strong);
       optionsBox.appendChild(p);

@@ -12,6 +12,9 @@ import threading
 import time
 from collections import OrderedDict, deque
 
+from django.conf import settings
+from django.utils import translation
+
 from common.models import SiteConfig
 
 from .ai_evaluation import _canonical_text, classify
@@ -20,7 +23,7 @@ _CACHE_MAX = 512
 _WINDOW = 60.0
 
 _lock = threading.Lock()
-_cache = OrderedDict()  # (question_id, text_key) -> (verdict, note)
+_cache = OrderedDict()  # (question_id, text_key, language) -> (verdict, note)
 _windows = {}           # set_id -> deque[timestamp]
 
 
@@ -30,10 +33,22 @@ def _reset_for_tests():
         _windows.clear()
 
 
-def grade(question, answer):
+def _request_language():
+    """The participant's language: the check page's grade request runs
+    through LocaleMiddleware (?lang= cookie / Accept-Language)."""
+    language = (translation.get_language() or "").split("-")[0]
+    if language in dict(settings.LANGUAGES):
+        return language
+    return settings.MODELTRANSLATION_DEFAULT_LANGUAGE
+
+
+def grade(question, answer, language=None):
     """Return (verdict, note) for one free-text answer, cached per
-    (question, normalized answer). Cache miss calls the shared classifier."""
-    key = (question.pk, answer.strip().casefold())
+    (question, normalized answer, language). The note is written in the
+    participant's language (#300; default: the request's active language).
+    Cache miss calls the shared classifier."""
+    language = language or _request_language()
+    key = (question.pk, answer.strip().casefold(), language)
     with _lock:
         hit = _cache.get(key)
         if hit is not None:
@@ -45,6 +60,7 @@ def grade(question, answer):
         answer,
         question.evaluation_categories,
         model_solution=question.model_solution,
+        note_language=language,
     )
     with _lock:
         _cache[key] = (verdict, note)

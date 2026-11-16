@@ -50,3 +50,24 @@ test('the next free-text question starts with an empty field', async ({ page, br
     await ctx.close();
   }
 });
+
+test('a multi-line free-text answer keeps its line breaks (#294)', async ({ page, browser, trackRoom }) => {
+  const seed = await createRoomWithQuestions(
+    page.request, ['open_text'], 'Lines', trackRoom, 'E2E Freetext',
+  );
+  const api = apiClient(page.request);
+  const runId = await startRun(api, seed.setId);
+  const ctx = await browser.newContext({ locale: 'en-US' });
+  const p = await ctx.newPage();
+  try {
+    await p.goto(`${API_BASE_URL}/p/${seed.code}/`);
+    await control(api, runId, 'open', seed.questions[0].id);
+    await p.locator('#opentext-input').fill('Erstens\nZweitens');
+    await p.locator('#opentext button[type="submit"], #opentext button').first().click();
+    const own = p.locator('#done-answer strong');
+    await expect(own).toBeVisible();
+    expect(await own.innerText()).toBe('Erstens\nZweitens');
+  } finally {
+    await ctx.close();
+  }
+});

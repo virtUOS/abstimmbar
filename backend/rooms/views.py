@@ -61,7 +61,14 @@ from .serializers import (
 )
 from .transfer import duplicate_question, duplicate_set, export_set, import_set
 
-MAX_IMAGE_BYTES = 5 * 1024 * 1024
+# Upload gate before normalization (#280). Phone photos easily exceed 5 MB;
+# normalize_image() downsizes them to IMAGE_MAX_EDGE and re-encodes as WebP,
+# so the stored file stays small. Pillow's MAX_IMAGE_PIXELS check (raised as
+# DecompressionBombError → InvalidImageError) still guards the decode.
+MAX_IMAGE_BYTES = 20 * 1024 * 1024
+# Animated GIF/WebP are stored as uploaded (not transcoded), so they keep
+# the old, tighter limit.
+MAX_ANIMATED_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _display_name(user):
@@ -1187,7 +1194,8 @@ class SearchView(APIView):
     Matches room titles/codes, set titles/descriptions and question/answer
     texts. Scoped to rooms the user owns (staff sees all). Each group is
     capped so the start page stays responsive; question text is stripped to
-    plain text for a readable snippet.
+    plain text for a readable snippet. Titles and texts are {de, en} maps
+    like everywhere else in the API (#300); the client resolves them.
     """
 
     permission_classes: ClassVar = [IsAuthenticated]
@@ -1207,7 +1215,8 @@ class SearchView(APIView):
             | Q(code__icontains=query)
         ).order_by(f"title_{settings.MODELTRANSLATION_DEFAULT_LANGUAGE}")[: self.LIMIT]
         result["rooms"] = [
-            {"id": r.pk, "code": r.code, "title": r.title} for r in matched_rooms
+            {"id": r.pk, "code": r.code, "title": translated_map(r, "title")}
+            for r in matched_rooms
         ]
 
         matched_sets = (
@@ -1220,8 +1229,8 @@ class SearchView(APIView):
         )
         result["sets"] = [
             {
-                "id": s.pk, "title": s.title,
-                "room": s.room_id, "room_title": s.room.title,
+                "id": s.pk, "title": translated_map(s, "title"),
+                "room": s.room_id, "room_title": translated_map(s.room, "title"),
             }
             for s in matched_sets
         ]
@@ -1241,12 +1250,17 @@ class SearchView(APIView):
         result["questions"] = [
             {
                 "id": q.pk,
-                "text": strip_tags(q.text).strip()[:160] or "(ohne Fragentext)",
+                # Per-language plain-text snippet; "" = no text in that
+                # language (the client falls back / shows a placeholder).
+                "text": {
+                    lang: strip_tags(text).strip()[:160]
+                    for lang, text in translated_map(q, "text").items()
+                },
                 "kind": q.kind,
                 "question_set": q.question_set_id,
-                "set_title": q.question_set.title,
+                "set_title": translated_map(q.question_set, "title"),
                 "room": q.question_set.room_id,
-                "room_title": q.question_set.room.title,
+                "room_title": translated_map(q.question_set.room, "title"),
             }
             for q in matched_questions
         ]
@@ -1268,7 +1282,7 @@ class ImageUploadView(APIView):
             )
         if file.size > MAX_IMAGE_BYTES:
             return Response(
-                {"detail": "Image exceeds the 5 MB limit."},
+                {"detail": "The image is larger than 20 MB."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
@@ -1276,6 +1290,11 @@ class ImageUploadView(APIView):
         except InvalidImageError:
             return Response(
                 {"detail": "Not a valid image."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if normalized is file and file.size > MAX_ANIMATED_IMAGE_BYTES:
+            return Response(
+                {"detail": "Animated images must not be larger than 5 MB."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
         serializer = UploadedImageSerializer(data={"file": normalized})

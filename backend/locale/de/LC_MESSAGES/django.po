@@ -950,3 +950,8 @@ msgstr "Ihr persönlicher Link"
 #: committees/templates/committees/mail/invite.txt
 msgid "This link is personal and valid for this meeting only. Please do not forward it."
 msgstr "Dieser Link ist persönlich und gilt nur für diese Sitzung. Bitte leiten Sie ihn nicht weiter."
+
+#: live/templates/live/participant.html
+#, python-brace-format
+msgid "{i} of {n}"
+msgstr "{i} von {n}"

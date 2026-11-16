@@ -9,6 +9,7 @@
  * in via `renderInput`), easy mode (#52: non-staff simple users author in a single
  * canonical language; staff are always Pro) and the prominent form label. */
 import { type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import {
   TranslatableField as BaseTranslatableField,
   localizedMap,
@@ -17,15 +18,7 @@ import {
 } from "@basicbar/ui";
 import { RichTextEditor } from "@basicbar/ui/rich-text-editor";
 import { useEasyMode } from "../App";
-import { api } from "../api";
-
-/** Rich-text image upload for the shared editor: stores the file in our media
- *  storage and returns its relative /media/… URL (the only kind the backend
- *  sanitizer keeps). */
-async function uploadEditorImage(file: File): Promise<string> {
-  const { url } = await api.uploadImage(file);
-  return url;
-}
+import { api, requestError } from "../api";
 
 export type TranslatableFieldVariant = "input" | "rich";
 
@@ -70,6 +63,19 @@ export default function TranslatableField({
   ...rest
 }: TranslatableFieldProps) {
   const easyMode = useEasyMode();
+  const { t } = useTranslation();
+  /** Rich-text image upload for the shared editor: stores the file in our
+   *  media storage and returns its relative /media/… URL (the only kind the
+   *  backend sanitizer keeps). The editor alerts with the error's message, so
+   *  hand it the translated server detail, not the raw JSON body (#280). */
+  async function uploadEditorImage(file: File): Promise<string> {
+    try {
+      const { url } = await api.uploadImage(file);
+      return url;
+    } catch (err) {
+      throw new Error(t(requestError(err)));
+    }
+  }
   return (
     <BaseTranslatableField
       {...rest}

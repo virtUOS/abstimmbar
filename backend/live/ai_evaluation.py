@@ -43,10 +43,17 @@ def _canonical_text(obj, base):
     )
 
 
-def classify(question_text, hint, answer, categories, model_solution=""):
+# Language names for the note instruction (prompts are German).
+NOTE_LANGUAGES = {"de": "Deutsch", "en": "Englisch"}
+
+
+def classify(question_text, hint, answer, categories, model_solution="", note_language=None):
     """One model call for a single answer → (verdict, note). The verdict is
     coerced to one of ``categories``; any failure or unknown label degrades to
-    the middle category so a run never stalls on the LLM."""
+    the middle category so a run never stalls on the LLM. ``note_language``
+    (a code from ``NOTE_LANGUAGES``) asks for the note in that language — the
+    self-check grades in the participant's language (#300); the live path
+    leaves it unset."""
     cats = clean_categories(categories)
     valid = {c.casefold(): c for c in cats}
     fallback = middle_category(cats)
@@ -61,7 +68,14 @@ def classify(question_text, hint, answer, categories, model_solution=""):
         '"note": "kurze Begründung"}'
     )
     try:
-        data = ai.chat_json(evaluate_system(cats), "\n".join(lines))
+        system = evaluate_system(cats)
+        if note_language in NOTE_LANGUAGES:
+            system += (
+                f" Schreibe die Begründung (\"note\") auf "
+                f"{NOTE_LANGUAGES[note_language]}; das \"verdict\" bleibt "
+                "exakt eine der vorgegebenen Kategorien."
+            )
+        data = ai.chat_json(system, "\n".join(lines))
     except ai.AIError:
         return fallback, ""
     verdict = valid.get(str(data.get("verdict", "")).strip().casefold(), fallback)

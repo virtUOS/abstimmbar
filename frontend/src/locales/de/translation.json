@@ -376,7 +376,7 @@
   "Participants sort items into the correct order (drag & drop).": "Teilnehmende bringen Elemente in die richtige Reihenfolge (Drag & Drop).",
   "The option order is the correct solution — participants see it shuffled.": "Die Reihenfolge der Optionen ist die Musterlösung — den Teilnehmenden wird sie gemischt angezeigt.",
   "{{pct}}% got the full order correct": "{{pct}} % komplett richtig sortiert",
-  "{{pct}}% in a row": "{{pct}}% direkt in Folge",
+  "{{pct}}% in a row": "{{pct}} % direkt in Folge",
   "Mark as correct": "Als richtig markieren",
   "Answer text": "Antworttext",
   "Replace image": "Bild austauschen",
@@ -1682,5 +1682,9 @@
   "This address is provided by the Abstimmbar server, but the request did not reach it. The web server in front of Abstimmbar probably does not forward this path (or still uses an outdated configuration). Please let the administrators of this installation know.": "Diese Adresse stellt der Abstimmbar-Server bereit, die Anfrage hat ihn aber nicht erreicht. Vermutlich leitet der vorgeschaltete Webserver diesen Pfad nicht weiter (oder arbeitet noch mit einer veralteten Konfiguration). Bitte informieren Sie die Administration dieser Installation.",
   "The page you requested does not exist (anymore). Please check the address.": "Die aufgerufene Seite gibt es nicht (mehr). Bitte prüfen Sie die Adresse.",
   "The page could not be displayed. Please reload it; if the problem persists, let the administrators know.": "Die Seite konnte nicht angezeigt werden. Bitte laden Sie sie neu; besteht das Problem weiter, informieren Sie bitte die Administration.",
-  "To the start page": "Zur Startseite"
+  "To the start page": "Zur Startseite",
+  "The image is larger than 20 MB.": "Das Bild ist größer als 20 MB.",
+  "Animated images must not be larger than 5 MB.": "Animierte Bilder dürfen höchstens 5 MB groß sein.",
+  "Not a valid image.": "Keine gültige Bilddatei.",
+  "Image upload failed: {{error}}": "Bild-Upload fehlgeschlagen: {{error}}"
 }

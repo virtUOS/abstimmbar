@@ -52,6 +52,44 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   die Oberfläche bei unbekannten Adressen eine verständliche Fehlerseite;
   bei Adressen, die der Server bereitstellen müsste, mit einem Hinweis auf
   die Webserver-Konfiguration (#279, #299).
+- Mehrere Tabs desselben Browsers zählen am Beamer nur einmal; ein zweiter
+  Tab kennt die bereits abgegebenen Begriffe der Wortwolke (#286).
+- Likert-Ergebnis auf Teilnehmergeräten: Der Marker „▲ Sie“ steht an der
+  Skalenposition der gewählten Stufe (wie der ø-Strich) statt in der Mitte
+  des eigenen Segments (#281).
+- Likert: Die Bestätigung „Ihre Antwort:“ zeigt bei unbeschrifteten Stufen
+  die Skalenposition (z. B. „4 von 5“) statt eines leeren Werts, auch in
+  „Meine Antworten“ und nach dem Neuladen (#282).
+- Quiz-Block: Sortierfragen erhalten bei aktivem Sofort-Feedback
+  „Richtig/Falsch“ samt richtiger Reihenfolge und zählen in der persönlichen
+  Auswertung mit (#283).
+- Freitext: Zeilenumbrüche in Antworten bleiben in der Bestätigung für
+  Teilnehmende, am Beamer und auf der Ergebnisseite erhalten (#294).
+- Ergebnisse zeigen Dezimalzahlen und Prozente in der Schreibweise der
+  Oberflächensprache, z. B. „66,7 %“ und „Ø 5,3“ statt „66.7%“ und „Ø 5.3“
+  (#293).
+- Bilder bis 20 MB (vorher 5 MB) lassen sich hochladen; sie werden wie
+  bisher verkleinert gespeichert. Scheitert ein Bild-Upload, etwa weil die
+  Datei zu groß ist, zeigt der Editor jetzt eine verständliche Meldung,
+  auch bei Bildern an Antwortoptionen, die bisher kommentarlos fehlschlugen
+  (#280).
+- CSV-Export: Die Spalte `gestartet` zeigt die Ortszeit samt Abstand zu UTC
+  (vorher UTC ohne Kennzeichnung, also eine Stunde zu früh), und `prozent`
+  ist jetzt auch bei Einfach- und Mehrfachauswahl sowie Ja/Nein-Fragen
+  gefüllt, mit denselben Anteilen wie in der Ergebnisansicht (#284).
+- KI-Kurzbericht: Der Bericht gab die Zahl der Antworten als Zahl der
+  Teilnehmenden aus („8 Teilnehmer“ bei 8 Antworten). Das Modell erhält
+  jetzt beide Zahlen getrennt (#285).
+- Wortwolke: Ausgeblendete und zusammengeführte Begriffe stehen in der
+  Moderationsliste der Präsentation jetzt in der Schreibweise, in der sie
+  auch in der Wolke erscheinen („Python“ statt „python“) (#296).
+- Sprachmischung: Wer im selben Browser die Teilnahmeseite in einer anderen
+  Sprache geöffnet hatte, bekam danach auch in der Verwaltung Meldungen des
+  Servers in dieser Sprache. Angemeldete Personen erhalten jetzt die Sprache
+  ihrer Oberfläche, und die Suche auf der Startseite zeigt
+  Titel und Fragen in der Sprache der Oberfläche. In der Lernkontrolle
+  begründet die KI ihre Bewertung von Freitextantworten in der Sprache der
+  Teilnahmeseite statt immer auf Deutsch (#300).
 
 ### Sicherheit
 

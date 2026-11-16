@@ -8,6 +8,7 @@ import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { localizedText } from "@basicbar/ui";
 import type { OrderingResults } from "../api";
+import { fmtNum, fmtPct } from "../format";
 import { useCountUp, useReducedMotion } from "./motion";
 
 export default function OrderingResult({
@@ -26,7 +27,7 @@ export default function OrderingResult({
   return (
     <div className="mt-8">
       <p className="mb-4 text-xl font-semibold tabular-nums">
-        {t("{{pct}}% got the full order correct", { pct })}
+        {t("{{pct}}% got the full order correct", { pct: fmtNum(pct) })}
       </p>
       <div className="inline-grid gap-x-3" style={{ gridTemplateColumns: "max-content auto" }}>
         {ordering.items.flatMap((it, i) => {
@@ -54,7 +55,7 @@ export default function OrderingResult({
                   className="rounded-full border border-brand-600/[var(--rate)] bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                   style={{ "--rate": 0.15 + 0.85 * (link.rate / 100) } as CSSProperties}
                 >
-                  {t("{{pct}}% in a row", { pct: link.rate })}
+                  {t("{{pct}}% in a row", { pct: fmtNum(link.rate) })}
                 </span>
               </div>,
             );
@@ -69,7 +70,7 @@ export default function OrderingResult({
           >
             <div className="h-full w-2 rounded-r-lg border-y-2 border-r-2 border-brand-400" />
             <span className="text-sm font-medium tabular-nums text-brand-700 dark:text-brand-300">
-              {c.rate}%
+              {fmtPct(c.rate)}
             </span>
           </div>
         ))}
