@@ -62,6 +62,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Ergebnisse auf dem eigenen Gerät: Liegen noch keine Antworten vor (z. B.
   eine Wortwolke ohne Begriffe), zeigen die Geräte wie der Beamer „Noch keine
   Begriffe …“ bzw. „Noch keine Antworten …“ statt nur des Fragetexts (#287).
+- Wortwolke und Freitext am Beamer: Auch im Modus „Einfach“ lassen sich
+  unpassende Begriffe bzw. Antworten mit × ausblenden und über den Stift
+  wieder einblenden. Zusammenführen, Umbenennen und KI-Ansichten bleiben dem
+  Modus „Experte“ vorbehalten (#297).
 
 ### Behoben
 

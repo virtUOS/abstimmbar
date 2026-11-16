@@ -132,6 +132,10 @@ Alle Eingriffe sind umkehrbar und verändern keine Stimmen. Sie gelten für
 diese Durchführung überall: am Beamer, auf den Geräten der Teilnehmenden, auf
 der Ergebnisseite und im CSV-Export.
 
+Im Modus „Einfach“ können Sie Begriffe und Freitext-Antworten ebenfalls mit
+**×** ausblenden und über den **Stift** wieder einblenden; Zusammenführen und
+Umbenennen bleiben dem Experten-Modus vorbehalten.
+
 ### Mit KI aufräumen und gruppieren (Experten-Modus)
 
 Ist die KI an Ihrer Einrichtung eingerichtet und haben Sie im Editor bei der

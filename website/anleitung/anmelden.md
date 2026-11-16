@@ -41,7 +41,9 @@ Nur im Experten-Modus sehen Sie unter anderem:
 - den **Aufzeichnungsmodus** (siehe [Aufgezeichnete Vorlesungen](aufzeichnung.md)),
 - die **Raum-Einstellungen** für Logo, dauerhaft eingeblendeten QR-/Raumcode
   und die **Abschluss-Info für Teilnehmende**,
-- das Moderieren von Wortwolken, Freitext und Mindmaps direkt am Beamer.
+- das Moderieren von Wortwolken, Freitext und Mindmaps direkt am Beamer
+  (im Modus „Einfach“ können Sie Begriffe und Freitext-Antworten nur
+  ausblenden und wieder einblenden).
 
 Der [Rundgang](rundgang.md) passt sich Ihrem Modus an.
 

@@ -85,6 +85,11 @@ export const PRESENTER_HELP: Record<string, HelpEntry> = {
   next: { name: "Next question", text: "Moves on to the next question.", keys: "→" },
   help: { name: "Help", text: "Labels every control.", keys: "? / H" },
   "handle.moderate": { name: "Moderate", text: "Hide, merge or restore entries." },
+  // Easy mode (#297): hiding only (× on an entry), restoring in the drawer.
+  "handle.moderate-easy": {
+    name: "Moderate",
+    text: "× on an entry hides it from the beamer; here you show hidden entries again.",
+  },
   "handle.mm-moderate": {
     name: "Moderate",
     text: "Show hidden terms again; reset single merges, moves, renames and AI changes. On the map: drag a term onto another to merge, onto the “Attach here” tab beside it to attach it as a sub-term.",

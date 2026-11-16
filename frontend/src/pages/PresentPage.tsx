@@ -352,8 +352,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     : indexRef.current;
 
   const activeKind = state?.question?.kind;
-  // Word-cloud editing and the AI views are expert-mode tools; easy mode
-  // shows the plain cloud only.
+  // Word-cloud merging/renaming and the AI views are expert-mode tools; easy
+  // mode can only hide and restore entries (#297).
   const expert = !whoAi.easy;
   // AI cleanup/grouping views are opt-in per question (#Wortwolke-KI).
   // Free text shares the word-cloud machinery (moderation, AI summary views).
@@ -516,7 +516,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
-      if ((activeKind !== "word_cloud" && activeKind !== "open_text") || !expert) return;
+      if (activeKind !== "word_cloud" && activeKind !== "open_text") return;
       // Don't hijack native undo while the presenter types in a field.
       if (isTextField(e.target)) return;
       e.preventDefault();
@@ -526,7 +526,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeKind, runId, activeId, expert]);
+  }, [activeKind, runId, activeId]);
 
   const phase = state?.phase ?? "lobby";
 
@@ -612,8 +612,10 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   // No pencil over the free-text verdict bars (nothing to moderate there).
   // Free text: the drawer lists raw keys (verbatim answers), so it is only
   // offered in "Original" (restoring stays possible there).
+  // Easy mode (#297): hiding an inappropriate entry is basic safety, so the
+  // × and the drawer's "Show again" list are there too; merging, renaming
+  // and the AI views stay expert tools.
   const showModHandle =
-    expert &&
     wcCloudShown &&
     wcView !== "results" &&
     !(isOpenText && isAiView) &&
@@ -2470,7 +2472,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           {question.kind === "open_text" && phase === "results" && wcView === "raw" && (
             <AnswerChips
               words={state.words ?? []}
-              onModerate={expert ? onModerateWord : undefined}
+              onModerate={onModerateWord}
+              canMerge={expert}
             />
           )}
           {question.kind === "open_text" && phase === "results" && isAiView && (
@@ -2511,7 +2514,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 <WordCloud
                   words={rampWords(state.words ?? [])}
                   animate
-                  onModerate={expert ? onModerateWord : undefined}
+                  onModerate={onModerateWord}
+                  canMerge={expert}
                 />
               )
             ) : (
@@ -2529,13 +2533,21 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
                     <p className="flex-1">
-                      {isOpenText
-                        ? t(
-                            "Tip: drag one answer onto another to merge them, × hides an answer, the pencil on the right opens editing.",
-                          )
-                        : t(
-                            "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.",
-                          )}
+                      {!expert
+                        ? isOpenText
+                          ? t(
+                              "Tip: × hides an answer; the pencil on the right lists hidden answers to show them again.",
+                            )
+                          : t(
+                              "Tip: × hides a term; the pencil on the right lists hidden terms to show them again.",
+                            )
+                        : isOpenText
+                          ? t(
+                              "Tip: drag one answer onto another to merge them, × hides an answer, the pencil on the right opens editing.",
+                            )
+                          : t(
+                              "Tip: drag one term onto another to merge them, × hides a term, the pencil on the right opens editing.",
+                            )}
                     </p>
                     <button
                       type="button"
@@ -2558,7 +2570,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   }}
                   aria-label={t("Moderate")}
                   title={t("Moderate")}
-                  data-help="handle.moderate"
+                  data-help={expert ? "handle.moderate" : "handle.moderate-easy"}
                   data-beamer-inset=""
                   style={{ top: handleColumnTop }}
                   className={`fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 p-3 text-slate-500 shadow-md transition-opacity hover:text-slate-800 ${
@@ -2610,6 +2622,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     {mod ? (
                       <ModerationPanel
                         mod={mod}
+                        hideOnly={!expert}
                         onRestore={(key) =>
                           moderate({ op: "unhide", keys: [key] }, { op: "hide", keys: [key] })
                         }
@@ -3590,6 +3603,7 @@ function WordCloud({
   heightClass = "h-[62vh]",
   animate: animateProp = false,
   onModerate,
+  canMerge = true,
 }: {
   words: CloudWord[];
   scale?: number;
@@ -3597,6 +3611,8 @@ function WordCloud({
   animate?: boolean;
   // Presenter curation (#Wortwolke): hide a term, or merge one word onto another.
   onModerate?: (op: "hide" | "merge", keys: string[], label?: string) => void;
+  /** False (easy mode, #297): only the × hides; no drag-to-merge. */
+  canMerge?: boolean;
 }) {
   // Stable first-seen order (new terms appended). Laying out in this order —
   // rather than re-sorting by count every update — keeps a word roughly where
@@ -3636,7 +3652,7 @@ function WordCloud({
   // listeners keep the drag tracking off the small target; a drag that barely
   // moves is treated as a click (the × handles hide instead).
   function startDrag(e: React.PointerEvent, w: PlacedWord) {
-    if (!onModerate) return;
+    if (!onModerate || !canMerge) return;
     dragRef.current = { keys: w.keys ?? [], id: wordId(w), moved: false };
     const sx = e.clientX;
     const sy = e.clientY;
@@ -3702,9 +3718,11 @@ function WordCloud({
             <span
               key={wordId(w)}
               title={`${w.count}×`}
-              onPointerDown={onModerate && w.keys?.length ? (e) => startDrag(e, w) : undefined}
+              onPointerDown={
+                onModerate && canMerge && w.keys?.length ? (e) => startDrag(e, w) : undefined
+              }
               className={`group absolute -translate-x-1/2 -translate-y-1/2 whitespace-nowrap font-bold ${
-                onModerate && w.keys?.length ? "cursor-grab hover:z-30" : ""
+                onModerate && w.keys?.length ? `${canMerge ? "cursor-grab " : ""}hover:z-30` : ""
               }`}
               style={{
                 left: `${w.x}px`,
@@ -3714,7 +3732,7 @@ function WordCloud({
                 opacity: ghost?.id === wordId(w) ? 0.2 : undefined,
                 userSelect: "none",
                 WebkitUserSelect: "none",
-                touchAction: onModerate && w.keys?.length ? "none" : undefined,
+                touchAction: onModerate && canMerge && w.keys?.length ? "none" : undefined,
                 // Fly in from whichever side the word ends up on.
                 ["--wc-fly" as string]: `${w.x < 0 ? -640 : 640}px`,
                 transition: animate
@@ -3776,17 +3794,21 @@ function WordCloud({
 
 function ModerationPanel({
   mod,
+  hideOnly = false,
   onRestore,
   onSplit,
   onRename,
 }: {
   mod: WordCloudModeration;
+  /** Easy mode (#297): only the hidden entries (merges are an expert tool). */
+  hideOnly?: boolean;
   onRestore: (key: string) => void;
   onSplit: (keys: string[]) => void;
   onRename: (keys: string[], label: string) => void;
 }) {
   const { t } = useTranslation();
-  const empty = mod.hidden.length === 0 && mod.merges.length === 0;
+  const showMerges = !hideOnly && mod.merges.length > 0;
+  const empty = mod.hidden.length === 0 && !showMerges;
   return (
     <div className="text-left text-sm">
       {empty && <p className="text-slate-400">{t("Nothing moderated yet.")}</p>}
@@ -3809,7 +3831,7 @@ function ModerationPanel({
           ))}
         </>
       )}
-      {mod.merges.length > 0 && (
+      {showMerges && (
         <>
           <h3 className="mb-1 mt-2 font-semibold text-slate-600">{t("Merged")}</h3>
           {mod.merges.map((m) => (
@@ -4021,10 +4043,23 @@ const findChip = (items: ChipItem[], id: string) => items.find((w) => wordId(w) 
 /** Free-text "Original" view: the (moderated) answers as chips. With
  * `onModerate` (expert mode) a chip dropped onto another merges both under
  * the target's text, × hides it — same semantics as the word cloud. */
-function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: ModerateFn }) {
+function AnswerChips({
+  words,
+  onModerate,
+  canMerge = true,
+}: {
+  words: ChipItem[];
+  onModerate?: ModerateFn;
+  /** False (easy mode, #297): only the × hides; no drag-to-merge. */
+  canMerge?: boolean;
+}) {
   const { t } = useTranslation();
   const reduced = useReducedMotion();
-  const { shown, drag, chipProps } = useChipDrag(words, findChip, onModerate);
+  const { shown, drag, chipProps } = useChipDrag(
+    words,
+    findChip,
+    canMerge ? onModerate : undefined,
+  );
   return (
     <>
       <ul className="mt-6 flex max-h-96 flex-wrap items-start gap-3 overflow-auto p-2">

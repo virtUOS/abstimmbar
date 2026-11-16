@@ -128,6 +128,10 @@ All interventions are reversible and don't change any votes. They apply to
 this run everywhere: on the projector, on participants' devices, on the
 results page and in the CSV export.
 
+In easy mode, too, you can hide terms and free-text answers with **×** and
+show them again via the **pencil**; merging and renaming remain expert-mode
+features.
+
 ### Cleaning up and grouping with AI (expert mode)
 
 If AI is set up at your institution and you have switched on **“Clean up

@@ -40,7 +40,9 @@ Among other things, only expert mode shows you:
 - **recording mode** (see [Recorded lectures](recorded-lectures.md)),
 - the **room settings** for the logo, a permanently displayed QR/room code
   and the **Closing info for participants**,
-- moderating word clouds, free text and mind maps directly on the projector.
+- moderating word clouds, free text and mind maps directly on the projector
+  (in easy mode you can only hide and restore word-cloud terms and free-text
+  answers).
 
 The [tour](guided-tour.md) adapts to your mode.
 
