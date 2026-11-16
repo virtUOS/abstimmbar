@@ -612,6 +612,9 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     mmFailed: "{% trans 'That did not work. Please try again.' %}",
     mmClosed: "{% trans 'Voting is closed — you can still look at the shared mind map.' %}",
     mmEmpty: "{% trans 'No terms yet — add the first one!' %}",
+    // #287: empty released results.
+    noTermsYet: "{% trans 'No terms yet …' %}",
+    noAnswersYet: "{% trans 'No answers yet …' %}",
     mmEmptyClosed: "{% trans 'No terms were added.' %}",
     mmCollapse: "{% trans 'Collapse “{term}”' %}",
     mmExpand: "{% trans 'Expand “{term}”' %}",
@@ -1099,9 +1102,36 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   const CAT_DEEP = (i) => "oklch(0.62 0.11 " + [250, 60, 305, 220, 85, 335][((i % 6) + 6) % 6] + ")";
   function hashText(s) { let h = 0; for (let k = 0; k < s.length; k++) h = (h * 31 + s.charCodeAt(k)) | 0; return Math.abs(h); }
 
-  function renderResultBlock(list, data, mine) {
+  // #287: a released result without any answers used to leave just the
+  // question text — show the beamer's "no terms/answers yet" hint instead.
+  function appendEmptyResultHint(list, kind) {
+    const p = document.createElement("p");
+    p.className = "soft";
+    p.dataset.testid = "results-empty";
+    p.style.cssText = "margin:6px 0 12px";
+    p.textContent = kind === "word_cloud" ? I18N.noTermsYet : I18N.noAnswersYet;
+    list.appendChild(p);
+  }
+  function resultIsEmpty(data) {
+    if (data.words) return data.words.length === 0;
+    if (data.priorities) return data.priorities.every((o) => !o.n);
+    if (data.ordering) return !(data.ordering.items || []).some((o) => o.n);
+    if (data.results) return data.results.every((r) => !r.count);
+    return false;
+  }
+
+  // `emptyHint`: only for released live results (and their review copy) —
+  // recording/self-check answers carry their own payload shapes.
+  function renderResultBlock(list, data, mine, emptyHint) {
     mine = mine || {};
     const myOptionIds = new Set((mine.answerOptions || []).map((o) => o.id));
+    const kind = (data.question && data.question.kind) || data.kind || mine.kind;
+    if (emptyHint && resultIsEmpty(data)) {
+      appendEmptyResultHint(list, kind);
+      // Choice/ordering: still list the options (0 %) / the correct order;
+      // empty word lists, priority bars and the Likert bar add nothing.
+      if (data.likert || data.words || data.priorities) return;
+    }
     if (data.likert) { renderLikertBar(list, data.likert, myOptionIds); return; }
     const myWord = (mine.answerText || "").trim().toLowerCase();
     const total = (data.results || []).reduce((sum, r) => sum + r.count, 0);
@@ -1144,9 +1174,12 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       chip.textContent = word.text + (word.count > 1 ? " ×" + word.count : "") +
         (isMine ? " · " + I18N.you : "");
       // Own term: its usual palette colour plus a frame — green would read as
-      // "correct" on results pages.
+      // "correct" on results pages. Free-text answers get one neutral card
+      // style: per-text pastel hues looked like categories (#295).
       chip.style.cssText = "display:inline-block;max-width:100%;white-space:pre-line;vertical-align:top;border-radius:10px;padding:4px 10px;margin:0 8px 8px 0;" +
-        "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)" +
+        (kind === "open_text"
+          ? "background:var(--surface);border:1px solid var(--line);color:var(--ink)"
+          : "background:" + CAT(hashText(word.text)) + ";color:var(--bar-ink)") +
         (isMine ? ";font-weight:700;outline:2px solid var(--ink);outline-offset:2px" : "");
       list.appendChild(chip);
     }
@@ -1235,7 +1268,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     const qid = state.question ? state.question.id : null;
     growEnabled = resultsGrownFor !== qid;
     resultsGrownFor = qid;
-    renderResultBlock(list, state, mine);
+    renderResultBlock(list, state, mine, true);
     growEnabled = true;
   }
 
@@ -1302,7 +1335,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       appendOwnAnswer(card, item);
       if (item.results || item.words) {
         const sub = document.createElement("div");
-        renderResultBlock(sub, item, item);
+        renderResultBlock(sub, item, item, true);
         card.appendChild(sub);
       }
       list.appendChild(card);

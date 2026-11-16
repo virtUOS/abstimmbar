@@ -37,6 +37,7 @@ import {
   INK,
   MINUS,
   MINUS_INK,
+  NEUTRAL_EDGE,
   NEUTRAL_TILE,
   evalColor,
   termColor,
@@ -230,7 +231,8 @@ function FreeTextResult({
             <span
               key={word.text}
               className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
-              style={{ background: termColor(word.text), color: INK }}
+              // Free text: one neutral style (#295), no per-text hues.
+              style={{ background: NEUTRAL_TILE, boxShadow: `inset 0 0 0 1px ${NEUTRAL_EDGE}`, color: INK }}
             >
               {word.text} <span className="font-medium">×{word.count}</span>
             </span>

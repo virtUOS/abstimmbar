@@ -1118,6 +1118,35 @@ class ParticipantPageTests(LiveTestCase):
         self.assertIn("<strong>alle</strong>", html)
 
 
+class PresenterSignedOutTests(LiveTestCase):
+    """#298: the presenter detects an ended session from 401/403 answers —
+    anonymous calls to its endpoints must not answer 404/302 instead."""
+
+    def test_anonymous_presenter_calls_are_rejected_with_401_or_403(self):
+        run = self.open_question()
+        cases = [
+            ("get", f"/api/question-sets/{self.question_set.pk}/", None),
+            ("get", f"/api/questions/?question_set={self.question_set.pk}", None),
+            ("get", f"/api/sections/?question_set={self.question_set.pk}", None),
+            ("get", f"/api/question-sets/{self.question_set.pk}/live-status/", None),
+            ("post", f"/api/question-sets/{self.question_set.pk}/start-run/", {}),
+            ("post", f"/api/runs/{run.pk}/control/", {"phase": "closed"}),
+        ]
+        for method, url, data in cases:
+            with self.subTest(url=url):
+                if method == "get":
+                    response = self.client.get(url)
+                else:
+                    response = self.client.post(url, data, content_type="application/json")
+                self.assertIn(response.status_code, (401, 403))
+
+    def test_anonymous_presenter_stream_is_forbidden(self):
+        response = self.client.get(
+            f"/api/live/rooms/{self.room.code}/stream/?role=presenter"
+        )
+        self.assertEqual(response.status_code, 403)
+
+
 class ParticipantI18nTests(LiveTestCase):
     def test_participant_page_renders_english(self):
         # LocaleMiddleware + {% trans %} switch the framework-free
@@ -1146,6 +1175,15 @@ class ParticipantI18nTests(LiveTestCase):
         html = resp.content.decode()
         self.assertIn('<html lang="de">', html)
         self.assertIn("Meine Antworten", html)
+
+    def test_empty_results_hint_is_translated(self):
+        # #287: the participant page's "no terms/answers yet" hint for a
+        # released result without answers comes from the gettext catalog.
+        html = self.client.get(
+            f"/p/{self.room.code}/", HTTP_ACCEPT_LANGUAGE="de"
+        ).content.decode()
+        self.assertIn("Noch keine Begriffe …", html)
+        self.assertIn("Noch keine Antworten …", html)
 
     def test_participant_page_defaults_to_english(self):
         # No Accept-Language header at all — the true default (English).

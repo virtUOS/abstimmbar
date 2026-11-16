@@ -55,9 +55,30 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   übernehmen“ erhalten. Der Hinweis im Fragenset zeigt, wie viele noch auf
   Prüfung warten; erst „Rest verwerfen“ oder das Übernehmen des letzten
   Vorschlags schließt die Erzeugung ab (#292).
+- Lösch-Rückfragen nennen jetzt, was gelöscht wird, z. B. „Fragenset
+  „Testset (2)“ löschen?“; das gilt auch für Räume und Sitzungen. Abschnitte
+  werden nicht mehr beim ersten Klick gelöscht, sondern nach einer Rückfrage
+  mit Namen (#288).
+- Ergebnisse auf dem eigenen Gerät: Liegen noch keine Antworten vor (z. B.
+  eine Wortwolke ohne Begriffe), zeigen die Geräte wie der Beamer „Noch keine
+  Begriffe …“ bzw. „Noch keine Antworten …“ statt nur des Fragetexts (#287).
+- Wortwolke und Freitext am Beamer: Auch im Modus „Einfach“ lassen sich
+  unpassende Begriffe bzw. Antworten mit × ausblenden und über den Stift
+  wieder einblenden. Zusammenführen, Umbenennen und KI-Ansichten bleiben dem
+  Modus „Experte“ vorbehalten (#297).
+- Freitext-Antworten und KI-Kernaussagen erscheinen am Beamer, auf der
+  Ergebnisseite und auf den Geräten in einer einheitlichen, neutralen
+  Kärtchenfarbe. Die bisherigen wechselnden Farben hatten keine Bedeutung,
+  wirkten aber wie Kategorien; farbig bleiben nur die benannten Gruppen der
+  Ansicht „Gruppiert“ und die Bewertungsbalken (#295).
 
 ### Behoben
 
+- Präsentation nach dem Abmelden (z. B. in einem anderen Tab): Bedienelemente
+  scheiterten stumm, und nach dem Neuladen hing die Seite bei „Verbinde …“.
+  Jetzt erscheint „Sie wurden abgemeldet. Bitte melden Sie sich erneut an.“
+  mit einer Schaltfläche zur Anmeldung, die danach zur Präsentation
+  zurückführt (#298).
 - Fragen aus Dokument: Bei etwa zehn oder mehr gewünschten Fragen entstanden
   oft gar keine, weil eine einzige KI-Anfrage alle Fragen liefern sollte und
   dabei an Zeit- oder Längengrenzen scheiterte. Die Fragen werden jetzt in

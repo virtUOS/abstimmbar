@@ -955,3 +955,11 @@ msgstr "Dieser Link ist persönlich und gilt nur für diese Sitzung. Bitte leite
 #, python-brace-format
 msgid "{i} of {n}"
 msgstr "{i} von {n}"
+
+#: live/templates/live/participant.html
+msgid "No terms yet …"
+msgstr "Noch keine Begriffe …"
+
+#: live/templates/live/participant.html
+msgid "No answers yet …"
+msgstr "Noch keine Antworten …"

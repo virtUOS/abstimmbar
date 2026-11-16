@@ -1700,5 +1700,14 @@
   "Page {{n}}": "Seite {{n}}",
   "{{n}} more proposals are waiting for review.": "Noch {{n}} Vorschläge warten auf Ihre Prüfung.",
   "{{n}} more proposals for “{{title}}” are waiting for review.": "Noch {{n}} Vorschläge für „{{title}}“ warten auf Ihre Prüfung.",
-  "Discard the rest": "Rest verwerfen"
+  "Discard the rest": "Rest verwerfen",
+  "Delete question set “{{title}}”?": "Fragenset „{{title}}“ löschen?",
+  "Delete meeting “{{title}}”?": "Sitzung „{{title}}“ löschen?",
+  "Delete room “{{title}}”?": "Raum „{{title}}“ löschen?",
+  "Delete room “{{title}}” for all {{count}} people?": "Raum „{{title}}“ für alle {{count}} Personen löschen?",
+  "Delete section “{{title}}”? Its questions are kept.": "Abschnitt „{{title}}“ löschen? Die Fragen bleiben erhalten.",
+  "Tip: × hides an answer; the pencil on the right lists hidden answers to show them again.": "Tipp: × blendet eine Antwort aus; der Stift rechts listet ausgeblendete Antworten zum Wiedereinblenden.",
+  "Tip: × hides a term; the pencil on the right lists hidden terms to show them again.": "Tipp: × blendet einen Begriff aus; der Stift rechts listet ausgeblendete Begriffe zum Wiedereinblenden.",
+  "× on an entry hides it from the beamer; here you show hidden entries again.": "× an einem Eintrag blendet ihn am Beamer aus; hier blenden Sie ausgeblendete Einträge wieder ein.",
+  "You have been signed out. Please sign in again.": "Sie wurden abgemeldet. Bitte melden Sie sich erneut an."
 }
