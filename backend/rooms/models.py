@@ -280,6 +280,9 @@ class GenerationJob(TimeStampedModel):
     density = models.FloatField(default=1.0)
     target_count = models.PositiveIntegerField(default=0)
     reviewed = models.BooleanField(default=False)
+    # Proposals already taken over into the set (#292): they are removed from
+    # ``drafts`` so the rest stays open for later review; this counts them.
+    imported_count = models.PositiveIntegerField(default=0)
 
     @property
     def is_active(self):

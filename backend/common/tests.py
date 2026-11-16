@@ -381,6 +381,280 @@ class DocumentExtractionTests(TestCase):
         self.assertIn("Nur Text", result)
 
 
+class StructuredExtractionTests(SimpleTestCase):
+    """#305: page/slide markers, line breaks, tables row by row, charts with
+    their values, group shapes and labelled speaker notes."""
+
+    def _pptx(self):
+        import io
+
+        from pptx import Presentation
+        from pptx.chart.data import CategoryChartData
+        from pptx.enum.chart import XL_CHART_TYPE
+        from pptx.util import Inches
+
+        prs = Presentation()
+        # Slide 1: title only.
+        title_slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = title_slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Projektbericht"
+        # Slide 2: two lines of text, a table and speaker notes.
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Erste   Zeile"
+        box.text_frame.add_paragraph().text = "Zweite Zeile"
+        table = slide.shapes.add_table(3, 3, Inches(1), Inches(2), Inches(6), Inches(2)).table
+        for r, row in enumerate([["Paket", "Kosten", "Dauer"],
+                                 ["A", "12000", "4"],
+                                 ["B", "8000", "6"]]):
+            for c, value in enumerate(row):
+                table.cell(r, c).text = value
+        slide.notes_slide.notes_text_frame.text = "Projektleitung: Frau Meier"
+        # Slide 3: a chart and a group with a text box.
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        data = CategoryChartData()
+        data.categories = ["2024", "2025"]
+        data.add_series("Umsatz", (10.0, 12.5))
+        frame = slide.shapes.add_chart(
+            XL_CHART_TYPE.COLUMN_CLUSTERED, Inches(1), Inches(1), Inches(5), Inches(3), data
+        )
+        frame.chart.has_title = True
+        frame.chart.chart_title.text_frame.text = "Umsatzentwicklung"
+        group = slide.shapes.add_group_shape()
+        inner = group.shapes.add_textbox(Inches(1), Inches(5), Inches(3), Inches(1))
+        inner.text_frame.text = "Text in der Gruppe"
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        return buf
+
+    def test_pptx_markers_tables_charts_groups_notes(self):
+        from common.documents import extract_document
+
+        text, pages = extract_document(self._pptx(), "folien.pptx")
+        self.assertEqual(pages, 3)
+        for marker in ("=== Folie 1 ===", "=== Folie 2 ===", "=== Folie 3 ==="):
+            self.assertIn(marker, text)
+        self.assertIn("Erste Zeile\nZweite Zeile", text)  # breaks kept, spaces collapsed
+        self.assertIn("Tabelle:\nPaket | Kosten | Dauer\nA | 12000 | 4\nB | 8000 | 6", text)
+        self.assertIn("Sprechernotizen: Projektleitung: Frau Meier", text)
+        self.assertIn("Diagramm: Umsatzentwicklung", text)
+        self.assertIn("Umsatz: 2024=10, 2025=12.5", text)
+        self.assertIn("Text in der Gruppe", text)
+        # Content lands on its own slide.
+        slide2 = text.split("=== Folie 2 ===")[1].split("=== Folie 3 ===")[0]
+        self.assertIn("Projektleitung", slide2)
+        self.assertNotIn("Umsatz", slide2)
+
+    def test_pptx_without_notes_does_not_invent_any(self):
+        import io
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from common.documents import extract_text
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Inhalt"
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        self.assertNotIn("Sprechernotizen", extract_text(buf, "f.pptx"))
+
+    def test_pptx_shape_of_unrecognised_type_keeps_its_text(self):
+        # python-pptx's shape_type raises for a p:sp that is neither
+        # placeholder, autoshape, textbox nor freeform; its text must survive.
+        import io
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from common.documents import extract_text
+
+        prs = Presentation()
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Ungewoehnliche Form"
+        # Drop the txBox marker and the preset geometry: shape_type now raises.
+        box._element.nvSpPr.cNvSpPr.attrib.pop("txBox", None)
+        prst = box._element.spPr.find(
+            "{http://schemas.openxmlformats.org/drawingml/2006/main}prstGeom"
+        )
+        if prst is not None:
+            box._element.spPr.remove(prst)
+        with self.assertRaises(NotImplementedError):
+            _ = box.shape_type
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        self.assertIn("Ungewoehnliche Form", extract_text(buf, "f.pptx"))
+
+    def test_empty_slides_raise_and_keep_numbering(self):
+        import io
+
+        from pptx import Presentation
+        from pptx.util import Inches
+
+        from common.documents import DocumentTextError, extract_document
+
+        prs = Presentation()
+        prs.slides.add_slide(prs.slide_layouts[6])  # empty slide 1
+        slide = prs.slides.add_slide(prs.slide_layouts[6])
+        box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(5), Inches(1))
+        box.text_frame.text = "Zweite"
+        buf = io.BytesIO()
+        prs.save(buf)
+        buf.seek(0)
+        text, pages = extract_document(buf, "f.pptx")
+        self.assertEqual(pages, 2)
+        self.assertTrue(text.startswith("=== Folie 2 ===\nZweite"))
+
+        empty = Presentation()
+        empty.slides.add_slide(empty.slide_layouts[6])
+        buf = io.BytesIO()
+        empty.save(buf)
+        buf.seek(0)
+        with self.assertRaises(DocumentTextError):
+            extract_document(buf, "leer.pptx")
+
+    def _odp(self):
+        import io
+
+        from odf.chart import Chart, PlotArea, Series, Title
+        from odf.draw import Frame, Object, Page, TextBox
+        from odf.opendocument import OpenDocumentChart, OpenDocumentPresentation
+        from odf.presentation import Notes
+        from odf.style import MasterPage, PageLayout
+        from odf.table import Table, TableCell, TableColumn, TableRow
+        from odf.text import P
+
+        doc = OpenDocumentPresentation()
+        layout = PageLayout(name="PL")
+        doc.automaticstyles.addElement(layout)
+        master = MasterPage(name="Default", pagelayoutname=layout)
+        doc.masterstyles.addElement(master)
+
+        def text_frame(parent, *lines):
+            frame = Frame(width="20cm", height="3cm", x="1cm", y="1cm")
+            box = TextBox()
+            for line in lines:
+                box.addElement(P(text=line))
+            frame.addElement(box)
+            parent.addElement(frame)
+
+        page1 = Page(masterpagename=master)
+        doc.presentation.addElement(page1)
+        text_frame(page1, "Einleitung", "Zweite Zeile")
+        table = Table()
+        table.addElement(TableColumn(numbercolumnsrepeated=2))
+        for row_values in (["Paket", "Kosten"], ["A", "12000"]):
+            row = TableRow()
+            for value in row_values:
+                cell = TableCell()
+                cell.addElement(P(text=value))
+                row.addElement(cell)
+            table.addElement(row)
+        table_frame = Frame(width="10cm", height="3cm", x="1cm", y="5cm")
+        table_frame.addElement(table)
+        page1.addElement(table_frame)
+        notes = Notes()
+        text_frame(notes, "Nur in den Notizen")
+        page1.addElement(notes)
+
+        page2 = Page(masterpagename=master)
+        doc.presentation.addElement(page2)
+        chart_doc = OpenDocumentChart()
+        chart = Chart(attributes={"class": "chart:bar"})
+        title = Title()
+        title.addElement(P(text="Teilnehmende"))
+        chart.addElement(title)
+        plot = PlotArea()
+        plot.addElement(Series())
+        chart.addElement(plot)
+        data = Table(name="local-table")
+        for row_values in (["", "Anzahl"], ["2024", "40"], ["2025", "55"]):
+            row = TableRow()
+            for value in row_values:
+                cell = TableCell()
+                cell.addElement(P(text=value))
+                row.addElement(cell)
+            data.addElement(row)
+        chart.addElement(data)
+        chart_doc.chart.addElement(chart)
+        href = doc.addObject(chart_doc)
+        chart_frame = Frame(width="10cm", height="8cm", x="1cm", y="1cm")
+        chart_frame.addElement(Object(href=href))
+        page2.addElement(chart_frame)
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        return buf
+
+    def test_odp_markers_tables_notes_and_chart(self):
+        from common.documents import extract_document
+
+        text, pages = extract_document(self._odp(), "folien.odp")
+        self.assertEqual(pages, 2)
+        self.assertIn("=== Folie 1 ===\nEinleitung\nZweite Zeile", text)
+        self.assertIn("Tabelle:\nPaket | Kosten\nA | 12000", text)
+        self.assertIn("Sprechernotizen: Nur in den Notizen", text)
+        # Table cells and notes are not repeated as loose slide text.
+        self.assertEqual(text.count("Nur in den Notizen"), 1)
+        self.assertEqual(text.count("12000"), 1)
+        self.assertIn("=== Folie 2 ===", text)
+        self.assertIn("Diagramm: Teilnehmende", text)
+        self.assertIn("Anzahl: 2024=40, 2025=55", text)
+
+    def test_pdf_pages_get_markers(self):
+        import io
+
+        from common.documents import extract_document
+
+        text, pages = extract_document(io.BytesIO(_two_page_pdf()), "skript.pdf")
+        self.assertEqual(pages, 2)
+        self.assertIn("=== Seite 1 ===\nErste Seite", text)
+        self.assertIn("=== Seite 2 ===\nZweite Seite", text)
+
+    def test_max_chars_still_applies(self):
+        from common.documents import extract_document
+
+        text, _pages = extract_document(self._pptx(), "folien.pptx", max_chars=40)
+        self.assertEqual(len(text), 40)
+
+
+def _two_page_pdf():
+    """A minimal two-page PDF with one text line per page (no PDF writer
+    library needed)."""
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R 5 0 R] /Count 2 >>",
+    ]
+    for index, line in enumerate((b"Erste Seite", b"Zweite Seite")):
+        content_no = 4 + 2 * index
+        objects.append(
+            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 200] "
+            b"/Resources << /Font << /F1 7 0 R >> >> /Contents %d 0 R >>" % content_no
+        )
+        stream = b"BT /F1 12 Tf 20 100 Td (" + line + b") Tj ET"
+        objects.append(b"<< /Length %d >>\nstream\n" % len(stream) + stream + b"\nendstream")
+    objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+    out = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for number, body in enumerate(objects, start=1):
+        offsets.append(len(out))
+        out += b"%d 0 obj\n" % number + body + b"\nendobj\n"
+    xref = len(out)
+    out += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    for offset in offsets:
+        out += b"%010d 00000 n \n" % offset
+    out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (
+        len(objects) + 1, xref,
+    )
+    return bytes(out)
+
+
 LT_ON = {"CONTENT_TRANSLATION_PROVIDER": "libretranslate", "LIBRETRANSLATE_URL": "http://lt"}
 LT_OFF = {"CONTENT_TRANSLATION_PROVIDER": "none", "LIBRETRANSLATE_URL": ""}
 

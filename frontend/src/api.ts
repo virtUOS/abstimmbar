@@ -775,6 +775,8 @@ export interface GeneratedQuestion {
   options: { text: string; is_correct: boolean }[];
   /** open_text only: AI-generated reference answer to score against. */
   model_solution?: string;
+  /** Page/slide the question refers to, when the model named one (#304). */
+  source_page?: number;
 }
 
 /** Async question generation job state. */
@@ -794,6 +796,11 @@ export interface GenerationJob {
   density: number;
   target_count: number;
   reviewed: boolean;
+  /** Whether the material came in slides or pages (labels `source_page`);
+   *  "" for pasted text. */
+  page_label?: "slide" | "page" | "";
+  /** Proposals already taken over into the set; they left `drafts` (#292). */
+  imported_count?: number;
   /** Only present on the user-wide active-generation payload. */
   set_id?: number;
   set_title?: string;
@@ -1640,6 +1647,13 @@ export const api = {
     request<{ status: string }>(
       `/api/question-sets/${setId}/ai-generate/jobs/${jobId}/reviewed/`,
       { method: "POST" },
+    ),
+  /** Record proposals taken over into the set (by question text); the rest
+   *  stays open for later review, the job is reviewed once none remain (#292). */
+  aiGenerateImported: (setId: number, jobId: number, texts: string[]) =>
+    request<GenerationJob>(
+      `/api/question-sets/${setId}/ai-generate/jobs/${jobId}/imported/`,
+      { method: "POST", body: JSON.stringify({ texts }) },
     ),
   /** Get a specific async question generation job by id. */
   aiGenerateJob: (setId: number, jobId: number) =>

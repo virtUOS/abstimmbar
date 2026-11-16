@@ -543,7 +543,7 @@
   "Basic level": "Grundlagen-Niveau",
   "Advanced level": "Vertiefungs-Niveau",
   "Generate questions": "Fragen erzeugen",
-  "{{selected}} of {{total}} selected — review the drafts and use them.": "{{selected}} von {{total}} ausgewählt — prüfe die Vorschläge und übernimm sie.",
+  "{{selected}} of {{total}} selected — review the drafts and use them.": "{{selected}} von {{total}} ausgewählt — prüfen Sie die Vorschläge und übernehmen Sie sie.",
   "Applying …": "Wird übernommen …",
   "Use selected ({{count}})": "Ausgewählte übernehmen ({{count}})",
   "Back": "Zurück",
@@ -1695,5 +1695,10 @@
   "Covers the whole document; more per page or slide means more questions.": "Deckt das ganze Dokument ab; mehr pro Seite bzw. Folie = mehr Fragen.",
   "For pasted text, about 2,000 characters count as one page.": "Bei eingefügtem Text zählen je etwa 2000 Zeichen als eine Seite.",
   "{{pages}} pages × {{density}} = {{n}} questions": "{{pages}} Seiten × {{density}} = {{n}} Fragen",
-  "{{pages}} pages or slides × {{density}} = {{n}} questions": "{{pages}} Seiten bzw. Folien × {{density}} = {{n}} Fragen"
+  "{{pages}} pages or slides × {{density}} = {{n}} questions": "{{pages}} Seiten bzw. Folien × {{density}} = {{n}} Fragen",
+  "Slide {{n}}": "Folie {{n}}",
+  "Page {{n}}": "Seite {{n}}",
+  "{{n}} more proposals are waiting for review.": "Noch {{n}} Vorschläge warten auf Ihre Prüfung.",
+  "{{n}} more proposals for “{{title}}” are waiting for review.": "Noch {{n}} Vorschläge für „{{title}}“ warten auf Ihre Prüfung.",
+  "Discard the rest": "Rest verwerfen"
 }

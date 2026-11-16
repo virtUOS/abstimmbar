@@ -57,10 +57,14 @@ def generate_system():
     return (
         "Du erstellst aus bereitgestelltem Lehrmaterial Prüfungsfragen für "
         "eine Lehrveranstaltung. Formuliere klare, eigenständige Fragen und "
-        "stütze dich ausschließlich auf das Material. Decke unterschiedliche "
-        "kognitive Anforderungen ab – nicht nur Faktenwissen, sondern auch "
-        "Analyse, Reflexion und Transfer; Freitextfragen sollen zum Denken "
-        "anregen statt nur den Text nachzuerzählen. Bei Choice-Fragen sind "
+        "stütze dich ausschließlich auf das Material. Sofern die Lehrperson "
+        "nichts anderes vorgibt, deckst du unterschiedliche kognitive "
+        "Anforderungen ab – nicht nur Faktenwissen, sondern auch Analyse, "
+        "Reflexion und Transfer; Freitextfragen sollen zum Denken anregen "
+        "statt nur den Text nachzuerzählen. Zusätzliche Vorgaben der "
+        "Lehrperson setzt du verbindlich um; sie haben Vorrang vor diesen "
+        "allgemeinen Hinweisen, nicht aber vor der Treue zum Material und dem "
+        "Antwortformat. Bei Choice-Fragen sind "
         "die Antwortoptionen kurz und eindeutig; markiere die richtige(n) "
         "Antwort(en) korrekt (Single Choice: genau eine richtige). "
         "Gib bei Freitextfragen zusätzlich eine kurze Musterlösung an. "
@@ -77,8 +81,38 @@ AVOID_MAX_ITEMS = 40
 AVOID_STEM_CHARS = 150
 
 
+def _page_block(count, page_plan, page_label):
+    """How to spread the questions over the pages/slides of this part (#304),
+    plus a note on how the extraction marks tables, charts and notes (#305).
+    Empty for unstructured (pasted) text."""
+    if not page_label:
+        return ""
+    plural = "Folien" if page_label == "Folie" else "Seiten"
+    block = (
+        f"Das Material ist in {plural} gegliedert; jede beginnt mit einer Zeile "
+        f"„=== {page_label} N ===“. Tabellen stehen zeilenweise (Spalten durch "
+        "„|“ getrennt, erste Zeile = Kopfzeile), Diagramme mit Titel und Werten "
+        "(„Diagramm:“), Sprechernotizen sind mit „Sprechernotizen:“ "
+        "gekennzeichnet. Beziehe all das wie normalen Inhalt ein, auch mit "
+        "konkreten Zahlen.\n"
+    )
+    if page_plan and sum(n for _, n in page_plan) == count:
+        split = ", ".join(f"{page_label} {page}: {n}" for page, n in page_plan)
+        block += (
+            f"Verteile die Fragen so auf die {plural}: {split}. Jede Frage "
+            f"bezieht sich auf die angegebene {page_label}.\n"
+        )
+    else:
+        block += (
+            f"Verteile die Fragen möglichst gleichmäßig über die {plural} dieses "
+            "Materials, statt dich auf eine einzelne zu konzentrieren.\n"
+        )
+    return block + "\n"
+
+
 def build_generate_prompt(
-    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=(), avoid=()
+    text, count, kinds, level=DEFAULT_LEVEL, guidance="", focus_kinds=(), avoid=(),
+    page_plan=(), page_label="",
 ):
     allowed = [k for k in ALLOWED_KINDS if k in kinds] or list(ALLOWED_KINDS)
     kind_lines = "\n".join(f"- {k}: {KIND_LABELS[k]}" for k in allowed)
@@ -100,15 +134,29 @@ def build_generate_prompt(
         "Verteile die Fragetypen in deiner Antwort möglichst nach diesem "
         f"Verhältnis: {mix}.\n\n"
     )
-    # Optional free-text wishes from the teacher (#84). They steer emphasis
-    # and style but must not override the material-fidelity and JSON rules
-    # above, so they are framed explicitly as subordinate.
+    # Optional free-text wishes from the teacher (#84). Binding (#306): they
+    # come right after the material — the last thing before the output
+    # format — and override the type mix, the cognitive level and the page
+    # spread; only material fidelity, the allowed kinds, the count and the
+    # JSON format stay fixed.
+    guidance = (guidance or "").strip()
     guidance_block = ""
-    if guidance and guidance.strip():
+    if guidance:
+        hint += (
+            " (Gilt nur, soweit die verbindlichen Vorgaben der Lehrperson unten "
+            "nichts anderes verlangen.)"
+        )
         guidance_block = (
-            "Zusätzliche Vorgaben der Lehrperson (befolge sie, soweit sie dem "
-            "Material treu bleiben – sie heben die obigen Regeln nicht auf):\n"
-            f"{guidance.strip()}\n\n"
+            "Verbindliche Vorgaben der Lehrperson – setze sie bei der Auswahl "
+            "und Formulierung der Fragen um:\n"
+            f"{guidance}\n"
+            "Diese Vorgaben haben Vorrang vor den obigen Hinweisen zur "
+            "Verteilung der Fragetypen, zur kognitiven Ausrichtung und zur "
+            "Verteilung über das Material; verlangen sie z. B. Fragen zu "
+            "konkreten Fakten oder Zahlen, stelle solche Fragen. Unverändert "
+            "gelten nur: Fragen ausschließlich aus dem Material, nur die "
+            f"erlaubten Fragetypen, genau {count} Fragen und das JSON-Format "
+            "unten.\n\n"
         )
     # Follow-up calls for the same material list what is already there, so
     # the model adds new questions instead of repeating earlier ones (#309).
@@ -123,19 +171,30 @@ def build_generate_prompt(
             + "\n".join(f"- {s}" for s in stems)
             + "\n\n"
         )
+    # Where a question came from (#304): only asked for when the material
+    # carries page markers; shown to the teacher in the review list.
+    source_field = '"source_page": 1, ' if page_label else ""
+    source_note = (
+        f'"source_page" ist die Nummer der {page_label}, auf die sich die Frage '
+        "bezieht. "
+        if page_label else ""
+    )
     return (
-        f"Erzeuge bis zu {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
+        f"Erzeuge genau {count} Fragen. Erlaubte Fragetypen:\n{kind_lines}\n\n"
         f"{focus_block}"
         f"Kognitive Ausrichtung: {hint}\n\n"
-        f"{guidance_block}"
+        f"{_page_block(count, page_plan, page_label)}"
         f"{avoid_block}"
         "Material:\n"
         f"{text}\n\n"
+        f"{guidance_block}"
         "Gib JSON in genau dieser Form zurück:\n"
         '{"questions": [{"kind": "single_choice", "text": "Fragetext", '
+        f"{source_field}"
         '"options": [{"text": "Antwort", "is_correct": true}, '
         '{"text": "Antwort", "is_correct": false}]}], '
         '"unsuitable_reason": ""}\n'
+        f"{source_note}"
         'Bei "open_text" lasse "options" weg oder leer und gib zusätzlich '
         '"model_solution": "..." an – eine knappe Musterlösung (Referenz- '
         'bzw. Idealantwort) in derselben Sprache wie die Frage. Bei '
@@ -147,7 +206,21 @@ def build_generate_prompt(
     )
 
 
-def build_drafts(data, kinds, count):
+def _source_page(item, pages):
+    """The question's ``source_page`` if it names one of ``pages``, else
+    None (missing, malformed or out of range — tolerated, #304)."""
+    value = item.get("source_page")
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, str) and value.strip().isdigit():
+        value = int(value.strip())
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return value if isinstance(value, int) and value in pages else None
+
+
+def build_drafts(data, kinds, count, pages=()):
+    pages = set(pages or ())
     allowed = {k for k in ALLOWED_KINDS if k in kinds} or set(ALLOWED_KINDS)
     questions = data.get("questions") if isinstance(data, dict) else None
     drafts = []
@@ -192,6 +265,9 @@ def build_drafts(data, kinds, count):
                 continue  # a choice question needs at least two options
             _fix_answer_key(kind, options)
             drafts.append({"kind": kind, "text": text, "options": options})
+        page = _source_page(item, pages)
+        if page is not None:
+            drafts[-1]["source_page"] = page
         if len(drafts) >= count:
             break
     return drafts

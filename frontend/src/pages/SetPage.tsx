@@ -829,9 +829,14 @@ function GenerationReviewHint({
           </>
         ) : (
           <span>
-            {t("{{n}} questions were generated — review and use them now.", {
-              n: job.drafts.length,
-            })}
+            {job.imported_count
+              ? // Some proposals were taken over already; the rest waits (#292).
+                t("{{n}} more proposals are waiting for review.", {
+                  n: job.drafts.length,
+                })
+              : t("{{n}} questions were generated — review and use them now.", {
+                  n: job.drafts.length,
+                })}
           </span>
         )}
       </div>

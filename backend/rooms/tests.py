@@ -3174,6 +3174,92 @@ class GenerationEndpointTests(ApiTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, GenerationJob.Status.CANCELLED)
 
+    def _done_job(self, texts):
+        from .models import GenerationJob
+        return GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE,
+            drafts=[{"kind": "open_text", "text": t, "options": []} for t in texts],
+        )
+
+    def test_imported_keeps_unselected_proposals(self):
+        # #292: taking over some proposals keeps the others for later.
+        job = self._done_job(["A", "B", "C"])
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A", "C"]},
+                content_type="application/json",
+            )
+            # Repeating the request is harmless (texts, not indices).
+            again = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A", "C"]},
+                content_type="application/json",
+            )
+            active = self.client.get(f"{self.url}active/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual([d["text"] for d in r.json()["drafts"]], ["B"])
+        self.assertEqual(r.json()["imported_count"], 2)
+        self.assertFalse(r.json()["reviewed"])
+        self.assertEqual(again.json()["imported_count"], 2)
+        self.assertEqual(active.json()["id"], job.pk)  # still offered for review
+        job.refresh_from_db()
+        self.assertFalse(job.reviewed)
+
+    def test_importing_the_last_proposals_marks_reviewed(self):
+        job = self._done_job(["A", "B"])
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A", "B"]},
+                content_type="application/json",
+            )
+            active = self.client.get(f"{self.url}active/")
+        self.assertTrue(r.json()["reviewed"])
+        self.assertEqual(r.json()["drafts"], [])
+        self.assertEqual(active.json(), {})
+
+    def test_discarding_the_rest_marks_reviewed(self):
+        job = self._done_job(["A", "B"])
+        with self.override_settings(**AI_ON):
+            self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A"]},
+                content_type="application/json",
+            )
+            self.client.post(f"{self.url}jobs/{job.pk}/reviewed/")
+        job.refresh_from_db()
+        self.assertTrue(job.reviewed)
+
+    def test_imported_rejects_running_job_and_bad_body(self):
+        from .models import GenerationJob
+        job = self._done_job(["A"])
+        GenerationJob.objects.filter(pk=job.pk).update(status=GenerationJob.Status.RUNNING)
+        with self.override_settings(**AI_ON):
+            running = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A"]},
+                content_type="application/json",
+            )
+            bad = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": "A"},
+                content_type="application/json",
+            )
+        self.assertEqual(running.status_code, 400)
+        self.assertEqual(bad.status_code, 400)
+        job.refresh_from_db()
+        self.assertEqual(len(job.drafts), 1)
+
+    def test_imported_foreign_job_returns_404(self):
+        from .models import GenerationJob
+        other_qs = QuestionSet.objects.create(room=self.room, title="Other")
+        job = GenerationJob.objects.create(
+            question_set=other_qs, created_by=self.owner, source_text="x",
+            status=GenerationJob.Status.DONE, drafts=[{"text": "A"}],
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.post(
+                f"{self.url}jobs/{job.pk}/imported/", {"texts": ["A"]},
+                content_type="application/json",
+            )
+        self.assertEqual(r.status_code, 404)
+
     def test_new_job_does_not_touch_other_sets_running_job(self):
         from .models import GenerationJob
         other_qs = QuestionSet.objects.create(room=self.room, title="Other")
@@ -3948,6 +4034,26 @@ class AiGenerateLevelsTests(TestCase):
         self.assertIn("Alltagsbeispiele verwenden", p)
         self.assertIn("Lehrperson", p)  # framed as subordinate teacher wishes
 
+    def test_guidance_is_binding_and_follows_the_material(self):
+        # #306: the teacher's wishes come after the material, right before
+        # the JSON spec, framed as binding (not "soweit … nicht aufheben").
+        p = ai_generate.build_generate_prompt(
+            "MATERIALTEXT", 5, ["single_choice"], "mixed",
+            "Mindestens eine Frage zu konkreten Zahlen",
+        )
+        material = p.index("MATERIALTEXT")
+        guidance = p.index("Mindestens eine Frage zu konkreten Zahlen")
+        spec = p.index("Gib JSON in genau dieser Form")
+        self.assertLess(material, guidance)
+        self.assertLess(guidance, spec)
+        self.assertIn("Verbindliche Vorgaben", p)
+        self.assertIn("Vorrang", p)
+        self.assertNotIn("heben die obigen Regeln nicht auf", p)
+        # The level hint yields to the guidance; format rules stay fixed.
+        self.assertIn("soweit die verbindlichen Vorgaben", p)
+        self.assertIn("JSON-Format", p[guidance:spec])
+        self.assertIn("Vorgaben der Lehrperson", ai_generate.generate_system())
+
     def test_prompt_omits_guidance_block_when_empty(self):
         p = ai_generate.build_generate_prompt(
             "Stoff", 5, ["single_choice"], "mixed", "   "
@@ -3955,6 +4061,44 @@ class AiGenerateLevelsTests(TestCase):
         self.assertEqual(
             p, ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
         )
+
+    def test_prompt_asks_for_exactly_n(self):
+        p = ai_generate.build_generate_prompt("Stoff", 5, ["single_choice"], "mixed")
+        self.assertIn("Erzeuge genau 5 Fragen", p)
+        self.assertNotIn("bis zu", p)
+        self.assertNotIn("source_page", p)  # plain text has no pages
+
+    def test_prompt_page_plan_and_structure_hint(self):
+        p = ai_generate.build_generate_prompt(
+            "=== Folie 2 ===\nStoff", 3, ["single_choice"], "mixed",
+            page_plan=[(2, 2), (3, 1)], page_label="Folie",
+        )
+        self.assertIn("Folie 2: 2, Folie 3: 1", p)
+        self.assertIn("Sprechernotizen", p)
+        self.assertIn('"source_page"', p)
+        # A plan that does not add up falls back to "spread evenly".
+        p = ai_generate.build_generate_prompt(
+            "x", 3, ["single_choice"], "mixed", page_plan=[(2, 1)], page_label="Seite",
+        )
+        self.assertNotIn("Seite 2: 1", p)
+        self.assertIn("gleichmäßig über die Seiten", p)
+
+    def test_build_drafts_source_page_validated(self):
+        data = {"questions": [
+            {"kind": "open_text", "text": "A", "source_page": 2},
+            {"kind": "open_text", "text": "B", "source_page": "3"},
+            {"kind": "open_text", "text": "C", "source_page": 99},
+            {"kind": "open_text", "text": "D", "source_page": True},
+            {"kind": "open_text", "text": "E"},
+            {"kind": "true_false", "text": "F", "correct": True, "source_page": 2.0},
+        ]}
+        drafts = ai_generate.build_drafts(data, ["open_text", "true_false"], 10, pages={2, 3})
+        self.assertEqual(
+            [d.get("source_page") for d in drafts], [2, 3, None, None, None, 2]
+        )
+        # Without known pages nothing is attached.
+        drafts = ai_generate.build_drafts(data, ["open_text"], 10)
+        self.assertTrue(all("source_page" not in d for d in drafts))
 
     def test_system_mentions_cognitive_variety_and_declining(self):
         s = ai_generate.generate_system().lower()
@@ -4744,6 +4888,72 @@ class GenerationChunkingTests(TestCase):
         self.assertTrue(truncated)
         self.assertEqual(len(chunks), 5)
 
+    def test_build_chunks_cuts_only_at_page_markers(self):
+        from .generation import build_chunks
+        pages = [f"=== Folie {i} ===\n" + f"Satz {i}. " * 12 for i in range(1, 7)]
+        text = "\n\n".join(pages)
+        chunks, truncated = build_chunks(text, chunk_chars=250, max_chunks=40)
+        self.assertFalse(truncated)
+        self.assertGreater(len(chunks), 1)
+        for chunk in chunks:
+            # Every chunk starts at a marker and holds whole slides.
+            self.assertTrue(chunk.text.startswith("=== Folie "))
+            for number, weight in chunk.pages:
+                self.assertEqual(weight, 1.0)
+                self.assertIn(pages[number - 1].strip(), chunk.text)
+        self.assertEqual(sum(c.weight for c in chunks), 6)
+
+    def test_build_chunks_title_slide_has_no_weight(self):
+        from .generation import build_chunks
+        text = "=== Folie 1 ===\nTitel\n\n=== Folie 2 ===\n" + "Inhalt " * 20
+        chunks, _ = build_chunks(text, chunk_chars=12000, max_chunks=40)
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(chunks[0].pages, [(1, 0.0), (2, 1.0)])
+        self.assertEqual(chunks[0].label, "Folie")
+
+    def test_build_chunks_short_pages_only_fall_back_to_all(self):
+        from .generation import build_chunks
+        text = "=== Seite 1 ===\nA\n\n=== Seite 2 ===\nB"
+        chunks, _ = build_chunks(text, chunk_chars=12000, max_chunks=40)
+        self.assertEqual(chunks[0].weight, 2)
+
+    def test_build_chunks_splits_an_oversized_page_with_its_marker(self):
+        from .generation import build_chunks
+        text = "=== Folie 3 ===\n" + "wort " * 200
+        chunks, _ = build_chunks(text, chunk_chars=100, max_chunks=40)
+        self.assertGreater(len(chunks), 1)
+        self.assertTrue(all(c.text.startswith("=== Folie 3 ===\n") for c in chunks))
+        self.assertAlmostEqual(sum(c.weight for c in chunks), 1.0)
+
+    def test_build_chunks_without_markers_weights_by_length(self):
+        from .generation import build_chunks
+        chunks, _ = build_chunks("a b c", chunk_chars=1000, max_chunks=40)
+        self.assertEqual([c.text for c in chunks], ["a b c"])
+        self.assertEqual(chunks[0].pages, [])
+        self.assertEqual(chunks[0].weight, 5)
+
+    def test_largest_remainder_sums_exactly(self):
+        from .generation import largest_remainder
+        self.assertEqual(largest_remainder(5, [1, 1]), [3, 2])  # not round()'s 2+2
+        self.assertEqual(largest_remainder(7, [3, 1, 0]), [5, 2, 0])
+        self.assertEqual(largest_remainder(4, [0, 0]), [2, 2])
+        for total in range(20):
+            self.assertEqual(sum(largest_remainder(total, [2.5, 1, 0.3, 4])), total)
+
+    def test_spread_distributes_small_totals_evenly(self):
+        from .generation import spread
+        self.assertEqual(spread(4, [1] * 9), [0, 1, 0, 1, 0, 1, 0, 1, 0])
+        self.assertEqual(spread(18, [1] * 9), [2] * 9)
+        self.assertEqual(sum(spread(7, [1, 0.5, 2])), 7)
+
+    def test_call_plan_skips_pages_already_covered(self):
+        from .generation import call_plan
+        quotas = {2: 2, 3: 1, 4: 2}
+        self.assertEqual(call_plan(quotas, [], 3), [(2, 2), (3, 1)])
+        existing = [{"source_page": 2}, {"source_page": 4}, {}]
+        # page 2: 1 left, page 4: 1 left; the unattributed draft fills page 2.
+        self.assertEqual(call_plan(quotas, existing, 5), [(3, 1), (4, 1)])
+
     def test_merge_drafts_dedupes_by_normalised_text(self):
         from .generation import merge_drafts
         existing = [{"kind": "open_text", "text": "Was ist Usability?"}]
@@ -4798,6 +5008,7 @@ class GenerationWorkerTests(TransactionTestCase):
         replies = [
             {"questions": [{"kind": "open_text", "text": "Frage 1"}]},
             {"questions": [{"kind": "open_text", "text": "Frage 1"}]},  # dup across chunks
+            {"questions": [{"kind": "open_text", "text": "Frage 1"}]},  # top-up: still a dup
         ]
         with override_settings(**AI_ON, AI_CHUNK_CHARS=210, AI_GEN_MAX_CHUNKS=40), \
              mock.patch("rooms.generation.ai.chat_json", side_effect=replies):
@@ -4980,7 +5191,7 @@ class GenerationWorkerTests(TransactionTestCase):
         counter = iter(range(1, 1000))
 
         def reply(system, prompt, **kwargs):
-            count = int(re.search(r"Erzeuge bis zu (\d+) Fragen", prompt).group(1))
+            count = int(re.search(r"Erzeuge genau (\d+) Fragen", prompt).group(1))
             calls.append({"count": count, "prompt": prompt, **kwargs})
             return {"questions": [
                 {"kind": "open_text", "text": f"Frage {next(counter)}"}
@@ -5030,7 +5241,9 @@ class GenerationWorkerTests(TransactionTestCase):
         job.refresh_from_db()
         self.assertEqual(job.status, self.GenerationJob.Status.DONE)
         self.assertEqual(len(job.drafts), 1)
-        self.assertEqual(chat.call_count, 2)  # second call added nothing → stop
+        # Second call added nothing → stop; one top-up call (#304) adds
+        # nothing either → the run ends.
+        self.assertEqual(chat.call_count, 3)
 
     def test_all_calls_timing_out_fails_with_german_reason(self):
         # #302: no drafts + failed calls → FAILED with an actionable reason
@@ -5105,6 +5318,80 @@ class GenerationWorkerTests(TransactionTestCase):
             generation.classify_error(AIError("empty response from model")), "truncated"
         )
         self.assertEqual(generation.classify_error(AIError("strange")), "other")
+
+    def _deck(self, bodies):
+        return "\n\n".join(
+            f"=== Folie {i} ===\n{body}" for i, body in enumerate(bodies, start=1)
+        )
+
+    def test_quota_follows_content_slides_and_top_up_reaches_target(self):
+        # #304: a title slide gets no quota, the content slides share the
+        # target exactly; the model returning one question short is topped up.
+        import re
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        body = "Inhalt " * 30
+        job = self._job(self._deck(["Titel", body, body, body]))
+        job.target_count = 4
+        job.save(update_fields=["target_count"])
+        calls = []
+        counter = iter(range(1, 100))
+
+        def reply(system, prompt, **kwargs):
+            count = int(re.search(r"Erzeuge genau (\d+) Fragen", prompt).group(1))
+            calls.append({"count": count, "prompt": prompt})
+            # First call returns one question too few.
+            n = count - 1 if len(calls) == 1 else count
+            return {"questions": [
+                {"kind": "open_text", "text": f"Frage {next(counter)}", "source_page": 2}
+                for _ in range(n)
+            ]}
+
+        with override_settings(**AI_ON, AI_GEN_PER_CALL=5), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=reply):
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        self.assertEqual(job.status, self.GenerationJob.Status.DONE)
+        self.assertEqual(len(job.drafts), 4)
+        self.assertEqual(calls[0]["count"], 4)
+        # Spread over the content slides 2–4, never the title slide.
+        self.assertIn("Folie 2: 1, Folie 3: 2, Folie 4: 1", calls[0]["prompt"])
+        self.assertNotIn("Folie 1:", calls[0]["prompt"])
+        self.assertIn('"source_page"', calls[0]["prompt"])
+        self.assertEqual(job.drafts[0]["source_page"], 2)
+        # The follow-up asks for what is still missing.
+        self.assertEqual(sum(c["count"] for c in calls[1:]), 1)
+
+    def test_payload_page_label(self):
+        from .views import _job_payload
+        self.assertEqual(_job_payload(self._job("=== Folie 1 ===\nA"))["page_label"], "slide")
+        self.assertEqual(_job_payload(self._job("=== Seite 1 ===\nA"))["page_label"], "page")
+        self.assertEqual(_job_payload(self._job("eingefügt"))["page_label"], "")
+
+    def test_top_up_is_limited(self):
+        from unittest import mock
+
+        from django.test import override_settings
+
+        from . import generation
+        job = self._job("Stoff " * 50)
+        job.target_count = 10
+        job.save(update_fields=["target_count"])
+        counter = iter(range(1, 100))
+
+        def one_each(system, prompt, **kwargs):
+            return {"questions": [{"kind": "open_text", "text": f"F {next(counter)}"}]}
+
+        with override_settings(**AI_ON, AI_GEN_PER_CALL=5), \
+             mock.patch("rooms.generation.ai.chat_json", side_effect=one_each) as chat:
+            generation.run_generation_job(job.id)
+        job.refresh_from_db()
+        # 3 regular calls (ceil(10/5)+1) + TOPUP_CALLS, one question each.
+        self.assertEqual(chat.call_count, 3 + generation.TOPUP_CALLS)
+        self.assertEqual(len(job.drafts), 3 + generation.TOPUP_CALLS)
 
     def test_max_tokens_per_call_bounded_by_setting(self):
         from django.test import override_settings

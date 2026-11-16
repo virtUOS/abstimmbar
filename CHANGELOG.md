@@ -37,6 +37,24 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Der PDF-Rahmen des Sitzungsprotokolls (Schrift, Fußzeile, Editor-HTML)
   kommt jetzt aus dem gemeinsamen Paket basicbar-pdf 0.1.0; das PDF sieht
   unverändert aus.
+- „Aus Dokument“ liest Folien und Seiten jetzt strukturiert: Folien- bzw.
+  Seitengrenzen und Zeilenumbrüche bleiben erhalten, Tabellen kommen
+  zeilenweise, Diagramme mit Titel und Werten, Sprechernotizen gekennzeichnet
+  (PPTX auch aus gruppierten Formen). Die KI kann so Fragen zu konkreten
+  Tabellen- und Diagrammwerten und zu Notizen stellen (#305).
+- „Aus Dokument“ verteilt die Fragen gleichmäßig über die Folien bzw.
+  Seiten: Jede inhaltliche Folie bekommt ihren Anteil, fast leere Folien wie
+  die Titelfolie keinen; die gewünschte Anzahl wird genau angefragt und bei
+  Bedarf nachgefordert. Jeder Vorschlag zeigt, auf welche Folie bzw. Seite er
+  sich bezieht (#304).
+- „Aus Dokument“: Die „Zusätzlichen Vorgaben“ sind jetzt verbindlich. Sie
+  stehen im Auftrag an die KI direkt nach dem Material und haben Vorrang vor
+  Fragetyp-Verteilung und Frageniveau, z. B. für Fragen zu konkreten Zahlen
+  (#306).
+- „Aus Dokument“: Nicht ausgewählte Vorschläge bleiben nach „Ausgewählte
+  übernehmen“ erhalten. Der Hinweis im Fragenset zeigt, wie viele noch auf
+  Prüfung warten; erst „Rest verwerfen“ oder das Übernehmen des letzten
+  Vorschlags schließt die Erzeugung ab (#292).
 
 ### Behoben
 
