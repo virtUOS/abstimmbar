@@ -372,7 +372,7 @@ class _ImageImporter:
 
     def url(self, src):
         """The URL to store for ``src`` (rewritten if embedded and valid)."""
-        if src not in self.images:
+        if not src or src not in self.images:
             return src
         if src not in self.resolved:
             uploaded = self._store(src, self.images[src])

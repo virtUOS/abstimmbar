@@ -2685,6 +2685,13 @@ class EmbeddedImageTransferTests(ApiTestCase):
             question=question, text_de="B", image="/media/questions/legacy.png",
             position=1,
         )
+        # Written past the sanitizer on purpose: never embedded either way.
+        AnswerOption.objects.create(
+            question=question, text_de="C", image="https://evil.example/x.png",
+            position=2,
+        )
+        question.text_en += '<img src="https://evil.example/y.png" alt="">'
+        question.save(update_fields=["text_en"])
         return qset, {"question": q_url, "option": o_url, "set": d_url, "section": s_url}
 
     def test_export_embeds_referenced_uploads(self):
@@ -2710,6 +2717,8 @@ class EmbeddedImageTransferTests(ApiTestCase):
         self.assertNotIn("/media/question-images/2020/01/fehlt.webp", data["images"])
         self.assertNotIn("/media/questions/legacy.png", data["images"])
         self.assertNotIn("/media/../../etc/passwd", data["images"])
+        self.assertNotIn("https://evil.example/x.png", data["images"])
+        self.assertNotIn("https://evil.example/y.png", data["images"])
         self.assertFalse(
             any("passwd" in str(call.args[0]) for call in opened.call_args_list if call.args)
         )
@@ -2877,6 +2886,50 @@ class EmbeddedImageTransferTests(ApiTestCase):
         self.assertFalse(UploadedImage.objects.exists())
         imported = QuestionSet.objects.get(pk=response.json()["id"])
         self.assertEqual(imported.questions.get().options.get().image, "")
+
+    def test_empty_key_does_not_attach_to_imageless_options(self):
+        import base64
+
+        payload = {
+            "format": "abstimmbar-set-v3",
+            "title": "Leer",
+            "questions": [{
+                "kind": "single_choice", "text": "<p>x</p>",
+                "options": [{"text": "A"}, {"text": "B", "image": ""}],
+            }],
+            "images": {"": {"data": base64.b64encode(self._png_bytes()).decode()}},
+        }
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", payload,
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertFalse(UploadedImage.objects.exists())
+        imported = QuestionSet.objects.get(pk=response.json()["id"])
+        self.assertEqual(
+            list(imported.questions.get().options.values_list("image", flat=True)),
+            ["", ""],
+        )
+
+    def test_long_key_imports_cleanly(self):
+        import base64
+
+        src = "/media/question-images/2026/01/" + "a" * 260 + ".webp"
+        self.assertLessEqual(len(src), 300)
+        payload = {
+            "format": "abstimmbar-set-v3",
+            "title": "Lang",
+            "questions": [{"kind": "single_choice", "text": f'<img src="{src}" alt="">'}],
+            "images": {src: {"data": base64.b64encode(self._png_bytes()).decode()}},
+        }
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", payload,
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 201, response.content[:300])
+        self.assertEqual(response.json()["images_imported"], 1)
+        stored = UploadedImage.objects.get()
+        self.assertLessEqual(len(stored.file.name), 100)
 
     def test_rejected_import_stores_no_images(self):
         import base64
