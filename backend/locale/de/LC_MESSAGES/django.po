@@ -640,3 +640,8 @@ msgstr "Die Bewertung läuft – jetzt können keine Karten hinzugefügt oder en
 #: live/templates/live/participant.html
 msgid "Only one point per card."
 msgstr "Nur ein Punkt pro Karte."
+
+#: live/templates/live/participant.html
+#, python-brace-format
+msgid "{i} of {n}"
+msgstr "{i} von {n}"

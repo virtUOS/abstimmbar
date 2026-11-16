@@ -4027,7 +4027,7 @@ function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: Mo
   const { shown, drag, chipProps } = useChipDrag(words, findChip, onModerate);
   return (
     <>
-      <ul className="mt-6 flex max-h-96 flex-wrap gap-3 overflow-auto p-2">
+      <ul className="mt-6 flex max-h-96 flex-wrap items-start gap-3 overflow-auto p-2">
         {shown.map((entry, i) => {
           const can = !!onModerate && !!entry.keys?.length;
           const cp = chipProps(entry);
@@ -4035,7 +4035,9 @@ function AnswerChips({ words, onModerate }: { words: ChipItem[]; onModerate?: Mo
             <li
               key={wordId(entry)}
               {...cp}
-              className={`ab-chip-in group relative rounded-full px-4 py-2 text-xl ${cp.className}`}
+              // Keep the answer's own line breaks (#294); a multi-line
+              // answer gets a softer rounding than the single-line pill.
+              className={`ab-chip-in group relative whitespace-pre-line px-4 py-2 text-xl ${entry.text.includes("\n") ? "rounded-2xl" : "rounded-full"} ${cp.className}`}
               style={{
                 ...cp.style,
                 background: termColor(entry.text),
