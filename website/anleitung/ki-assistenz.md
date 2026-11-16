@@ -21,7 +21,8 @@ optional — Sie entscheiden immer selbst, was Sie übernehmen.
 - **Fragen aus Dokument erzeugen** — über **Aus Dokument** im Set, aus PDF,
   PowerPoint (PPTX) oder LibreOffice (ODP). *Beispiel:* Sie laden Ihre Folien
   hoch, wählen ein Frageniveau, und die KI schlägt Einzel-,
-  Mehrfachauswahl- und Freitextfragen vor.
+  Mehrfachauswahl- und Freitextfragen vor. Neben dem Folientext fließen
+  auch Tabellen, Diagrammwerte und Sprechernotizen ein.
 
 ## In der Präsentation
 

@@ -20,7 +20,8 @@ and you always decide for yourself what to use.
 - **Generate questions from document** — via **From document** in the set,
   from PDF, PowerPoint (PPTX) or LibreOffice (ODP). *Example:* you upload
   your slides, pick a question level, and the AI suggests single-choice,
-  multiple-choice and free-text questions.
+  multiple-choice and free-text questions. Besides the slide text, tables,
+  chart values and speaker notes are taken into account.
 
 ## During the presentation
 

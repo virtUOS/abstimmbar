@@ -37,6 +37,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Der PDF-Rahmen des Sitzungsprotokolls (Schrift, Fußzeile, Editor-HTML)
   kommt jetzt aus dem gemeinsamen Paket basicbar-pdf 0.1.0; das PDF sieht
   unverändert aus.
+- „Aus Dokument“ liest Folien und Seiten jetzt strukturiert: Folien- bzw.
+  Seitengrenzen und Zeilenumbrüche bleiben erhalten, Tabellen kommen
+  zeilenweise, Diagramme mit Titel und Werten, Sprechernotizen gekennzeichnet
+  (PPTX auch aus gruppierten Formen). Die KI kann so Fragen zu konkreten
+  Tabellen- und Diagrammwerten und zu Notizen stellen (#305).
 
 ### Behoben
 
