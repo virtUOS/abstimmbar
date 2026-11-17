@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 # Use `npm ci` (clean install strictly from the lockfile): it reliably installs
-# the platform-specific optional dependencies (e.g. @rollup/rollup-linux-x64-gnu
+# the platform-specific optional dependencies (e.g. @rolldown/binding-linux-x64-gnu
 # needed by `vite build`), which `npm install` can silently skip (npm/cli#4828).
 RUN npm ci
 
