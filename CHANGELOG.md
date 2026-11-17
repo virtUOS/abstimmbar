@@ -8,6 +8,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ## [Unreleased]
 
+## [1.0.1] – 2026-11-17
+
+Fehlerbehebungen aus der ersten Testrunde nach 1.0. Keine
+Datenbankmigrationen.
+
 > ### Hinweise für den Betrieb
 >
 > - **Caddy nach dem Update neu starten.** `up -d` übernimmt ein per
@@ -17,6 +22,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 >   dafür jetzt `docker compose -f docker-compose.prod.yml up -d
 >   --force-recreate caddy`. Führen Sie den Befehl auch einmalig aus, wenn
 >   Sie bisher ohne ihn aktualisiert haben (#299, #279).
+> - **Optional:** `AI_GEN_PER_CALL` (Standard 5) legt fest, wie viele Fragen
+>   „Fragen aus Dokument“ höchstens je KI-Anfrage erzeugt. Nur bei sehr
+>   langsamen Modellen kleiner setzen (#309).
 
 ### Behoben
 
@@ -336,6 +344,8 @@ Etappen entwickelt:
 - Erste veröffentlichte Version mit automatisch gebautem Release-Image.
 - Gemeinsame basicbar-Pakete werden aus den GitHub-Repositories bezogen.
 
+[Unreleased]: https://github.com/virtUOS/abstimmbar/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/virtUOS/abstimmbar/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/virtUOS/abstimmbar/compare/v0.1.2...v1.0.0
 [0.1.2]: https://github.com/virtUOS/abstimmbar/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/virtUOS/abstimmbar/compare/v0.1.0...v0.1.1
