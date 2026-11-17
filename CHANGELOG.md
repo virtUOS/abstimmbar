@@ -8,6 +8,12 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ## [Unreleased]
 
+### Behoben
+
+- Präsentation: Unter dem QR-Code steht wieder die vollständige
+  Teilnahme-Adresse samt Domain (z. B. `abstimmbar.example.org/p/…`) statt
+  nur des Pfads `/p/…`; ebenso im Alternativtext des QR-Bildes (#322).
+
 ## [1.0.1] – 2026-11-17
 
 Fehlerbehebungen aus der ersten Testrunde nach 1.0. Keine
