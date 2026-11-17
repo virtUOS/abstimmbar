@@ -12,7 +12,7 @@ import smtplib
 from dataclasses import dataclass, field
 
 from django.conf import settings
-from django.core.mail import EmailMessage, get_connection
+from django.core.mail import EmailMessage, mailers
 from django.template.loader import render_to_string
 from django.utils import timezone, translation
 
@@ -86,7 +86,8 @@ def send_invitations(
     if len(invites) > MAX_RECIPIENTS:
         raise TooManyRecipients
     chair_email = getattr(request.user, "email", "") or ""
-    connection = get_connection(fail_silently=False)
+    # One SMTP session for the whole batch (Django 6.1 mailers API).
+    connection = mailers.default
     try:
         connection.open()
     except _SEND_ERRORS as exc:
@@ -101,10 +102,10 @@ def send_invitations(
             mail = EmailMessage(
                 subject, _body(meeting, invite, request=request, message=message),
                 from_email=settings.DEFAULT_FROM_EMAIL, to=[invite.member.email],
-                reply_to=[chair_email] if chair_email else [], connection=connection,
+                reply_to=[chair_email] if chair_email else [],
             )
             try:
-                mail.send()
+                connection.send_messages([mail])
             except _MESSAGE_ERRORS as exc:
                 errors.add(type(exc).__name__)
                 result.failed.append(invite)

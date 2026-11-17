@@ -34,6 +34,9 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Geändert
 
+- Plattform: Django 6.1 (vorher 5.2 LTS). Der Mailversand nutzt die neue
+  `MAILERS`-Konfiguration von Django; die Umgebungsvariablen `EMAIL_*`
+  bleiben unverändert.
 - Der JSON-Export eines Fragensets enthält jetzt die hochgeladenen Bilder
   (Fragetext, Beschreibungen, Antwortbilder). Beim Import, etwa auf einer
   anderen Instanz, werden sie wie ein Upload geprüft und neu gespeichert;
