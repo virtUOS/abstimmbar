@@ -10,13 +10,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 > ### Hinweise für den Betrieb
 >
-> - **Caddy nach dem Update neu starten.** `up -d` übernimmt ein per
->   `git pull` geändertes `Caddyfile` nicht; Caddy lief dann mit alter
->   Konfiguration weiter, sodass z. B. die Vorschau im Frage-Editor und
->   Lernkontroll-Links eine Fehlerseite zeigten. Die Update-Anleitung enthält
->   dafür jetzt `docker compose -f docker-compose.prod.yml up -d
->   --force-recreate caddy`. Führen Sie den Befehl auch einmalig aus, wenn
->   Sie bisher ohne ihn aktualisiert haben (#299, #279).
+> - **Caddy leitet `/g/*` an Django weiter.** Unter `/g/<token>/` liegen die
+>   persönlichen Sitzungslinks der Gremienmitglieder. Die mitgelieferte
+>   Caddyfile enthält die Weiterleitung bereits; wer die Caddyfile angepasst
+>   hat oder einen eigenen Reverse-Proxy betreibt, muss `/g/*` ergänzen
+>   (Liste der weiterzuleitenden Pfade in der Installationsanleitung).
 
 ### Hinzugefügt
 
@@ -94,6 +92,27 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Jetzt erscheint „Sie wurden abgemeldet. Bitte melden Sie sich erneut an.“
   mit einer Schaltfläche zur Anmeldung, die danach zur Präsentation
   zurückführt (#298).
+
+## [1.0.1] – 2026-11-17
+
+Fehlerbehebungen aus der ersten Testrunde nach 1.0. Keine
+Datenbankmigrationen.
+
+> ### Hinweise für den Betrieb
+>
+> - **Caddy nach dem Update neu starten.** `up -d` übernimmt ein per
+>   `git pull` geändertes `Caddyfile` nicht; Caddy lief dann mit alter
+>   Konfiguration weiter, sodass z. B. die Vorschau im Frage-Editor und
+>   Lernkontroll-Links eine Fehlerseite zeigten. Die Update-Anleitung enthält
+>   dafür jetzt `docker compose -f docker-compose.prod.yml up -d
+>   --force-recreate caddy`. Führen Sie den Befehl auch einmalig aus, wenn
+>   Sie bisher ohne ihn aktualisiert haben (#299, #279).
+> - **Optional:** `AI_GEN_PER_CALL` (Standard 5) legt fest, wie viele Fragen
+>   „Fragen aus Dokument“ höchstens je KI-Anfrage erzeugt. Nur bei sehr
+>   langsamen Modellen kleiner setzen (#309).
+
+### Behoben
+
 - Fragen aus Dokument: Bei etwa zehn oder mehr gewünschten Fragen entstanden
   oft gar keine, weil eine einzige KI-Anfrage alle Fragen liefern sollte und
   dabei an Zeit- oder Längengrenzen scheiterte. Die Fragen werden jetzt in
@@ -173,14 +192,6 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   PDF-Dateien beim Folienimport Endlosschleifen oder sehr hohen
   Speicherverbrauch auslösen konnten (GitHub-Advisories vom 23. und
   30. Oktober 2026).
-
-> ### Hinweise für den Betrieb
->
-> - **Caddy leitet `/g/*` an Django weiter.** Unter `/g/<token>/` liegen die
->   persönlichen Sitzungslinks der Gremienmitglieder. Die mitgelieferte
->   Caddyfile enthält die Weiterleitung bereits; wer die Caddyfile angepasst
->   hat oder einen eigenen Reverse-Proxy betreibt, muss `/g/*` ergänzen
->   (Liste der weiterzuleitenden Pfade in der Installationsanleitung).
 
 ## [1.0.0] – 2026-10-22
 
@@ -418,6 +429,8 @@ Etappen entwickelt:
 - Erste veröffentlichte Version mit automatisch gebautem Release-Image.
 - Gemeinsame basicbar-Pakete werden aus den GitHub-Repositories bezogen.
 
+[Unreleased]: https://github.com/virtUOS/abstimmbar/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/virtUOS/abstimmbar/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/virtUOS/abstimmbar/compare/v0.1.2...v1.0.0
 [0.1.2]: https://github.com/virtUOS/abstimmbar/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/virtUOS/abstimmbar/compare/v0.1.0...v0.1.1
