@@ -4,9 +4,10 @@
 """Question-set duplication and JSON file export/import (roadmap M3).
 
 The export format is deliberately small and versioned. Results (runs/votes)
-are never part of a transfer. Image references inside question HTML are
-instance-local media URLs — they survive duplication within one instance,
-but not a move to a different instance (known v1 limitation, roadmap).
+are never part of a transfer. Image references inside rich HTML (set and
+section descriptions, question text) and answer-option images are
+instance-local media URLs. Duplication within one instance keeps sharing
+them; the file export embeds them (format v3, #290, see below).
 Imported HTML is untrusted and goes through the nh3 allowlist.
 
 Format v2 (#33 MR2 Task 6): every translatable field (QuestionSet
@@ -16,25 +17,53 @@ title/description, Section.title/description, Question.text, AnswerOption.text) 
 are still accepted on import, written to the canonical language only (the
 same "legacy plain string" convention TranslatedMapMixin uses).
 
+Format v3 (#290): a top-level ``images`` map embeds every referenced image
+that lives in this instance's uploads (UploadedImage) — key is the src as it
+appears in the content (``/media/question-images/…``), value is
+``{"content_type": ..., "data": <base64>}``. The content keeps its paths.
+Files are resolved only through the UploadedImage table by stored name,
+never by opening a path taken from the HTML. On import each referenced,
+embedded image goes through the upload pipeline (same size caps,
+normalize_image) and is stored as a new UploadedImage of the importing
+person; the references are rewritten to the new URL. Invalid entries are
+skipped and counted; references without an embedded image (v1/v2 files)
+stay as they are.
+
 CRITICAL: never read/write a translatable field through the bare accessor
 here. The active language during a request is the author's UI language
 (mozilla-django-oidc/i18next), which may differ from the content-canonical
 language (settings.MODELTRANSLATION_DEFAULT_LANGUAGE) — always go through
 the explicit ``<field>_de``/``<field>_en`` columns instead.
 """
+import base64
+import binascii
+import html
+import io
+import posixpath
+import re
+from urllib.parse import unquote
+
 from django.conf import settings
+from django.core.files.base import ContentFile
+from PIL import Image
 from rest_framework import serializers
 
 from common.i18n_fields import LANGS, translated_map
 
 from . import matrix, mindmap, set_types
-from .models import AnswerOption, Question, QuestionSet, Room, Section
+from .images import (
+    MAX_ANIMATED_IMAGE_BYTES,
+    MAX_IMAGE_BYTES,
+    InvalidImageError,
+    normalize_image,
+)
+from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import unique_title
 from .question_fields import clean_evaluation_categories
 from .sanitize import clean_html, clean_media_url
 
-EXPORT_FORMAT = "abstimmbar-set-v2"
-LEGACY_FORMAT = "abstimmbar-set-v1"
+EXPORT_FORMAT = "abstimmbar-set-v3"
+LEGACY_FORMATS = {"abstimmbar-set-v1", "abstimmbar-set-v2"}
 VALID_KINDS = {k.value for k in Question.Kind}
 CONTENT_DEFAULT_LANGUAGE = settings.MODELTRANSLATION_DEFAULT_LANGUAGE
 
@@ -248,10 +277,176 @@ def duplicate_set(question_set, target_room, title=None):
     return clone
 
 
+# ---------------------------------------------------------------------------
+# Embedded images (#290)
+# ---------------------------------------------------------------------------
+
+# Stored HTML is clean_html (nh3) output: attributes are double-quoted and
+# only <img src alt> survives, so this matches every image reference.
+_IMG_SRC_RE = re.compile(r'(<img\b[^>]*?\ssrc=")([^"]*)(")', re.IGNORECASE)
+# Base64 length of the largest accepted image (+ padding slack): longer
+# strings are skipped before decoding anything.
+_MAX_BASE64_CHARS = (MAX_IMAGE_BYTES + 2) // 3 * 4 + 4
+
+
+def _media_prefix():
+    return "/" + settings.MEDIA_URL.strip("/") + "/"
+
+
+def _html_image_srcs(value):
+    """The (unescaped) src of every <img> in a stored HTML string."""
+    return [html.unescape(m.group(2)) for m in _IMG_SRC_RE.finditer(value or "")]
+
+
+def _uploaded_image_for(src):
+    """The UploadedImage behind a media URL, or None.
+
+    Looked up by stored name in the DB only — a src that is not one of this
+    instance's uploads (external, legacy, traversal) never touches the
+    filesystem.
+    """
+    if not src or clean_media_url(src) != src:
+        return None
+    prefix = _media_prefix()
+    if not src.startswith(prefix):
+        return None
+    name = unquote(src[len(prefix):])
+    if not name:
+        return None
+    return UploadedImage.objects.filter(file=name).first()
+
+
+def _embedded_images(srcs):
+    """{src: {"content_type", "data"}} for every resolvable src."""
+    images = {}
+    for src in srcs:
+        if src in images:
+            continue
+        uploaded = _uploaded_image_for(src)
+        if uploaded is None:
+            continue
+        try:
+            with uploaded.file.open("rb") as fh:
+                raw = fh.read()
+        except OSError:
+            continue  # DB row without a file (e.g. media volume lost)
+        fmt = _image_format(raw)
+        images[src] = {
+            # Informational only; the import sniffs the bytes itself.
+            "content_type": Image.MIME.get(fmt, "application/octet-stream"),
+            "data": base64.b64encode(raw).decode("ascii"),
+        }
+    return images
+
+
+def _collect_image_srcs(question_set, sections, questions):
+    """Every image reference in the exported content, in document order."""
+    srcs = []
+    for lang in LANGS:
+        srcs += _html_image_srcs(getattr(question_set, f"description_{lang}"))
+    for section in sections:
+        for lang in LANGS:
+            srcs += _html_image_srcs(getattr(section, f"description_{lang}"))
+    for question in questions:
+        for lang in LANGS:
+            srcs += _html_image_srcs(getattr(question, f"text_{lang}"))
+        srcs += [option.image for option in question.options.all() if option.image]
+    return srcs
+
+
+class _ImageImporter:
+    """Materialises the embedded images of an import file on demand.
+
+    Only images that are actually referenced are decoded and stored (once
+    per src), so unreferenced entries never become uploads. Without a user
+    (direct calls from code) or without an ``images`` map, every reference
+    is left as it is.
+    """
+
+    def __init__(self, images, user):
+        self.images = images if isinstance(images, dict) and user else {}
+        self.user = user
+        self.resolved = {}
+        self.imported = 0
+        self.skipped = 0
+
+    def url(self, src):
+        """The URL to store for ``src`` (rewritten if embedded and valid)."""
+        if not src or src not in self.images:
+            return src
+        if src not in self.resolved:
+            uploaded = self._store(src, self.images[src])
+            if uploaded is None:
+                self.skipped += 1
+                self.resolved[src] = src
+            else:
+                self.imported += 1
+                self.resolved[src] = uploaded.file.url
+        return self.resolved[src]
+
+    def rewrite_html(self, value):
+        if not value or not self.images:
+            return value
+
+        def replace(match):
+            src = html.unescape(match.group(2))
+            new = self.url(src)
+            if new == src:
+                return match.group(0)
+            return f"{match.group(1)}{html.escape(new, quote=True)}{match.group(3)}"
+
+        return _IMG_SRC_RE.sub(replace, value)
+
+    def _store(self, src, entry):
+        # Keys are attacker-controlled: same media-only rule as any src.
+        if clean_media_url(src) != src or not isinstance(entry, dict):
+            return None
+        data = entry.get("data")
+        if not isinstance(data, str) or len(data) > _MAX_BASE64_CHARS:
+            return None
+        try:
+            raw = base64.b64decode(data, validate=True)
+        except (binascii.Error, ValueError):
+            return None
+        if not raw or len(raw) > MAX_IMAGE_BYTES:
+            return None
+        # The client's content_type is ignored: Pillow sniffs the bytes.
+        stem = posixpath.splitext(posixpath.basename(unquote(src)))[0] or "image"
+        original = ContentFile(raw, name=f"{stem[:80]}.img")
+        try:
+            normalized = normalize_image(original)
+        except InvalidImageError:
+            return None
+        if normalized is original:
+            # Animated GIF/WebP pass through untranscoded (as on upload).
+            if len(raw) > MAX_ANIMATED_IMAGE_BYTES:
+                return None
+            fmt = _ANIMATED_EXTENSIONS.get(_image_format(raw))
+            if fmt is None:
+                return None
+            normalized = ContentFile(raw, name=f"{stem[:80]}.{fmt}")
+        uploaded = UploadedImage(uploader=self.user)
+        uploaded.file.save(normalized.name, normalized, save=True)
+        return uploaded
+
+
+_ANIMATED_EXTENSIONS = {"GIF": "gif", "WEBP": "webp", "PNG": "png"}
+
+
+def _image_format(raw):
+    """Pillow's format name for bytes normalize_image already accepted."""
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            return img.format
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return None
+
+
 def export_set(question_set):
     # Sections are referenced from questions by their index in this list.
     sections = list(question_set.sections.all())
     section_index = {section.pk: i for i, section in enumerate(sections)}
+    questions = list(question_set.questions.prefetch_related("options"))
     return {
         "format": EXPORT_FORMAT,
         "title": translated_map(question_set, "title"),
@@ -341,13 +536,21 @@ def export_set(question_set):
                     for option in question.options.all()
                 ],
             }
-            for question in question_set.questions.prefetch_related("options")
+            for question in questions
         ],
+        # #290: the referenced uploads travel inside the file.
+        "images": _embedded_images(
+            _collect_image_srcs(question_set, sections, questions)
+        ),
     }
 
 
-def import_set(room, data):
+def import_set(room, data, *, user=None, stats=None):
     """Create a set in ``room`` from an export file's parsed JSON.
+
+    ``user`` owns images embedded in a v3 file (#290); without it they are
+    ignored and the references kept. ``stats``, if given, receives
+    ``images_imported``/``images_skipped``.
 
     Accepts both v2 files (translatable fields as {de,en} maps) and legacy
     v1 files (translatable fields as plain strings — written to the
@@ -356,7 +559,7 @@ def import_set(room, data):
     code path; only the overall ``format`` marker is validated strictly.
     """
     if not isinstance(data, dict) or data.get("format") not in {
-        EXPORT_FORMAT, LEGACY_FORMAT,
+        EXPORT_FORMAT, *LEGACY_FORMATS,
     }:
         raise serializers.ValidationError(
             {"format": f"Expected an {EXPORT_FORMAT} export file."}
@@ -407,9 +610,13 @@ def import_set(room, data):
                 {"questions": "Question type not allowed in this set type."}
             )
 
+    # Every validation error is raised above: embedded images are stored
+    # only from here on, so a rejected file leaves no uploads behind.
+    images = _ImageImporter(data.get("images"), user)
     # Foreign file: sanitize like any client input — per language (#49).
     description_map = {
-        lang: clean_html(v) for lang, v in _lang_map(data.get("description")).items()
+        lang: images.rewrite_html(clean_html(v))
+        for lang, v in _lang_map(data.get("description")).items()
     }
     title_map[CONTENT_DEFAULT_LANGUAGE] = _unique_in_room(
         room, title_map[CONTENT_DEFAULT_LANGUAGE]
@@ -448,7 +655,8 @@ def import_set(room, data):
             # Foreign file: sanitize the rich description per language (#49).
             raw_description = raw.get("description") if isinstance(raw, dict) else None
             section_description = {
-                lang: clean_html(v) for lang, v in _lang_map(raw_description).items()
+                lang: images.rewrite_html(clean_html(v))
+                for lang, v in _lang_map(raw_description).items()
             }
             imported_sections.append(
                 Section.objects.create(
@@ -478,7 +686,8 @@ def import_set(room, data):
         )
         # Foreign file: sanitize like any client input — per language.
         text_map = {
-            lang: clean_html(v) for lang, v in _lang_map(item.get("text")).items()
+            lang: images.rewrite_html(clean_html(v))
+            for lang, v in _lang_map(item.get("text")).items()
         }
         root_map = {
             lang: mindmap.normalize_text(v)[: mindmap.MINDMAP_TEXT_MAX].strip()
@@ -600,7 +809,7 @@ def import_set(room, data):
                     for lang, v in _lang_map(option.get("text")).items()
                 },
                 # Foreign file: same media-only rule as client input.
-                image=clean_media_url(str(option.get("image") or "")),
+                image=images.url(clean_media_url(str(option.get("image") or ""))),
                 is_correct=bool(option.get("is_correct")),
                 is_abstention=bool(option.get("is_abstention")),
                 position=position_option,
@@ -608,4 +817,7 @@ def import_set(room, data):
             for position_option, option in enumerate(options)
             if isinstance(option, dict)
         )
+    if stats is not None:
+        stats["images_imported"] = images.imported
+        stats["images_skipped"] = images.skipped
     return question_set

@@ -1547,11 +1547,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(data),
     }),
-  importQuestionSet: (roomId: number, data: unknown) =>
-    request<QuestionSet>(`/api/rooms/${roomId}/import-set/`, {
-      method: "POST",
-      body: JSON.stringify(data),
-    }),
+  /** Set import (#290): sent as a file upload — exports with embedded
+   *  images can exceed the server's JSON body limit. */
+  importQuestionSet: (roomId: number, file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    return request<QuestionSet & { images_imported?: number; images_skipped?: number }>(
+      `/api/rooms/${roomId}/import-set/`,
+      { method: "POST", body },
+    );
+  },
   getQuestionSet: (id: number) => request<QuestionSet>(`/api/question-sets/${id}/`),
   createQuestionSet: (
     data: {

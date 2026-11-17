@@ -103,7 +103,8 @@ breiter ausgerollt wird.
 → **Ende M3 = MVP ✅ (Juli 2026)**: bereit für Pilotbetrieb in echten
 Vorlesungen (OIDC-Zugang). Bekannte v1-Einschränkung: Bilder im JSON-Export
 referenzieren Instanz-lokale Media-URLs (Umzug auf andere Instanz verliert
-Bilder; innerhalb der Instanz kein Problem).
+Bilder; innerhalb der Instanz kein Problem) — behoben mit #290: der Export
+bettet die Bilder ein.
 
 ### M4 — LTI 1.3 ✅ (Juli 2026)
 

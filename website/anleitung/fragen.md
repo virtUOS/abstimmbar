@@ -188,7 +188,9 @@ gezählt.
   anderen Ihrer Räume; so verwenden Sie es z. B. im nächsten Semester wieder.
 - **Export (JSON)** (Experten-Modus) — speichert das Set als Datei. Im Raum
   holen Sie eine solche Datei über das Menü ⋮ → **Fragenset importieren (JSON)** wieder
-  herein, etwa auf einer anderen Abstimmbar-Instanz.
+  herein, etwa auf einer anderen Abstimmbar-Instanz. Hochgeladene Bilder sind
+  in der Datei enthalten und kommen beim Import mit; eine Importdatei darf
+  bis zu 32 MiB groß sein.
 - **Set kopieren (Freigabe-Link)** (Experten-Modus) — erzeugt einen Link, mit
   dem Kolleginnen und Kollegen eine Kopie des Sets **in ihren eigenen Raum**
   übernehmen können; Ihr Original bleibt unverändert. Optional geben Sie eine

@@ -8,6 +8,7 @@ rooms the user owns (staff sees all). The anonymous participant side lives in
 the `live` app (M2) — never here.
 """
 import html
+import json
 import operator
 import re
 from functools import reduce
@@ -47,7 +48,14 @@ from common.i18n_fields import resolve_translated_text, translated_map
 from live.models import MatrixCard, MindmapContribution, MindmapNode, Vote
 
 from . import ai_generate, ai_prompts, generation, set_types
-from .images import InvalidImageError, normalize_image
+from .images import (
+    # The size caps live in images.py (shared with the JSON import, #290);
+    # they stay importable — and patchable — as rooms.views names.
+    MAX_ANIMATED_IMAGE_BYTES,
+    MAX_IMAGE_BYTES,
+    InvalidImageError,
+    normalize_image,
+)
 from .models import GenerationJob, Question, QuestionSet, Room, Section
 from .serializers import (
     AgendaLocked,
@@ -60,15 +68,6 @@ from .serializers import (
     next_outline_position,
 )
 from .transfer import duplicate_question, duplicate_set, export_set, import_set
-
-# Upload gate before normalization (#280). Phone photos easily exceed 5 MB;
-# normalize_image() downsizes them to IMAGE_MAX_EDGE and re-encodes as WebP,
-# so the stored file stays small. Pillow's MAX_IMAGE_PIXELS check (raised as
-# DecompressionBombError → InvalidImageError) still guards the decode.
-MAX_IMAGE_BYTES = 20 * 1024 * 1024
-# Animated GIF/WebP are stored as uploaded (not transcoded), so they keep
-# the old, tighter limit.
-MAX_ANIMATED_IMAGE_BYTES = 5 * 1024 * 1024
 
 
 def _display_name(user):
@@ -511,16 +510,47 @@ class RoomViewSet(viewsets.ModelViewSet):
         room.save(update_fields=["owner"])
         return Response({"owners": _owner_list(room, request.user)})
 
-    @action(detail=True, methods=["post"], url_path="import-set")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="import-set",
+        parser_classes=[parsers.MultiPartParser, parsers.JSONParser],
+    )
     def import_set(self, request, pk=None):
-        """Create a question set from an export file's JSON (roadmap M3)."""
+        """Create a question set from an export file (roadmap M3).
+
+        The file comes as a multipart upload (``file``): with embedded images
+        (#290) it can exceed the global JSON body limit, so only this endpoint
+        accepts up to SET_IMPORT_MAX_BYTES. A plain JSON body still works."""
         room = self.get_object()
-        question_set = import_set(room, request.data)
+        upload = request.FILES.get("file")
+        if upload is not None:
+            if upload.size > settings.SET_IMPORT_MAX_BYTES:
+                limit = settings.SET_IMPORT_MAX_BYTES // (1024 * 1024)
+                return Response(
+                    {"detail": f"The file is larger than {limit} MB."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                data = json.loads(upload.read().decode("utf-8"))
+            except (UnicodeDecodeError, ValueError):
+                return Response(
+                    {"detail": "Not a valid export file."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            data = request.data
+        stats = {}
+        question_set = import_set(room, data, user=request.user, stats=stats)
         serializer = QuestionSetSerializer(
             question_set, context={"request": request}
         )
         data = dict(serializer.data)
         data["question_count"] = question_set.questions.count()
+        # Embedded images (#290): how many were stored, how many were dropped
+        # (invalid base64, not an image, over the size cap).
+        data["images_imported"] = stats.get("images_imported", 0)
+        data["images_skipped"] = stats.get("images_skipped", 0)
         return Response(data, status=status.HTTP_201_CREATED)
 
 

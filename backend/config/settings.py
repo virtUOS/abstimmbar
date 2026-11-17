@@ -192,9 +192,13 @@ CSRF_COOKIE_NAME = "abstimmbar_csrftoken"
 
 # JSON set import posts a whole exported question set as the request body.
 # DRF 3.17+ applies Django's DATA_UPLOAD_MAX_MEMORY_SIZE (default 2.5 MB) to
-# JSON request.data. Images are referenced by /media/ URL, not embedded, so
-# 10 MiB is generous.
+# JSON request.data. 10 MiB is generous for every JSON body; the set import
+# (which since #290 embeds images as base64) comes as a multipart file upload
+# instead and has its own cap, SET_IMPORT_MAX_BYTES.
 DATA_UPLOAD_MAX_MEMORY_SIZE = 10 * 1024 * 1024
+# Exported set files with embedded images (#290): normalised WebP, typically
+# 0.1–1 MB each, +33 % for base64 — 32 MiB takes a few dozen images.
+SET_IMPORT_MAX_BYTES = 32 * 1024 * 1024
 
 # Behind a TLS-terminating reverse proxy in production: trust its forwarded
 # host/scheme so absolute URLs use https, and require secure cookies.

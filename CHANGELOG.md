@@ -31,6 +31,12 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Geändert
 
+- Der JSON-Export eines Fragensets enthält jetzt die hochgeladenen Bilder
+  (Fragetext, Beschreibungen, Antwortbilder). Beim Import, etwa auf einer
+  anderen Instanz, werden sie wie ein Upload geprüft und neu gespeichert;
+  ungültige Bilder werden übersprungen. Ältere Exportdateien lassen sich
+  weiter importieren. Importdateien dürfen dafür bis zu 32 MiB groß sein
+  (bisher 10 MiB) (#290).
 - Der Prometheus-Endpunkt `/metrics` nutzt jetzt den gemeinsamen Baustein
   aus basicbar-integrations 0.4.0. Kennzahlen, Token und Statuscodes bleiben
   gleich; Antworten tragen zusätzlich `Cache-Control: no-store`.
