@@ -840,6 +840,9 @@ export interface FreeTextEvalSummary {
   }[];
   categories: string[];
   chart: boolean;
+  /** Per-answer verdict keyed by casefolded answer text (like a chip's
+   *  `keys`); answers still being evaluated are missing (#291). */
+  verdicts?: Record<string, string>;
   pending: number;
   total: number;
 }
@@ -2151,7 +2154,7 @@ export interface FreeTextEvaluation {
   groups: {
     verdict: string;
     count: number;
-    items: { text: string; count: number; note: string }[];
+    items: { text: string; count: number; note?: string }[];
   }[];
   categories?: string[];
   chart?: boolean;

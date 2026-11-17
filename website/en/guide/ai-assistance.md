@@ -43,7 +43,10 @@ via the **star** on the right-hand edge. Details are in
 - **Evaluate free text (live)** — automatically sort open answers into 2–5
   categories of your choice, grade them against a **model solution**, or
   condense them into **key statements**. If you like, each person sees the
-  evaluation of their own answer.
+  evaluation of their own answer. Besides positive, neutral and negative, the
+  *Sentiment* preset knows **mixed** for answers with praise and criticism.
+  In the presentation under “Original” and in the results, each answer's
+  colour shows how it was classified.
 
 ## When evaluating
 

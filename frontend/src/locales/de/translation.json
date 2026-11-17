@@ -432,7 +432,7 @@
   "Category": "Kategorie",
   "2–5 categories; the AI assigns each answer to one of them.": "2–5 Kategorien; die KI ordnet jede Antwort einer davon zu.",
   "Correctness (correct · unclear · wrong)": "Korrektheit (korrekt · unklar · falsch)",
-  "Sentiment (positive · neutral · negative)": "Stimmung (positiv · neutral · negativ)",
+  "Sentiment (positive · neutral · negative · mixed)": "Stimmung (positiv · neutral · negativ · gemischt)",
   "Custom categories …": "Eigene Kategorien …",
   "Show distribution as bar chart": "Verteilung als Balkendiagramm anzeigen",
   "Show each participant the evaluation of their own answer": "Teilnehmenden die Auswertung ihrer eigenen Antwort anzeigen",

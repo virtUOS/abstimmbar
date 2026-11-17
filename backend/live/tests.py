@@ -3378,6 +3378,83 @@ class FreetextScaleTests(LiveTestCase):
         self.assertEqual(groups["positiv"]["count"], 1)
 
 
+class FreetextMixedSentimentTests(LiveTestCase):
+    """#291: „gemischt" category, explicit fallback, per-answer verdicts."""
+
+    SCALE: ClassVar[list[str]] = ["positiv", "neutral", "negativ", "gemischt"]
+
+    def test_fallback_prefers_explicit_neutral_label(self):
+        from .ai_freetext import middle_category
+        # Position alone would pick „negativ" (index 2) — never for unsure.
+        self.assertEqual(middle_category(self.SCALE), "neutral")
+        self.assertEqual(middle_category(["gut", "gemischt", "unklar", "schlecht"]), "unklar")
+        # No explicit neutral label → the middle one, as before.
+        self.assertEqual(middle_category(["a", "b", "c", "d"]), "c")
+
+    def test_unknown_and_skipped_answers_fall_back_to_neutral(self):
+        from .ai_freetext import apply_evaluation
+        answers = [{"text": "Lob und Kritik", "count": 1}, {"text": "Hm", "count": 1},
+                   {"text": "Toll", "count": 1}]
+        data = {"items": [
+            {"text": "Lob und Kritik", "verdict": "gemischt"},
+            {"text": "Toll", "verdict": "quatsch"},
+        ]}
+        groups = {g["verdict"]: g for g in apply_evaluation(answers, data, self.SCALE)["groups"]}
+        self.assertEqual(groups["gemischt"]["count"], 1)
+        self.assertEqual(groups["neutral"]["count"], 2)  # unknown label + skipped
+
+    def test_prompt_defines_mixed_only_when_on_the_scale(self):
+        from .ai_freetext import evaluate_system
+        self.assertIn('"gemischt"', evaluate_system(self.SCALE))
+        self.assertIn("Lob und Kritik", evaluate_system(self.SCALE))
+        self.assertNotIn("Lob und Kritik", evaluate_system(["positiv", "neutral", "negativ"]))
+        self.assertIn('nutze "neutral"', evaluate_system(self.SCALE))
+
+    def test_live_classify_error_lands_in_neutral(self):
+        from basicbar_integrations import ai
+
+        from .ai_evaluation import classify
+        with patch.object(ai, "chat_json", side_effect=ai.AIError("down")):
+            self.assertEqual(classify("Frage", "", "x", self.SCALE), ("neutral", ""))
+
+    def test_summary_carries_per_answer_verdicts(self):
+        q = Question.objects.create(
+            question_set=self.question_set, kind=Question.Kind.OPEN_TEXT,
+            text="<p>Feedback?</p>", position=9, ai_evaluate=True,
+            evaluation_categories=self.SCALE,
+        )
+        run = self.open_question(q)
+        for text in ("Super", "super", "Gut, aber zu schnell", "Offen"):
+            self.vote(self.join(), text=text)
+        Vote.objects.filter(question=q, text_key="super").update(ai_verdict="positiv")
+        Vote.objects.filter(question=q, text="Gut, aber zu schnell").update(ai_verdict="gemischt")
+        summary = freetext_evaluation(run, q)
+        self.assertEqual(
+            summary["verdicts"], {"super": "positiv", "gut, aber zu schnell": "gemischt"}
+        )
+        self.assertEqual(summary["pending"], 1)  # „Offen" not yet classified
+
+
+class SentimentScaleMigrationTests(LiveTestCase):
+    """0063 appends „gemischt" to questions on the exact former preset."""
+
+    def test_forwards_upgrades_only_the_exact_former_preset(self):
+        import importlib
+
+        from django.apps import apps as global_apps
+        mig = importlib.import_module("rooms.migrations.0063_sentiment_scale_mixed")
+        qs = self.question_set
+        old = Question.objects.create(question_set=qs, kind=Question.Kind.OPEN_TEXT, text="a",
+                                      evaluation_categories=["positiv", "neutral", "negativ"])
+        custom = Question.objects.create(question_set=qs, kind=Question.Kind.OPEN_TEXT, text="b",
+                                         evaluation_categories=["positiv", "negativ"])
+        mig.forwards(global_apps, None)
+        old.refresh_from_db()
+        custom.refresh_from_db()
+        self.assertEqual(old.evaluation_categories, mig.NEW)
+        self.assertEqual(custom.evaluation_categories, ["positiv", "negativ"])
+
+
 class FreetextScaleSerializerTests(LiveTestCase):
     def setUp(self):
         super().setUp()

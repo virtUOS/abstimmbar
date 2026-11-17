@@ -159,7 +159,8 @@ const TIME_PRESETS: { label: string; value: string }[] = [
 // they are authored content inserted into the question, not UI chrome.
 const EVAL_PRESETS: { value: string; label: string; categories: string[] }[] = [
   { value: "correctness", label: "Correctness (correct · unclear · wrong)", categories: ["korrekt", "unklar", "falsch"] },
-  { value: "sentiment", label: "Sentiment (positive · neutral · negative)", categories: ["positiv", "neutral", "negativ"] },
+  // „gemischt" (#291): praise and criticism in one answer.
+  { value: "sentiment", label: "Sentiment (positive · neutral · negative · mixed)", categories: ["positiv", "neutral", "negativ", "gemischt"] },
   { value: "custom", label: "Custom categories …", categories: [] },
 ];
 
