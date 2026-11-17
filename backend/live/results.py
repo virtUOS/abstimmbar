@@ -252,6 +252,9 @@ def freetext_evaluation(run, question):
     valid = {c.casefold(): c for c in categories}
     votes = run.votes.filter(question=question).exclude(text="")
     buckets = {verdict: {} for verdict in categories}
+    # Per-answer verdict keyed like the word chips (casefolded text, #291), so
+    # the presenter can mark each answer with its category.
+    verdicts = {}
     pending = 0
     for text, verdict in votes.values_list("text", "ai_verdict"):
         if not verdict:
@@ -260,6 +263,7 @@ def freetext_evaluation(run, question):
         verdict = valid.get(verdict.casefold(), fallback)
         entry = buckets[verdict].setdefault(text.casefold(), {"text": text, "count": 0})
         entry["count"] += 1
+        verdicts[text.casefold()] = verdict
     groups = [
         {
             "verdict": verdict,
@@ -272,6 +276,7 @@ def freetext_evaluation(run, question):
         "groups": groups,
         "categories": categories,
         "chart": question.evaluation_chart,
+        "verdicts": verdicts,
         "pending": pending,
         "total": votes.count(),
     }

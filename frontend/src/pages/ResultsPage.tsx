@@ -11,6 +11,7 @@ import {
   aiErrorText,
   api,
   results,
+  type FreeTextEvalSummary,
   type FreeTextEvaluation,
   type LiveMindmapNode,
   type MindmapRating,
@@ -180,6 +181,7 @@ function FreeTextResult({
   aiEnabled,
   aiOff = false,
   modelSolution,
+  stored,
 }: {
   runId: number;
   questionId: number;
@@ -190,10 +192,17 @@ function FreeTextResult({
   /** The question's stored Musterlösung (model_solution), used to prefill
    *  the reference input below — never overwrites a teacher's own edit. */
   modelSolution: string;
+  /** The live AI evaluation stored per answer during the run (#291): shown
+   *  grouped by category right away; "Evaluate again" replaces it. */
+  stored?: FreeTextEvalSummary;
 }) {
   const { t } = useTranslation();
   const [reference, setReference] = useState("");
-  const [evaluation, setEvaluation] = useState<FreeTextEvaluation | null>(null);
+  const [evaluation, setEvaluation] = useState<FreeTextEvaluation | null>(() =>
+    stored && Object.keys(stored.verdicts ?? {}).length
+      ? { groups: stored.groups, categories: stored.categories, chart: stored.chart }
+      : null,
+  );
   const [showEvaluation, setShowEvaluation] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -711,6 +720,7 @@ export default function ResultsPage() {
                               aiEnabled={aiEnabled && !!aiSwitchByQuestion.get(question.id)}
                               aiOff={aiEnabled && !aiSwitchByQuestion.get(question.id)}
                               modelSolution={modelSolutionByQuestion.get(question.id) ?? ""}
+                              stored={question.evaluation}
                             />
                           )}
                         </>

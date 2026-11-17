@@ -45,7 +45,10 @@ aktivieren** bzw. die KI-Schalter der Frage); am Beamer erreichen Sie sie
 - **Freitext auswerten (live)** — offene Antworten automatisch in 2–5 selbst
   gewählte Kategorien einordnen, gegen eine **Musterlösung** bewerten oder zu
   **Kernaussagen** zusammenfassen. Auf Wunsch sieht jede Person die Bewertung
-  ihrer eigenen Antwort.
+  ihrer eigenen Antwort. Die Vorlage *Stimmung* kennt neben positiv, neutral
+  und negativ auch **gemischt** für Antworten mit Lob und Kritik. In der
+  Präsentation unter „Original“ und in den Ergebnissen erkennen Sie an der
+  Farbe jeder Antwort, wie sie eingestuft wurde.
 
 ## Bei der Auswertung
 

@@ -35,11 +35,31 @@ def clean_categories(categories):
     return result
 
 
+# Labels that explicitly mean "undecided" — the fallback when present, so a
+# scale like positiv · neutral · negativ · gemischt never drops unsure
+# answers (or AI errors) into „gemischt" just because of its position.
+NEUTRAL_LABELS = ("neutral", "unklar", "unclear", "unsure")
+# Labels for answers that hold praise and criticism at once (#291).
+MIXED_LABELS = ("gemischt", "mixed")
+
+
 def middle_category(categories):
-    """The fallback bucket for unsure/unmatched answers — the middle label,
-    which is „unklar"/„neutral" for the two presets."""
+    """The fallback bucket for unsure/unmatched answers: an explicit neutral
+    label („neutral"/„unklar") when the scale has one, else the middle
+    label."""
     cats = clean_categories(categories)
+    for label in cats:
+        if label.casefold() in NEUTRAL_LABELS:
+            return label
     return cats[len(cats) // 2]
+
+
+def mixed_category(categories):
+    """The scale's „gemischt" label, if it has one (else None)."""
+    for label in clean_categories(categories):
+        if label.casefold() in MIXED_LABELS:
+            return label
+    return None
 
 
 def evaluate_system(categories):
@@ -52,9 +72,23 @@ def evaluate_system(categories):
         "Ist eine erwartete Antwort bzw. ein Kriterium angegeben, richte dich "
         "danach; sonst beurteile anhand der Frage. Passt keine Kategorie "
         f"eindeutig oder bist du unsicher, nutze \"{middle_category(cats)}\". "
+        f"{_mixed_rule(cats)}"
         "Gib je Antwort optional eine sehr kurze Begründung. Verwende als "
         "\"text\" exakt die vorgegebenen Antworten und als \"verdict\" genau "
         "eine der Kategorien. Antworte ausschließlich mit JSON."
+    )
+
+
+def _mixed_rule(cats):
+    """Defines „gemischt" for the model (#291): without it, an answer with
+    praise and criticism tends to be judged by its criticism alone."""
+    mixed = mixed_category(cats)
+    if not mixed:
+        return ""
+    return (
+        "Beurteile jede Antwort als Ganzes. Enthält sie sowohl positive als "
+        "auch negative Aussagen (z. B. Lob und Kritik), nutze "
+        f"\"{mixed}\" – nicht die Kategorie der Kritik allein. "
     )
 
 

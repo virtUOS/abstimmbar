@@ -49,7 +49,7 @@ from . import (
     mindmap_log,
     mindmap_rating,
 )
-from .ai_freetext import clean_categories
+from .ai_freetext import clean_categories, middle_category
 from .hub import hub, sse_frame
 from .models import (
     MatrixPhase,
@@ -1791,7 +1791,9 @@ def check_grade(request, token):
 
     verdict, note = self_check_ai.grade(question, answer)
     categories = clean_categories(question.evaluation_categories)
-    index = categories.index(verdict) if verdict in categories else len(categories) // 2
+    if verdict not in categories:
+        verdict = middle_category(categories)
+    index = categories.index(verdict)
     return Response(
         {
             "verdict": verdict,

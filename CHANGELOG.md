@@ -24,6 +24,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
   Links und Vertretungen. Abstimmen folgt.
 - Gremien-Raum: Wahlen mit mehreren Stimmen, Kumulieren und Stichwahl.
+- KI-Freitextauswertung: Jede Antwort zeigt ihre Einstufung farbig
+  (Präsentation unter „Original“ mit Legende, Ergebnisse nach Kategorie
+  gruppiert); die Vorlage *Stimmung* hat die Kategorie „gemischt“ für
+  Antworten mit Lob und Kritik. Unsichere Antworten landen weiterhin bei
+  „neutral“/„unklar“ (#291).
 - Gremien-Raum: persönliche Sitzungslinks per E-Mail verschicken (optional, SMTP).
 - Gremien-Raum: Übersetzungen des Beschlusstexts werden erst nach
   Bestätigung durch die Sitzungsleitung angezeigt; optionales

@@ -21,6 +21,7 @@ import {
   onAuthError,
   requestStatus,
   results,
+  type FreeTextEvalSummary,
   type LiveCounter,
   type LiveState,
   type Question,
@@ -2631,6 +2632,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
               words={state.words ?? []}
               onModerate={onModerateWord}
               canMerge={expert}
+              evaluation={state.evaluation}
             />
           )}
           {question.kind === "open_text" && phase === "results" && isAiView && (
@@ -3277,7 +3279,7 @@ function WalkthroughResultBody({
   }
 
   if (item.kind === "open_text") {
-    return <AnswerChips words={item.words ?? []} />;
+    return <AnswerChips words={item.words ?? []} evaluation={item.evaluation} />;
   }
 
   if (item.kind === "word_cloud") {
@@ -4200,15 +4202,30 @@ const findChip = (items: ChipItem[], id: string) => items.find((w) => wordId(w) 
 /** Free-text "Original" view: the (moderated) answers as chips. With
  * `onModerate` (expert mode) a chip dropped onto another merges both under
  * the target's text, × hides it — same semantics as the word cloud. */
+/** The AI verdict of one chip (#291): its keys' common category, or null
+ * while still being evaluated or when a merge joined answers with different
+ * verdicts (then the chip stays neutral). */
+function chipVerdict(entry: ChipItem, verdicts?: Record<string, string>): string | null {
+  if (!verdicts) return null;
+  const keys = entry.keys?.length ? entry.keys : [entry.text.toLowerCase()];
+  const found = new Set(keys.map((k) => verdicts[k]));
+  if (found.size !== 1) return null;
+  const [only] = found;
+  return only ?? null;
+}
+
 function AnswerChips({
   words,
   onModerate,
   canMerge = true,
+  evaluation,
 }: {
   words: ChipItem[];
   onModerate?: ModerateFn;
   /** False (easy mode, #297): only the × hides; no drag-to-merge. */
   canMerge?: boolean;
+  /** Live AI evaluation: colours each chip by its category (#291). */
+  evaluation?: FreeTextEvalSummary | null;
 }) {
   const { t } = useTranslation();
   const reduced = useReducedMotion();
@@ -4217,25 +4234,46 @@ function AnswerChips({
     findChip,
     canMerge ? onModerate : undefined,
   );
+  const verdicts = evaluation?.verdicts;
+  const categories = evaluation?.categories ?? [];
+  const hasVerdicts = !!verdicts && Object.keys(verdicts).length > 0;
   return (
     <>
-      <ul className="mt-6 flex max-h-96 flex-wrap items-start gap-3 overflow-auto p-2">
+      {hasVerdicts && (
+        // Legend: the same colours as the evaluation bars, so each card's
+        // category is readable (#291); still-pending answers stay neutral.
+        <ul className="mt-6 flex flex-wrap items-center gap-x-5 gap-y-2 px-2 text-base text-slate-600 dark:text-slate-300" data-testid="verdict-legend">
+          {categories.map((cat, ci) => (
+            <li key={cat} className="flex items-center gap-2">
+              <span aria-hidden className="inline-block h-4 w-4 rounded-full" style={{ background: evalColor(ci) }} />
+              {evalLabel(cat)}
+            </li>
+          ))}
+        </ul>
+      )}
+      <ul className={`${hasVerdicts ? "mt-3" : "mt-6"} flex max-h-96 flex-wrap items-start gap-3 overflow-auto p-2`}>
         {shown.map((entry, i) => {
           const can = !!onModerate && !!entry.keys?.length;
           const cp = chipProps(entry);
+          const verdict = chipVerdict(entry, verdicts);
+          const ci = verdict ? categories.indexOf(verdict) : -1;
           return (
             <li
               key={wordId(entry)}
               {...cp}
+              title={ci >= 0 ? evalLabel(verdict!) : undefined}
+              aria-label={ci >= 0 ? `${entry.text} (${evalLabel(verdict!)})` : undefined}
+              data-verdict={ci >= 0 ? verdict! : undefined}
               // Keep the answer's own line breaks (#294); a multi-line
               // answer gets a softer rounding than the single-line pill.
               className={`ab-chip-in group relative whitespace-pre-line px-4 py-2 text-xl ${entry.text.includes("\n") ? "rounded-2xl" : "rounded-full"} ${cp.className}`}
               style={{
                 ...cp.style,
-                // One neutral card style (#295): the former per-text pastel
-                // hues encoded nothing but looked like categories.
-                background: NEUTRAL_TILE,
-                boxShadow: `inset 0 0 0 1px ${NEUTRAL_EDGE}`,
+                // Neutral by default (#295: per-text hues encoded nothing);
+                // with an AI evaluation the card takes its category's colour,
+                // matching the evaluation bars (#291).
+                background: ci >= 0 ? evalColor(ci) : NEUTRAL_TILE,
+                boxShadow: ci >= 0 ? undefined : `inset 0 0 0 1px ${NEUTRAL_EDGE}`,
                 color: INK,
                 animationDelay: reduced ? undefined : `${Math.min(i, 20) * 80}ms`,
               }}
