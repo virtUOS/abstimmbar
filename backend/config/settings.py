@@ -7,7 +7,7 @@ from pathlib import Path
 
 from django.core.exceptions import ImproperlyConfigured
 
-from .mail import mail_enabled
+from .mail import mail_enabled, mailers_from_env
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -255,24 +255,7 @@ REST_FRAMEWORK = {
 # Django 6.1 mailers API (the EMAIL_* settings are deprecated until
 # "Django 2028"); the environment variables keep their EMAIL_* names, so
 # deployments need no change.
-_EMAIL_USE_SSL = os.environ.get("EMAIL_USE_SSL", "0") == "1"
-MAILERS = {
-    "default": {
-        "BACKEND": os.environ.get(
-            "EMAIL_BACKEND", "django.core.mail.backends.smtp.EmailBackend"
-        ),
-        "OPTIONS": {
-            "host": os.environ.get("EMAIL_HOST", ""),
-            "port": _int_or_default("EMAIL_PORT", 587),
-            "username": os.environ.get("EMAIL_HOST_USER", ""),
-            "password": os.environ.get("EMAIL_HOST_PASSWORD", ""),
-            "use_ssl": _EMAIL_USE_SSL,
-            # Django forbids both at once; implicit TLS (SSL) wins.
-            "use_tls": os.environ.get("EMAIL_USE_TLS", "1") == "1" and not _EMAIL_USE_SSL,
-            "timeout": _int_or_default("EMAIL_TIMEOUT", 10),
-        },
-    },
-}
+MAILERS = mailers_from_env(os.environ)
 DEFAULT_FROM_EMAIL = os.environ.get("DEFAULT_FROM_EMAIL", "")
 MAIL_ENABLED = mail_enabled(os.environ)
 

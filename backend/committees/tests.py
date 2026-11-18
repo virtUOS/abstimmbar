@@ -4528,6 +4528,47 @@ class MailSettingsTests(TestCase):
                 self.assertIs(mail_enabled(env), expected)
 
 
+class MailersConfigTests(TestCase):
+    """MAILERS built from EMAIL_* (config/mail.py). Django 6.1 validates
+    OPTIONS against the backend; the test runner replaces MAILERS with
+    locmem, so instantiate the real backends here."""
+
+    def _mailer(self, env):
+        from django.core.mail import mailers
+
+        from config.mail import mailers_from_env
+
+        with self.settings(MAILERS=mailers_from_env(env)):
+            return mailers.default
+
+    def test_console_backend_takes_no_smtp_options(self):
+        # The dev compose default: console backend plus a stray EMAIL_HOST.
+        mailer = self._mailer({
+            "EMAIL_BACKEND": "django.core.mail.backends.console.EmailBackend",
+            "EMAIL_HOST": "smtp.example.org",
+        })
+        self.assertEqual(type(mailer).__module__, "django.core.mail.backends.console")
+
+    def test_locmem_backend(self):
+        mailer = self._mailer({"EMAIL_BACKEND": "django.core.mail.backends.locmem.EmailBackend"})
+        self.assertEqual(type(mailer).__module__, "django.core.mail.backends.locmem")
+
+    def test_smtp_default_carries_the_options(self):
+        mailer = self._mailer({
+            "EMAIL_HOST": "smtp.example.org", "EMAIL_PORT": "465", "EMAIL_USE_SSL": "1",
+            "EMAIL_HOST_USER": "u", "EMAIL_HOST_PASSWORD": "p", "EMAIL_TIMEOUT": "7",
+        })
+        self.assertEqual(
+            (mailer.host, mailer.port, mailer.username, mailer.password,
+             mailer.use_ssl, mailer.use_tls, mailer.timeout),
+            ("smtp.example.org", 465, "u", "p", True, False, 7),
+        )
+
+    def test_smtp_defaults_and_bad_numbers(self):
+        mailer = self._mailer({"EMAIL_PORT": "x", "EMAIL_TIMEOUT": ""})
+        self.assertEqual((mailer.port, mailer.use_tls, mailer.timeout), (587, True, 10))
+
+
 @override_settings(MAIL_ENABLED=True, DEFAULT_FROM_EMAIL="Abstimmbar <noreply@example.org>")
 class InviteMailTests(MeetingFixture, ApiBase):
     """POST /api/meetings/<pk>/invites/mail/: one personal mail per member."""
