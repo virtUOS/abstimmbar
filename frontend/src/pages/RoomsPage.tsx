@@ -125,7 +125,7 @@ function RoomCard({
   // One square icon-button style for every card action (#29), so favorite,
   // archive/restore, leave and delete share size, padding and a focus ring.
   const iconBtn =
-    "rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:hover:bg-slate-800";
+    "rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 dark:hover:bg-slate-800";
   const description = stripHtml(localizedText(room.description));
   const committee = room.kind === "committee";
   return (
@@ -176,7 +176,7 @@ function RoomCard({
           ) : (
             <span
               title={t("Code")}
-              className="mt-2 inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2 py-1 font-mono text-sm font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
+              className="mt-2 inline-flex max-w-full items-center gap-1.5 wrap-break-word rounded-lg bg-brand-50 px-2 py-1 font-mono text-sm font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
             >
               <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
               {room.code}
@@ -208,7 +208,7 @@ function RoomCard({
                 aria-pressed={room.is_favorite}
                 title={favoriteLabel}
                 onClick={() => onToggleFavorite(room)}
-                className={`rounded-lg p-1.5 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
+                className={`rounded-lg p-1.5 transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 ${
                   room.is_favorite
                     ? "text-brand-600 hover:bg-brand-50 dark:text-brand-400 dark:hover:bg-brand-950/40"
                     : "text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800"
@@ -632,7 +632,7 @@ export default function RoomsPage() {
                       setShowAll(event.target.checked);
                       setPage(1);
                     }}
-                    className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+                    className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
                   />
                   {t("Show all rooms in the system")}
                 </label>
@@ -645,7 +645,7 @@ export default function RoomsPage() {
                     setSortKey(event.target.value as SortKey);
                     setPage(1);
                   }}
-                  className="min-w-0 max-w-full rounded-md border border-field bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none dark:bg-slate-900 dark:text-slate-200"
+                  className="min-w-0 max-w-full rounded-md border border-field bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden dark:bg-slate-900 dark:text-slate-200"
                 >
                   {SORT_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>

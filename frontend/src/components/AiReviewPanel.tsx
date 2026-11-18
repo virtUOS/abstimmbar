@@ -399,7 +399,7 @@ export default function AiReviewPanel({
                   type="checkbox"
                   checked={selected.has(index)}
                   onChange={() => toggleSelected(index)}
-                  className="mt-1 h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+                  className="mt-1 h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
                 />
                 {draftBody(draft)}
               </label>

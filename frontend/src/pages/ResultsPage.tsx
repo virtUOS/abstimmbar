@@ -90,7 +90,7 @@ function WordCloudResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
+              className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 wrap-anywhere"
               style={{ background: termColor(word.text), color: INK }}
             >
               {word.text} <span className="font-medium">×{word.count}</span>
@@ -116,7 +116,7 @@ function WordCloudResult({
                         ? t("Merged: {{variants}}", { variants: word.variants.join(", ") })
                         : undefined
                     }
-                    className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 [overflow-wrap:anywhere]"
+                    className="mr-3 inline-block max-w-full rounded-lg px-2 py-0.5 wrap-anywhere"
                     style={{ background: termColor(word.text), color: INK }}
                   >
                     {word.text} <span className="font-medium">×{word.count}</span>
@@ -239,7 +239,7 @@ function FreeTextResult({
           {words.map((word) => (
             <span
               key={word.text}
-              className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
+              className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top wrap-anywhere"
               // Free text: one neutral style (#295), no per-text hues.
               style={{ background: NEUTRAL_TILE, boxShadow: `inset 0 0 0 1px ${NEUTRAL_EDGE}`, color: INK }}
             >
@@ -286,7 +286,7 @@ function FreeTextResult({
                     <span
                       key={item.text}
                       title={item.note || undefined}
-                      className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top [overflow-wrap:anywhere]"
+                      className="mr-3 inline-block max-w-full whitespace-pre-line rounded-lg px-2 py-0.5 align-top wrap-anywhere"
                       style={{ background: evalColor(i), color: INK }}
                     >
                       {item.text} <span className="font-medium">×{item.count}</span>
@@ -453,7 +453,7 @@ export default function ResultsPage() {
                 aria-label={t("Export scope")}
                 value={exportAll ? "all" : "one"}
                 onChange={(event) => setExportAll(event.target.value === "all")}
-                className="min-w-0 max-w-full rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+                className="min-w-0 max-w-full rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
               >
                 <option value="one">{t("only this session")}</option>
                 <option value="all">{t("all sessions (incl. archive)")}</option>
@@ -506,7 +506,7 @@ export default function ResultsPage() {
                     aria-label={t("Select session")}
                     value={run.run}
                     onChange={(event) => setSelected(Number(event.target.value))}
-                    className="min-w-0 max-w-full rounded-lg border border-field bg-white px-3 py-1.5 text-base font-semibold text-slate-900 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+                    className="min-w-0 max-w-full rounded-lg border border-field bg-white px-3 py-1.5 text-base font-semibold text-slate-900 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
                   >
                     {runs.map((r) => (
                       <option key={r.run} value={r.run}>
@@ -566,7 +566,7 @@ export default function ResultsPage() {
                             {before ? t("After") : t("Before")}
                           </span>
                         )}
-                        <span className="min-w-0 [overflow-wrap:anywhere]">
+                        <span className="min-w-0 wrap-anywhere">
                           {question.position + 1}. {stripHtml(localizedText(question.text)) || t("No question text")}
                         </span>
                         <span className="whitespace-nowrap font-normal text-slate-400">
@@ -666,7 +666,7 @@ export default function ResultsPage() {
                                           >
                                             {/* Rate → border strength, never text opacity (#178). */}
                                             <span
-                                              className="rounded-full border border-brand-600/[var(--rate)] bg-slate-100 px-1.5 text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                                              className="rounded-full border border-brand-600/(--rate) bg-slate-100 px-1.5 text-xs tabular-nums text-slate-500 dark:bg-slate-800 dark:text-slate-400"
                                               style={{ "--rate": 0.15 + 0.85 * (link.rate / 100) } as CSSProperties}
                                             >
                                               {t("{{pct}}% in a row", { pct: fmtNum(link.rate) })}
@@ -795,7 +795,7 @@ function MindmapOutline({
     <ul className={level ? "ml-4 border-l border-slate-200 pl-3 dark:border-slate-700" : "space-y-1"}>
       {list.map((n) => (
         <li key={n.id} className="py-0.5">
-          <span className="text-sm text-slate-800 [overflow-wrap:anywhere] dark:text-slate-100">{mindmapNodeText(n)}</span>
+          <span className="text-sm text-slate-800 wrap-anywhere dark:text-slate-100">{mindmapNodeText(n)}</span>
           {n.count > 1 && (
             <span className="ml-2 rounded-full bg-brand-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-brand-700 dark:bg-brand-950 dark:text-brand-300">
               {n.count}

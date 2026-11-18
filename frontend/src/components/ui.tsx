@@ -36,7 +36,7 @@ export function Button({
   }[variant];
   return (
     <button
-      className={`rounded-lg px-3 py-1.5 text-sm transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:opacity-50 ${styles} ${className}`}
+      className={`rounded-lg px-3 py-1.5 text-sm transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 disabled:opacity-50 ${styles} ${className}`}
       {...props}
     />
   );
@@ -46,7 +46,7 @@ export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 dark:bg-slate-900 dark:text-slate-100 ${props.className ?? ""}`}
+      className={`w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 dark:bg-slate-900 dark:text-slate-100 ${props.className ?? ""}`}
     />
   );
 }
@@ -90,7 +90,7 @@ export function ClampedNumberInput({
         onChange(next);
         onBlur?.(event);
       }}
-      className={`rounded-lg border border-field bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none ${className}`}
+      className={`rounded-lg border border-field bg-white px-2 py-1 dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden ${className}`}
     />
   );
 }
@@ -115,7 +115,7 @@ export function Select({
       {...props}
       className={
         "w-full rounded-lg border border-field bg-white px-3 py-2 text-sm " +
-        "text-slate-700 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 " +
+        "text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 " +
         "dark:bg-slate-900 dark:text-slate-100 " +
         className
       }
@@ -172,7 +172,7 @@ export function InfoHint({ text }: { text: string }) {
         aria-expanded={open}
         aria-label={t("More information")}
         onClick={() => setOpen((value) => !value)}
-        className="-m-0.5 inline-flex rounded p-0.5 text-slate-500 transition-colors hover:text-slate-700 focus:outline-none focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
+        className="-m-0.5 inline-flex rounded-sm p-0.5 text-slate-500 transition-colors hover:text-slate-700 focus:outline-hidden focus-visible:ring-1 focus-visible:ring-brand-600 dark:text-slate-400 dark:hover:text-slate-200"
       >
         <Info aria-hidden className="h-5 w-5" />
       </button>
@@ -315,7 +315,7 @@ export function MoreMenu({
         aria-label={label ?? t("More actions")}
         title={label ?? t("More actions")}
         onClick={() => setOpen((value) => !value)}
-        className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-brand-700 transition-colors hover:bg-brand-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-900/40"
+        className="rounded-lg border border-brand-300 bg-brand-50 px-3 py-1.5 text-brand-700 transition-colors hover:bg-brand-100 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-300 dark:hover:bg-brand-900/40"
       >
         <EllipsisVertical aria-hidden className="h-4 w-4" />
       </button>
@@ -478,7 +478,7 @@ export function SegmentedControl<T extends string>({
         setDragX(null);
       }}
       style={{ touchAction: "none" }}
-      className={`relative grid grid-flow-col auto-cols-[minmax(0,1fr)] items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
+      className={`relative grid grid-flow-col auto-cols-fr items-center rounded-full border border-slate-200 p-0.5 text-xs dark:border-slate-700 ${disabled ? "opacity-50" : ""} ${className}`}
     >
       <span
         aria-hidden
@@ -547,7 +547,7 @@ export function ToggleSwitch({
       aria-checked={checked}
       disabled={disabled}
       onClick={() => onChange(!checked)}
-      className="group inline-flex items-center gap-2.5 rounded text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300"
+      className="group inline-flex items-center gap-2.5 rounded-sm text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-slate-300"
     >
       <span
         aria-hidden
@@ -557,7 +557,7 @@ export function ToggleSwitch({
       >
         <span
           className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-            checked ? "translate-x-[1.125rem]" : "translate-x-0.5"
+            checked ? "translate-x-4.5" : "translate-x-0.5"
           }`}
         />
       </span>

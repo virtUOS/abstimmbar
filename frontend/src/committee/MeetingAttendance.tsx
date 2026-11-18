@@ -66,10 +66,10 @@ export default function MeetingAttendance({
           <li key={row.invite} data-testid="console-attendee" className="grid gap-2 py-2">
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1 text-sm">
-                <span className="block break-words font-medium text-slate-800 dark:text-slate-200">
+                <span className="block wrap-break-word font-medium text-slate-800 dark:text-slate-200">
                   {row.name}
                 </span>
-                <span className="block break-words text-xs text-slate-500 dark:text-slate-400">
+                <span className="block wrap-break-word text-xs text-slate-500 dark:text-slate-400">
                   {row.group}
                   {row.observer && ` · ${t("Observer")}`}
                   {row.deputy && ` · ${t("Deputy")}`}

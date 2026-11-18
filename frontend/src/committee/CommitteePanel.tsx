@@ -140,7 +140,7 @@ export default function CommitteePanel({ room }: { room: Room }) {
           {t("Groups and members")}
           {!open && (
             // Phones: the summary takes its own line under the title.
-            <span className="ml-1 text-sm font-normal text-slate-500 max-sm:order-last max-sm:ml-[1.375rem] max-sm:w-full dark:text-slate-400">
+            <span className="ml-1 text-sm font-normal text-slate-500 max-sm:order-last max-sm:ml-5.5 max-sm:w-full dark:text-slate-400">
               {t("Groups: {{groups}} · Members: {{members}}", {
                 groups: regular.length,
                 members: members.length,
@@ -214,7 +214,7 @@ export default function CommitteePanel({ room }: { room: Room }) {
                       </h3>
                       <ul className="mt-1 list-disc pl-5 text-sm text-slate-500 dark:text-slate-400">
                         {template.groups.map((name, index) => (
-                          <li key={index} className="break-words">{localizedText(name)}</li>
+                          <li key={index} className="wrap-break-word">{localizedText(name)}</li>
                         ))}
                       </ul>
                     </div>
@@ -323,7 +323,7 @@ function GroupSection({
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <h3 className="min-w-0 break-words font-medium text-slate-900 dark:text-slate-100">
+          <h3 className="min-w-0 wrap-break-word font-medium text-slate-900 dark:text-slate-100">
             {name}
           </h3>
           <span className="text-sm text-slate-500 dark:text-slate-400">
@@ -378,7 +378,7 @@ function GroupSection({
             ) : (
               <li key={member.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
                 <span className="w-full min-w-0 sm:w-auto sm:flex-1">
-                  <span className="block break-words font-medium text-slate-800 dark:text-slate-200">
+                  <span className="block wrap-break-word font-medium text-slate-800 dark:text-slate-200">
                     {member.name}
                   </span>
                   {member.email && (
@@ -676,7 +676,7 @@ function BulkAddForm({
                   rows={4}
                   onChange={(event) => setText(event.target.value)}
                   placeholder={"Anna Muster <anna@example.org>\nbert@example.org"}
-                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-offset-slate-950"
+                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:bg-slate-900 dark:text-slate-100 dark:focus:ring-offset-slate-950"
                 />
                 <span className="mt-1 block text-xs text-slate-500 dark:text-slate-400">
                   {t("One person per line, or separated by commas or semicolons: “Name <e-mail>” or just the e-mail address.")}

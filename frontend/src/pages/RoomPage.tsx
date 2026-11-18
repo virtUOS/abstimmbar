@@ -188,7 +188,7 @@ export function RoomSettingsForm({
               onChange={(event) =>
                 onChange({ show_logo_in_presentation: event.target.checked })
               }
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
             />
             {t("Show logo in presentation mode")}
           </label>
@@ -201,7 +201,7 @@ export function RoomSettingsForm({
               onChange={(event) =>
                 onChange({ show_qr_in_presentation: event.target.checked })
               }
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
             />
             {t("Always show QR code")}
           </label>
@@ -212,7 +212,7 @@ export function RoomSettingsForm({
               onChange={(event) =>
                 onChange({ show_code_in_presentation: event.target.checked })
               }
-              className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+              className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
             />
             {t("Always show room code")}
           </label>
@@ -381,7 +381,7 @@ function OwnersPanel({ roomId }: { roomId: number }) {
           }}
           placeholder={t("Username or email address")}
           aria-label={t("Add person")}
-          className="!w-72"
+          className="w-72!"
           list={listId}
         />
         <datalist id={listId}>
@@ -699,7 +699,7 @@ export default function RoomPage() {
             <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-slate-500 dark:text-slate-400">
               <span
                 title={t("Room code")}
-                className="inline-flex max-w-full items-center gap-1.5 break-words rounded-lg bg-brand-50 px-2.5 py-1 font-mono text-base font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
+                className="inline-flex max-w-full items-center gap-1.5 wrap-break-word rounded-lg bg-brand-50 px-2.5 py-1 font-mono text-base font-semibold tracking-tight text-brand-700 dark:bg-brand-950/50 dark:text-brand-300"
               >
                 <DoorOpen aria-hidden className="h-4 w-4 shrink-0 opacity-70" />
                 {room.code}
@@ -801,7 +801,7 @@ export default function RoomPage() {
           ref={pendingSwitchRef}
           role="alert"
           tabIndex={-1}
-          className="mb-4 max-w-2xl scroll-mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 outline-none dark:border-amber-900 dark:bg-amber-950/40"
+          className="mb-4 max-w-2xl scroll-mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 outline-hidden dark:border-amber-900 dark:bg-amber-950/40"
         >
           <ConfirmInline
             message={t("Discard unsaved changes?")}
@@ -993,7 +993,7 @@ export default function RoomPage() {
                   setSortKey(event.target.value as SortKey);
                   setSetsPage(1);
                 }}
-                className="min-w-0 max-w-full rounded-md border border-field bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none dark:bg-slate-900 dark:text-slate-200"
+                className="min-w-0 max-w-full rounded-md border border-field bg-white px-2 py-1 text-slate-700 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden dark:bg-slate-900 dark:text-slate-200"
               >
                 {SORT_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>

@@ -253,7 +253,7 @@ export function MindmapAiDrawer({
                         const checked = e.target.checked;
                         setDraft((d) => ({ ...d, [key]: checked }));
                       }}
-                      className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                      className="mt-0.5 h-4 w-4 flex-none rounded-sm border-slate-300 accent-brand-600"
                     />
                     {label}
                   </label>
@@ -266,7 +266,7 @@ export function MindmapAiDrawer({
                         onChange={(e) =>
                           setDraft((d) => ({ ...d, target_lang: e.target.value as "de" | "en" }))
                         }
-                        className="rounded-lg border border-field bg-white px-2 py-1 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                        className="rounded-lg border border-field bg-white px-2 py-1 text-sm focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600"
                       >
                         <option value="de">{t("German")}</option>
                         <option value="en">{t("English")}</option>
@@ -351,7 +351,7 @@ export function MindmapAiDrawer({
                           checked={checked}
                           disabled={busy === "apply"}
                           onChange={() => void ai.toggle(op.index)}
-                          className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                          className="mt-0.5 h-4 w-4 flex-none rounded-sm border-slate-300 accent-brand-600"
                         />
                         <Icon className="mt-0.5 h-4 w-4 flex-none" style={{ color: AI_MARK }} aria-hidden />
                         <span className="min-w-0">

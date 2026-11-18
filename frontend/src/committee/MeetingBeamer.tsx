@@ -78,7 +78,7 @@ function Progress({ ballot }: { ballot: MeetingBallot }) {
           {groups.map((group) => (
             <li key={group.id} className="grid gap-1">
               <span className="flex justify-between gap-3 text-base md:text-lg">
-                <span className="min-w-0 break-words">{group.name}</span>
+                <span className="min-w-0 wrap-break-word">{group.name}</span>
                 <span className="shrink-0 tabular-nums text-slate-500 dark:text-slate-400">
                   {group.voted} / {group.eligible}
                 </span>
@@ -109,7 +109,7 @@ function Result({ item, ballot }: { item: MeetingItem; ballot: MeetingBallot }) 
             return (
               <li key={key} className="grid gap-1">
                 <span className="flex justify-between gap-3 text-xl md:text-2xl">
-                  <span className="min-w-0 break-words">{label(item, key)}</span>
+                  <span className="min-w-0 wrap-break-word">{label(item, key)}</span>
                   <span className="shrink-0 font-semibold tabular-nums">{n}</span>
                 </span>
                 <Bar value={pct(n, sum)} />
@@ -152,7 +152,7 @@ export function TextList({ texts, names }: { texts: MeetingText[]; names: Map<nu
               {names.get(entry.group)}
             </span>
           )}
-          <span className="whitespace-pre-wrap break-words">{entry.text}</span>
+          <span className="whitespace-pre-wrap wrap-break-word">{entry.text}</span>
         </li>
       ))}
     </ul>
@@ -166,7 +166,7 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
       <header className="shrink-0 px-6 pt-5 text-sm font-medium text-slate-500 dark:text-slate-400 md:px-10">
-        <span className="break-words">{data.meeting.title}</span>
+        <span className="wrap-break-word">{data.meeting.title}</span>
         {data.trial && data.meeting.state === "started" && (
           <span
             data-testid="beamer-trial"
@@ -183,13 +183,13 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
               {t("TOP {{number}}", { number: data.top.number })}
             </span>
             {data.top.title && (
-              <h1 className="break-words text-3xl font-semibold leading-snug md:text-5xl">
+              <h1 className="wrap-break-word text-3xl font-semibold leading-snug md:text-5xl">
                 {data.top.title}
               </h1>
             )}
             {data.top.description && (
               <RichText
-                className="break-words text-xl leading-snug md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
+                className="wrap-break-word text-xl leading-snug md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
                 html={data.top.description}
               />
             )}
@@ -208,7 +208,7 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                   {t("TOP {{number}}", { number: item.label })}
                 </span>
                 {data.top?.title && (
-                  <span className="min-w-0 break-words text-base font-semibold text-slate-700 dark:text-slate-200">
+                  <span className="min-w-0 wrap-break-word text-base font-semibold text-slate-700 dark:text-slate-200">
                     {data.top.title}
                   </span>
                 )}
@@ -235,7 +235,7 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                 )}
               </div>
               <RichText
-                className="break-words text-2xl font-semibold leading-snug md:text-4xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
+                className="wrap-break-word text-2xl font-semibold leading-snug md:text-4xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
                 html={item.text}
               />
               {item.bundle.length > 0 && (
@@ -246,7 +246,7 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                         {t("TOP {{number}}", { number: extra.label })}
                       </span>
                       <RichText
-                        className="break-words text-xl leading-snug md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
+                        className="wrap-break-word text-xl leading-snug md:text-3xl [&_img]:my-4 [&_img]:max-h-64 [&_ol]:list-decimal [&_ol]:pl-8 [&_ul]:list-disc [&_ul]:pl-8"
                         html={extra.text}
                       />
                     </div>
@@ -271,7 +271,7 @@ export default function MeetingBeamer({ data }: { data: MeetingPublic }) {
                   {item.options.map((option, index) => (
                     <li key={option.id} className="flex gap-3">
                       <span className="font-semibold text-slate-400">{index + 1}.</span>
-                      <span className="min-w-0 break-words">{option.text}</span>
+                      <span className="min-w-0 wrap-break-word">{option.text}</span>
                     </li>
                   ))}
                 </ol>

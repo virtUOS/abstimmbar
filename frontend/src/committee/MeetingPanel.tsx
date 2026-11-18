@@ -396,7 +396,7 @@ export default function MeetingPanel({
             </span>
             <span className="inline-flex min-w-0 items-center gap-1.5 text-base font-semibold sm:text-lg text-slate-900 dark:text-slate-100">
               <CalendarClock aria-hidden className="h-5 w-5 shrink-0 text-slate-500 dark:text-slate-400" />
-              <span data-testid="meeting-date" className="break-words">
+              <span data-testid="meeting-date" className="wrap-break-word">
                 {meeting.scheduled_at ? longDate(meeting.scheduled_at) : t("No date yet")}
               </span>
             </span>
@@ -440,7 +440,7 @@ export default function MeetingPanel({
             {state === "started" && (
               <Link
                 to={`/sets/${set.id}/meeting`}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
               >
                 <Presentation aria-hidden className="h-4 w-4" />
                 {t("Lead meeting")}
@@ -506,11 +506,11 @@ export default function MeetingPanel({
             >
               <span
                 aria-hidden
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-sm dark:bg-slate-900 dark:text-brand-300"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white text-brand-700 shadow-xs dark:bg-slate-900 dark:text-brand-300"
               >
                 <FileText className="h-5 w-5" />
               </span>
-              <div className="min-w-[10rem] flex-1">
+              <div className="min-w-40 flex-1">
                 <p className="font-semibold text-slate-900 dark:text-slate-100">{t("Protocol")}</p>
                 <p className="text-sm text-slate-600 dark:text-slate-400">
                   {t("Results, attendance and seals of this meeting — ready to print or save as PDF.")}
@@ -520,14 +520,14 @@ export default function MeetingPanel({
                 <Link
                   to={`/sets/${meeting.id}/protocol`}
                   data-testid="protocol-link"
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-brand-400 px-3 py-1.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-brand-500 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
                 >
                   <FileText aria-hidden className="h-4 w-4" />
                   {t("View protocol")}
                 </Link>
                 <Link
                   to={`/rooms/${set.room}/seals`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
                 >
                   <ShieldCheck aria-hidden className="h-4 w-4" />
                   {t("Check seal")}
@@ -755,7 +755,7 @@ function InviteSection({
       ) : (
         // The table may scroll in itself on narrow screens; the page must not.
         <div className="min-w-0 overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-left text-sm">
+          <table className="w-full min-w-xl text-left text-sm">
             <thead className="text-xs text-slate-500 dark:text-slate-400">
               <tr>
                 <th className="py-1 pr-3 font-medium">{t("Name")}</th>
@@ -1045,7 +1045,7 @@ function SubstitutionSection({
                 data-testid="substitution"
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2"
               >
-                <span className="min-w-0 flex-1 break-words text-slate-700 dark:text-slate-300">
+                <span className="min-w-0 flex-1 wrap-break-word text-slate-700 dark:text-slate-300">
                   {t("{{deputy}} substitutes for {{absent}}", {
                     deputy: deputyName,
                     absent: absentName,

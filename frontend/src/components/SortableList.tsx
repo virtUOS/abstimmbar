@@ -45,7 +45,7 @@ export function SortableRow({
       <button
         type="button"
         aria-label={t("Move")}
-        className="inline-flex min-h-6 min-w-6 cursor-grab touch-none items-center justify-center rounded px-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:text-slate-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+        className="inline-flex min-h-6 min-w-6 cursor-grab touch-none items-center justify-center rounded-sm px-1 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-600 dark:text-slate-300 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
         {...attributes}
         {...listeners}
       >

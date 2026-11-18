@@ -23,7 +23,7 @@ import { api, requestError } from "../api";
 export type TranslatableFieldVariant = "input" | "rich";
 
 const INPUT_CLASS =
-  "w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 dark:bg-slate-900 dark:text-slate-100";
+  "w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white dark:focus:ring-offset-slate-950 dark:bg-slate-900 dark:text-slate-100";
 
 interface TranslatableFieldProps {
   /** The field's current value — a legacy plain string or a `{de, en}` map. */

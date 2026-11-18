@@ -9,6 +9,9 @@
  * hardcoding hex, since the app does not expose them as CSS variables.
  */
 @import "driver.js/dist/driver.css";
+/* Tailwind 4: a separately imported stylesheet needs the main CSS as
+   reference for theme() (it is compiled on its own). */
+@reference "../index.css";
 
 .driver-popover {
   background: theme("colors.white");

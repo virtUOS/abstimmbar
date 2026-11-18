@@ -252,7 +252,7 @@ export function MeetingDateInput({
           value={date}
           disabled={disabled}
           onChange={(event) => update(event.target.value, time)}
-          className="min-w-0 flex-1 rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-60 sm:max-w-[12rem] dark:bg-slate-900 dark:text-slate-100 dark:[color-scheme:dark] dark:focus:ring-offset-slate-950"
+          className="min-w-0 flex-1 rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-brand-600 focus:ring-offset-2 focus:ring-offset-white disabled:opacity-60 sm:max-w-48 dark:bg-slate-900 dark:text-slate-100 dark:scheme-dark dark:focus:ring-offset-slate-950"
         />
         <Select
           required
@@ -260,7 +260,7 @@ export function MeetingDateInput({
           value={time}
           disabled={disabled}
           onChange={(event) => update(date, event.target.value)}
-          className="!w-auto disabled:opacity-60"
+          className="w-auto! disabled:opacity-60"
         >
           <option value="" disabled>
             {t("Time")}

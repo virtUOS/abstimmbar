@@ -31,8 +31,8 @@ const SECTIONS = [
 ] as const;
 
 const BTN =
-  "shrink-0 text-brand-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:text-slate-500 disabled:no-underline";
-const HEADING = "mb-1 font-semibold text-slate-600 focus:outline-none";
+  "shrink-0 text-brand-700 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:text-slate-500 disabled:no-underline";
+const HEADING = "mb-1 font-semibold text-slate-600 focus:outline-hidden";
 
 export default function MindmapModerationList({
   hidden,
@@ -237,7 +237,7 @@ export default function MindmapModerationList({
                     <li key={e.id} className="py-1">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
-                          <p className="[overflow-wrap:anywhere]">{text}</p>
+                          <p className="wrap-anywhere">{text}</p>
                           <p className="text-xs text-slate-500">{time(e.created_at)}</p>
                         </div>
                         <button

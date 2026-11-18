@@ -132,7 +132,7 @@ export default function LikertResult({
           <div className="flex flex-1 flex-wrap items-center justify-center gap-x-4 gap-y-1.5">
             {steps.map((step) => (
               <span key={step.id} className="flex items-center gap-1.5 tabular-nums" title={localizedText(step.text)}>
-                <span className="inline-block h-3 w-3 rounded" style={{ background: step.fill }} />
+                <span className="inline-block h-3 w-3 rounded-sm" style={{ background: step.fill }} />
                 {step.count}
               </span>
             ))}

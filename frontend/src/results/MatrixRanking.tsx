@@ -94,7 +94,7 @@ export default function MatrixRanking({
                   )}
                   <span
                     data-ranking-title=""
-                    className={`block font-semibold leading-tight text-slate-900 [overflow-wrap:anywhere] ${
+                    className={`block font-semibold leading-tight text-slate-900 wrap-anywhere ${
                       present ? "text-2xl" : "text-sm"
                     } ${dk("dark:text-slate-100")}`}
                   >

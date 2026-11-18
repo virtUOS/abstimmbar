@@ -178,7 +178,7 @@ export function segmentKey(segs: ViewSegment[], seg: ViewSegment): string {
 }
 
 const FOCUS =
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600";
+  "focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600";
 const ICON_BTN = `inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border disabled:opacity-50 ${FOCUS}`;
 /** Default look; a `className` with its own colours replaces it. */
 const ICON_BTN_PLAIN = "border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-800";
@@ -553,7 +553,7 @@ function JumpMenu({
                 setOpen(false);
                 if (i !== current) onJump(i);
               }}
-              className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 focus:bg-slate-100 focus:outline-none ${i === current ? "font-semibold text-brand-800" : "text-slate-700"}`}
+              className={`flex w-full items-baseline gap-2 px-3 py-1.5 text-left text-sm hover:bg-slate-50 focus:bg-slate-100 focus:outline-hidden ${i === current ? "font-semibold text-brand-800" : "text-slate-700"}`}
             >
               <span className="w-6 shrink-0 text-right tabular-nums text-slate-500">{i + 1}</span>
               <span className="min-w-0 truncate">{title || t("Question {{n}}", { n: i + 1 })}</span>

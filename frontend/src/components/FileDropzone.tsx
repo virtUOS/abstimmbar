@@ -51,7 +51,7 @@ export default function FileDropzone({
         pick(event.dataTransfer.files);
       }}
       className={
-        "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-6 text-center text-sm transition-colors focus:outline-none focus:ring-1 focus:ring-brand-600 " +
+        "flex cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border-2 border-dashed px-4 py-6 text-center text-sm transition-colors focus:outline-hidden focus:ring-1 focus:ring-brand-600 " +
         (dragOver
           ? "border-brand-500 bg-brand-50 dark:border-brand-500 dark:bg-brand-950/40"
           : "border-slate-300 hover:border-brand-400 dark:border-slate-700 dark:hover:border-brand-600") +

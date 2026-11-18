@@ -679,9 +679,9 @@ export default function Matrix({
   // (participant.html, a bit stronger): phone in dim surroundings vs. beamer.
   const tint = {
     q1: `bg-[#ebf6ee] ${dk("dark:bg-emerald-400/[0.07]")}`,
-    q2: `bg-[#fcf5de] ${dk("dark:bg-amber-300/[0.06]")}`,
+    q2: `bg-[#fcf5de] ${dk("dark:bg-amber-300/6")}`,
     q3: `bg-[#fbebec] ${dk("dark:bg-rose-400/[0.07]")}`,
-    q4: `bg-[#edf0f5] ${dk("dark:bg-slate-400/[0.08]")}`,
+    q4: `bg-[#edf0f5] ${dk("dark:bg-slate-400/8")}`,
   };
   const axisLine = `bg-slate-500 ${dk("dark:bg-slate-400")}`;
   // Axis labels live in the margin OUTSIDE the plot (the plot box stays the
@@ -689,7 +689,7 @@ export default function Matrix({
   // the beamer. The x ends run vertically (left bottom-to-top, right
   // top-to-bottom, as on the participant page) in narrow side columns of
   // up to two lines, so the plot keeps its width.
-  const axisLabel = `font-semibold leading-tight text-slate-700 [overflow-wrap:anywhere] ${dk("dark:text-slate-200")}`;
+  const axisLabel = `font-semibold leading-tight text-slate-700 wrap-anywhere ${dk("dark:text-slate-200")}`;
   const axisSize = narrow ? "text-xs" : results ? "text-sm" : "text-xl";
   const xLabel = (side: "x_from" | "x_to") => (
     <div data-axis={side} className={`relative row-start-2 ${side === "x_from" ? "col-start-1" : "col-start-3"}`}>
@@ -723,7 +723,7 @@ export default function Matrix({
         data-matrix-board
         // Focus target when the last card under the focus went away.
         tabIndex={interactive ? -1 : undefined}
-        className={`relative col-start-2 row-start-2 w-full select-none rounded-lg border border-slate-300 focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${dk("dark:border-slate-600")} ${
+        className={`relative col-start-2 row-start-2 w-full select-none rounded-lg border border-slate-300 focus:outline-hidden focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 ${dk("dark:border-slate-600")} ${
           results ? "" : "h-full min-h-0"
         }`}
         style={results ? { aspectRatio: RESULTS_ASPECT } : undefined}
@@ -747,7 +747,7 @@ export default function Matrix({
             return (
               <div
                 data-drop-zone={drag.zone}
-                className="absolute rounded-sm border-2 border-dashed border-brand-600 bg-brand-500/15"
+                className="absolute rounded-xs border-2 border-dashed border-brand-600 bg-brand-500/15"
                 style={{ left: l, top: t0, width: r - l, height: b - t0 }}
               />
             );
@@ -773,7 +773,7 @@ export default function Matrix({
                   e.currentTarget.blur();
                   onZoomQuadrant?.(q);
                 }}
-                className="absolute z-30 flex items-center justify-center rounded-full border border-slate-300 bg-white/80 text-slate-500 hover:bg-white hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+                className="absolute z-30 flex items-center justify-center rounded-full border border-slate-300 bg-white/80 text-slate-500 hover:bg-white hover:text-slate-800 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
                 style={{
                   width: MAGNIFIER,
                   height: MAGNIFIER,
@@ -870,13 +870,13 @@ export default function Matrix({
                 data-ai-highlight={isHighlit ? "true" : undefined}
                 className={`absolute flex w-max items-stretch overflow-hidden rounded-md text-left leading-tight ${
                   interactive
-                    ? `cursor-grab touch-none focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
+                    ? `cursor-grab touch-none focus-visible:outline-solid focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
                         dragging ? "z-20 cursor-grabbing" : ""
                       }`
                     : ""
-                } ${n > 1 && !dragging ? "z-10" : ""} ${isTarget ? "outline outline-[3px] outline-offset-2 outline-brand-600" : ""} ${
-                  isFresh && !isTarget && !isHighlit ? "outline outline-4 outline-amber-300" : ""
-                } ${isHighlit && !isTarget ? "z-10 outline outline-4 outline-offset-2" : ""} ${
+                } ${n > 1 && !dragging ? "z-10" : ""} ${isTarget ? "outline-solid outline-[3px] outline-offset-2 outline-brand-600" : ""} ${
+                  isFresh && !isTarget && !isHighlit ? "outline-solid outline-4 outline-amber-300" : ""
+                } ${isHighlit && !isTarget ? "z-10 outline-solid outline-4 outline-offset-2" : ""} ${
                   isHidden
                     ? `border border-dashed border-slate-400 text-slate-600 ${dk("dark:border-slate-500 dark:text-slate-300")}`
                     : `text-slate-900 ${dk("dark:text-slate-100")} ${
@@ -907,7 +907,7 @@ export default function Matrix({
                   className={`block min-w-0 flex-1 px-[0.55em] py-[0.35em] ${
                     isHidden
                       ? `bg-slate-100 ${dk("dark:bg-slate-900")}`
-                      : `bg-[var(--mx-tint)] ${dk("dark:bg-[var(--mx-tint-dark)]")}`
+                      : `bg-(--mx-tint) ${dk("dark:bg-(--mx-tint-dark)")}`
                   }`}
                   style={
                     {
@@ -921,7 +921,7 @@ export default function Matrix({
                     <MatrixSummaryMark dark={results} className="mb-[0.15em] flex text-[0.7em]" />
                   )}
                   <span className={`flex items-start gap-[0.3em] ${narrow ? "flex-wrap" : ""}`}>
-                    <span data-card-title className="line-clamp-2 min-w-0 font-semibold [overflow-wrap:anywhere]">
+                    <span data-card-title className="line-clamp-2 min-w-0 font-semibold wrap-anywhere">
                       {card.title}
                     </span>
                     {/* A summary card over a single card shows no "×1". */}
@@ -935,7 +935,7 @@ export default function Matrix({
                     )}
                   </span>
                   {showDescriptions && card.description && (
-                    <span className={`mt-0.5 line-clamp-3 block text-[0.85em] text-slate-700 [overflow-wrap:anywhere] ${dk("dark:text-slate-300")}`}>
+                    <span className={`mt-0.5 line-clamp-3 block text-[0.85em] text-slate-700 wrap-anywhere ${dk("dark:text-slate-300")}`}>
                       {card.description}
                     </span>
                   )}
@@ -1019,7 +1019,7 @@ export default function Matrix({
                 <span
                   aria-hidden
                   data-swatch
-                  className={`inline-block flex-none rounded border ${results ? "h-3 w-3" : "h-4 w-4"}`}
+                  className={`inline-block flex-none rounded-sm border ${results ? "h-3 w-3" : "h-4 w-4"}`}
                   style={{
                     background: off ? "transparent" : paletteEntry(c.key)?.hex,
                     borderColor: paletteEntry(c.key)?.hex,
@@ -1036,7 +1036,7 @@ export default function Matrix({
                     aria-pressed={!off}
                     aria-label={cat.name || cat.a11y}
                     onClick={() => onToggleCategory(c.key)}
-                    className={`inline-flex items-center rounded hover:underline ${results ? "gap-1.5" : "gap-2"} focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600`}
+                    className={`inline-flex items-center rounded-sm hover:underline ${results ? "gap-1.5" : "gap-2"} focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600`}
                   >
                     {content}
                   </button>

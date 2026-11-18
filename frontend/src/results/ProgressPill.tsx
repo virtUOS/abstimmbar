@@ -84,7 +84,7 @@ export default function ProgressPill({
   const UnitIcon = unit?.icon;
   return (
     <div
-      className={`flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-sm text-slate-700 shadow-sm backdrop-blur ${className}`}
+      className={`flex items-center gap-3 rounded-full border border-slate-200 bg-white/90 px-3 py-1.5 text-sm text-slate-700 shadow-xs backdrop-blur-sm ${className}`}
       role="group"
       aria-label={t("Participation")}
       aria-live="polite"

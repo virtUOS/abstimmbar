@@ -44,7 +44,7 @@ export default function BetaBadge({ notice }: { notice: string }) {
         aria-controls={noteId}
         title={t("About the beta")}
         onClick={() => setOpen((value) => !value)}
-        className={`${badge} cursor-pointer hover:bg-brand-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 dark:hover:bg-brand-800`}
+        className={`${badge} cursor-pointer hover:bg-brand-200 focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 dark:hover:bg-brand-800`}
       >
         {t("Beta")}
       </button>

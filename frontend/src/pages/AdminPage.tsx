@@ -135,7 +135,7 @@ function AdminTabs() {
                     type="button"
                     aria-current={section === item.id ? "page" : undefined}
                     onClick={() => selectSection(item.id)}
-                    className={`w-full whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 ${
+                    className={`w-full whitespace-nowrap rounded-lg px-3 py-2 text-left text-sm font-medium focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 ${
                       section === item.id
                         ? "bg-brand-100 text-brand-800 dark:bg-brand-900 dark:text-brand-200"
                         : "text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
@@ -470,7 +470,7 @@ function AppearanceSettings() {
             <img
               src={site.logo}
               alt={t("Current logo")}
-              className="h-10 w-auto max-w-[180px] rounded border border-slate-200 bg-white p-1 dark:border-slate-700"
+              className="h-10 w-auto max-w-[180px] rounded-sm border border-slate-200 bg-white p-1 dark:border-slate-700"
             />
           ) : (
             <span className="text-sm text-slate-400">{t("No logo — “abstimmBAR” wordmark")}</span>
@@ -508,7 +508,7 @@ function AppearanceSettings() {
             type="checkbox"
             checked={betaEnabled}
             onChange={(event) => setBetaEnabled(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+            className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
           />
           {t("Show beta label")}
         </label>
@@ -684,7 +684,7 @@ function AiSettings() {
             onChange={(event) =>
               setSelfCheckAiPerMinute(Math.max(0, parseInt(event.target.value, 10) || 0))
             }
-            className="!w-32"
+            className="w-32!"
           />
         </div>
         <SavedRow onSave={() => void save()} saved={saved} />
@@ -1019,7 +1019,7 @@ function LtiPlatformForm({
             type="checkbox"
             checked={linkByEmail}
             onChange={(event) => setLinkByEmail(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+            className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
           />
           {t("Link users by email")}
         </label>
@@ -1035,7 +1035,7 @@ function LtiPlatformForm({
             type="checkbox"
             checked={isActive}
             onChange={(event) => setIsActive(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+            className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
           />
           {t("Active")}
         </label>
@@ -1160,7 +1160,7 @@ function PageForm({
               type="checkbox"
               checked={published}
               onChange={(event) => setPublished(event.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+              className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
             />
             {t("Published (otherwise draft only, not visible to the public)")}
           </label>

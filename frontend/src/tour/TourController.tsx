@@ -772,7 +772,7 @@ export function TourProvider({
       {children}
       {active && paused && (
         <div
-          className="fixed inset-x-0 bottom-4 z-[10000] flex justify-center px-4"
+          className="fixed inset-x-0 bottom-4 z-10000 flex justify-center px-4"
           role="status"
           aria-live="polite"
         >
@@ -821,7 +821,7 @@ export function TourProvider({
         <div
           // Stack above the paused pill (also bottom-4) so it never covers
           // the pill's Resume / Skip step / End buttons.
-          className={`fixed inset-x-0 ${active && paused ? "bottom-20" : "bottom-4"} z-[10000] flex justify-center px-4`}
+          className={`fixed inset-x-0 ${active && paused ? "bottom-20" : "bottom-4"} z-10000 flex justify-center px-4`}
           role="status"
           aria-live="polite"
         >

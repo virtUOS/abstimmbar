@@ -55,7 +55,7 @@ export default function MatrixList({
                       </span>
                     )}
                     {c.summary && <MatrixSummaryMark dark className="mr-1.5 inline-flex text-xs" />}
-                    <span className="font-medium [overflow-wrap:anywhere]">{c.title}</span>
+                    <span className="font-medium wrap-anywhere">{c.title}</span>
                     {c.description && (
                       <span className="text-slate-600 dark:text-slate-300"> – {c.description}</span>
                     )}

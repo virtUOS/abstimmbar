@@ -372,7 +372,9 @@ test('keyboard moves, footer views, help labels, zoom handle, axe, no overlap', 
       const text = (el.querySelector('[data-axis-text]') ?? el) as HTMLElement;
       const cs = getComputedStyle(text);
       const r = text.getBoundingClientRect();
-      return { mode: cs.writingMode, transform: cs.transform, size: parseFloat(cs.fontSize), w: r.width, h: r.height };
+      // Tailwind 4 rotates via the `rotate` property, v3 via `transform`.
+      const rotated = cs.transform !== 'none' || (cs.rotate !== '' && cs.rotate !== 'none');
+      return { mode: cs.writingMode, rotated, size: parseFloat(cs.fontSize), w: r.width, h: r.height };
     });
   for (const name of ['x_from', 'x_to']) {
     const a = await axis(name);
@@ -380,7 +382,7 @@ test('keyboard moves, footer views, help labels, zoom handle, axe, no overlap', 
     expect(a.h, name).toBeGreaterThan(a.w);
     expect(a.size, name).toBeGreaterThanOrEqual(18);
   }
-  expect((await axis('x_from')).transform).not.toBe('none'); // rotated: bottom-to-top
+  expect((await axis('x_from')).rotated).toBe(true); // rotated: bottom-to-top
   for (const name of ['y_from', 'y_to']) {
     const a = await axis(name);
     expect(a.mode, name).toBe('horizontal-tb');

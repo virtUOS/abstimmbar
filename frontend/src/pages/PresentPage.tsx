@@ -1810,7 +1810,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   <select
                     value={walkView}
                     onChange={(event) => setWalkView(event.target.value as WcView)}
-                    className="bg-transparent font-medium text-slate-700 focus:outline-none dark:text-slate-200"
+                    className="bg-transparent font-medium text-slate-700 focus:outline-hidden dark:text-slate-200"
                   >
                     {walkViewOptions.map((view) => (
                       <option key={view.value} value={view.value}>
@@ -2174,7 +2174,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 type="checkbox"
                 checked={closeDontAsk}
                 onChange={(event) => setCloseDontAsk(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600"
               />
               {t("Don't ask again in this presentation")}
             </label>
@@ -2214,7 +2214,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 type="checkbox"
                 checked={dontAskAgain}
                 onChange={(event) => setDontAskAgain(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600"
               />
               {t("Don't ask again in this presentation")}
             </label>
@@ -2288,7 +2288,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             <div
               data-beamer-inset=""
               className={`fixed left-6 z-20 flex items-center gap-2 text-5xl font-extrabold tabular-nums ${
-                cornerBoxes === 2 ? "top-[18.5rem]" : cornerBoxes === 1 ? "top-40" : "top-4"
+                cornerBoxes === 2 ? "top-74" : cornerBoxes === 1 ? "top-40" : "top-4"
               } ${countdownColor(remaining)}`}
             >
               <Timer aria-hidden className="h-9 w-9" /> {countdownLabel(remaining)}
@@ -2328,7 +2328,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   dismissMmHint();
                 }}
                 aria-label={t("Dismiss")}
-                className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                className="rounded-sm p-0.5 text-slate-500 hover:bg-brand-100"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -2689,7 +2689,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           {showModHandle && (
               <>
                 {!modHintSeen && wcHasWords && (
-                  <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                  <div style={{ bottom: "calc(38% + 3.5rem)" }} className="fixed right-4 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-xs">
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
                     <p className="flex-1">
                       {!expert
@@ -2712,7 +2712,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                       type="button"
                       onClick={dismissModHint}
                       aria-label={t("Dismiss")}
-                      className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                      className="rounded-sm p-0.5 text-slate-500 hover:bg-brand-100"
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -2822,7 +2822,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     mmToast.action?.run();
                     setMmToast(null);
                   }}
-                  className="shrink-0 rounded font-semibold text-brand-200 underline-offset-2 hover:text-white hover:underline"
+                  className="shrink-0 rounded-sm font-semibold text-brand-200 underline-offset-2 hover:text-white hover:underline"
                 >
                   {mmToast.action.label}
                 </button>
@@ -2831,7 +2831,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 type="button"
                 onClick={() => setMmToast(null)}
                 aria-label={t("Dismiss")}
-                className="rounded p-0.5 text-slate-300 hover:text-white"
+                className="rounded-sm p-0.5 text-slate-300 hover:text-white"
               >
                 <X className="h-4 w-4" />
               </button>
@@ -2943,7 +2943,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           {showAiButton && (
             <>
               {!aiHintSeen && modHintSeen && !showAiPanel && !showModPanel && (
-                <div style={{ top: aiHandleTop }} className="fixed right-16 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-sm">
+                <div style={{ top: aiHandleTop }} className="fixed right-16 z-30 flex max-w-[18rem] items-start gap-2 rounded-xl border border-brand-200 bg-brand-50/95 p-3 text-sm text-slate-700 shadow-xs">
                   <Info className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" aria-hidden />
                   <p className="flex-1">
                     {t("Tip: the star switches the AI views on and lets you adjust the grouping on the spot.")}
@@ -2952,7 +2952,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     type="button"
                     onClick={dismissAiHint}
                     aria-label={t("Dismiss")}
-                    className="rounded p-0.5 text-slate-500 hover:bg-brand-100"
+                    className="rounded-sm p-0.5 text-slate-500 hover:bg-brand-100"
                   >
                     <X className="h-4 w-4" />
                   </button>
@@ -3008,7 +3008,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                         aria-checked={aiCloud}
                         disabled={aiBusy !== null}
                         onClick={() => void setQuestionAi(!aiCloud)}
-                        className="inline-flex items-center gap-2.5 rounded text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex items-center gap-2.5 rounded-sm text-sm text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <span
                           aria-hidden
@@ -3018,7 +3018,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                         >
                           <span
                             className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
-                              aiCloud ? "translate-x-[1.125rem]" : "translate-x-0.5"
+                              aiCloud ? "translate-x-4.5" : "translate-x-0.5"
                             }`}
                           />
                         </span>
@@ -3026,7 +3026,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                           {isOpenText ? t("Use AI summary") : t("Use AI for this word cloud")}
                         </span>
                       </button>
-                      <p className="mt-1 pl-[2.875rem] text-xs text-slate-400">{t("Saved on the question.")}</p>
+                      <p className="mt-1 pl-11.5 text-xs text-slate-400">{t("Saved on the question.")}</p>
                     </div>
                   )}
                   {/* Settings only — which view is on the beamer is chosen in the
@@ -3046,7 +3046,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                                 const checked = e.target.checked;
                                 setMergeDraft((d) => ({ ...d, concepts: checked }));
                               }}
-                              className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                              className="mt-0.5 h-4 w-4 flex-none rounded-sm border-slate-300 accent-brand-600"
                             />
                             {t("Also merge similar statements")}
                           </label>
@@ -3083,7 +3083,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                                     const checked = e.target.checked;
                                     setMergeDraft((d) => ({ ...d, [key]: checked }));
                                   }}
-                                  className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                                  className="mt-0.5 h-4 w-4 flex-none rounded-sm border-slate-300 accent-brand-600"
                                 />
                                 {label}
                               </label>
@@ -3113,7 +3113,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                           placeholder={t(
                             "Empty = AI finds themes itself. E.g. “positive / neutral / negative” or “by lecture topic”.",
                           )}
-                          className="w-full rounded-lg border border-field bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600"
+                          className="w-full rounded-lg border border-field bg-white p-2 text-sm text-slate-800 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600"
                         />
                         {isOpenText && modelSolution && (
                           <div className="mt-2">
@@ -3123,7 +3123,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                                 checked={useSolutionDraft}
                                 disabled={aiBusy !== null}
                                 onChange={(e) => setUseSolutionDraft(e.target.checked)}
-                                className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                                className="mt-0.5 h-4 w-4 flex-none rounded-sm border-slate-300 accent-brand-600"
                               />
                               {t("Consider the model solution when grouping")}
                             </label>
@@ -3132,7 +3132,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                               aria-expanded={solutionOpen}
                               aria-controls="wc-model-solution"
                               onClick={() => setSolutionOpen((o) => !o)}
-                              className="mt-1.5 inline-flex items-center gap-1 rounded text-xs font-medium text-slate-500 hover:text-slate-800"
+                              className="mt-1.5 inline-flex items-center gap-1 rounded-sm text-xs font-medium text-slate-500 hover:text-slate-800"
                             >
                               {solutionOpen ? (
                                 <ChevronDown className="h-3.5 w-3.5" aria-hidden />
@@ -3477,9 +3477,9 @@ function Shell({
       <main
         className={`min-h-0 flex-1 overflow-auto px-8 py-6 ${
           reserveTopLeft === 2
-            ? "pt-[19rem] lg:pl-[21rem] lg:pt-6"
+            ? "pt-76 lg:pl-84 lg:pt-6"
             : reserveTopLeft === 1
-              ? "pt-40 lg:pl-[21rem] lg:pt-6"
+              ? "pt-40 lg:pl-84 lg:pt-6"
               : ""
         }`}
       >
@@ -3551,14 +3551,14 @@ function RecordingCorner({
     <div
       data-beamer-inset=""
       data-top-left=""
-      className={`absolute z-20 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur ${position}`}
+      className={`absolute z-20 flex items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-xs backdrop-blur-sm ${position}`}
     >
       <img
         src={live.recordingQrUrl(token, questionId)}
         alt={t("QR code to vote on this question from the recording")}
         className="h-24 w-24 rounded-lg"
       />
-      <p className="max-w-[10rem] text-left text-xs text-slate-500">
+      <p className="max-w-40 text-left text-xs text-slate-500">
         {t("Watching the recording? Scan to vote on this question afterward.")}
       </p>
     </div>
@@ -3582,7 +3582,7 @@ function JoinCorner({ room }: { room: LiveState["room"] }) {
       data-beamer-inset=""
       {...(rawCorner.endsWith("right") ? { "data-edge-right": "" } : {})}
       {...(rawCorner === "top-left" ? { "data-top-left": "" } : {})}
-      className={`absolute z-20 hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-sm backdrop-blur md:flex ${position}`}
+      className={`absolute z-20 hidden items-center gap-3 rounded-2xl border border-slate-200 bg-white/90 p-3 shadow-xs backdrop-blur-sm md:flex ${position}`}
     >
       {room.show_qr && (
         <img
@@ -3619,7 +3619,7 @@ function JoinPanel({
   const { t } = useTranslation();
   const url = live.participantUrl(room.code);
   return (
-    <div className="fixed right-6 top-1/2 z-30 w-72 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl backdrop-blur">
+    <div className="fixed right-6 top-1/2 z-30 w-72 -translate-y-1/2 rounded-2xl border border-slate-200 bg-white/95 p-5 text-center shadow-xl backdrop-blur-sm">
       <button
         type="button"
         aria-label={t("Close")}
@@ -3916,7 +3916,7 @@ function WordCloud({
                   // Right-centre, over the word's own glyphs on the horizontal
                   // midline the mouse travels — reachable without crossing a gap
                   // or a neighbouring word (the hovered word is raised via z-30).
-                  className="absolute right-0 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
+                  className="absolute right-0 top-1/2 hidden h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-xs hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
                   aria-label={t("Hide {{word}}", { word: w.text })}
                 >
                   <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -4005,7 +4005,7 @@ function ModerationPanel({
                     if (e.target.value.trim() && e.target.value !== m.label)
                       onRename(m.keys, e.target.value.trim());
                   }}
-                  className="min-w-0 flex-1 rounded border border-field px-2 py-1"
+                  className="min-w-0 flex-1 rounded-sm border border-field px-2 py-1"
                 />
                 <button
                   type="button"
@@ -4189,7 +4189,7 @@ function HideButton({ label, onHide }: { label: string; onHide: () => void }) {
         e.stopPropagation();
         onHide();
       }}
-      className="absolute -right-1.5 -top-1.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
+      className="absolute -right-1.5 -top-1.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-xs hover:bg-slate-100 hover:text-slate-800 group-hover:flex"
       aria-label={t("Hide {{word}}", { word: label })}
     >
       <X className="h-3.5 w-3.5" strokeWidth={2.5} />
@@ -4416,7 +4416,7 @@ function FreeTextAiView({
       <li
         key={wordId(w)}
         {...cp}
-        className={`ab-chip-in group relative flex items-center rounded-2xl border border-slate-200 bg-white shadow-sm ${big ? "gap-4 py-2.5 pl-5 pr-3" : "gap-2 py-1.5 pl-3 pr-2 shadow-none"} ${cp.className}`}
+        className={`ab-chip-in group relative flex items-center rounded-2xl border border-slate-200 bg-white shadow-xs ${big ? "gap-4 py-2.5 pl-5 pr-3" : "gap-2 py-1.5 pl-3 pr-2 shadow-none"} ${cp.className}`}
         style={{
           ...cp.style,
           borderLeft: `${big ? 10 : 5}px solid ${color}`,
@@ -4429,7 +4429,7 @@ function FreeTextAiView({
           {w.text}
         </span>
         <span
-          className={`shrink-0 rounded-full px-3 py-0.5 text-center font-bold tabular-nums ${big ? "min-w-[3.5rem] text-xl" : "min-w-[2.25rem] text-sm"}`}
+          className={`shrink-0 rounded-full px-3 py-0.5 text-center font-bold tabular-nums ${big ? "min-w-14 text-xl" : "min-w-9 text-sm"}`}
           style={{ background: color, color: INK }}
         >
           {w.count}
@@ -4492,7 +4492,7 @@ function FreeTextAiView({
                 className="mb-2 flex items-baseline gap-2 text-xl font-bold leading-tight"
                 style={{ color: categoryDeep(ci) }}
               >
-                <span className="min-w-0 break-words">{cluster.label}</span>
+                <span className="min-w-0 wrap-break-word">{cluster.label}</span>
                 <span className="shrink-0 text-base font-semibold text-slate-400">· {count}</span>
               </h3>
               <ul className="space-y-1.5">{top.map((w, i) => row(w, categoryColor(ci), i, false))}</ul>
@@ -4550,7 +4550,7 @@ function GroupedWordClouds({
         {visible.map((cluster, i) => (
           <span key={cluster.label} className="flex items-center gap-2 text-lg">
             <span
-              className="inline-block h-4 w-4 shrink-0 rounded"
+              className="inline-block h-4 w-4 shrink-0 rounded-sm"
               style={{ background: hueColor(categoryHue(i), 0.8) }}
             />
             <span className="font-semibold text-slate-700 dark:text-slate-200">
