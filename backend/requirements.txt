@@ -6,7 +6,7 @@ basicbar-integrations @ https://github.com/virtUOS/basicbar/archive/refs/tags/in
 basicbar-auth @ https://github.com/virtUOS/basicbar/archive/refs/tags/auth/v0.2.2.tar.gz#subdirectory=packages/django/basicbar-auth
 basicbar-lti @ https://github.com/virtUOS/basicbar/archive/refs/tags/lti/v0.1.5.tar.gz#subdirectory=packages/django/basicbar-lti
 django-cors-headers==4.9.0
-psycopg[binary,pool]==3.3.8
+psycopg[binary,pool]==3.3.9
 mozilla-django-oidc==4.0.1
 # HTML allowlist sanitizing for editor content (ADR-0007).
 nh3==0.3.7
