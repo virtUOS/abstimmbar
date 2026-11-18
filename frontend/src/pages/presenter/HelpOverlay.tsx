@@ -228,7 +228,7 @@ function layout(cards: CardSpec[], sizes: { w: number; h: number }[]): Placed[] 
 
 function Kbd({ children }: { children: string }) {
   return (
-    <kbd className="inline-block min-w-[1.5em] whitespace-nowrap rounded border border-slate-300 bg-slate-50 px-1 text-center font-sans text-xs font-semibold text-slate-700">
+    <kbd className="inline-block min-w-[1.5em] whitespace-nowrap rounded-sm border border-slate-300 bg-slate-50 px-1 text-center font-sans text-xs font-semibold text-slate-700">
       {children}
     </kbd>
   );
@@ -415,7 +415,7 @@ export default function HelpOverlay({
       aria-modal="true"
       aria-label={t("Help")}
       onClick={onClose}
-      className="ab-fade-in fixed inset-0 z-[60] cursor-pointer text-slate-900"
+      className="ab-fade-in fixed inset-0 z-60 cursor-pointer text-slate-900"
       style={{ colorScheme: "light" }}
     >
       {/* Dim layer with a hole at every explained control. */}
@@ -478,7 +478,7 @@ export default function HelpOverlay({
           data-testid="help-card"
           data-help-for={card.ids.join(" ")}
           className={`absolute rounded-lg bg-white px-3 py-2 shadow-lg ${
-            card.ids[0].startsWith("view.") ? "w-72" : "w-max max-w-[13rem]"
+            card.ids[0].startsWith("view.") ? "w-72" : "w-max max-w-52"
           }`}
           style={
             ready
@@ -503,7 +503,7 @@ export default function HelpOverlay({
             onClick={onClose}
             aria-label={t("Close help")}
             title={`${t("Close help")} (Esc)`}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
           >
             <X aria-hidden className="h-4 w-4" />
           </button>

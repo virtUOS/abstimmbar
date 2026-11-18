@@ -34,7 +34,10 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Geändert
 
-- Oberfläche: React 19 und Vite 8 (vorher React 18 und Vite 6).
+- Oberfläche: React 19, Vite 8 und Tailwind CSS 4 (vorher React 18, Vite 6
+  und Tailwind 3). Verwaltung und Präsentation brauchen damit einen
+  aktuellen Browser (Chrome/Edge ab 111, Firefox ab 128, Safari ab 16.4);
+  die Teilnahmeseite ist davon nicht betroffen.
 - Plattform: Django 6.1 (vorher 5.2 LTS). Der Mailversand nutzt die neue
   `MAILERS`-Konfiguration von Django; die Umgebungsvariablen `EMAIL_*`
   bleiben unverändert.

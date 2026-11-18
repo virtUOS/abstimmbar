@@ -117,7 +117,7 @@ function ColorPicker({
             aria-label={name}
             title={unavailable ? `${name} – ${t("Already used by another category")}` : name}
             onClick={() => onPick(entry.key)}
-            className={`inline-flex h-8 w-8 items-center justify-center rounded-full border focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950 ${
+            className={`inline-flex h-8 w-8 items-center justify-center rounded-full border focus:outline-hidden focus-visible:ring-2 focus-visible:ring-brand-600 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-slate-950 ${
               selected
                 ? "border-slate-900 ring-2 ring-slate-900 dark:border-white dark:ring-white"
                 : "border-slate-300 dark:border-slate-600"
@@ -263,7 +263,7 @@ export default function MatrixSettings({
           onChange={(edges) => patch({ edges })}
           label={t("Allow edges")}
         />
-        <p className="pl-[2.875rem] text-xs text-slate-500 dark:text-slate-400">
+        <p className="pl-11.5 text-xs text-slate-500 dark:text-slate-400">
           {t("Participants can also place a card between two fields.")}
         </p>
       </div>
@@ -274,7 +274,7 @@ export default function MatrixSettings({
           onChange={(descriptions) => patch({ descriptions })}
           label={t("Card descriptions")}
         />
-        <p className="pl-[2.875rem] text-xs text-slate-500 dark:text-slate-400">
+        <p className="pl-11.5 text-xs text-slate-500 dark:text-slate-400">
           {t("Participants add a title and an optional description to each card.")}
         </p>
       </div>

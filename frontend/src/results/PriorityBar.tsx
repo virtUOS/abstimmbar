@@ -61,7 +61,7 @@ export default function PriorityBar({
   return (
     <div>
       <div className={`mb-1 flex items-center justify-between gap-4 ${present ? "text-xl" : "text-sm"}`}>
-        <span className="min-w-0 [overflow-wrap:anywhere]">{label}</span>
+        <span className="min-w-0 wrap-anywhere">{label}</span>
         <span className={`shrink-0 whitespace-nowrap tabular-nums text-slate-500${darkText}`}>
           Ø {fmtNum(avg)} · {fmtNum(min)}–{fmtNum(max)}
         </span>

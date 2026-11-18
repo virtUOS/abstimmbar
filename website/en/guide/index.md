@@ -13,6 +13,10 @@ This guide takes you from signing in to evaluating the results. Once signed
 in as a teacher, you can also start a [guided tour](guided-tour.md) of the
 interface at any time — via the **?** icon at the top right of the header.
 
+Managing and presenting need an up-to-date browser (Chrome or Edge 111 or
+later, Firefox 128, Safari 16.4). Your participants can also use older
+smartphones.
+
 ![Home page “My rooms” with three example rooms, their room codes and the number of question sets](../bilder/start-raeume.png)
 
 ## Chapters

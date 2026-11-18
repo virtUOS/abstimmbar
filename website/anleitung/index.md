@@ -14,6 +14,10 @@ angemeldete Lehrperson können Sie außerdem jederzeit einen
 [geführten Rundgang](rundgang.md) durch die Oberfläche starten — über das
 **?**-Symbol oben rechts in der Kopfzeile.
 
+Für die Verwaltung und die Präsentation brauchen Sie einen aktuellen Browser
+(Chrome oder Edge ab Version 111, Firefox ab 128, Safari ab 16.4). Ihre
+Teilnehmenden kommen auch mit älteren Smartphones zurecht.
+
 ![Startseite „Meine Räume“ mit drei Beispielräumen, ihren Raumcodes und der Anzahl der Fragensets](../bilder/start-raeume.png)
 
 ## Kapitel

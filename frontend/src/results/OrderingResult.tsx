@@ -52,7 +52,7 @@ export default function OrderingResult({
                 {/* The rate drives the border strength only — fading the
                     text would drop it below 4.5:1 (#178). */}
                 <span
-                  className="rounded-full border border-brand-600/[var(--rate)] bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
+                  className="rounded-full border border-brand-600/(--rate) bg-slate-100 px-2 py-0.5 text-xs tabular-nums text-slate-600 dark:bg-slate-800 dark:text-slate-300"
                   style={{ "--rate": 0.15 + 0.85 * (link.rate / 100) } as CSSProperties}
                 >
                   {t("{{pct}}% in a row", { pct: fmtNum(link.rate) })}

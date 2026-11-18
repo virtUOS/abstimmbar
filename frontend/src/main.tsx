@@ -80,7 +80,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
         // so the controls dock into the flow there instead of covering the
         // form (#179); where no slot is mounted the pill floats, lifted on
         // narrow screens to stay clear of sticky action bars.
-        controlsClassName={`${TRANSLATION_CONTROLS_HOOK} fixed bottom-6 right-6 z-40 max-md:bottom-[5.5rem]`}
+        controlsClassName={`${TRANSLATION_CONTROLS_HOOK} fixed bottom-6 right-6 z-40 max-md:bottom-22`}
         slotControlsClassName={`${TRANSLATION_CONTROLS_HOOK} flex justify-end`}
       >
         <RouterProvider router={router} />

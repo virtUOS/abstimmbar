@@ -59,9 +59,9 @@ const AI_LOCKED = PRESENTER_HELP["handle.mx-ai"].offText!;
 const HANDLE =
   "fixed right-0 z-30 rounded-l-xl border border-r-0 border-slate-200 bg-white/95 text-slate-500 shadow-md transition-opacity hover:text-slate-800";
 const ROUND_BTN =
-  "flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600";
+  "flex h-9 w-9 items-center justify-center rounded-full hover:bg-slate-100 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600";
 const SMALL_BTN =
-  "rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
+  "rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Width of the largest 16:9 box that fits the element. */
 function useFitWidth(ref: RefObject<HTMLDivElement | null>) {
@@ -459,7 +459,7 @@ export default function MatrixPanel({
           </span>
           {scores ? null : (
             <Trans i18nKey="mm_rating_reveal_hint">
-              Reveal the results with <kbd className="rounded border border-slate-300 bg-slate-50 px-1.5 font-mono text-sm">E</kbd>
+              Reveal the results with <kbd className="rounded-sm border border-slate-300 bg-slate-50 px-1.5 font-mono text-sm">E</kbd>
             </Trans>
           )}
         </p>
@@ -557,7 +557,7 @@ export default function MatrixPanel({
             <button
               type="button"
               data-help="mx.overview"
-              className="ml-1 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+              className="ml-1 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium hover:bg-slate-100 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
               onClick={(e) => {
                 e.currentTarget.blur();
                 bv.overview();
@@ -608,7 +608,7 @@ export default function MatrixPanel({
             type="button"
             onClick={() => setToast(null)}
             aria-label={t("Dismiss")}
-            className="rounded p-0.5 text-slate-300 hover:text-white"
+            className="rounded-sm p-0.5 text-slate-300 hover:text-white"
           >
             <X className="h-4 w-4" />
           </button>
@@ -873,7 +873,7 @@ function CardDialog({
       >
         <div className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
-            <h2 id="matrix-dialog-title" className="text-2xl font-semibold [overflow-wrap:anywhere]">
+            <h2 id="matrix-dialog-title" className="text-2xl font-semibold wrap-anywhere">
               {card.title}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -886,7 +886,7 @@ function CardDialog({
             type="button"
             onClick={(e) => onClose(e.detail === 0)}
             aria-label={t("Close")}
-            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+            className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
           >
             <X className="h-5 w-5" />
           </button>
@@ -897,7 +897,7 @@ function CardDialog({
           </p>
         )}
         {card.description && (
-          <p className="mt-3 whitespace-pre-line text-lg [overflow-wrap:anywhere]">{card.description}</p>
+          <p className="mt-3 whitespace-pre-line text-lg wrap-anywhere">{card.description}</p>
         )}
         {stacksLocked && (all.length > 0 || card.teacher) && (
           <p data-testid="matrix-stacks-locked" className="mt-3 flex items-center gap-1.5 text-sm text-slate-600">
@@ -917,11 +917,11 @@ function CardDialog({
                   key={c.id}
                   className={`rounded-lg border px-3 py-2 ${c.hidden ? "border-dashed border-slate-300 bg-slate-50" : "border-slate-200"}`}
                 >
-                  <p className="font-semibold [overflow-wrap:anywhere]">
+                  <p className="font-semibold wrap-anywhere">
                     {c.title}
                     {c.hidden && <span className="ml-2 text-sm font-normal text-slate-600">({t("hidden")})</span>}
                   </p>
-                  {c.description && <p className="text-sm text-slate-600 [overflow-wrap:anywhere]">{c.description}</p>}
+                  {c.description && <p className="text-sm text-slate-600 wrap-anywhere">{c.description}</p>}
                   <div className="mt-2">{actions(c, true)}</div>
                 </li>
               ))}
@@ -1003,7 +1003,7 @@ function AddDrawer({
     }
   };
   const field =
-    "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600";
+    "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600";
   return (
     <div
       {...{ [drawerAttr]: "" }}
@@ -1039,8 +1039,8 @@ function AddDrawer({
               aria-controls={view === v ? `matrix-drawer-panel-${v}` : undefined}
               tabIndex={view === v ? 0 : -1}
               onClick={() => setView(v)}
-              className={`truncate rounded-md px-2.5 py-1 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
-                view === v ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              className={`truncate rounded-md px-2.5 py-1 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 ${
+                view === v ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
               }`}
             >
               {v === "add" ? t("Add card") : t("Moderate")}
@@ -1192,7 +1192,7 @@ function ModerateView({
       setDissolving(false);
     }
   };
-  const BTN = "ml-2 shrink-0 text-brand-700 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 aria-disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50";
+  const BTN = "ml-2 shrink-0 text-brand-700 hover:underline focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 aria-disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline disabled:opacity-50";
   return (
     <div
       id="matrix-drawer-panel-moderate"
@@ -1214,7 +1214,7 @@ function ModerateView({
         {hidden.length === 0 && stacks.length === 0 && <p className="text-slate-500">{t("Nothing moderated yet.")}</p>}
         {hidden.length > 0 && (
           <section aria-labelledby="matrix-mod-hidden" data-testid="matrix-mod-hidden">
-            <h3 id="matrix-mod-hidden" tabIndex={-1} className="mb-1 font-semibold text-slate-600 focus:outline-none">{t("Hidden")}</h3>
+            <h3 id="matrix-mod-hidden" tabIndex={-1} className="mb-1 font-semibold text-slate-600 focus:outline-hidden">{t("Hidden")}</h3>
             <ul>
               {hidden.map((c) => {
                 const category = catText(c.category);
@@ -1242,7 +1242,7 @@ function ModerateView({
         )}
         {stacks.length > 0 && (
           <section aria-labelledby="matrix-mod-stacks" data-testid="matrix-mod-stacks" className={hidden.length > 0 ? "mt-3" : ""}>
-            <h3 id="matrix-mod-stacks" tabIndex={-1} className="mb-1 font-semibold text-slate-600 focus:outline-none">{t("Stacks")}</h3>
+            <h3 id="matrix-mod-stacks" tabIndex={-1} className="mb-1 font-semibold text-slate-600 focus:outline-hidden">{t("Stacks")}</h3>
             {stacks.map((st) => (
               <div key={st.card.id} className="mb-2 rounded-lg border border-slate-200 p-2">
                 <div className="flex items-center justify-between">

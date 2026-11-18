@@ -65,11 +65,11 @@ export default function ScrollFade({
       </div>
       <span
         aria-hidden
-        className={`${fade} left-px bg-gradient-to-r ${edges.left ? "opacity-100" : "opacity-0"}`}
+        className={`${fade} left-px bg-linear-to-r ${edges.left ? "opacity-100" : "opacity-0"}`}
       />
       <span
         aria-hidden
-        className={`${fade} right-px bg-gradient-to-l ${edges.right ? "opacity-100" : "opacity-0"}`}
+        className={`${fade} right-px bg-linear-to-l ${edges.right ? "opacity-100" : "opacity-0"}`}
       />
     </div>
   );

@@ -225,7 +225,7 @@ export default function MeetingConsole() {
           aria-expanded={false}
           aria-label={t("Show panel")}
           title={t("Show panel")}
-          className="absolute right-0 top-1/2 z-20 -translate-y-1/2 rounded-l-xl border border-r-0 border-slate-200 bg-white px-1.5 py-4 text-slate-600 shadow-md hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="absolute right-0 top-1/2 z-20 -translate-y-1/2 rounded-l-xl border border-r-0 border-slate-200 bg-white px-1.5 py-4 text-slate-600 shadow-md hover:bg-slate-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           <PanelRightOpen aria-hidden className="h-5 w-5" />
         </button>
@@ -250,7 +250,7 @@ export default function MeetingConsole() {
                 to={`/sets/${setId}`}
                 aria-label={t("Back")}
                 title={t("Back")}
-                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 dark:text-slate-400 dark:hover:bg-slate-800"
+                className="rounded-lg p-1 text-slate-500 hover:bg-slate-100 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 dark:text-slate-400 dark:hover:bg-slate-800"
               >
                 <ChevronLeft aria-hidden className="h-5 w-5" />
               </Link>

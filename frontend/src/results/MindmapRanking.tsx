@@ -168,7 +168,7 @@ export default function MindmapRanking({
                 >
                   {i + 1}
                 </span>
-                <span className="min-w-0 [overflow-wrap:anywhere]">
+                <span className="min-w-0 wrap-anywhere">
                   {rank(i)}
                   {label(e)}
                 </span>

@@ -150,7 +150,7 @@ export default function AiGenerateForm({
               onChange={(event) => setText(event.target.value)}
               rows={4}
               placeholder={t("Paste material as text (alternative to upload)")}
-              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="flex flex-wrap items-center gap-4">
@@ -163,7 +163,7 @@ export default function AiGenerateForm({
                 step={0.5}
                 value={density}
                 onChange={(event) => setDensity(Number(event.target.value))}
-                className="!w-20"
+                className="w-20!"
               />
             </label>
             <label className="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-300">
@@ -171,7 +171,7 @@ export default function AiGenerateForm({
               <select
                 value={level}
                 onChange={(event) => setLevel(event.target.value)}
-                className="rounded-lg border border-field bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+                className="rounded-lg border border-field bg-white px-2 py-1.5 text-sm text-slate-900 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
               >
                 {LEVEL_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -211,7 +211,7 @@ export default function AiGenerateForm({
                       type="checkbox"
                       checked={included}
                       onChange={() => toggleKind(option.value)}
-                      className="h-4 w-4 rounded border-slate-300 accent-brand-600 dark:border-slate-700"
+                      className="h-4 w-4 rounded-sm border-slate-300 accent-brand-600 dark:border-slate-700"
                     />
                     {t(option.label)}
                   </label>
@@ -229,7 +229,7 @@ export default function AiGenerateForm({
                       }
                       aria-pressed={isFocus}
                       className={
-                        "rounded p-0.5 transition-colors " +
+                        "rounded-sm p-0.5 transition-colors " +
                         (isFocus
                           ? "text-amber-500"
                           : starDisabled
@@ -267,7 +267,7 @@ export default function AiGenerateForm({
               placeholder={t(
                 "e.g. focus on understanding and application, use everyday examples, avoid dates and names",
               )}
-              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2">

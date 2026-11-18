@@ -46,7 +46,7 @@ export default function JoinByCode({ compact = false }: { compact?: boolean }) {
           onChange={(event) => setCode(event.target.value)}
           placeholder={t("Room code …")}
           aria-label={t("Join a vote — room code")}
-          className="min-w-0 max-sm:flex-1 sm:!w-48"
+          className="min-w-0 max-sm:flex-1 sm:w-48!"
         />
         <Button type="submit" variant="primary" disabled={!code.trim()}>
           {t("Join")}

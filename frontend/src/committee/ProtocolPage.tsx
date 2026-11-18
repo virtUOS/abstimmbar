@@ -133,7 +133,7 @@ export default function ProtocolPage() {
             <div className="flex flex-col items-start gap-3 sm:flex-row sm:justify-between">
               <div className="min-w-0">
                 <p className="text-sm text-slate-500 dark:text-slate-400">{protocol.committee}</p>
-                <h1 className="break-words text-2xl font-semibold text-slate-900 dark:text-slate-100">
+                <h1 className="wrap-break-word text-2xl font-semibold text-slate-900 dark:text-slate-100">
                   {t("Protocol")}: {protocol.title}
                 </h1>
               </div>
@@ -255,7 +255,7 @@ export default function ProtocolPage() {
                 {top.note && (
                   <p
                     data-testid="protocol-note"
-                    className="hidden whitespace-pre-line break-words text-sm text-slate-800 print:block dark:text-slate-200"
+                    className="hidden whitespace-pre-line wrap-break-word text-sm text-slate-800 print:block dark:text-slate-200"
                   >
                     <span className="font-semibold">{t("Note")}: </span>
                     {top.note}
@@ -453,7 +453,7 @@ function RoundBlock({
       {round.texts.length > 0 && (
         <ul className="grid gap-1 text-slate-800 dark:text-slate-200">
           {round.texts.map((entry, index) => (
-            <li key={index} className="break-words">
+            <li key={index} className="wrap-break-word">
               <span className={muted}>({entry.group})</span> {entry.text}
             </li>
           ))}

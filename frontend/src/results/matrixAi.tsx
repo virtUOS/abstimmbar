@@ -284,11 +284,11 @@ export function useMatrixAi({
 export type MatrixAi = ReturnType<typeof useMatrixAi>;
 
 const FIELD =
-  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:opacity-60";
+  "mt-1 w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm text-slate-900 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 disabled:opacity-60";
 const PRIMARY =
-  "inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-2 rounded-lg bg-brand-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-brand-800 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
 const SECONDARY =
-  "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex items-center gap-1.5 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
 
 /** The slide-out drawer of the ✦ handle. */
 export function MatrixAiDrawer({
@@ -371,7 +371,7 @@ export function MatrixAiDrawer({
           type="button"
           onClick={ai.close}
           aria-label={t("Close")}
-          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600"
+          className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600"
         >
           <X className="h-5 w-5" />
         </button>
@@ -413,8 +413,8 @@ export function MatrixAiDrawer({
                     tabIndex={ai.level === l ? 0 : -1}
                     disabled={disabled}
                     onClick={() => ai.setLevel(l)}
-                    className={`flex-1 rounded-md px-1.5 py-1 text-xs leading-tight focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed ${
-                      ai.level === l ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900"
+                    className={`flex-1 rounded-md px-1.5 py-1 text-xs leading-tight focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed ${
+                      ai.level === l ? "bg-white text-slate-900 shadow-xs" : "text-slate-600 hover:text-slate-900"
                     }`}
                   >
                     {t(LEVEL_TEXT[l].name)}
@@ -510,9 +510,9 @@ export function MatrixAiDrawer({
                           disabled={!ok || disabled}
                           onChange={() => ai.toggle(g.index)}
                           aria-label={t("Group: {{titles}}", { titles })}
-                          className="mt-0.5 h-4 w-4 flex-none rounded border-slate-300 accent-brand-600"
+                          className="mt-0.5 h-4 w-4 flex-none rounded-sm border-slate-300 accent-brand-600"
                         />
-                        <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                        <div className="min-w-0 flex-1 wrap-anywhere">
                           {g.zone && <p className="text-xs font-semibold text-slate-600">{zoneName(g.zone)}</p>}
                           <p>{cardList(g.cards)}</p>
                           {!ok && g.skip_reason && (
@@ -533,7 +533,7 @@ export function MatrixAiDrawer({
                               </label>
                               <input
                                 id={`${idBase}-title`}
-                                className={`${FIELD} !mt-0.5`}
+                                className={`${FIELD} mt-0.5!`}
                                 value={e.title}
                                 maxLength={TITLE_MAX}
                                 disabled={!checked || disabled}
@@ -546,7 +546,7 @@ export function MatrixAiDrawer({
                                   </label>
                                   <textarea
                                     id={`${idBase}-desc`}
-                                    className={`${FIELD} !mt-0.5`}
+                                    className={`${FIELD} mt-0.5!`}
                                     rows={2}
                                     value={e.description ?? ""}
                                     maxLength={DESCRIPTION_MAX}
@@ -562,7 +562,7 @@ export function MatrixAiDrawer({
                                   </label>
                                   <select
                                     id={`${idBase}-cat`}
-                                    className={`${FIELD} !mt-0.5`}
+                                    className={`${FIELD} mt-0.5!`}
                                     value={e.category ?? ""}
                                     disabled={!checked || disabled}
                                     onChange={(ev) => ai.edit(g.index, { category: ev.target.value })}
@@ -595,7 +595,7 @@ export function MatrixAiDrawer({
                     const shown = ai.highlight === h.index;
                     return (
                       <li key={h.index} className="flex items-start gap-2 rounded-lg border border-slate-200 p-2.5">
-                        <div className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+                        <div className="min-w-0 flex-1 wrap-anywhere">
                           <p>
                             {h.cards.map((c, i) => (
                               <span key={c.id}>
@@ -611,7 +611,7 @@ export function MatrixAiDrawer({
                           type="button"
                           aria-pressed={shown}
                           onClick={() => ai.setHighlight(shown ? null : h.index)}
-                          className={`flex-none rounded-lg border px-2 py-1 text-xs font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 ${
+                          className={`flex-none rounded-lg border px-2 py-1 text-xs font-semibold focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-brand-600 ${
                             shown ? "border-transparent text-white" : "border-slate-300 text-slate-700 hover:bg-slate-50"
                           }`}
                           style={shown ? { background: AI_MARK } : undefined}

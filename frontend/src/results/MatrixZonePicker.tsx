@@ -26,7 +26,7 @@ const EDGE_POS: Record<(typeof EDGES)[number], [string, string]> = {
   e_left: ["25%", "50%"],
 };
 
-const axisText = "text-xs font-bold leading-tight text-slate-600 [overflow-wrap:anywhere]";
+const axisText = "text-xs font-bold leading-tight text-slate-600 wrap-anywhere";
 
 export function MatrixZonePicker({
   settings,
@@ -73,9 +73,9 @@ export function MatrixZonePicker({
                   aria-pressed={on}
                   aria-label={zoneName(zone)}
                   onClick={() => onChange(zone)}
-                  className={`flex min-h-[44px] flex-col items-center justify-center gap-1 p-2 text-center text-xs font-semibold leading-tight text-slate-800 focus-visible:outline focus-visible:outline-[3px] focus-visible:-outline-offset-[3px] focus-visible:outline-brand-600 ${
+                  className={`flex min-h-[44px] flex-col items-center justify-center gap-1 p-2 text-center text-xs font-semibold leading-tight text-slate-800 focus-visible:outline-solid focus-visible:outline-[3px] focus-visible:outline-offset-[-3px] focus-visible:outline-brand-600 ${
                     edges ? "px-5" : ""
-                  } ${on ? "bg-brand-50 outline outline-[3px] -outline-offset-[3px] outline-brand-700" : "bg-white hover:bg-slate-50"}`}
+                  } ${on ? "bg-brand-50 outline-solid outline-[3px] outline-offset-[-3px] outline-brand-700" : "bg-white hover:bg-slate-50"}`}
                 >
                   {on ? (
                     <span data-icon="check" className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-brand-700 text-white">
@@ -102,7 +102,7 @@ export function MatrixZonePicker({
                   title={zoneName(zone)}
                   onClick={() => onChange(zone)}
                   style={{ left: EDGE_POS[zone][0], top: EDGE_POS[zone][1] }}
-                  className={`absolute z-[2] flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 focus-visible:outline focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
+                  className={`absolute z-2 flex h-11 w-11 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 focus-visible:outline-solid focus-visible:outline-[3px] focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
                     on ? "border-brand-700 bg-brand-700 text-white" : "border-slate-300 bg-white text-slate-500 hover:bg-slate-50"
                   }`}
                 >
@@ -177,7 +177,7 @@ export function MatrixCategoryChips({
               tabIndex={on || (!value && i === 0) ? 0 : -1}
               onClick={() => onChange(c.key)}
               onKeyDown={(e) => onKeyDown(e, c.key)}
-              className={`inline-flex min-h-[44px] items-center gap-2 rounded-full border-2 px-3 py-1.5 text-sm font-medium text-slate-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
+              className={`inline-flex min-h-[44px] items-center gap-2 rounded-full border-2 px-3 py-1.5 text-sm font-medium text-slate-800 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600 ${
                 on ? "border-brand-700 bg-brand-50" : "border-slate-200 bg-white hover:bg-slate-50"
               }`}
             >

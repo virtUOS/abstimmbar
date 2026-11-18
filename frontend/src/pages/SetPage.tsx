@@ -212,7 +212,7 @@ export function SetSettingsForm({
                     onChange={(event) =>
                       onChange({ shuffle_questions: event.target.checked })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show questions in a random order")}
                 </label>
@@ -223,7 +223,7 @@ export function SetSettingsForm({
                     onChange={(event) =>
                       onChange({ reveal_only_in_summary: event.target.checked })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show results only in the summary at the end")}
                 </label>
@@ -245,7 +245,7 @@ export function SetSettingsForm({
                         reveal_answers: event.target.checked ? "immediately" : "never",
                       })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show correct answers right after answering")}
                 </label>
@@ -256,7 +256,7 @@ export function SetSettingsForm({
                     onChange={(event) =>
                       onChange({ present_results_after: event.target.checked })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show the results in the presentation afterwards")}
                 </label>
@@ -267,7 +267,7 @@ export function SetSettingsForm({
                     onChange={(event) =>
                       onChange({ allow_back_navigation: event.target.checked })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Let participants navigate between questions and change answers")}
                 </label>
@@ -281,7 +281,7 @@ export function SetSettingsForm({
                     onChange={(event) =>
                       onChange({ shuffle_questions: event.target.checked })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show questions in a random order")}
                 </label>
@@ -312,7 +312,7 @@ export function SetSettingsForm({
                     type="checkbox"
                     checked={draft.open_on_show}
                     onChange={(event) => onChange({ open_on_show: event.target.checked })}
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Questions can be answered immediately on open (no separate start)")}
                 </label>
@@ -323,7 +323,7 @@ export function SetSettingsForm({
                     onChange={(event) =>
                       onChange({ show_results_to_participants: event.target.checked })
                     }
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Participants also see the results on their own device")}
                 </label>
@@ -378,7 +378,7 @@ export function SetSettingsForm({
               }}
               placeholder={t("e.g. 10")}
               aria-label={t("Total time limit in minutes")}
-              className="!w-28"
+              className="w-28!"
             />
             <span className="text-sm text-slate-500 dark:text-slate-400">
               {t("Minutes")}
@@ -693,7 +693,7 @@ function SectionTitleField({
       value={title}
       onChange={setTitle}
       ariaLabel={t("Section name")}
-      className="!w-72 font-semibold"
+      className="w-72! font-semibold"
       onBlur={() => {
         if (JSON.stringify(title) !== JSON.stringify(section.title)) {
           onRename(section.id, title);
@@ -1725,7 +1725,7 @@ export default function SetPage() {
                 value={selfCheck.url(selfCheckToken)}
                 onFocus={(event) => event.target.select()}
                 aria-label={t("Permanent link")}
-                className="!w-96 font-mono !text-xs"
+                className="w-96! font-mono text-xs!"
               />
               <Button
                 onClick={() => void copySelfCheckLink("set", selfCheck.url(selfCheckToken))}
@@ -1805,7 +1805,7 @@ export default function SetPage() {
               value={copyTitle}
               onChange={(event) => setCopyTitle(event.target.value)}
               placeholder={localizedText(set.title)}
-              className="!w-64"
+              className="w-64!"
             />
           </Field>
           <Button
@@ -1837,7 +1837,7 @@ export default function SetPage() {
               value={shareUrl}
               onFocus={(event) => event.target.select()}
               aria-label={t("Share link")}
-              className="!w-96 font-mono !text-xs"
+              className="w-96! font-mono text-xs!"
             />
             <Button onClick={() => void copyShareLink()} className="inline-flex items-center gap-1.5">
               {linkCopied ? (<><Check aria-hidden className="h-4 w-4" />{t("Copied")}</>) : t("Copy link")}
@@ -1847,7 +1847,7 @@ export default function SetPage() {
             <select
               value={set.license}
               onChange={(event) => changeLicense(event.target.value)}
-              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+              className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
             >
               {LICENSE_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -2085,7 +2085,7 @@ export default function SetPage() {
             type="checkbox"
             checked={recordMode}
             onChange={(event) => setRecordMode(event.target.checked)}
-            className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+            className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
           />
           {t("Recording mode")}
           <InfoHint
@@ -2099,7 +2099,7 @@ export default function SetPage() {
 
       {editingSections && (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-brand-50 px-4 py-2 text-sm text-slate-700 dark:bg-brand-950 dark:text-slate-300">
-          <p className="min-w-[12rem] flex-1">
+          <p className="min-w-48 flex-1">
             {isMeeting
               ? t(
                   "Editing TOPs: use “+ TOP here” to insert a TOP, click a name to rename it, drag by the handle to move it. Drag votes below the matching TOP.",
@@ -2287,7 +2287,7 @@ export default function SetPage() {
                           </span>
                         )}
                         {/* Phones (#179): two lines instead of ~12 characters. */}
-                        <span className="block text-sm font-medium text-slate-900 max-sm:line-clamp-2 max-sm:[overflow-wrap:anywhere] sm:truncate dark:text-slate-100">
+                        <span className="block text-sm font-medium text-slate-900 max-sm:line-clamp-2 max-sm:wrap-anywhere sm:truncate dark:text-slate-100">
                           {stripHtml(localizedText(question.text)) || (
                             <span className="italic text-slate-400">{t("No question text")}</span>
                           )}
@@ -2639,7 +2639,7 @@ export default function SetPage() {
                                 disabled={disallowed}
                                 checked={!disallowed && pullSelected.has(question.id)}
                                 onChange={() => togglePullQuestion(question.id)}
-                                className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 dark:border-slate-700 accent-brand-600 disabled:cursor-not-allowed"
+                                className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600 disabled:cursor-not-allowed"
                               />
                               <span className="min-w-0 flex-1">
                                 <span className="block truncate text-sm text-slate-900 dark:text-slate-100">

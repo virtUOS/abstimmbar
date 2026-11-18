@@ -16,7 +16,7 @@ const CONFIRM_ERRORS: Record<string, string> = {
 };
 
 const RICH =
-  "break-words text-sm text-slate-800 dark:text-slate-200 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6";
+  "wrap-break-word text-sm text-slate-800 dark:text-slate-200 [&_ol]:list-decimal [&_ol]:pl-6 [&_ul]:list-disc [&_ul]:pl-6";
 
 export default function TranslationReviewDialog({
   setId,

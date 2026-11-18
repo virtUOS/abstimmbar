@@ -123,7 +123,7 @@ function UserMenu({ whoami }: { whoami: Whoami }) {
               </span>
             </p>
             {whoami.is_staff && (
-              <span className="mt-1 inline-block rounded bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">
+              <span className="mt-1 inline-block rounded-sm bg-brand-100 px-1.5 py-0.5 text-[10px] font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">
                 {t("Admin")}
               </span>
             )}
@@ -486,7 +486,7 @@ export default function App() {
       {/* Global status notice (mode switch, #77): the live region stays
           mounted so screen readers announce each new message. */}
       <div
-        className="pointer-events-none fixed inset-x-0 bottom-4 z-[9000] flex justify-center px-4"
+        className="pointer-events-none fixed inset-x-0 bottom-4 z-9000 flex justify-center px-4"
         role="status"
         aria-live="polite"
         data-toast

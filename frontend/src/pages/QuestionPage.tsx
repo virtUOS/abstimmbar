@@ -1240,7 +1240,7 @@ export default function QuestionPage() {
       </div>
 
       {tab === "preview" && (
-        <div className="mx-auto max-w-sm overflow-hidden rounded-2xl border border-slate-200 shadow-sm dark:border-slate-700">
+        <div className="mx-auto max-w-sm overflow-hidden rounded-2xl border border-slate-200 shadow-xs dark:border-slate-700">
           <iframe
             key={previewNonce}
             title={t("Preview")}
@@ -1499,7 +1499,7 @@ export default function QuestionPage() {
                         aria-label={t("Mark as correct")}
                         checked={item.is_correct}
                         onChange={(event) => setCorrect(item.id, event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                        className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                       />
                     )}
                     <TranslatableField
@@ -1631,7 +1631,7 @@ export default function QuestionPage() {
                       onChange={(event) =>
                         setReveal(event.target.value as "inherit" | RevealAnswers)
                       }
-                      className="rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+                      className="rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
                     >
                       <option value="inherit">
                         {t("As in the set")}
@@ -1710,7 +1710,7 @@ export default function QuestionPage() {
                     if (preset?.left) setLikertLeft(preset.left);
                     if (preset?.right) setLikertRight(preset.right);
                   }}
-                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
                 >
                   {LIKERT_PRESETS.map((preset) => (
                     <option key={preset.key} value={preset.key}>
@@ -1772,7 +1772,7 @@ export default function QuestionPage() {
                 type="checkbox"
                 checked={abstention}
                 onChange={(event) => setAbstention(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
               />
               {t("Offer “{{abstention}}” as an additional option", {
                 abstention: ABSTENTION,
@@ -1971,7 +1971,7 @@ export default function QuestionPage() {
                       type="checkbox"
                       checked={mindmapAiMerge}
                       onChange={(event) => setMindmapAiMerge(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                      className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                     />
                     {t("Merge duplicates and synonyms")}
                   </label>
@@ -1981,7 +1981,7 @@ export default function QuestionPage() {
                         type="checkbox"
                         checked={mindmapAiTranslate}
                         onChange={(event) => setMindmapAiTranslate(event.target.checked)}
-                        className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                        className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                       />
                       {t("Unify the language")}
                     </label>
@@ -1993,7 +1993,7 @@ export default function QuestionPage() {
                           onChange={(event) =>
                             setMindmapAiTargetLang(event.target.value as "" | "de" | "en")
                           }
-                          className="rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+                          className="rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
                         >
                           <option value="">{t("Content language (default)")}</option>
                           <option value="de">{t("German")}</option>
@@ -2007,7 +2007,7 @@ export default function QuestionPage() {
                       type="checkbox"
                       checked={mindmapAiRestructure}
                       onChange={(event) => setMindmapAiRestructure(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                      className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                     />
                     {t("Restructure (move terms, new parent terms)")}
                   </label>
@@ -2041,7 +2041,7 @@ export default function QuestionPage() {
                   type="checkbox"
                   checked={wordcloudBatchSubmit}
                   onChange={(event) => setWordcloudBatchSubmit(event.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                  className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                 />
                 {t("Collect answers and submit them together")}
                 <span className="text-slate-400">{t("(up to 5 fields at a time)")}</span>
@@ -2053,7 +2053,7 @@ export default function QuestionPage() {
                 type="checkbox"
                 checked={wordcloudLive}
                 onChange={(event) => setWordcloudLive(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
               />
               {t("Show the word cloud on the projector while voting is still open")}
               <span className="text-slate-400">{t("(otherwise only after closing)")}</span>
@@ -2067,7 +2067,7 @@ export default function QuestionPage() {
                 type="checkbox"
                 checked={wordcloudAiEnabled}
                 onChange={(event) => setWordcloudAiEnabled(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
               />
               {t("Merge similar terms, synonyms and typos")}
             </label>
@@ -2109,7 +2109,7 @@ export default function QuestionPage() {
                       type="checkbox"
                       checked={checked}
                       onChange={(event) => setChecked(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                      className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                     />
                     {label}
                   </label>
@@ -2125,7 +2125,7 @@ export default function QuestionPage() {
                 value={wordcloudGrouping}
                 onChange={(event) => setWordcloudGrouping(event.target.value)}
                 placeholder={t("e.g. “by topic area” — empty = automatic topics")}
-                className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+                className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
               />
               <span className="text-xs text-slate-400">
                 {t("Controls the “Grouped” AI view — works independently of merging above.")}
@@ -2148,7 +2148,7 @@ export default function QuestionPage() {
                 type="checkbox"
                 checked={aiEvaluate}
                 onChange={(event) => setAiEvaluate(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
               />
               {t("Have the AI evaluate answers")}
             </label>
@@ -2161,7 +2161,7 @@ export default function QuestionPage() {
                   placeholder={t(
                     "Hints for evaluation – e.g. the expected answer or a rating criterion (optional)",
                   )}
-                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+                  className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
                 />
                 <p className="mt-1 text-xs text-slate-400">
                   {t("The AI assigns each answer to one category of the scale.")}
@@ -2173,7 +2173,7 @@ export default function QuestionPage() {
                     onChange={(event) => setModelSolution(event.target.value)}
                     rows={2}
                     placeholder={t("Model solution (optional)")}
-                    className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+                    className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
                   />
                   <p className="mt-1 text-xs text-slate-400">
                     {t("The AI scores answers against this reference.")}
@@ -2195,7 +2195,7 @@ export default function QuestionPage() {
                         setEvalCategories(["", ""]);
                       }
                     }}
-                    className="rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-none"
+                    className="rounded-lg border border-field bg-white px-2 py-1 text-sm dark:bg-slate-900 dark:text-slate-100 focus:border-brand-600 focus:ring-1 focus:ring-brand-600 focus:outline-hidden"
                   >
                     {EVAL_PRESETS.map((p) => (
                       <option key={p.value} value={p.value}>
@@ -2218,7 +2218,7 @@ export default function QuestionPage() {
                             )
                           }
                           placeholder={t("Category {{n}}", { n: i + 1 })}
-                          className="w-56 rounded-lg border border-field bg-white px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+                          className="w-56 rounded-lg border border-field bg-white px-3 py-1.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
                         />
                         {evalCategories.length > 2 && (
                           <button
@@ -2254,7 +2254,7 @@ export default function QuestionPage() {
                     type="checkbox"
                     checked={evalChart}
                     onChange={(event) => setEvalChart(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Show distribution as bar chart")}
                 </label>
@@ -2269,7 +2269,7 @@ export default function QuestionPage() {
                       type="checkbox"
                       checked={participantFeedback}
                       onChange={(event) => setParticipantFeedback(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                      className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                     />
                     {t("Show each participant the evaluation of their own answer")}
                   </label>
@@ -2291,7 +2291,7 @@ export default function QuestionPage() {
                 role="switch"
                 checked={wordcloudAiEnabled}
                 onChange={(event) => setWordcloudAiEnabled(event.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
               />
               {t("AI summary (key statements, grouping)")}
             </label>
@@ -2307,7 +2307,7 @@ export default function QuestionPage() {
                     type="checkbox"
                     checked={wordcloudMergeConcepts}
                     onChange={(event) => setWordcloudMergeConcepts(event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                    className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                   />
                   {t("Also merge similar statements")}
                 </label>
@@ -2319,7 +2319,7 @@ export default function QuestionPage() {
                     rows={2}
                     maxLength={1000}
                     placeholder={t("e.g. “by advantage for students vs. teachers” — empty = automatic topics")}
-                    className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
+                    className="w-full rounded-lg border border-field bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 focus:border-brand-600 focus:outline-hidden focus:ring-1 focus:ring-brand-600 dark:bg-slate-900 dark:text-slate-100"
                   />
                   <span className="text-xs text-slate-400">
                     {t("Controls the “Grouped” view; the key statements stay the same.")}
@@ -2331,7 +2331,7 @@ export default function QuestionPage() {
                       type="checkbox"
                       checked={groupingUseSolution}
                       onChange={(event) => setGroupingUseSolution(event.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 dark:border-slate-700 accent-brand-600"
+                      className="h-4 w-4 rounded-sm border-slate-300 dark:border-slate-700 accent-brand-600"
                     />
                     {t("Consider the model solution when grouping")}
                   </label>
@@ -2375,7 +2375,7 @@ export default function QuestionPage() {
                 onChange={(event) => setTimeLimit(event.target.value)}
                 placeholder={t("e.g. 90")}
                 aria-label={t("Time limit in seconds")}
-                className="!w-28"
+                className="w-28!"
               />
               <span className="text-sm text-slate-500 dark:text-slate-400">
                 {t("Seconds")}
@@ -2411,7 +2411,7 @@ export default function QuestionPage() {
             </div>
           </div>
         )}
-        <div className="sticky bottom-0 z-20 mt-4 flex gap-2 bg-white/90 py-3 backdrop-blur shadow-[0_-6px_16px_-8px_rgba(15,23,42,0.18)] dark:bg-slate-950/90">
+        <div className="sticky bottom-0 z-20 mt-4 flex gap-2 bg-white/90 py-3 backdrop-blur-sm shadow-[0_-6px_16px_-8px_rgba(15,23,42,0.18)] dark:bg-slate-950/90">
           <Button
             variant="primary"
             disabled={saving || invalid}

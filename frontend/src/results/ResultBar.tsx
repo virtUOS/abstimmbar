@@ -100,7 +100,7 @@ export default function ResultBar({
           <img src={`${API_BASE_URL}${image}`} alt="" className="max-h-12 rounded-lg" />
         )}
         <span
-          className={`min-w-0 [overflow-wrap:anywhere] ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? `text-slate-500${darkText}` : ""}`}
+          className={`min-w-0 wrap-anywhere ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? `text-slate-500${darkText}` : ""}`}
         >
           {label}
         </span>

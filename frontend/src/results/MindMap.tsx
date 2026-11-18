@@ -663,7 +663,7 @@ const GOOD_BG = "oklch(0.95 0.03 250 / 0.85)";
 const BAD = "oklch(0.55 0.2 27)";
 const BAD_BG = "oklch(0.95 0.04 27 / 0.85)";
 const PLUS_BTN =
-  "flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 shadow-sm hover:bg-slate-100 hover:text-slate-900";
+  "flex h-7 w-7 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-600 shadow-xs hover:bg-slate-100 hover:text-slate-900";
 
 /** Side assignments survive a remount (e.g. the brief "closed" phase between
  * open and results, or navigating back to the question), keyed by
@@ -1180,7 +1180,7 @@ export default function MindMap({
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
       window.removeEventListener("pointercancel", up);
-      window.removeEventListener("blur", blur);
+      window.removeEventListener("blur-sm", blur);
       detach.current = null;
     };
     const v = viewRef.current;
@@ -1364,7 +1364,7 @@ export default function MindMap({
         }
       >
         <div
-          className={`group relative h-full w-full hover:z-10 focus-within:z-10 focus:outline-none ${isFresh(p.id) ? "ab-pop" : ""}`}
+          className={`group relative h-full w-full hover:z-10 focus-within:z-10 focus:outline-hidden ${isFresh(p.id) ? "ab-pop" : ""}`}
           title={nodeTitle}
           // With moderation the node takes focus (Tab), which reveals its ×.
           tabIndex={onHide || onAdd ? 0 : undefined}
@@ -1474,7 +1474,7 @@ export default function MindMap({
                   title={m.title}
                   aria-label={m.title}
                   role="img"
-                  className="flex h-6 w-6 items-center justify-center rounded-full text-white shadow-sm"
+                  className="flex h-6 w-6 items-center justify-center rounded-full text-white shadow-xs"
                   style={{ background: AI_MARK }}
                 >
                   <m.Icon className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
@@ -1490,7 +1490,7 @@ export default function MindMap({
                 e.currentTarget.blur();
                 onHide(n);
               }}
-              className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-sm hover:bg-slate-100 hover:text-slate-800 group-focus-within:flex group-hover:flex"
+              className="absolute -right-2.5 -top-2.5 hidden h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-slate-500 shadow-xs hover:bg-slate-100 hover:text-slate-800 group-focus-within:flex group-hover:flex"
               aria-label={t("Hide {{word}}", { word: mindmapNodeText(n) })}
               title={t("Hide {{word}}", { word: mindmapNodeText(n) })}
             >
@@ -1571,7 +1571,7 @@ export default function MindMap({
             aria-label={tr.narrow ? label : undefined}
             title={label}
             className={`pointer-events-none absolute left-0 top-0 flex items-center justify-center gap-1 rounded-xl text-sm font-semibold ${
-              active ? "shadow-sm" : ""
+              active ? "shadow-xs" : ""
             }`}
             style={{
               width: tr.w,
@@ -1599,7 +1599,7 @@ export default function MindMap({
             <div
               aria-hidden
               data-mm-tab-label={p.id}
-              className="pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-md border border-slate-400 bg-white px-1.5 py-0.5 text-xs font-semibold shadow-sm"
+              className="pointer-events-none absolute left-0 top-0 whitespace-nowrap rounded-md border border-slate-400 bg-white px-1.5 py-0.5 text-xs font-semibold shadow-xs"
               style={{
                 transform:
                   p.side === 1
@@ -1867,7 +1867,7 @@ export default function MindMap({
         </svg>
         {/* Root: clearly the centre. */}
         <div
-          className="group absolute left-0 top-0 flex flex-col items-center justify-center rounded-2xl text-center text-white shadow-lg focus:outline-none"
+          className="group absolute left-0 top-0 flex flex-col items-center justify-center rounded-2xl text-center text-white shadow-lg focus:outline-hidden"
           tabIndex={onAdd ? 0 : undefined}
           title={lockedNote}
           style={{
@@ -1917,7 +1917,7 @@ export default function MindMap({
       )}
       {zoomHandleTop === undefined ? (
         // Zoom controls (bottom right; the presenter's keys stay untouched).
-        <div className="absolute bottom-2 right-2 flex flex-col-reverse rounded-xl border border-slate-200 bg-white/90 p-0.5 shadow-sm backdrop-blur">
+        <div className="absolute bottom-2 right-2 flex flex-col-reverse rounded-xl border border-slate-200 bg-white/90 p-0.5 shadow-xs backdrop-blur-sm">
           {zoomButtons}
         </div>
       ) : (
@@ -2101,10 +2101,10 @@ function MindEditor({
     }
   };
   const field =
-    "w-64 rounded-lg border border-field bg-white px-2.5 py-1.5 text-base text-slate-900 focus:border-brand-600 focus:outline-none focus:ring-2 focus:ring-brand-200";
+    "w-64 rounded-lg border border-field bg-white px-2.5 py-1.5 text-base text-slate-900 focus:border-brand-600 focus:outline-hidden focus:ring-2 focus:ring-brand-200";
   return (
     <form
-      className="absolute z-20 flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur"
+      className="absolute z-20 flex flex-col gap-1.5 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-lg backdrop-blur-sm"
       style={style}
       onPointerDown={(e) => e.stopPropagation()}
       onDoubleClick={(e) => e.stopPropagation()}

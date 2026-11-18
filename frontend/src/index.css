@@ -1,23 +1,41 @@
+/* Tailwind 4 with the JS config (tailwind.config.js → @basicbar/ui preset
+   with Abstimmbar's OKLCH ramps), loaded via @config. Every @import must
+   come before any other statement (incl. @config), or the browser/compiler
+   drops it silently — that would lose the shared base layer below. */
+@import 'tailwindcss';
 /* Shared base layer (canvas, focus ring, skip link, color-scheme, reduced
    motion, …) — see @basicbar/ui. Tool-specific styles belong below. */
-@import "@basicbar/ui/base.css";
+@import '@basicbar/ui/base.css' layer(base);
+@config '../tailwind.config.js';
 
-/* slate-400 is the muted-text grey in both themes (#178): darker on light
-   surfaces, lighter on dark ones, so it reaches 4.5:1 on white/slate-50/100
-   and on the dark page, cards (slate-900) and chips (slate-800). */
-:root { --ab-slate-400: 0.54 0.011 220; }
-.dark { --ab-slate-400: 0.66 0.011 220; }
+/* Tailwind 4 changed the default border color to `currentcolor`; keep v3's
+   light grey for bare `border` utilities (cards and dividers that set no
+   color). Remove once every bordered element names its color. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+}
 
-/* Form-control boundary (`border-field`, from @basicbar/ui; tinted override, #178, WCAG 1.4.11): text inputs,
-   selects and textareas need a 3:1 border against the surface they sit on —
-   light: white/slate-50/100; dark: the page (slate-950) and cards (slate-900).
-   Card and divider borders keep the softer slate-200/300/700. */
-:root { --bb-field-border: 0.62 0.011 220; }
-:root.dark { --bb-field-border: 0.56 0.011 220; }
+@layer base {
+  /* slate-400 is the muted-text grey in both themes (#178): darker on light
+     surfaces, lighter on dark ones, so it reaches 4.5:1 on white/slate-50/100
+     and on the dark page, cards (slate-900) and chips (slate-800). */
+  :root { --ab-slate-400: 0.54 0.011 220; }
+  .dark { --ab-slate-400: 0.66 0.011 220; }
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+  /* Form-control boundary (`border-field`, from @basicbar/ui; tinted
+     override, #178, WCAG 1.4.11): text inputs, selects and textareas need a
+     3:1 border against the surface they sit on — light: white/slate-50/100;
+     dark: the page (slate-950) and cards (slate-900). Card and divider
+     borders keep the softer slate-200/300/700. */
+  :root { --bb-field-border: 0.62 0.011 220; }
+  :root.dark { --bb-field-border: 0.56 0.011 220; }
+}
 
 /* Result animations (presenter). Durations are cut globally under
    prefers-reduced-motion by @basicbar/ui/base.css. */
