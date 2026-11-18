@@ -85,7 +85,7 @@ merge. Reference issues in the PR description (`Closes #<n>`).
 
 ## Tech stack (decided, ADR-0001)
 
-- **Backend:** Django 5 (Python 3.12) + Django REST Framework, PostgreSQL 16
+- **Backend:** Django 6.1 on `main` / 5.2 LTS on `release/1.0` (Python 3.12) + Django REST Framework, PostgreSQL 16
 - **Frontend:** React + Vite + TypeScript + Tailwind — management UI and
   presenter view; the **participant page is a separate ultra-light bundle**
 - **Realtime:** SSE (async Django view + in-process hub, ADR-0003); votes
