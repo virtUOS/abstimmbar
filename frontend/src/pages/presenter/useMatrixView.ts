@@ -86,8 +86,8 @@ export function useMatrixView({
   enabled,
   worldKey,
 }: {
-  viewportRef: RefObject<HTMLElement>;
-  worldRef: RefObject<HTMLElement>;
+  viewportRef: RefObject<HTMLElement | null>;
+  worldRef: RefObject<HTMLElement | null>;
   /** Keys active (no dialog / drawer in the way). */
   enabled: boolean;
   /** Changes when the board element is (re)created or resized. */

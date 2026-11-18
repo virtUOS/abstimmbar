@@ -301,7 +301,7 @@ export function MatrixAiDrawer({
   categoryName,
 }: {
   ai: MatrixAi;
-  drawerRef: RefObject<HTMLDivElement>;
+  drawerRef: RefObject<HTMLDivElement | null>;
   drawerAttr: string;
   settings: MatrixSettingsPayload;
   zoneName: (zone: string) => string;

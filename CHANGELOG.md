@@ -34,6 +34,7 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Geändert
 
+- Oberfläche: React 19 und Vite 8 (vorher React 18 und Vite 6).
 - Der JSON-Export eines Fragensets enthält jetzt die hochgeladenen Bilder
   (Fragetext, Beschreibungen, Antwortbilder). Beim Import, etwa auf einer
   anderen Instanz, werden sie wie ein Upload geprüft und neu gespeichert;

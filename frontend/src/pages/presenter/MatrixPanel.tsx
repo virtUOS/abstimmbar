@@ -64,7 +64,7 @@ const SMALL_BTN =
   "rounded-lg border border-slate-200 px-2.5 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-600 disabled:cursor-not-allowed disabled:opacity-50";
 
 /** Width of the largest 16:9 box that fits the element. */
-function useFitWidth(ref: RefObject<HTMLDivElement>) {
+function useFitWidth(ref: RefObject<HTMLDivElement | null>) {
   const [width, setWidth] = useState<number | null>(null);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -323,7 +323,7 @@ export default function MatrixPanel({
   const zoomToggleRef = useRef<HTMLButtonElement>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const zoomPanelRef = useRef<HTMLDivElement>(null);
-  const focusFirstIn = (ref: RefObject<HTMLElement>) =>
+  const focusFirstIn = (ref: RefObject<HTMLElement | null>) =>
     // Two frames: the drawer has rendered and lost `inert`.
     window.requestAnimationFrame(() =>
       window.requestAnimationFrame(() =>
@@ -807,7 +807,7 @@ function CardDialog({
   onHide,
   onDelete,
 }: {
-  dialogRef: RefObject<HTMLDivElement>;
+  dialogRef: RefObject<HTMLDivElement | null>;
   card: MatrixCard;
   board: MatrixBoard;
   zoneName: (zone: string) => string;
@@ -952,7 +952,7 @@ function AddDrawer({
   onClose,
   onAdd,
 }: {
-  drawerRef: RefObject<HTMLDivElement>;
+  drawerRef: RefObject<HTMLDivElement | null>;
   open: boolean;
   drawerAttr: string;
   settings: MatrixSettingsPayload;
