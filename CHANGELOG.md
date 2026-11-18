@@ -34,6 +34,7 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Geändert
 
+- Oberfläche: React 19 und Vite 8 (vorher React 18 und Vite 6).
 - Plattform: Django 6.1 (vorher 5.2 LTS). Der Mailversand nutzt die neue
   `MAILERS`-Konfiguration von Django; die Umgebungsvariablen `EMAIL_*`
   bleiben unverändert.
