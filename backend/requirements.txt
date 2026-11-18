@@ -7,7 +7,7 @@ basicbar-auth @ https://github.com/virtUOS/basicbar/archive/refs/tags/auth/v0.2.
 basicbar-pdf @ https://github.com/virtUOS/basicbar/archive/refs/tags/pdf/v0.1.0.tar.gz#subdirectory=packages/django/basicbar-pdf
 basicbar-lti @ https://github.com/virtUOS/basicbar/archive/refs/tags/lti/v0.1.5.tar.gz#subdirectory=packages/django/basicbar-lti
 django-cors-headers==4.9.0
-psycopg[binary,pool]==3.3.8
+psycopg[binary,pool]==3.3.9
 mozilla-django-oidc==5.0.2
 # HTML allowlist sanitizing for editor content (ADR-0007).
 nh3==0.3.7
@@ -26,7 +26,7 @@ PyLTI1p3==2.0.0
 django-modeltranslation==0.20.6
 # Text extraction from uploaded documents for the optional AI features:
 # PDF (pypdf), PowerPoint (python-pptx) and OpenDocument slides (odfpy).
-pypdf==7.0.0
+pypdf==7.1.0
 python-pptx==1.0.2
 odfpy==1.4.1
 # PDF generation (ADR-0008): the frame comes from basicbar-pdf; reportlab stays pinned here
