@@ -3,10 +3,11 @@
 import io
 import json
 import zipfile
+from pathlib import Path
 
 from django.test import SimpleTestCase, override_settings
 
-from rooms.question_import import gift, h5p, safezip, simple
+from rooms.question_import import core, gift, h5p, ilias, safezip, simple
 from rooms.question_import.core import (
     ImportFailed,
     ImportResult,
@@ -539,3 +540,300 @@ class H5PTests(SimpleTestCase):
                 self.assertEqual(sum(r.skipped.values()), 1, (lib, bad))
                 [(reason, _)] = r.skipped
                 self.assertEqual(reason, "invalid")
+
+
+# ILIAS QTI 1.2: element names, QUESTIONTYPE values and resprocessing patterns
+# were compared on 2026-11-19 against the public ILIAS source on GitHub
+# (ILIAS-eLearning/ILIAS, branch trunk): components/ILIAS/TestQuestionPool/
+# classes/export/qti12/class.ass{SingleChoice,MultipleChoice,OrderingQuestion,
+# TextQuestion,KprimChoice,Question}Export.php, the importers
+# classes/import/qti12/class.ass{Ordering,MultipleChoice,Text}QuestionImport.php
+# and classes/QTI/class.ilQTIItem.php (legacy "... QUESTION" type names vs.
+# current "ass*" ids). Findings encoded in the fixtures: test exports wrap items
+# in assessment/section; ordering labels carry nested <material> plus an
+# "answerdepth" mattext and composite idents; the ordering varequal text is the
+# label's position, its index attribute the solution rank; feedback conditions
+# (response_allcorrect) have varequals but no setvar. No real export file was
+# available; the fixtures in test_fixtures/import/ are self-authored (no
+# third-party file committed).
+FIXTURES = Path(__file__).parent / "test_fixtures" / "import"
+
+
+def fixture(name: str) -> bytes:
+    return (FIXTURES / name).read_bytes()
+
+
+def qti(*items: str, doctype: str = "") -> bytes:
+    return (doctype + "<questestinterop>" + "".join(items) + "</questestinterop>").encode()
+
+
+def qti_item(qtype="SINGLE CHOICE QUESTION", question="<mattext>Q?</mattext>", response="", resprocessing=""):
+    return (
+        '<item ident="il_0_qst_1" title="T"><itemmetadata><qtimetadata>'
+        f"<qtimetadatafield><fieldlabel>QUESTIONTYPE</fieldlabel><fieldentry>{qtype}</fieldentry></qtimetadatafield>"
+        f"</qtimetadata></itemmetadata><presentation><flow><material>{question}</material>{response}</flow></presentation>"
+        f"<resprocessing>{resprocessing}</resprocessing></item>"
+    )
+
+
+def choice_response(ident="MCSR", labels=("A", "B")):
+    return (
+        f'<response_lid ident="{ident}"><render_choice>'
+        + "".join(
+            f'<response_label ident="{i}"><material><mattext>{t}</mattext></material></response_label>'
+            for i, t in enumerate(labels)
+        )
+        + "</render_choice></response_lid>"
+    )
+
+
+def cond(ident, points, respident="MCSR", negate=False, index=None):
+    attr = f' index="{index}"' if index is not None else ""
+    ve = f'<varequal respident="{respident}"{attr}>{ident}</varequal>'
+    if negate:
+        ve = f"<not>{ve}</not>"
+    sv = f'<setvar action="Add">{points}</setvar>' if points is not None else ""
+    return f"<respcondition><conditionvar>{ve}</conditionvar>{sv}</respcondition>"
+
+
+class IliasLegacyFixtureTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.result = ilias.parse_xml(fixture("ilias_legacy_qti.xml"))
+        cls.drafts = cls.result.drafts
+
+    def test_format_and_counts(self):
+        self.assertEqual(self.result.format, "ilias")
+        self.assertEqual(
+            [d["kind"] for d in self.drafts],
+            ["single_choice", "multiple_choice", "open_text", "ordering"],
+        )
+
+    def test_single_choice(self):
+        d = self.drafts[0]
+        self.assertEqual(d["text"], "<p>Was ist die Hauptstadt von <strong>Frankreich</strong>?</p>")
+        self.assertEqual(opts(d), ["Berlin", "Paris", "Rom & Mailand"])
+        self.assertEqual(correct(d), ["Paris"])
+
+    def test_multiple_choice_ignores_not_and_feedback(self):
+        d = self.drafts[1]
+        self.assertEqual(d["text"], "<p>Welche Zahlen sind Primzahlen?</p>")
+        self.assertEqual(opts(d), ["2", "4", "7", "9"])
+        self.assertEqual(correct(d), ["2", "7"])
+
+    def test_text_question(self):
+        d = self.drafts[2]
+        self.assertEqual(d["options"], [])
+        self.assertIn("Erläutern Sie den Begriff.", d["text"])
+        self.assertNotIn("script", d["text"])
+        self.assertNotIn("model_solution", d)
+        self.assertNotIn("ai_evaluate", d)
+
+    def test_ordering_in_solution_order(self):
+        d = self.drafts[3]
+        self.assertEqual(opts(d), ["eins", "zwei", "drei"])
+        self.assertEqual(correct(d), [])
+
+    def test_skipped(self):
+        self.assertEqual(self.result.skipped, {
+            ("unsupported_type", "ORDERING QUESTION (image)"): 1,
+            ("unsupported_type", "KPRIM CHOICE QUESTION"): 1,
+            ("unsupported_type", "CLOZE QUESTION"): 1,
+            ("unsupported_type", "MATCHING QUESTION"): 1,
+        })
+
+
+class IliasTrunkFixtureTests(SimpleTestCase):
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.result = ilias.parse_xml(fixture("ilias_trunk_test_qti.xml"))
+        cls.drafts = cls.result.drafts
+
+    def test_items_inside_assessment_section(self):
+        self.assertEqual(
+            [d["kind"] for d in self.drafts],
+            ["single_choice", "ordering", "multiple_choice"],
+        )
+        self.assertEqual(self.result.skipped, {
+            ("image_dropped", ""): 2,
+            ("unsupported_type", "assKprimChoice"): 1,
+        })
+
+    def test_media_object_image_removed(self):
+        d = self.drafts[0]
+        self.assertNotIn("<img", d["text"])
+        self.assertNotIn("il_0_mob", d["text"])
+        self.assertIn("Welches Tier sehen Sie?", d["text"])
+        self.assertEqual(correct(d), ["Katze"])
+
+    def test_nested_ordering_material_and_composite_idents(self):
+        d = self.drafts[1]
+        self.assertEqual(opts(d), ["Planung", "Umsetzung", "Auswertung"])
+
+    def test_option_image_dropped_text_kept(self):
+        d = self.drafts[2]
+        self.assertEqual(opts(d), ["Schwarz", "Blau", "Gold"])
+        self.assertEqual(correct(d), ["Schwarz", "Gold"])
+
+
+class IliasTests(SimpleTestCase):
+    def test_looks_like_qti(self):
+        self.assertTrue(ilias.looks_like_qti(fixture("ilias_legacy_qti.xml")))
+        self.assertTrue(ilias.looks_like_qti(b"<questestinterop/>"))
+        self.assertFalse(ilias.looks_like_qti(b"<quiz/>"))
+        self.assertFalse(ilias.looks_like_qti(b"not xml at all"))
+        self.assertFalse(ilias.looks_like_qti(b""))
+
+    def test_find_qti(self):
+        zf = safezip.open_zip(make_zip({
+            "1234__0__tst_56/1234__0__tst_56.xml": "<x/>",
+            "1234__0__tst_56/1234__0__qti_56.xml": "<questestinterop/>",
+            "1234__0__tst_56/objects/il_0_mob_1/a.png": b"\x89PNG",
+        }))
+        self.assertEqual(ilias.find_qti(zf), "1234__0__tst_56/1234__0__qti_56.xml")
+        zf = safezip.open_zip(make_zip({"pool/export_qti.xml": "<questestinterop/>"}))
+        self.assertEqual(ilias.find_qti(zf), "pool/export_qti.xml")
+        zf = safezip.open_zip(make_zip({"h5p.json": "{}"}))
+        self.assertIsNone(ilias.find_qti(zf))
+
+    def test_parse_zip(self):
+        data = make_zip({"1234__0__qpl_56/1234__0__qti_56.xml": fixture("ilias_legacy_qti.xml")})
+        r = ilias.parse(safezip.open_zip(data))
+        self.assertEqual(len(r.drafts), 4)
+        with self.assertRaises(ImportFailed):
+            ilias.parse(safezip.open_zip(make_zip({"a.txt": "x"})))
+
+    def test_plain_question_text_escaped(self):
+        r = ilias.parse_xml(qti(qti_item(
+            question='<mattext texttype="text/plain">1 &lt; 2\nZeile 2</mattext>',
+            response=choice_response(), resprocessing=cond(0, 1) + cond(1, 0),
+        )))
+        self.assertEqual(r.drafts[0]["text"], "<p>1 &lt; 2<br>Zeile 2</p>")
+
+    def test_option_text_verbatim_not_truncated(self):
+        long = "x" * 600
+        r = ilias.parse_xml(qti(qti_item(response=choice_response(labels=(long, "B")),
+                                         resprocessing=cond(0, 1))))
+        self.assertEqual(r.drafts[0]["options"][0]["text"], long)
+
+    def test_inline_img_with_foreign_src_removed(self):
+        r = ilias.parse_xml(qti(qti_item(
+            question='<mattext texttype="text/xhtml">&lt;p&gt;Q &lt;img src="https://evil.example/x.png"&gt;&lt;/p&gt;</mattext>',
+            response=choice_response(), resprocessing=cond(0, 1),
+        )))
+        self.assertNotIn("<img", r.drafts[0]["text"])
+        self.assertNotIn("evil", r.drafts[0]["text"])
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_image_dropped_only_when_question_kept(self):
+        r = ilias.parse_xml(qti(qti_item(
+            question='<mattext texttype="text/xhtml">&lt;p&gt;Q &lt;img src="a.png"&gt;&lt;/p&gt;</mattext>',
+            response=choice_response(labels=("only",)), resprocessing=cond(0, 1),
+        )))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("invalid", "SINGLE CHOICE QUESTION"): 1})
+
+    def test_choice_with_image_only_option_skipped(self):
+        response = (
+            '<response_lid ident="MCSR"><render_choice>'
+            '<response_label ident="0"><material><mattext>A</mattext></material></response_label>'
+            '<response_label ident="1"><material><matimage label="b.png"/></material></response_label>'
+            "</render_choice></response_lid>"
+        )
+        r = ilias.parse_xml(qti(qti_item(response=response, resprocessing=cond(0, 1))))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("unsupported_type", "SINGLE CHOICE QUESTION (image)"): 1})
+
+    def test_negative_and_non_numeric_points_not_correct(self):
+        r = ilias.parse_xml(qti(qti_item(
+            qtype="MULTIPLE CHOICE QUESTION",
+            response=choice_response("MCMR", ("A", "B", "C", "D")),
+            resprocessing=cond(0, "abc", "MCMR") + cond(1, -2, "MCMR") + cond(2, "1.5", "MCMR")
+            + cond(3, 1, "MCMR", negate=True) + cond(3, None, "MCMR"),
+        )))
+        self.assertEqual(correct(r.drafts[0]), ["C"])
+
+    def test_ordering_resolved_by_position_and_index(self):
+        r = ilias.parse_xml(qti(qti_item(
+            qtype="assOrderingQuestion",
+            response=choice_response("OQNT", ("c", "a", "b")),
+            resprocessing=cond(0, 1, "OQNT", index=2) + cond(1, 1, "OQNT", index=0) + cond(2, 1, "OQNT", index=1),
+        )))
+        self.assertEqual(opts(r.drafts[0]), ["a", "b", "c"])
+        self.assertEqual(r.drafts[0]["kind"], "ordering")
+
+    def test_ordering_broken_solution_invalid(self):
+        broken = (
+            cond(0, 1, "OQT", index=0),  # incomplete
+            cond(0, 1, "OQT", index=0) + cond(1, 1, "OQT", index=0),  # duplicate rank
+            cond(0, 1, "OQT", index=0) + cond(5, 1, "OQT", index=1),  # out of range
+            cond(0, 1, "OQT", index="x") + cond(1, 1, "OQT", index=1),  # non-numeric
+            cond("", 1, "OQT", index=0) + cond(1, 1, "OQT", index=1),  # empty varequal
+        )
+        for rp in broken:
+            r = ilias.parse_xml(qti(qti_item(
+                qtype="ORDERING QUESTION", response=choice_response("OQT", ("a", "b")), resprocessing=rp,
+            )))
+            self.assertEqual(r.drafts, [], rp)
+            self.assertEqual(r.skipped, {("invalid", "ORDERING QUESTION"): 1}, rp)
+
+    def test_unsupported_detail_bounded(self):
+        r = ilias.parse_xml(qti(qti_item(qtype="X" * 500)))
+        [(reason, detail)] = r.skipped
+        self.assertEqual(reason, "unsupported_type")
+        self.assertLessEqual(len(detail), 80)
+
+    def test_missing_parts_reported_not_raised(self):
+        items = (
+            '<item ident="a"/>',
+            (
+                '<item ident="b"><itemmetadata><qtimetadata><qtimetadatafield><fieldlabel>QUESTIONTYPE</fieldlabel>'
+                "<fieldentry>assSingleChoice</fieldentry></qtimetadatafield></qtimetadata></itemmetadata></item>"
+            ),
+            qti_item(response=""),
+            qti_item(qtype="TEXT QUESTION", question=""),
+            qti_item(qtype="assOrderingQuestion", response=""),
+        )
+        r = ilias.parse_xml(qti(*items))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(sum(r.skipped.values()), 5)
+
+    def test_choice_without_correct_kept(self):
+        r = ilias.parse_xml(qti(qti_item(response=choice_response(), resprocessing=cond(0, 0))))
+        self.assertEqual(r.drafts[0]["kind"], "single_choice")
+        self.assertEqual(correct(r.drafts[0]), [])
+
+
+class SafeXmlTests(SimpleTestCase):
+    def test_external_doctype_accepted(self):
+        root = core.safe_xml(b'<?xml version="1.0"?><!DOCTYPE questestinterop SYSTEM "ims_qtiasiv1p2p1.dtd"><questestinterop/>')
+        self.assertEqual(root.tag, "questestinterop")
+
+    def test_xxe_rejected(self):
+        data = (
+            b'<?xml version="1.0"?><!DOCTYPE questestinterop [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
+            + qti(qti_item(question="<mattext>&xxe;</mattext>", response=choice_response(), resprocessing=cond(0, 1)))
+        )
+        with self.assertRaises(ImportFailed):
+            ilias.parse_xml(data)
+
+    def test_internal_entity_rejected(self):
+        data = b'<?xml version="1.0"?><!DOCTYPE questestinterop [<!ENTITY a "x">]><questestinterop>&a;</questestinterop>'
+        with self.assertRaises(ImportFailed):
+            core.safe_xml(data)
+
+    def test_billion_laughs_rejected(self):
+        ents = '<!ENTITY a "aaaaaaaaaa">' + "".join(
+            f'<!ENTITY {chr(98 + i)} "{("&" + chr(97 + i) + ";") * 10}">' for i in range(9)
+        )
+        data = f'<?xml version="1.0"?><!DOCTYPE questestinterop [{ents}]><questestinterop>&j;</questestinterop>'
+        with self.assertRaises(ImportFailed):
+            ilias.parse_xml(data.encode())
+
+    def test_malformed_inputs(self):
+        for data in (b"", b"<questestinterop>", b"\xff\xfe garbage", b"<a>" * 300 + b"</a>" * 300,
+                     b"<quiz/>", b"<r>&undefined;</r>"):
+            with self.assertRaises(ImportFailed, msg=data[:20]):
+                ilias.parse_xml(data)

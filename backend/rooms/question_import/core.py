@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass, field
 
 from django.conf import settings
+from django.utils.translation import gettext
+from lxml import etree
 
 FORMATS = ("simple", "gift", "h5p", "ilias")
 
@@ -86,3 +88,23 @@ def finalize(result: ImportResult, allowed_kinds: tuple[str, ...]) -> ImportResu
         kept = kept[:MAX_QUESTIONS]
     result.drafts = kept
     return result
+
+
+def safe_xml(data: bytes) -> etree._Element:
+    """Parse untrusted XML: no DTD loading, no network, no entity expansion.
+
+    Documents declaring entities (XXE, billion laughs) are rejected outright;
+    an external-only DOCTYPE (as in every ILIAS export) is accepted.
+    """
+    parser = etree.XMLParser(resolve_entities=False, no_network=True, huge_tree=False, load_dtd=False)
+    try:
+        root = etree.fromstring(data, parser)
+    except (etree.LxmlError, ValueError, TypeError) as exc:
+        raise ImportFailed(gettext("The file is not valid XML.")) from exc
+    if root is None:
+        raise ImportFailed(gettext("The file is not valid XML."))
+    dtd = root.getroottree().docinfo.internalDTD
+    has_entities = dtd is not None and any(True for _ in dtd.iterentities())
+    if has_entities or any(isinstance(el, etree._Entity) for el in root.iter()):
+        raise ImportFailed(gettext("The XML file declares entities, which are not allowed."))
+    return root

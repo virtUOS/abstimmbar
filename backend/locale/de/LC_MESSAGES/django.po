@@ -680,3 +680,19 @@ msgstr "Die Datei %(name)s im Archiv ist zu groß."
 #, python-format
 msgid "%(name)s is not valid JSON."
 msgstr "%(name)s ist kein gültiges JSON."
+
+#: rooms/question_import/core.py
+msgid "The file is not valid XML."
+msgstr "Die Datei ist kein gültiges XML."
+
+#: rooms/question_import/core.py
+msgid "The XML file declares entities, which are not allowed."
+msgstr "Die XML-Datei deklariert Entitäten; das ist nicht zulässig."
+
+#: rooms/question_import/ilias.py
+msgid "The archive contains no ILIAS question export (qti.xml)."
+msgstr "Das Archiv enthält keinen ILIAS-Fragenexport (qti.xml)."
+
+#: rooms/question_import/ilias.py
+msgid "The XML file is not an ILIAS QTI export."
+msgstr "Die XML-Datei ist kein ILIAS-QTI-Export."
