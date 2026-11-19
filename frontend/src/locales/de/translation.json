@@ -819,6 +819,7 @@
   "Image upload failed": "Bild-Upload fehlgeschlagen",
   "Image description (alt text)": "Bildbeschreibung (Alternativtext)",
   "Image description": "Bildbeschreibung",
+  "Image description missing": "Bildbeschreibung fehlt",
   "Beta": "Beta",
   "About the beta": "Hinweis zur Beta-Version",
   "Show beta label": "Beta-Label anzeigen",

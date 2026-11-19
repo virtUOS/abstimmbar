@@ -1882,6 +1882,8 @@ export interface LiveOption {
   id: number;
   text: LocalizedText;
   image?: string;
+  /** Alt text of the option image (#342), only sent with an image. */
+  image_alt?: LocalizedText;
   is_correct?: boolean;
   is_abstention?: boolean;
   count?: number;

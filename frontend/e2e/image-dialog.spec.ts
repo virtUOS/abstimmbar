@@ -250,12 +250,13 @@ test.describe('without AI vision', () => {
     await dialog.getByRole('button', { name: 'Überspringen' }).click();
   });
 
-  test('option image upload opens the credit-only dialog', async ({ page, trackRoom }) => {
+  test('option image upload opens the dialog with alt text and credit', async ({ page, trackRoom }) => {
     await openQuestion(page, trackRoom);
     await page.getByTitle('Bild hinzufügen').first().locator('input[type="file"]').setInputFiles(FILE);
     const dialog = page.getByRole('dialog', { name: 'Bild einfügen' });
     await expect(dialog).toBeVisible();
-    await expect(dialog.getByLabel('Bildbeschreibung (Alternativtext)')).toHaveCount(0);
+    // Since #342 option images have an alt text too (see option-image-alt.spec.ts).
+    await expect(dialog.getByLabel('Bildbeschreibung (Alternativtext)')).toBeVisible();
     await dialog.getByLabel('Urheber:in').fill('Optionsfoto');
     const patched = page.waitForResponse(
       (r) => /\/api\/images\/\d+\/credit\/$/.test(r.url()) && r.request().method() === 'PATCH',

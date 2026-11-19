@@ -46,6 +46,7 @@ import { MindmapAiDrawer, useMindmapAi } from "../results/mindmapAi";
 import MindmapModerationList from "../results/MindmapModerationList";
 import { Footer, FooterIconButton, buildViewSegments, type ViewSegment } from "./presenter/footer";
 import HelpOverlay from "./presenter/HelpOverlay";
+import { optionImageAlt } from "../optionImageAlt";
 import MatrixPanel from "./presenter/MatrixPanel";
 import { rememberRedirect } from "../App";
 import { INK, NEUTRAL_EDGE, NEUTRAL_TILE, evalColor, categoryColor, categoryDeep, categoryHue } from "../results/palette";
@@ -2476,7 +2477,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {option.image && (
                     <img
                       src={`${API_BASE_URL}${option.image}`}
-                      alt=""
+                      alt={optionImageAlt(option)}
                       className="max-h-28 rounded-xl"
                     />
                   )}
@@ -2583,6 +2584,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     index={i}
                     label={localizedText(option.text)}
                     image={option.image}
+                    imageAlt={optionImageAlt(option)}
                     count={count}
                     pct={percent}
                     state={barState}
@@ -3325,6 +3327,7 @@ function WalkthroughResultBody({
             index={i}
             label={localizedText(option.text)}
             image={option.image}
+            imageAlt={optionImageAlt(option)}
             count={count}
             pct={percent}
             state={barState}

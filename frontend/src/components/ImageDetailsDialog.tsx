@@ -49,8 +49,11 @@ interface ImageDetailsDialogProps {
   creditEditable: boolean;
   /** Offer the credit fields (needs `imageId`). */
   showCredit?: boolean;
-  /** Ask for the alt text (option images have none: credit only). */
+  /** Ask for the alt text. */
   showAlt: boolean;
+  /** Longest alt text the target field stores (option images: 300); also
+   *  caps an AI suggestion. */
+  maxLength?: number;
   /** AI_VISION is on: offer "Suggest" (needs `imageId`). */
   aiVision: boolean;
   /** `{alt}` on Apply, `null` on Skip/Cancel/Esc. */
@@ -67,6 +70,7 @@ export default function ImageDetailsDialog({
   creditEditable,
   showCredit = true,
   showAlt,
+  maxLength,
   aiVision,
   onDone,
 }: ImageDetailsDialogProps) {
@@ -158,7 +162,7 @@ export default function ImageDetailsDialog({
     try {
       const { alt: suggestion } = await api.suggestImageAlt(imageId, lang);
       if (!done.current) {
-        setAlt(suggestion);
+        setAlt(maxLength ? suggestion.slice(0, maxLength) : suggestion);
         setSuggested(true);
       }
     } catch (err) {
@@ -206,6 +210,7 @@ export default function ImageDetailsDialog({
               lang={lang}
               autoFocus
               value={alt}
+              maxLength={maxLength}
               aria-describedby={`${altId}-hint`}
               onChange={(event) => setAlt(event.target.value)}
               onKeyDown={(event) => {
