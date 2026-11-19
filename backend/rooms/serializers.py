@@ -472,14 +472,14 @@ class SectionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
 
 class AnswerOptionSerializer(TranslatedMapMixin, serializers.ModelSerializer):
     # text is a {"de","en"} map (#33 MR2); no extra default/uniqueness logic.
-    translated_fields = ("text",)
+    translated_fields = ("text", "image_alt")
 
     # Explicit id lets the client reference existing options in nested updates.
     id = serializers.IntegerField(required=False)
 
     class Meta:
         model = AnswerOption
-        fields: ClassVar = ["id", "text", "image", "is_correct", "is_abstention"]
+        fields: ClassVar = ["id", "text", "image", "image_alt", "is_correct", "is_abstention"]
 
     def validate_image(self, value):
         # Only our own media storage; foreign URLs are silently dropped.

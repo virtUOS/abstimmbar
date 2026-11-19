@@ -37,4 +37,4 @@ class QuestionTranslationOptions(TranslationOptions):
 
 @register(AnswerOption)
 class AnswerOptionTranslationOptions(TranslationOptions):
-    fields = ("text",)
+    fields = ("text", "image_alt")

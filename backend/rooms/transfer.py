@@ -167,6 +167,7 @@ def _copy_options(source, target):
         AnswerOption(
             question=target,
             **_lang_columns(option, "text"),
+            **_lang_columns(option, "image_alt"),
             image=option.image,
             is_correct=option.is_correct,
             is_abstention=option.is_abstention,
@@ -505,6 +506,7 @@ def export_set(question_set):
                     {
                         "text": translated_map(option, "text"),
                         "image": option.image,
+                        "image_alt": translated_map(option, "image_alt"),
                         "is_correct": option.is_correct,
                         "is_abstention": option.is_abstention,
                     }
@@ -782,6 +784,10 @@ def import_set(room, data, *, user=None, stats=None):
                 **{
                     f"text_{lang}": (v[:500] or None)
                     for lang, v in _lang_map(option.get("text")).items()
+                },
+                **{
+                    f"image_alt_{lang}": (v[:300] or None)
+                    for lang, v in _lang_map(option.get("image_alt")).items()
                 },
                 # Foreign file: same media-only rule as client input.
                 image=images.url(clean_media_url(str(option.get("image") or ""))),
