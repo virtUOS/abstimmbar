@@ -49,7 +49,7 @@ from common import documents
 from common.i18n_fields import resolve_translated_text, translated_map
 from live.models import MatrixCard, MindmapContribution, MindmapNode, Vote
 
-from . import ai_generate, ai_prompts, generation, set_types
+from . import ai_generate, ai_prompts, generation, image_alt, set_types
 from .image_credits import can_edit_image, credit_dict
 from .images import (
     # The size caps live in images.py (shared with the JSON import, #290);
@@ -1511,3 +1511,35 @@ class ImageCreditView(APIView):
             setattr(img, field, value)
         img.save(update_fields=list(serializer.to_model_values()))
         return Response({**credit_dict(img, img.file.url), "editable": True})
+
+
+class ImageAltSuggestionView(APIView):
+    """AI-drafted alt text for an uploaded image. Only on explicit request;
+    the uploader or anyone allowed to edit the image may ask."""
+
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def post(self, request, pk):
+        img = UploadedImage.objects.filter(pk=pk).first()
+        if img is None or not (
+            img.uploader_id == request.user.pk or can_edit_image(request.user, img)
+        ):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        lang = request.data.get("lang")
+        if lang not in ("de", "en"):
+            return Response(
+                {"detail": gettext("Unsupported language.")}, status=status.HTTP_400_BAD_REQUEST
+            )
+        if not image_alt.vision_enabled():
+            return Response(
+                {"detail": gettext("Image description by AI is not available.")},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        try:
+            alt = image_alt.suggest_alt(img, lang)
+        except (ai.AIError, OSError):
+            return Response(
+                {"detail": gettext("The AI could not describe the image.")},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response({"alt": alt})

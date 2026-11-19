@@ -5,6 +5,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ImageAltSuggestionView,
     ImageCreditView,
     ImageUploadView,
     QuestionSetViewSet,
@@ -25,6 +26,7 @@ router.register("sections", SectionViewSet, basename="section")
 urlpatterns = [
     path("search/", SearchView.as_view()),
     path("images/", ImageUploadView.as_view()),
+    path("images/<int:pk>/alt-suggestion/", ImageAltSuggestionView.as_view()),
     path("images/<int:pk>/credit/", ImageCreditView.as_view()),
     path("shared/<str:token>/", SharedSetView.as_view()),
     path("shared/<str:token>/copy/", SharedSetCopyView.as_view()),

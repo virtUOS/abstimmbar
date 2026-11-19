@@ -266,6 +266,10 @@ AI_PROVIDER = os.environ.get("AI_PROVIDER", "none")  # "none" | "litellm"
 AI_BASE_URL = os.environ.get("AI_BASE_URL", "")       # e.g. https://litellm.example.org/v1
 AI_API_KEY = os.environ.get("AI_API_KEY", "")
 AI_MODEL = os.environ.get("AI_MODEL", "")
+# Image description (alt-text suggestion) needs a vision-capable model: extra
+# opt-in on top of the AI config above, optionally with its own model.
+AI_VISION = os.environ.get("AI_VISION", "0") == "1"
+AI_VISION_MODEL = os.environ.get("AI_VISION_MODEL", "") or AI_MODEL
 AI_TIMEOUT = _int_or_default("AI_TIMEOUT", 30)
 AI_MAX_TOKENS = _int_or_default("AI_MAX_TOKENS", 2000)
 AI_DISABLE_THINKING = os.environ.get("AI_DISABLE_THINKING", "1") == "1"

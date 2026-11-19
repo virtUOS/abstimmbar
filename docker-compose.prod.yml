@@ -124,6 +124,8 @@ services:
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-}
+      AI_VISION: ${AI_VISION:-0}
+      AI_VISION_MODEL: ${AI_VISION_MODEL:-}
       AI_TIMEOUT: ${AI_TIMEOUT:-30}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
       AI_GEN_PER_CALL: ${AI_GEN_PER_CALL:-5}

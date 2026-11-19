@@ -1053,3 +1053,15 @@ msgstr "Ungültige Lizenzversion."
 #: rooms/models.py rooms/serializers.py
 msgid "Source must be an http(s) URL."
 msgstr "Die Quelle muss eine http(s)-Adresse sein."
+
+#: rooms/views.py
+msgid "Unsupported language."
+msgstr "Nicht unterstützte Sprache."
+
+#: rooms/views.py
+msgid "Image description by AI is not available."
+msgstr "Die Bildbeschreibung per KI ist nicht verfügbar."
+
+#: rooms/views.py
+msgid "The AI could not describe the image."
+msgstr "Die KI konnte das Bild nicht beschreiben."
