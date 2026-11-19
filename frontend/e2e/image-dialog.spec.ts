@@ -21,12 +21,12 @@ const FILE = { name: 'punkt.png', mimeType: 'image/png', buffer: PNG };
 let nativeDialogs = 0;
 
 /** Signs in as demo; whoami is patched (tour seen, AI vision on/off). */
-async function signIn(page: Page, aiVision: boolean) {
+async function signIn(page: Page, aiVision: boolean, extra: Record<string, unknown> = {}) {
   await page.route(/\/api\/whoami\/(\?.*)?$/, async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
     const response = await route.fetch();
     const json = await response.json();
-    if (json.username) Object.assign(json, { onboarding_tour_seen: true, ai_vision_enabled: aiVision });
+    if (json.username) Object.assign(json, { onboarding_tour_seen: true, ai_vision_enabled: aiVision, ...extra });
     await route.fulfill({ response, json });
   });
   await page.goto(`${API_BASE_URL}/oidc/authenticate/`);
@@ -220,11 +220,7 @@ test.describe('without AI vision', () => {
     await expect(dialog).toBeHidden();
   });
 
-  test('link uses in-app dialog', async ({ page, trackRoom, browserName }) => {
-    // @basicbar/ui 0.10.0 (unreleased): in Firefox the selection collapses
-    // to the start when the URL dialog closes, so the link is not applied.
-    // Remove once basicbar keeps the selection across the dialog.
-    test.fail(browserName === 'firefox', 'basicbar link dialog loses the selection in Firefox');
+  test('link uses in-app dialog', async ({ page, trackRoom }) => {
     await openQuestion(page, trackRoom);
     await editor(page).getByText('Was sehen Sie?').dblclick();
     await page.locator('[data-tour="question.lang-tabs"]').getByRole('button', { name: 'Link' }).click();
@@ -233,6 +229,20 @@ test.describe('without AI vision', () => {
     await dialog.getByLabel('URL eingeben').fill('https://example.org/');
     await dialog.getByRole('button', { name: 'OK' }).click();
     await expect(dialog).toBeHidden();
+    // afterEach: no native prompt() fired.
+  });
+
+  test('link from the in-app dialog is applied to the selection', async ({ page, trackRoom }) => {
+    // @basicbar/ui 0.10.0 (unreleased): the text selection collapses to the
+    // start when the URL dialog closes (Firefox and Chromium), so the link is
+    // not applied. Remove once basicbar keeps the selection across the dialog.
+    test.fail(true, 'basicbar link dialog loses the text selection');
+    await openQuestion(page, trackRoom);
+    await editor(page).getByText('Was sehen Sie?').dblclick();
+    await page.locator('[data-tour="question.lang-tabs"]').getByRole('button', { name: 'Link' }).click();
+    const dialog = page.getByRole('dialog', { name: 'URL eingeben' });
+    await dialog.getByLabel('URL eingeben').fill('https://example.org/');
+    await dialog.getByRole('button', { name: 'OK' }).click();
     await expect(editor(page).locator('a[href="https://example.org/"]')).toHaveCount(1);
   });
 
@@ -295,5 +305,62 @@ test.describe('with AI vision', () => {
     await expect(dialog.getByLabel('Bildbeschreibung (Alternativtext)')).toHaveValue('Mein Entwurf');
     await expect(dialog).toBeVisible();
     await dialog.getByRole('button', { name: 'Überspringen' }).click();
+  });
+
+  test('read-only credit: alt editable, no credit inputs, no suggestion', async ({ page, trackRoom }) => {
+    const { id, url } = await upload(page, 'foreign');
+    const token = await csrfToken(page.request);
+    const patch = await page.request.patch(`${API_BASE_URL}/api/images/${id}/credit/`, {
+      headers: token ? { 'X-CSRFToken': token } : undefined,
+      data: { author: 'Karen Jackson', license: 'cc-by-nd', version: '4.0' },
+    });
+    expect(patch.ok(), await patch.text()).toBeTruthy();
+    // As if the image were also used in a room that isn't the user's.
+    await page.route(/\/api\/questions\/\d+\/$/, async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      const response = await route.fetch();
+      const json = await response.json();
+      for (const c of json.image_credits ?? []) c.editable = false;
+      await route.fulfill({ response, json });
+    });
+    await openQuestion(page, trackRoom, `<p>Was sehen Sie?</p><p><img src="${url}" alt="Alt vorher"></p>`);
+    let patches = 0;
+    page.on('request', (r) => {
+      if (r.method() === 'PATCH' && r.url().includes('/credit/')) patches += 1;
+    });
+    await editor(page).locator('img').click();
+    await page.getByRole('button', { name: 'Bildbeschreibung', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Bild bearbeiten' });
+    await expect(dialog.getByText(/Karen Jackson/)).toBeVisible();
+    await expect(dialog.getByLabel('Urheber:in')).toHaveCount(0);
+    await expect(dialog.getByRole('button', { name: 'Vorschlag erstellen' })).toHaveCount(0);
+    await dialog.getByLabel('Bildbeschreibung (Alternativtext)').fill('Alt neu');
+    await dialog.getByRole('button', { name: 'Übernehmen' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(editor(page).locator('img[alt="Alt neu"]')).toHaveCount(1);
+    expect(patches).toBe(0);
+  });
+});
+
+test.describe('expert mode with AI vision', () => {
+  test.beforeEach(async ({ page }) => signIn(page, true, { easy_mode: false }));
+
+  test('suggestion uses the language of the edited tab', async ({ page, trackRoom }) => {
+    let body: unknown = null;
+    await page.route(/\/api\/images\/\d+\/alt-suggestion\/$/, async (route) => {
+      body = route.request().postDataJSON();
+      await route.fulfill({ json: { alt: 'Red dot on white' } });
+    });
+    await openQuestion(page, trackRoom);
+    const tabs = page.locator('[data-tour="question.lang-tabs"]');
+    await tabs.getByRole('tab', { name: /^en/ }).click();
+    const dialog = await uploadInEditor(page);
+    await expect(page.getByRole('dialog', { name: 'Bild einfügen' })).toHaveCount(1);
+    await dialog.getByRole('button', { name: 'Vorschlag erstellen' }).click();
+    await expect(dialog.getByLabel('Bildbeschreibung (Alternativtext)')).toHaveValue('Red dot on white');
+    await expect(dialog.getByLabel('Bildbeschreibung (Alternativtext)')).toHaveAttribute('lang', 'en');
+    expect(body).toEqual({ lang: 'en' });
+    await dialog.getByRole('button', { name: 'Übernehmen' }).click();
+    await expect(editor(page).locator('img[alt="Red dot on white"]')).toHaveCount(1);
   });
 });

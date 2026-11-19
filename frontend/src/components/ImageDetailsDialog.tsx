@@ -43,8 +43,9 @@ interface ImageDetailsDialogProps {
   alt: string;
   /** The image's current credit (none yet: empty fields). */
   credit?: ImageCredit;
-  /** Credit is someone else's (image also used in a foreign room): shown
-   *  read-only; the alt text stays editable (it lives in the question). */
+  /** False: the image is someone else's too (also used in a foreign room):
+   *  credit shown read-only, no AI suggestion; the alt text stays editable
+   *  (it lives in the question). */
   creditEditable: boolean;
   /** Offer the credit fields (needs `imageId`). */
   showCredit?: boolean;
@@ -88,7 +89,9 @@ export default function ImageDetailsDialog({
   onDoneRef.current = onDone;
 
   const withCredit = showCredit && imageId !== undefined;
-  const canSuggest = showAlt && aiVision && imageId !== undefined;
+  // The suggestion endpoint answers only for images the user may edit —
+  // the same right as for the credit.
+  const canSuggest = showAlt && aiVision && imageId !== undefined && creditEditable;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -256,7 +259,8 @@ export default function ImageDetailsDialog({
           </p>
         )}
       </div>
-      <div className="mt-5 flex flex-wrap justify-end gap-2">
+      {/* Kept in view while the dialog scrolls (phones). */}
+      <div className="sticky -bottom-5 -mx-5 -mb-5 mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 dark:border-slate-700 dark:bg-slate-900">
         <Button type="button" variant="ghost" onClick={() => finish(null)} disabled={saving}>
           {mode === "insert" ? t("Skip") : t("Cancel")}
         </Button>
