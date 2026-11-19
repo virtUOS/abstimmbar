@@ -2,13 +2,18 @@
 # Copyright 2026 Universität Osnabrück (virtUOS)
 
 """Per-user AI rate limits (#343)."""
+import logging
 from unittest import mock
 
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.test import override_settings
+from rest_framework.throttling import SimpleRateThrottle
 
-from rooms.models import QuestionSet, UploadedImage
+from common import throttling
+from common.throttling import AIThrottle, AIVisionThrottle
+from live.models import Run
+from rooms.models import Question, QuestionSet, UploadedImage
 from rooms.tests import AI_ON, ApiTestCase
 from rooms.tests_image_alt import CHAT, VISION_ON, _png
 
@@ -31,6 +36,10 @@ class AIThrottleTests(ApiTestCase):
         super().setUp()
         cache.clear()
         self.addCleanup(cache.clear)
+        # keep the expected rejection warnings out of the test output
+        null = logging.NullHandler()
+        logging.getLogger("abstimmbar.ai").addHandler(null)
+        self.addCleanup(logging.getLogger("abstimmbar.ai").removeHandler, null)
         self.qs = QuestionSet.objects.create(room=self.room, title="T")
         self.url = f"/api/question-sets/{self.qs.pk}/ai-rephrase/"
         self.img = UploadedImage(uploader=self.owner)
@@ -130,9 +139,10 @@ class AIThrottleTests(ApiTestCase):
     def test_rejection_is_logged(self):
         with _rates(ai="1/hour"), mock.patch(DISTRACTORS, return_value={"suggestions": ["Q?"]}):
             self._rephrase()
-            with self.assertLogs("abstimmbar.ai", "INFO") as logs:
+            with self.assertLogs("abstimmbar.ai", "WARNING") as logs:
                 self._rephrase()
         self.assertIn(f"AI throttled scope=ai user={self.owner.pk}", logs.output[0])
+        self.assertTrue(logs.output[0].startswith("WARNING:"))
 
     @override_settings(**VISION_ON)
     def test_every_ai_endpoint_is_throttled_before_the_model(self):
@@ -151,7 +161,6 @@ class AIThrottleTests(ApiTestCase):
             f"/api/runs/{q}/questions/{q}/ai-freetext/",
             f"/api/runs/{q}/questions/{q}/ai-summary/",
             f"/api/runs/{q}/ai-summary/",
-            f"/api/runs/{q}/wordcloud-ai/",
         ]
         with _rates(ai="0/hour", ai_vision="0/hour"), mock.patch(DISTRACTORS) as m:
             for url in text_endpoints:
@@ -160,3 +169,57 @@ class AIThrottleTests(ApiTestCase):
             r = self._alt()
             self.assertEqual(r.status_code, 429)
         m.assert_not_called()
+
+    @override_settings(**AI_ON)
+    def test_retry_after_is_rounded_up(self):
+        with _rates(ai="1/hour"), mock.patch(DISTRACTORS, return_value={"suggestions": ["Q?"]}), \
+                mock.patch.object(SimpleRateThrottle, "wait", return_value=59.2):
+            self._rephrase()
+            r = self._rephrase()
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r["Retry-After"], "60")
+
+    @override_settings(**VISION_ON)
+    def test_staff_exempt_vision(self):
+        self.owner.is_staff = True
+        self.owner.save()
+        with _rates(ai_vision="1/hour"), mock.patch(
+            CHAT, return_value={"alt": "x", "suggestions": ["Q?"]}
+        ) as m:
+            for _ in range(3):
+                self.assertEqual(self._alt().status_code, 200)
+        self.assertEqual(m.call_count, 3)
+
+    def test_invalid_rate_falls_back_to_default_and_warns_once(self):
+        throttling._warned.clear()
+        for bad in ("0", "120", "abc", "120/week"):
+            with _rates(ai=bad, ai_vision=bad):
+                self.assertEqual(AIThrottle().get_rate(), "120/hour", bad)
+                self.assertEqual(AIVisionThrottle().get_rate(), "30/hour", bad)
+
+    @override_settings(**AI_ON)
+    def test_invalid_rate_does_not_500(self):
+        throttling._warned.clear()
+        with _rates(ai="120/week"), mock.patch(
+            DISTRACTORS, return_value={"suggestions": ["Q?"]}
+        ), self.assertLogs("abstimmbar.ai", "WARNING") as logs:
+            self.assertEqual(self._rephrase().status_code, 200)
+            self.assertEqual(self._rephrase().status_code, 200)
+        self.assertEqual(len([o for o in logs.output if "Invalid" in o]), 1)
+
+    @override_settings(**AI_ON)
+    def test_live_wordcloud_ai_not_counted(self):
+        run = Run.objects.create(question_set=self.qs)
+        q = Question.objects.create(
+            question_set=self.qs, kind="word_cloud", text="W", wordcloud_ai_enabled=True
+        )
+        url = f"/api/runs/{run.pk}/wordcloud-ai/"
+        with _rates(ai="1/hour"), mock.patch(DISTRACTORS, return_value={"suggestions": ["Q?"]}), \
+                mock.patch("live.views.ai_wordcloud_live.set_active"):
+            self.assertEqual(self._rephrase().status_code, 200)
+            self.assertEqual(self._rephrase().status_code, 429)  # budget exhausted
+            for active in (True, False, True, False):
+                r = self.client.post(
+                    url, {"question": q.pk, "active": active}, content_type="application/json"
+                )
+                self.assertEqual(r.status_code, 200, r.content)

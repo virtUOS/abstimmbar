@@ -20,6 +20,10 @@ from rest_framework.throttling import SimpleRateThrottle
 logger = logging.getLogger("abstimmbar.ai")
 
 
+_DEFAULTS = {"ai": "120/hour", "ai_vision": "30/hour"}
+_warned: set[str] = set()
+
+
 class _AIThrottle(SimpleRateThrottle):
     scope = ""
 
@@ -29,6 +33,17 @@ class _AIThrottle(SimpleRateThrottle):
         rate = api_settings.DEFAULT_THROTTLE_RATES.get(self.scope)
         if not rate or str(rate).strip().lower() == "off":
             return None
+        try:
+            self.parse_rate(rate)  # DRF semantics: "N/second|minute|hour|day"
+        except (ValueError, KeyError, TypeError, AttributeError):
+            default = _DEFAULTS[self.scope]
+            if rate not in _warned:
+                _warned.add(rate)
+                logger.warning(
+                    "Invalid rate %r for AI throttle scope %s, using %s",
+                    rate, self.scope, default,
+                )
+            return default
         return rate
 
     def get_cache_key(self, request, view):
@@ -42,7 +57,7 @@ class _AIThrottle(SimpleRateThrottle):
             return True
         if super().allow_request(request, view):
             return True
-        logger.info("AI throttled scope=%s user=%s", self.scope, request.user.pk)
+        logger.warning("AI throttled scope=%s user=%s", self.scope, request.user.pk)
         wait = self.wait()
         minutes = max(1, math.ceil(wait / 60)) if wait else 1
         detail = ngettext(
@@ -55,7 +70,7 @@ class _AIThrottle(SimpleRateThrottle):
         # wait=None: DRF would otherwise append its own "available in N seconds"
         # sentence to the detail; Retry-After is taken from ``exc.wait``.
         exc = Throttled(detail=detail)
-        exc.wait = wait
+        exc.wait = math.ceil(wait) if wait else None
         raise exc
 
 

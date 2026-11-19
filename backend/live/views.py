@@ -2849,12 +2849,13 @@ def wordcloud_ai_settings(request, run_id, question_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
-@throttle_classes([AIThrottle])
 def wordcloud_ai(request, run_id):
     """Presenter toggles the live AI word-cloud view on/off for a question.
 
     Body: {"question": <id>, "active": bool}. While active, the LLM keeps the
-    consolidated + grouped views fresh (throttled); turning it off frees the
+    consolidated + grouped views fresh (bounded by the single-flight loop,
+    not counted against the AI rate limit: the presenter toggles it
+    automatically when switching questions); turning it off frees the
     in-memory result. Only for word-cloud and free-text questions of this run
     (free text: AI key statements + grouping)."""
     run = get_object_or_404(Run.objects.select_related("question_set__room"), pk=run_id)

@@ -627,11 +627,13 @@ recreate the container.
 
 **`AI_THROTTLE_RATE`** (optional, default `120/hour`) limits how often a
 signed-in person may use the AI features (format `N/minute`, `N/hour` or
-`N/day`; `off` disables the limit). The limit applies per person across all AI
+`N/day`; `off` disables the limit, any other invalid value falls back to
+the default). The limit applies per person across all AI
 features together; a document generation counts once per started job.
 **`AI_VISION_THROTTLE_RATE`** (optional, default `30/hour`) is the separate,
 lower limit for the alt-text suggestion. Users with Django staff permission
-are exempt. When exceeded, the UI shows "Please try again in N minutes"
+are exempt, as is the live word-cloud AI (bounded server-side by its own
+pacing, not counted). When exceeded, the UI shows "Please try again in N minutes"
 (HTTP 429). Note: the counters live in the memory of each backend process and
 reset on restart; with several workers the limit applies per process, so the
 effective ceiling is higher.

@@ -615,12 +615,14 @@ statt. Beide Variablen werden beim Start gelesen — Container neu erzeugen.
 
 **`AI_THROTTLE_RATE`** (optional, Standard `120/hour`) begrenzt, wie oft eine
 angemeldete Person die KI-Funktionen aufrufen darf (Format `N/minute`,
-`N/hour` oder `N/day`; `off` schaltet die Begrenzung ab). Das Limit gilt pro
+`N/hour` oder `N/day`; `off` schaltet die Begrenzung ab, jeder andere ungültige Wert fällt
+auf den Standard zurück). Das Limit gilt pro
 Person über alle KI-Funktionen zusammen; eine Dokument-Generierung zählt
 einmal je gestartetem Auftrag. **`AI_VISION_THROTTLE_RATE`** (optional,
 Standard `30/hour`) ist das eigene, niedrigere Limit für den
 Bildbeschreibungs-Vorschlag. Mitarbeitende mit Django-Staff-Recht sind
-ausgenommen. Bei Überschreitung zeigt die Oberfläche die Meldung „Bitte
+ausgenommen, ebenso die Live-Wortwolken-KI (serverseitig durch ihre eigene
+Taktung begrenzt, wird nicht gezählt). Bei Überschreitung zeigt die Oberfläche die Meldung „Bitte
 versuchen Sie es in N Minuten erneut“ (HTTP 429). Hinweis: Die Zähler liegen
 im Arbeitsspeicher des jeweiligen Backend-Prozesses und werden bei einem
 Neustart zurückgesetzt; bei mehreren Workern gilt das Limit je Prozess, die
