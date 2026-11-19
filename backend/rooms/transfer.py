@@ -54,6 +54,7 @@ from .images import MAX_IMAGE_BYTES, image_format, store_image_bytes
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import unique_title
 from .question_fields import clean_evaluation_categories
+from .question_import.core import normalize_alt
 from .sanitize import clean_html, clean_media_url
 
 EXPORT_FORMAT = "abstimmbar-set-v3"
@@ -786,7 +787,7 @@ def import_set(room, data, *, user=None, stats=None):
                     for lang, v in _lang_map(option.get("text")).items()
                 },
                 **{
-                    f"image_alt_{lang}": (v[:300] or None)
+                    f"image_alt_{lang}": (normalize_alt(v) or None)
                     for lang, v in _lang_map(option.get("image_alt")).items()
                 },
                 # Foreign file: same media-only rule as client input.

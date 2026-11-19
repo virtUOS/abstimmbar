@@ -123,3 +123,17 @@ class OptionImageAltTests(ApiTestCase):
         option = AnswerOption.objects.get(question__question_set=imported, image=IMG)
         self.assertEqual(option.image_alt_de or "", "")
         self.assertEqual(option.image_alt_en or "", "")
+
+    def test_import_normalizes_image_alt(self):
+        """A foreign file's alt is cleaned like the REST/import paths do:
+        tags stripped, whitespace collapsed, capped."""
+        self._make_question()
+        data = copy.deepcopy(self._export())
+        data["questions"][0]["options"][0]["image_alt"] = {
+            "de": "  <b>Ein</b>\n  Hund  ",
+            "en": "x" * 400,
+        }
+        imported = self._import(data)
+        option = AnswerOption.objects.get(question__question_set=imported, image=IMG)
+        self.assertEqual(option.image_alt_de, "Ein Hund")
+        self.assertEqual(option.image_alt_en, "x" * 300)

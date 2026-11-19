@@ -1308,6 +1308,29 @@ class ResultsApiTests(LiveTestCase):
         self.assertNotIn("{", body)
         self.assertNotIn("'de'", body)
 
+    def test_csv_image_only_option_uses_image_alt(self):
+        """#342: an option without text is labelled by its (canonical) image
+        description in the CSV instead of an empty cell."""
+        import csv
+        import io
+
+        self.correct.text_de = ""
+        self.correct.text_en = ""
+        self.correct.image = "/media/question-images/2026/11/a.png"
+        self.correct.image_alt_de = "Ein Hund"
+        self.correct.image_alt_en = "A dog"
+        self.correct.save()
+        self._run_with_votes()
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv",
+            headers={"accept-language": "de"},
+        ).content.decode("utf-8-sig")
+        rows = list(csv.DictReader(io.StringIO(body), delimiter=";"))
+        self.assertEqual(
+            {row["antwort"] for row in rows}, {"Ein Hund", "5"}
+        )
+
     def test_csv_choice_percent_and_local_start_time(self):
         """#284: choice rows carry the percentage the results page shows
         (share of the question's votes, one decimal), and "gestartet" is
