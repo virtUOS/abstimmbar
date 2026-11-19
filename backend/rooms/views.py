@@ -699,7 +699,8 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 result = detect.read_upload(upload.read(), upload.name)
                 source_text = import_core.scrub_text(f"{upload.name} ({result.format})")
             else:
-                source_text = import_core.scrub_text(str(request.data.get("text") or ""))
+                data = request.data if isinstance(request.data, dict) else {}
+                source_text = import_core.scrub_text(str(data.get("text") or ""))
                 result = detect.read_text(source_text)
         except import_core.ImportFailed as exc:
             return Response({"detail": str(exc)}, status=400)

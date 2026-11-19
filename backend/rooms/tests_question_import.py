@@ -1000,3 +1000,222 @@ class DetectTests(SimpleTestCase):
     def test_zip_without_questions_fails(self):
         with self.assertRaises(ImportFailed):
             detect.read_upload(make_zip({"readme.txt": "hi"}), "x.zip")
+
+
+class ReviewFixTests(SimpleTestCase):
+    """Findings of the final branch review (#323)."""
+
+    # -- simple format: markers need whitespace (finding 4) -----------------
+
+    def test_marker_without_space_is_text(self):
+        r = simple.parse("F: Wie kalt?\n-5 Grad\n3.14 ist Pi\n* ja\n- nein\n")
+        (d,) = r.drafts
+        self.assertEqual(opts(d), ["ja", "nein"])
+        self.assertIn("-5 Grad", d["text"])
+        self.assertIn("3.14 ist Pi", d["text"])
+
+    def test_number_marker_without_space_after_options_is_invalid(self):
+        r = simple.parse("F: Reihenfolge\n1. a\n2. b\n3.14 ist Pi\n")
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("invalid", "Zeile 1"): 1})
+
+    def test_bare_marker_is_invalid(self):
+        for marker in ("-", "*", "1.", "2)"):
+            r = simple.parse(f"F: Frage\n* a\n{marker}\n- b\n")
+            self.assertEqual(r.drafts, [], marker)
+            self.assertEqual(r.skipped, {("invalid", "Zeile 1"): 1}, marker)
+
+    def test_tab_after_marker(self):
+        r = simple.parse("F: Frage\n*\ta\n-\tb\n")
+        self.assertEqual(opts(r.drafts[0]), ["a", "b"])
+
+    def test_multi_marker_with_trailing_whitespace(self):
+        r = simple.parse("F: Frage [mehrfach]   \t\n* a\n- b\n")
+        self.assertEqual(r.drafts[0]["kind"], "multiple_choice")
+        self.assertEqual(r.drafts[0]["text"], "<p>Frage</p>")
+
+    def test_simple_too_many_options(self):
+        lines = "".join(f"- o{i}\n" for i in range(core.MAX_OPTIONS + 1))
+        r = simple.parse("F: Frage\n* a\n" + lines)
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("too_many_options", ""): 1})
+
+    # -- GIFT (findings 3, 7, title regex) ----------------------------------
+
+    def test_gift_image_not_reported_for_skipped_question(self):
+        for body in ("{#1:0.5}", "{=a -> 1 =b -> 2}"):
+            r = gift.parse(f'[html]Siehe <img src="x.png"> Bild {body}')
+            self.assertEqual(r.drafts, [], body)
+            self.assertNotIn(("image_dropped", ""), r.skipped, body)
+
+    def test_gift_nbsp_becomes_space(self):
+        r = gift.parse("Frage\xa0eins? {=a ~b}")
+        self.assertEqual(r.drafts[0]["text"], "<p>Frage eins?</p>")
+
+    def test_gift_title_ending_in_backslash(self):
+        r = gift.parse("::Titel\\::Frage? {=a ~b}")
+        self.assertEqual(r.drafts[0]["text"], "<p>Frage?</p>")
+
+    def test_gift_too_many_options(self):
+        answers = " ".join(f"~o{i}" for i in range(core.MAX_OPTIONS + 1))
+        r = gift.parse("Frage? {=a " + answers + "}")
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("too_many_options", ""): 1})
+
+    # -- H5P (findings 2, 3) -------------------------------------------------
+
+    def test_h5p_string_false_is_not_correct(self):
+        content = mc(answers=(("A", "true"), ("B", "false"), ("C", False)))
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", content))
+        self.assertEqual(correct(r.drafts[0]), ["A"])
+        self.assertEqual(r.drafts[0]["kind"], "single_choice")
+
+    def test_h5p_image_not_reported_for_skipped_question(self):
+        img = '<p>Q <img src="a.png"></p>'
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question=img, answers=(("A", False), ("B", False)))))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("invalid", "H5P.MultiChoice"): 1})
+        r = h5p.parse(h5p_zip("H5P.TrueFalse 1.8", {"question": img, "correct": "maybe"}))
+        self.assertEqual(r.skipped, {("invalid", "H5P.TrueFalse"): 1})
+
+    def test_h5p_image_and_media_counted_once(self):
+        media = {"type": {"library": "H5P.Image 1.1", "params": {}}}
+        r = h5p.parse(h5p_zip(
+            "H5P.TrueFalse 1.8", {"question": '<p>Q <img src="a.png"></p>', "correct": "true", "media": media},
+        ))
+        self.assertEqual(len(r.drafts), 1)
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_h5p_too_many_answers_bail_out(self):
+        answers = [("A", True)] + [(f"o{i}", False) for i in range(50_000)]
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(answers=answers)))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("too_many_options", ""): 1})
+
+    # -- finalize: image notice only for kept questions (finding 3) ----------
+
+    def test_finalize_withdraws_image_notice_of_dropped_question(self):
+        essay = {"taskDescription": '<p>Q <img src="a.png"></p>'}
+        r = h5p.parse(h5p_zip("H5P.Essay 1.5", essay))
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+        finalize(r, ("single_choice",))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("not_allowed_in_set", "open_text"): 1})
+
+    def test_finalize_keeps_image_notice_and_removes_marker(self):
+        r = gift.parse('[html]Siehe <img src="x.png"> Bild {=a ~b}\n\n[html]Noch <img src="y.png"> {}')
+        finalize(r, ("single_choice",))
+        self.assertEqual(len(r.drafts), 1)
+        self.assertNotIn(core.IMAGE_FLAG, r.drafts[0])
+        self.assertEqual(
+            r.skipped, {("image_dropped", ""): 1, ("not_allowed_in_set", "open_text"): 1}
+        )
+
+    def test_finalize_over_limit_withdraws_image_notice(self):
+        r = ImportResult(format="gift")
+        for i in range(core.MAX_QUESTIONS + 1):
+            r.add(draft(text=f"<p>{i}</p>"), image_dropped=i == core.MAX_QUESTIONS)
+        finalize(r, ALL)
+        self.assertEqual(len(r.drafts), core.MAX_QUESTIONS)
+        self.assertEqual(r.skipped, {("over_limit", ""): 1})
+
+    # -- ILIAS ---------------------------------------------------------------
+
+    def test_ilias_too_many_labels_bail_out(self):
+        labels = tuple(f"o{i}" for i in range(core.MAX_OPTIONS + 1))
+        r = ilias.parse_xml(qti(qti_item(response=choice_response(labels=labels), resprocessing=cond(0, 1))))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("too_many_options", ""): 1})
+
+    def test_ilias_negated_and_response_scoping_kept(self):
+        response = choice_response(labels=("A", "B", "C"))
+        r = ilias.parse_xml(qti(qti_item(
+            qtype="MULTIPLE CHOICE QUESTION",
+            question="<mattext>Q?</mattext><matimage label='q.png'/>",
+            response=response,
+            resprocessing=cond(0, 1) + cond(1, 1, negate=True) + cond(2, 1),
+        )))
+        (d,) = r.drafts
+        self.assertEqual(d["text"], "<p>Q?</p>")
+        self.assertEqual(correct(d), ["A", "C"])
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    # -- text cap ------------------------------------------------------------
+
+    def test_text_over_cap_fails(self):
+        with self.assertRaises(ImportFailed):
+            detect.read_text("x" * (detect.TEXT_MAX_CHARS + 1))
+        with self.assertRaises(ImportFailed):
+            detect.read_upload(b"x" * (detect.TEXT_MAX_CHARS + 1), "fragen.txt")
+
+    # -- plain(): unchanged tag semantics ------------------------------------
+
+    def test_plain_keeps_tag_semantics(self):
+        self.assertEqual(core.plain('a <img alt="<" src="x"> b'), "a  b")
+        self.assertEqual(core.plain("a < b"), "a < b")
+        self.assertEqual(core.plain("<b>x</b> < y"), "x < y")
+        self.assertEqual(core.strip_images('<IMG src=x>a<img'), "a<img")
+
+
+class RegexComplexityTests(SimpleTestCase):
+    """~1 MB inputs that made quadratic/exponential patterns stall the single
+    backend process (#323 review). Each must finish well within LIMIT."""
+
+    N = 1_000_000
+    LIMIT = 2.0
+
+    def assertFast(self, fn, label):
+        import time
+        start = time.perf_counter()
+        fn()
+        elapsed = time.perf_counter() - start
+        self.assertLess(elapsed, self.LIMIT, f"{label} took {elapsed:.2f}s")
+
+    def test_read_text(self):
+        n = self.N
+        cases = {
+            "newlines": "\n" * n,
+            "spaces": " " * n,
+            "lt": "<" * n,
+            "multi marker after spaces": "F: a" + " " * (n - 10) + "b",
+            "gift title backslashes": "::" + "\\" * (n - 20) + "x {=a ~b}",
+            "gift title lines": "::\n" * (n // 3),
+            "F lines": "F:\n" * (n // 3),
+        }
+        for label, text in cases.items():
+            self.assertFast(lambda text=text: detect.read_text(text), label)
+        self.assertFast(lambda: gift.looks_like_gift("\n" * n), "gift title line on newlines")
+
+    def test_h5p(self):
+        n = self.N
+        for label, content in {
+            "lt in answer": {"question": "<p>Q</p>", "answers": [
+                {"text": "<" * n, "correct": True}, {"text": "B", "correct": False},
+            ]},
+            "lt in question": mc(question="<" * n),
+            "img in question": mc(question="<img " * (n // 5)),
+        }.items():
+            zf = h5p_zip("H5P.MultiChoice 1.16", content)
+            self.assertFast(lambda zf=zf: h5p.parse(zf), label)
+
+    def test_ilias(self):
+        n = self.N
+        for label, xml in {
+            "lt in label": qti(qti_item(
+                response=choice_response(labels=('<mattext texttype="text/xhtml">' + "&lt;" * (n // 4) + "</mattext>", "B")),
+                resprocessing=cond(0, 1),
+            )),
+            "img in question": qti(qti_item(
+                question='<mattext texttype="text/xhtml">' + "&lt;img " * (n // 8) + "</mattext>",
+                response=choice_response(), resprocessing=cond(0, 1),
+            )),
+            "deep and wide": qti(qti_item(
+                qtype="TEXT QUESTION",
+                question="<x>" * 200 + "<mattext>a</mattext>" * (n // 20) + "</x>" * 200,
+            )),
+            "many labels": qti(qti_item(
+                qtype="ORDERING QUESTION",
+                response=choice_response(labels=tuple("o" for _ in range(n // 100))),
+            )),
+        }.items():
+            self.assertFast(lambda xml=xml: ilias.parse_xml(xml), label)

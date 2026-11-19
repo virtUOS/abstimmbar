@@ -72,7 +72,9 @@ test('pasted simple text → review → two questions taken over, AI scoring off
   // when the review is reopened from the set's hint.
   await page.reload();
   await expect(page.getByText('Übernommene Fragen warten auf Ihre Prüfung.')).toBeVisible();
-  await page.getByRole('button', { name: 'Prüfen', exact: true }).click();
+  // Scoped to the page: an import running in a parallel test can show the
+  // app-wide status bar with its own "Prüfen" button.
+  await page.getByRole('main').getByRole('button', { name: 'Prüfen', exact: true }).click();
   await expect(page.getByText('Erkannt: Einfaches Textformat · 3 Fragen')).toBeVisible();
 
   await page.getByRole('checkbox', { name: /Welche Farbe hat der Himmel/ }).check();
@@ -106,6 +108,27 @@ test('GIFT matching question is skipped and reported', async ({ page, trackRoom 
 
   await expect(page.getByText('Erkannt: GIFT (Moodle) · 1 Frage')).toBeVisible();
   await expect(page.getByText('1 übersprungen: Zuordnung (nicht unterstützt)')).toBeVisible();
+  await page.getByRole('button', { name: 'Verwerfen', exact: true }).click();
+  await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+});
+
+test('uploaded GIFT file → review with skip notice', async ({ page, trackRoom }) => {
+  const room = await createRoomWithQuestions(page.request, [], 'Import Datei', trackRoom, 'E2E Import');
+  await openImport(page, room.setId);
+
+  await page.getByRole('button', { name: 'Datei hochladen', exact: true }).click();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'moodle.gift',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(GIFT_TEXT, 'utf-8'),
+  });
+  await expect(page.getByText('moodle.gift')).toBeVisible();
+  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+
+  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+  await expect(page.getByText('Erkannt: GIFT (Moodle) · 1 Frage')).toBeVisible();
+  await expect(page.getByText('1 übersprungen: Zuordnung (nicht unterstützt)')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /Welche Zahlen sind Primzahlen/ })).toBeVisible();
   await page.getByRole('button', { name: 'Verwerfen', exact: true }).click();
   await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
 });

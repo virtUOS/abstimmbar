@@ -1287,8 +1287,6 @@ export default function SetPage() {
     }
   }
 
-  /** Open the pull picker: choose a source set, then check off questions to
-   * copy into this one (#87). */
   /** "Fragen übernehmen" (#323): one assist panel at a time. */
   function openImport() {
     setImportOpen(true);
@@ -1298,6 +1296,8 @@ export default function SetPage() {
     setEditingSections(false);
   }
 
+  /** Open the pull picker: choose a source set, then check off questions to
+   * copy into this one (#87). */
   async function openPull() {
     // Only sets that actually have questions can be pulled from.
     const { targets, rooms, startRoom } = await loadTransferTargets(

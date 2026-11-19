@@ -16,6 +16,8 @@ from django.utils.translation import gettext
 
 from . import safezip
 from .core import (
+    MAX_OPTIONS,
+    QUESTION_TEXT_MAX,
     ImportFailed,
     ImportResult,
     clean_without_images,
@@ -91,22 +93,28 @@ def _question_type(item) -> str:
     return ""
 
 
-def _in_response(el, stop) -> bool:
-    parent = el.getparent()
-    while parent is not None and parent is not stop:
-        if isinstance(parent.tag, str) and parent.tag.startswith("response_"):
-            return True
-        parent = parent.getparent()
-    return False
+def _iter_outside(root, tags: tuple[str, ...], skip) -> list:
+    """Descendants of ``root`` with a tag in ``tags``, in document order, not
+    inside any element for which ``skip(tag)`` is true.
+
+    One linear walk instead of an ancestor walk per element, which is
+    O(elements x depth) on deeply nested, wide files.
+    """
+    found = []
+    stack = list(reversed(root))
+    while stack:
+        el = stack.pop()
+        tag = el.tag
+        if not isinstance(tag, str) or skip(tag):
+            continue
+        if tag in tags:
+            found.append(el)
+        stack.extend(reversed(el))
+    return found
 
 
-def _negated(el, stop) -> bool:
-    parent = el.getparent()
-    while parent is not None and parent is not stop:
-        if parent.tag == "not":
-            return True
-        parent = parent.getparent()
-    return False
+def _is_response(tag: str) -> bool:
+    return tag.startswith("response_")
 
 
 def _index(value: str) -> int | None:
@@ -122,19 +130,24 @@ def _question_html(presentation) -> tuple[str, bool]:
         return "", False
     image = False
     parts = []
-    for mt in presentation.iter("mattext"):
-        if _in_response(mt, presentation) or mt.get("label") == "answerdepth":
+    length = 0
+    for el in _iter_outside(presentation, ("mattext", "matimage"), _is_response):
+        if el.tag == "matimage":
+            image = True
             continue
-        raw = _text(mt)
-        if (mt.get("texttype") or "").lower() == "text/xhtml":
+        if el.get("label") == "answerdepth" or length > QUESTION_TEXT_MAX:
+            # Past the limit the question is skipped as text_too_long anyway.
+            continue
+        raw = _text(el)
+        if (el.get("texttype") or "").lower() == "text/xhtml":
             html, dropped = clean_without_images(raw)
             image = image or dropped
             parts.append(html)
         elif raw.strip():
             parts.append(html_paragraphs(raw))
-    for mi in presentation.iter("matimage"):
-        if not _in_response(mi, presentation):
-            image = True
+        else:
+            continue
+        length += len(parts[-1])
     return "".join(parts).strip(), image
 
 
@@ -157,6 +170,10 @@ def _labels(response) -> list[tuple[str, str, bool]]:
     return labels
 
 
+def _more_than(iterable, limit: int) -> bool:
+    return any(i >= limit for i, _ in enumerate(iterable))
+
+
 def _points(rc) -> float | None:
     """Sum of Add/Set setvars; None if the condition sets no score at all."""
     total, seen = 0.0, False
@@ -177,7 +194,7 @@ def _plain_varequals(rc):
     cv = rc.find("conditionvar")
     if cv is None:
         return []
-    return [ve for ve in cv.iter("varequal") if not _negated(ve, cv)]
+    return _iter_outside(cv, ("varequal",), lambda tag: tag == "not")
 
 
 def _correct_idents(item) -> set[str]:
@@ -198,6 +215,7 @@ def _solution_order(item, labels) -> list[int] | None:
     """
     by_ident = {ident: i for i, (ident, _, _) in enumerate(labels)}
     ranks: dict[int, int] = {}
+    used: set[int] = set()
     for rc in item.iterfind("resprocessing/respcondition"):
         if _points(rc) is None:  # feedback-only conditions
             continue
@@ -207,9 +225,10 @@ def _solution_order(item, labels) -> list[int] | None:
             pos = by_ident.get(content, _index(content))
             if pos is None or pos >= len(labels) or rank is None:
                 return None
-            if pos in ranks or rank in ranks.values():
+            if pos in ranks or rank in used:
                 return None
             ranks[pos] = rank
+            used.add(rank)
     if len(ranks) != len(labels):
         return None
     return sorted(ranks, key=ranks.__getitem__)
@@ -227,12 +246,13 @@ def _item(item, result: ImportResult) -> None:
         result.skip("invalid", _detail(qtype))
         return
     if kind == "open_text":
-        result.drafts.append({"kind": kind, "text": text, "options": []})
-        if image:
-            result.skip("image_dropped")
+        result.add({"kind": kind, "text": text, "options": []}, image)
         return
 
     response = presentation.find(".//response_lid")
+    if response is not None and _more_than(response.iter("response_label"), MAX_OPTIONS):
+        result.skip("too_many_options")  # bail out before reading every label
+        return
     labels = _labels(response) if response is not None else []
     if kind == "ordering" and (
         (response is not None and response.get("ident") in _IMAGE_ORDERING)
@@ -257,7 +277,5 @@ def _item(item, result: ImportResult) -> None:
         correct = _correct_idents(item)
         options = [{"text": t, "is_correct": ident in correct} for ident, t, _ in labels]
         image = image or any(img for _, _, img in labels)
-    result.drafts.append({"kind": kind, "text": text, "options": options})
-    if image:
-        result.skip("image_dropped")
+    result.add({"kind": kind, "text": text, "options": options}, image)
 

@@ -10,13 +10,24 @@ import re
 
 from rooms.sanitize import clean_html
 
-from .core import ImportResult, clean_without_images, html_paragraphs, plain, true_false_labels
+from .core import (
+    MAX_OPTIONS,
+    ImportResult,
+    clean_without_images,
+    html_paragraphs,
+    plain,
+    true_false_labels,
+)
 
 _ESCAPABLE = "~=#{}:\\n"
-_TITLE_RE = re.compile(r"^\s*::((?:\\.|(?!::).)*)::", re.DOTALL)
+# The alternatives are disjoint on their first character (``\\.|(?!::).``
+# was exponential on runs of backslashes); a lone backslash right before the
+# closing ``::`` stays part of the title as before.
+_TITLE_RE = re.compile(r"^\s*::((?:\\.|[^\\:]|:(?!:)|\\(?=::))*)::", re.DOTALL)
 _FORMAT_RE = re.compile(r"^\s*\[(html|markdown|plain|moodle)\]", re.IGNORECASE)
 _WEIGHT_RE = re.compile(r"^\s*%(-?\d+(?:\.\d+)?)%")
-_TITLE_LINE_RE = re.compile(r"^\s*::[^:\n]+::", re.MULTILINE)
+# Single-line on purpose: ``\s*`` spanning lines makes the MULTILINE search quadratic.
+_TITLE_LINE_RE = re.compile(r"^[^\S\n]*::[^:\n]+::", re.MULTILINE)
 
 
 def _unescape(s: str) -> str:
@@ -133,7 +144,7 @@ def _build(lineno: int, body: str, result: ImportResult) -> None:
         result.skip("invalid", detail)
         return
 
-    html = _question_html(question, fmt, result)
+    html, image = _question_html(question, fmt)
     stripped = content.strip()
     if stripped.startswith("#"):
         result.skip("unsupported_type", "numerical")
@@ -146,7 +157,7 @@ def _build(lineno: int, body: str, result: ImportResult) -> None:
     if flag in ("T", "TRUE", "F", "FALSE"):
         wahr, falsch = true_false_labels()
         right = flag in ("T", "TRUE")
-        result.drafts.append({
+        result.add({
             "kind": "single_choice",
             "text": html,
             "binary_choice": True,
@@ -154,15 +165,18 @@ def _build(lineno: int, body: str, result: ImportResult) -> None:
                 {"text": wahr, "is_correct": right},
                 {"text": falsch, "is_correct": not right},
             ],
-        })
+        }, image)
         return
     if not stripped:
-        result.drafts.append({"kind": "open_text", "text": html, "options": []})
+        result.add({"kind": "open_text", "text": html, "options": []}, image)
         return
 
     segs = _segments(content)
     if not segs:
         result.skip("invalid", detail)
+        return
+    if len(segs) > MAX_OPTIONS and not all(m == "=" for m, _ in segs):
+        result.skip("too_many_options")
         return
     first_marker = _unescaped(content, "=~")[0][0]
     if _strip_feedback(content[:first_marker]).strip():
@@ -186,44 +200,42 @@ def _build(lineno: int, body: str, result: ImportResult) -> None:
         options.append({"text": text, "is_correct": is_correct})
 
     if all(m == "=" for m, _ in segs):
-        result.drafts.append({
+        result.add({
             "kind": "open_text",
             "text": html,
             "options": [],
             "model_solution": options[0]["text"],
-        })
+        }, image)
         return
     if len(options) < 2:
         result.skip("invalid", detail)
         return
     n_correct = sum(o["is_correct"] for o in options)
-    result.drafts.append({
+    result.add({
         "kind": "multiple_choice" if n_correct > 1 else "single_choice",
         "text": html,
         "options": options,
-    })
+    }, image)
 
 
-def _question_html(question: str, fmt: str, result: ImportResult) -> str:
+def _question_html(question: str, fmt: str) -> tuple[str, bool]:
+    """(html, an image was dropped); recorded only once the question is kept."""
     text = _unescape(question)
     if fmt != "html":
-        return clean_html(html_paragraphs(text))
-    html, dropped = clean_without_images(text)
-    if dropped:
-        result.skip("image_dropped")
-    return html
+        return clean_html(html_paragraphs(text)), False
+    return clean_without_images(text)
 
 
 def parse(text: str) -> ImportResult:
     result = ImportResult(format="gift")
-    text = text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n").replace(" ", " ")
+    text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n").replace("\xa0", " ")
     for lineno, body in _blocks(text):
         _build(lineno, body, result)
     return result
 
 
 def looks_like_gift(text: str) -> bool:
-    text = text.lstrip("﻿").replace("\r\n", "\n").replace("\r", "\n")
+    text = text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n")
     if _TITLE_LINE_RE.search(text):
         return True
     for _, body in _blocks(text):

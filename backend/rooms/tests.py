@@ -6682,6 +6682,22 @@ class ImportQuestionsEndpointTests(ApiTestCase):
             r.json()["detail"], "Keine Fragen erkannt. Bitte prüfen Sie das Format."
         )
 
+    def test_non_object_json_body_is_400(self):
+        for body in ([1, 2], '"F: a"', "5", "null"):
+            r = self.client.post(self.url, body, content_type="application/json")
+            self.assertEqual(r.status_code, 400, body)
+            self.assertEqual(r.json()["detail"], "No questions found. Please check the format.")
+
+    def test_text_over_1_mb_is_400(self):
+        text = self.SIMPLE + "x" * 1_000_000
+        r = self.client.post(self.url, {"text": text}, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "The text is longer than 1 MB.")
+        r = self.client.post(
+            self.url, {"text": text}, content_type="application/json", HTTP_ACCEPT_LANGUAGE="de"
+        )
+        self.assertEqual(r.json()["detail"], "Der Text ist länger als 1 MB.")
+
     def test_broken_zip_is_400(self):
         r = self._upload(b"PK\x03\x04kaputt", "x.zip")
         self.assertEqual(r.status_code, 400)

@@ -23,6 +23,8 @@ MAX_QUESTIONS = 200
 MAX_OPTIONS = 20
 OPTION_TEXT_MAX = 500
 QUESTION_TEXT_MAX = 10_000
+# Internal draft marker set by ImportResult.add, removed again by finalize.
+IMAGE_FLAG = "_image_dropped"
 
 
 @dataclass
@@ -34,6 +36,21 @@ class ImportResult:
     def skip(self, reason: str, detail: str = "", n: int = 1) -> None:
         key = (reason, detail)
         self.skipped[key] = self.skipped.get(key, 0) + n
+
+    def add(self, draft: dict, image_dropped: bool = False) -> None:
+        """Append a draft; an image dropped from it is reported only now, so a
+        question skipped earlier never counts as "image not imported"."""
+        if image_dropped:
+            draft[IMAGE_FLAG] = True
+            self.skip("image_dropped")
+        self.drafts.append(draft)
+
+    def _unskip(self, reason: str) -> None:
+        key = (reason, "")
+        if self.skipped.get(key, 0) > 1:
+            self.skipped[key] -= 1
+        else:
+            self.skipped.pop(key, None)
 
     def skipped_list(self) -> list[dict]:
         return [
@@ -66,12 +83,25 @@ _TAG_RE = re.compile(r"<[^>]*>")
 _IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 
 
+def _sub_tags(pattern: re.Pattern, s: str) -> str:
+    """``pattern.sub("", s)`` in linear time for ``<...[^>]*>`` patterns.
+
+    A ``<`` without any later ``>`` makes ``[^>]*`` scan to the end of the
+    string on every attempt (quadratic on e.g. 40 000 ``<``). Behind the last
+    ``>`` nothing can match, so only the part up to it is searched; the result
+    is identical.
+    """
+    cut = s.rfind(">") + 1
+    return pattern.sub("", s[:cut]) + s[cut:]
+
+
 def has_image(html: str) -> bool:
-    return bool(_IMG_RE.search(html or ""))
+    html = html or ""
+    return bool(_IMG_RE.search(html, 0, html.rfind(">") + 1))
 
 
 def strip_images(html: str) -> str:
-    return _IMG_RE.sub("", html or "")
+    return _sub_tags(_IMG_RE, html or "")
 
 
 def clean_without_images(raw: str) -> tuple[str, bool]:
@@ -89,7 +119,7 @@ def clean_without_images(raw: str) -> tuple[str, bool]:
 
 def plain(html_or_text: str) -> str:
     """Strip tags, resolve entities, trim whitespace."""
-    return html_lib.unescape(_TAG_RE.sub("", html_or_text or "")).strip()
+    return html_lib.unescape(_sub_tags(_TAG_RE, html_or_text or "")).strip()
 
 
 def true_false_labels() -> tuple[str, str]:
@@ -102,6 +132,8 @@ def finalize(result: ImportResult, allowed_kinds: tuple[str, ...]) -> ImportResu
     """Apply limits; skipped questions are reported, texts are never altered."""
     kept: list[dict] = []
     for draft in result.drafts:
+        image_dropped = draft.pop(IMAGE_FLAG, False)
+        kept_before = len(kept)
         options = draft.get("options") or []
         if (
             draft["kind"] == "single_choice"
@@ -121,9 +153,18 @@ def finalize(result: ImportResult, allowed_kinds: tuple[str, ...]) -> ImportResu
             result.skip("text_too_long")
         else:
             kept.append(draft)
+        if image_dropped and len(kept) == kept_before:
+            result._unskip("image_dropped")  # question itself skipped
+        elif image_dropped:
+            draft[IMAGE_FLAG] = True
     if len(kept) > MAX_QUESTIONS:
         result.skip("over_limit", n=len(kept) - MAX_QUESTIONS)
+        for draft in kept[MAX_QUESTIONS:]:
+            if draft.get(IMAGE_FLAG):
+                result._unskip("image_dropped")
         kept = kept[:MAX_QUESTIONS]
+    for draft in kept:
+        draft.pop(IMAGE_FLAG, None)
     result.drafts = kept
     return result
 

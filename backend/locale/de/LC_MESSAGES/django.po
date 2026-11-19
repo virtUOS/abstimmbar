@@ -708,3 +708,7 @@ msgstr "Bitte warten Sie, bis die laufende Erzeugung fertig ist, oder brechen Si
 #: rooms/views.py
 msgid "No questions found. Please check the format."
 msgstr "Keine Fragen erkannt. Bitte prüfen Sie das Format."
+
+#: rooms/question_import/detect.py
+msgid "The text is longer than 1 MB."
+msgstr "Der Text ist länger als 1 MB."

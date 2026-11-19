@@ -178,7 +178,9 @@ If your questions already exist — from earlier semesters, from Moodle or
 ILIAS, or from a tool of your own — you don't have to retype them.
 **Import questions** reads them **verbatim**: with question type, answers
 and marked correct answers. Nothing is reworded or shortened. It needs no AI
-and is available in both simple and expert mode.
+and is available in both simple and expert mode. To bring in questions from
+your own sets, use **Add questions from another set** instead (see
+[Reusing questions](#reusing-questions)).
 
 How it works:
 
@@ -225,26 +227,29 @@ A: A possible model solution (optional)
 
 - A new question starts with `Q:` (or `F:`). Further lines without a prefix
   belong to the question text until the first option.
-- `*` marks a correct option, `-` a wrong one. Exactly one correct option
+- `*` marks a correct option, `-` a wrong one; the marker is followed by a
+  space (so `-5 degrees` stays question text). Exactly one correct option
   gives a single choice, several correct options a multiple choice, none a
   survey question. `[multiple]` at the end of the question line forces a
   multiple choice.
 - Exactly the two options True/False (or Wahr/Falsch) give a true/false
   question.
-- Numbered lines (`1.`, `2.` …) give an ordering question in that order.
+- Numbered lines (`1.`, `2.` …, also followed by a space) give an ordering
+  question in that order.
 - Without options the question is free text; `A:` (or `L:`) sets a model
   solution.
 - Blank lines separate questions but are not required. Lines starting with
   `#` or `//` are comments.
 - A question with only one option, mixed markers or empty text is skipped and
   reported with its line number.
-- At most 200 questions are read per import.
+- At most 200 questions are read per import; pasted text and text files may
+  be at most 1 MB.
 
 ### Other formats
 
 | Format | Imported | Skipped (with notice) |
 |---|---|---|
-| **GIFT** (Moodle text format, `.gift`/`.txt` or pasted) | Multiple choice, weighted answers with several positive weights (multiple choice), true/false, short answer (free text with model solution), essay (free text) | Matching, numerical questions, cloze |
+| **GIFT** (Moodle text format, `.gift`/`.txt` or pasted) | Multiple choice, weighted answers with several positive weights (multiple choice), true/false, short answer (free text with model solution), essay (free text) | Matching, numerical questions, cloze, descriptions (text without an answer block) |
 | **H5P** (`.h5p`) | Multiple Choice, True/False, Single Choice Set, Essay; also inside Question Set and Column | all other H5P content types (e.g. Blanks), counted by name |
 | **ILIAS** (export of a test or question pool as `.zip`, or the `.xml` alone) | Single choice, multiple choice, free text, ordering with text | all other question types (e.g. Kprim, cloze, matching), ordering with images |
 
