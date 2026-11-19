@@ -1040,6 +1040,9 @@ msgstr "Bilder:"
 msgid "by"
 msgstr "von"
 
+msgid "Answer {n}"
+msgstr "Antwort {n}"
+
 msgid "Public domain"
 msgstr "Gemeinfrei"
 

@@ -652,6 +652,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     creditOne: "{% trans 'Image:' %}",
     creditMany: "{% trans 'Images:' %}",
     creditBy: "{% trans 'by' %}",
+    answerN: "{% trans 'Answer {n}' %}",
     creditPublicDomain: "{% trans 'Public domain' %}",
     creditAllRightsReserved: "{% trans 'All rights reserved' %}",
   };
@@ -984,7 +985,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   }
 
   // Option label with an optional image (v2, relative /media/ URL).
-  function fillOptionButton(button, option) {
+  function fillOptionButton(button, option, index) {
     if (option.image) {
       const img = document.createElement("img");
       img.src = option.image;
@@ -997,6 +998,8 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       label.textContent = locText(option.text);
       button.appendChild(label);
       if (alt) button.setAttribute("aria-label", alt);
+      else if (!locText(option.text) && index != null)
+        button.setAttribute("aria-label", I18N.answerN.replace("{n}", String(index + 1)));
     } else {
       button.textContent = locText(option.text);
     }
@@ -1817,10 +1820,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       renderLikert(q);
       return;
     }
-    for (const option of q.options) {
+    for (const [optIdx, option] of q.options.entries()) {
       const button = document.createElement("button");
       button.type = "button";
-      fillOptionButton(button, option);
+      fillOptionButton(button, option, optIdx);
       button.addEventListener("click", () => {
         if (q.multiple) {
           selected.has(option.id) ? selected.delete(option.id) : selected.add(option.id);
@@ -2098,10 +2101,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     area.value = "";
     submit.hidden = !q.multiple;
     if (!isText) {
-      for (const option of q.options) {
+      for (const [optIdx, option] of q.options.entries()) {
         const button = document.createElement("button");
         button.type = "button";
-        fillOptionButton(button, option);
+        fillOptionButton(button, option, optIdx);
         button.dataset.id = String(option.id);
         button.addEventListener("click", () => {
           if (q.multiple) {
@@ -2145,10 +2148,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     submit.hidden = !q.multiple;
     if (!isText) {
       const chosenIds = (ans.chosen && ans.chosen.options) || [];
-      for (const option of q.options) {
+      for (const [optIdx, option] of q.options.entries()) {
         const button = document.createElement("button");
         button.type = "button";
-        fillOptionButton(button, option);
+        fillOptionButton(button, option, optIdx);
         button.dataset.id = String(option.id);
         if (chosenIds.includes(option.id)) {
           quizSelected.add(option.id);
@@ -2219,10 +2222,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       p.appendChild(strong);
       optionsBox.appendChild(p);
     } else {
-      for (const option of q.options) {
+      for (const [optIdx, option] of q.options.entries()) {
         const button = document.createElement("button");
         button.type = "button";
-        fillOptionButton(button, option);
+        fillOptionButton(button, option, optIdx);
         button.dataset.id = String(option.id);
         button.disabled = true;
         if (ans.correct && ans.correct.includes(option.id)) button.classList.add("correct");
@@ -4624,10 +4627,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       return;
     }
     if (!isText) {
-      for (const option of q.options) {
+      for (const [optIdx, option] of q.options.entries()) {
         const button = document.createElement("button");
         button.type = "button";
-        fillOptionButton(button, option);
+        fillOptionButton(button, option, optIdx);
         button.dataset.id = String(option.id);
         button.addEventListener("click", () => {
           if (q.multiple) {
@@ -4966,10 +4969,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     area.value = "";
     submit.hidden = !q.multiple;
     if (!isText) {
-      for (const option of q.options) {
+      for (const [optIdx, option] of q.options.entries()) {
         const button = document.createElement("button");
         button.type = "button";
-        fillOptionButton(button, option);
+        fillOptionButton(button, option, optIdx);
         button.dataset.id = String(option.id);
         button.addEventListener("click", () => {
           if (q.multiple) {
@@ -4995,10 +4998,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     const chosen = (ans.chosen && ans.chosen.options) || [];
     const savedLine = () => { feedback.textContent = I18N.answerSaved; feedback.style.color = "var(--ink-soft)"; };
     if (CHOICE_KINDS.includes(q.kind)) {
-      for (const option of q.options) {
+      for (const [optIdx, option] of q.options.entries()) {
         const button = document.createElement("button");
         button.type = "button";
-        fillOptionButton(button, option);
+        fillOptionButton(button, option, optIdx);
         button.disabled = true;
         if (hideResult) {
           // Result withheld until the summary — only mark what was chosen.

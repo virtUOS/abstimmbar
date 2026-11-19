@@ -3933,6 +3933,18 @@ class OrderingStatsTests(LiveTestCase):
              for idx, opt in enumerate(order)]
         )
 
+    def test_stats_emit_image_alt_for_image_options(self):
+        from .results import ordering_stats
+
+        self.oa.image = "/media/x.png"
+        self.oa.image_alt_de = "Ein Hund"
+        self.oa.image_alt_en = "A dog"
+        self.oa.save()
+        stats = ordering_stats(self.run, self.oq)
+        items = {it["id"]: it for it in stats["items"]}
+        self.assertEqual(items[self.oa.pk]["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+        self.assertNotIn("image_alt", items[self.ob.pk])
+
     def test_correct_rates_and_full_rate(self):
         from .results import ordering_stats
         self._submit([self.oa, self.ob, self.oc])          # fully correct
@@ -4036,6 +4048,18 @@ class PriorityStatsTests(LiveTestCase):
             phase=Run.Phase.CLOSED,
             active_question=self.pq,
         )
+
+    def test_stats_emit_image_alt_for_image_options(self):
+        from .results import priority_stats
+
+        self.oa.image = "/media/x.png"
+        self.oa.image_alt_de = "Ein Hund"
+        self.oa.image_alt_en = "A dog"
+        self.oa.save()
+        stats = priority_stats(self.run, self.pq)
+        items = {it["id"]: it for it in stats}
+        self.assertEqual(items[self.oa.pk]["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+        self.assertNotIn("image_alt", items[self.ob.pk])
 
     def _submit(self, a, b):
         tok = ParticipantToken.objects.create(room=self.room)
@@ -11207,6 +11231,11 @@ class ParticipantCreditTemplateTests(LiveTestCase):
         helper = src.split("function optionImageAlt")[1].split("function fillOptionButton")[0]
         self.assertIn("locText(option.image_alt)", helper)
         self.assertIn("locText(option.text)", helper)
+
+    def test_image_only_option_without_alt_gets_numbered_aria_label(self):
+        html = self.client.get(f"/p/{self.room.code}/?lang=de").content.decode()
+        self.assertIn("Antwort {n}", html)
+        self.assertIn("I18N.answerN", html)
 
     def test_render_credits_never_assigns_inner_html(self):
         from pathlib import Path
