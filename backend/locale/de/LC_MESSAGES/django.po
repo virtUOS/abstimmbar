@@ -1045,3 +1045,11 @@ msgstr "Gemeinfrei"
 
 msgid "All rights reserved"
 msgstr "Alle Rechte vorbehalten"
+
+#: rooms/models.py rooms/serializers.py
+msgid "Invalid license version."
+msgstr "Ungültige Lizenzversion."
+
+#: rooms/models.py rooms/serializers.py
+msgid "Source must be an http(s) URL."
+msgstr "Die Quelle muss eine http(s)-Adresse sein."

@@ -16,6 +16,7 @@ from django.core.validators import URLValidator
 from django.db.models import Count, Max
 from django.utils import timezone
 from django.utils.html import strip_tags
+from django.utils.translation import gettext
 from rest_framework import serializers
 from rest_framework.exceptions import APIException
 
@@ -877,12 +878,12 @@ class ImageCreditSerializer(serializers.Serializer):
 
     def validate_version(self, value):
         if value and not re.fullmatch(VERSION_RE, value):
-            raise serializers.ValidationError("Invalid license version.")
+            raise serializers.ValidationError(gettext("Invalid license version."))
         return value
 
     def validate_source(self, value):
         if value and not value.lower().startswith(("http://", "https://")):
-            raise serializers.ValidationError("Source must be an http(s) URL.")
+            raise serializers.ValidationError(gettext("Source must be an http(s) URL."))
         if value:
             URLValidator()(value)
         return value

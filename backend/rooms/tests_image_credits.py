@@ -233,6 +233,31 @@ class ImageCreditApiTests(_CreditApiBase):
     def test_patch_rejects_bad_version(self):
         self._bad({"author": "x", "version": "v4"})
 
+    def test_patch_errors_are_translated(self):
+        img, _ = self._upload()
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", {"version": "v4", "source": "ftp://x.org/a"},
+            content_type="application/json", HTTP_ACCEPT_LANGUAGE="de",
+        )
+        self.assertEqual(response.status_code, 400)
+        body = response.json()
+        self.assertEqual(body["version"], ["Ungültige Lizenzversion."])
+        self.assertEqual(body["source"], ["Die Quelle muss eine http(s)-Adresse sein."])
+
+    def test_model_clean_errors_are_translated(self):
+        from django.core.exceptions import ValidationError
+        from django.utils import translation
+
+        img, _ = self._upload()
+        img.credit_license_version = "x"
+        img.credit_source = "javascript:alert(1)"
+        with translation.override("de"), self.assertRaises(ValidationError) as ctx:
+            img.clean()
+        self.assertEqual(ctx.exception.message_dict["credit_license_version"], ["Ungültige Lizenzversion."])
+        self.assertEqual(
+            ctx.exception.message_dict["credit_source"], ["Die Quelle muss eine http(s)-Adresse sein."]
+        )
+
     def test_patch_trims_version_whitespace(self):
         # DRF trims; the stored value never carries a trailing newline.
         img, _ = self._upload()

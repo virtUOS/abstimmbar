@@ -14,6 +14,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, models
+from django.utils.translation import gettext
 
 from common.models import TimeStampedModel
 
@@ -645,11 +646,11 @@ class UploadedImage(TimeStampedModel):
         if self.credit_license_version and not re.fullmatch(
             VERSION_RE, self.credit_license_version
         ):
-            errors["credit_license_version"] = "Invalid license version."
+            errors["credit_license_version"] = gettext("Invalid license version.")
         if self.credit_source and not self.credit_source.lower().startswith(
             ("http://", "https://")
         ):
-            errors["credit_source"] = "Source must be an http(s) URL."
+            errors["credit_source"] = gettext("Source must be an http(s) URL.")
         if errors:
             raise ValidationError(errors)
 
