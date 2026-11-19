@@ -9,7 +9,7 @@
  * ones stay for later review (#292) — for AI runs and for imports of
  * existing questions (#323) alike; once none remain, or on discard, the job
  * is reviewed, so the hint and status bar stop surfacing it. */
-import { stripHtml } from "@basicbar/ui";
+import { getDefaultContentLang, stripHtml } from "@basicbar/ui";
 import { Check, FileInput } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -228,6 +228,9 @@ export default function AiReviewPanel({
               text: option.text,
               is_correct: option.is_correct,
               ...(option.image ? { image: option.image } : {}),
+              ...(option.image && option.image_alt
+                ? { image_alt: { [getDefaultContentLang()]: option.image_alt } }
+                : {}),
             })),
             model_solution: draft.model_solution ?? "",
             // Imported free-text questions never switch on AI scoring by
@@ -325,7 +328,7 @@ export default function AiReviewPanel({
                   {isImport && isMedia(option.image) && (
                     <img
                       src={`${API_BASE_URL}${option.image}`}
-                      alt=""
+                      alt={option.image_alt ?? ""}
                       className="mb-0.5 block max-h-16 max-w-[8rem] rounded border border-slate-200 object-contain dark:border-slate-700"
                     />
                   )}

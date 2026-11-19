@@ -88,6 +88,7 @@ def _materialize(draft: dict, store: _Store) -> bool:
         uploaded = store.get(image)
         if uploaded is None:
             option["image"] = ""
+            option.pop("image_alt", None)
             lost = True
         else:
             option["image"] = uploaded.file.url

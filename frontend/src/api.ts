@@ -659,6 +659,8 @@ export interface AnswerOption {
   text: LocalizedText;
   /** Relative /media/ URL of an optional option image (v2). */
   image?: string;
+  /** Alt text of the option image (#342), per content language. */
+  image_alt?: LocalizedText;
   is_correct: boolean;
   is_abstention?: boolean;
 }
@@ -792,8 +794,9 @@ export interface GeneratedQuestion {
   text: string;
   /** True/False drafts come back as single_choice + this flag (#79). */
   binary_choice?: boolean;
-  /** `image`: /media/ URL of an option image kept by the import (#336). */
-  options: { text: string; is_correct: boolean; image?: string }[];
+  /** `image`: /media/ URL of an option image kept by the import (#336);
+   *  `image_alt`: its alt text in the canonical content language (#342). */
+  options: { text: string; is_correct: boolean; image?: string; image_alt?: string }[];
   /** Import only: credits of the draft's credited images (#336). */
   image_credits?: ImageCredit[];
   /** open_text only: AI-generated reference answer to score against. */

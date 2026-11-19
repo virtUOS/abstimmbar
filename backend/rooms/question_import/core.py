@@ -22,6 +22,7 @@ FORMATS = ("simple", "gift", "h5p", "ilias")
 
 MAX_QUESTIONS = 200
 MAX_OPTIONS = 20
+IMAGE_ALT_MAX = 300  # AnswerOption.image_alt
 OPTION_TEXT_MAX = 500
 QUESTION_TEXT_MAX = 10_000
 # Internal draft marker set by ImportResult.add, removed again by finalize.
@@ -196,6 +197,15 @@ def image_srcs(html: str) -> list[str]:
     html = html or ""
     return [
         html_lib.unescape(m.group(1)) if (m := _KEPT_SRC_RE.search(tag)) else ""
+        for tag in _IMG_RE.findall(html, 0, html.rfind(">") + 1)
+    ]
+
+
+def image_alts(html: str) -> list[str]:
+    """``alt`` of every ``<img>`` in sanitized HTML, parallel to ``image_srcs``."""
+    html = html or ""
+    return [
+        html_lib.unescape(_attr(_ALT_RE, tag)).strip()
         for tag in _IMG_RE.findall(html, 0, html.rfind(">") + 1)
     ]
 

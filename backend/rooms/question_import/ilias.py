@@ -20,6 +20,7 @@ from rooms.images import MAX_IMAGE_BYTES
 
 from . import safezip
 from .core import (
+    IMAGE_ALT_MAX,
     MAX_OPTIONS,
     QUESTION_TEXT_MAX,
     ImportFailed,
@@ -28,6 +29,7 @@ from .core import (
     clean_keeping_images,
     has_image,
     html_paragraphs,
+    image_alts,
     image_srcs,
     img_tag,
     import_filename,
@@ -256,19 +258,20 @@ def _question_html(presentation, images: _ItemImages) -> tuple[str, bool]:
     return "".join(out).strip(), image
 
 
-def _labels(response, images: _ItemImages | None) -> list[tuple[str, str, str, bool]]:
-    """(ident, plain text, option image, image dropped) per response_label, in
+def _labels(response, images: _ItemImages | None) -> list[tuple[str, str, str, str, bool]]:
+    """(ident, plain text, option image, its alt, image dropped) per response_label, in
     document order. The first image becomes the option image; without
     ``images`` (ordering) nothing is read and every image counts as dropped."""
     html_of = images.html if images is not None else _no_images
     labels = []
     for label in response.iter("response_label"):
-        raw_parts, srcs, dropped = [], [], False
+        raw_parts, srcs, alts, dropped = [], [], [], False
         for el in label.iter("mattext", "matimage"):
             if el.tag == "matimage":
                 src = images.matimage(el) if images is not None else ""
                 if src:
                     srcs.append(src)
+                    alts.append((el.get("alt") or "").strip())
                 else:
                     dropped = True
                 continue
@@ -279,14 +282,22 @@ def _labels(response, images: _ItemImages | None) -> list[tuple[str, str, str, b
                 if has_image(raw):
                     html, lost = html_of(raw)
                     srcs += image_srcs(html)
+                    alts += image_alts(html)
                     dropped = dropped or lost
                     raw = html
                 raw = plain(raw)
             raw_parts.append(raw.strip())
-        srcs = list(dict.fromkeys(srcs))  # inline <img> + its own matimage
+        # inline <img> + its own matimage: one image, the first non-empty alt
+        alt_of: dict[str, str] = {}
+        for src, alt in zip(srcs, alts):
+            alt_of[src] = alt_of.get(src) or alt
+        srcs = list(alt_of)
         image = srcs[0] if srcs else ""
         dropped = dropped or len(srcs) > 1
-        labels.append(((label.get("ident") or "").strip(), "".join(raw_parts).strip(), image, dropped))
+        labels.append((
+            (label.get("ident") or "").strip(), "".join(raw_parts).strip(),
+            image, alt_of[image][:IMAGE_ALT_MAX] if image else "", dropped,
+        ))
     return labels
 
 
@@ -381,10 +392,10 @@ def _item(item, result: ImportResult, images: _ItemImages) -> None:
     ):
         result.skip("unsupported_type", _detail(f"{qtype} (image)"))
         return
-    if any(not t and not img and lost for _, t, img, lost in labels):
+    if any(not t and not img and lost for _, t, img, _, lost in labels):
         result.skip("unsupported_type", _detail(f"{qtype} (image)"))
         return
-    if len(labels) < 2 or any(not (t or img) for _, t, img, _ in labels):
+    if len(labels) < 2 or any(not (t or img) for _, t, img, _, _ in labels):
         result.skip("invalid", _detail(qtype))
         return
 
@@ -397,10 +408,12 @@ def _item(item, result: ImportResult, images: _ItemImages) -> None:
     else:
         correct = _correct_idents(item)
         options = []
-        for ident, t, img, lost in labels:
+        for ident, t, img, alt, lost in labels:
             option = {"text": t, "is_correct": ident in correct}
             if img:
                 option["image"] = img
+                if alt:
+                    option["image_alt"] = alt
             options.append(option)
             image = image or lost
     result.add({"kind": kind, "text": text, "options": options}, image)
