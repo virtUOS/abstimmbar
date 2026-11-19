@@ -24,7 +24,7 @@ from django.utils import timezone, translation
 from django.views.decorators.clickjacking import xframe_options_exempt
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -32,6 +32,7 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from common.markdown import render_markdown
 from common.models import SiteConfig
+from common.throttling import AIThrottle
 from rooms.image_credits import credits_for_questions
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
@@ -1192,6 +1193,7 @@ def matrix_teacher_delete(request, run_id, question_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def matrix_ai_propose(request, run_id, question_id):
     """Presenter (expert mode): ask the LLM which cards of a field belong
     together. Body ``{level: "spelling"|"same"|"similar"}`` → 200 ``{groups,
@@ -2536,6 +2538,7 @@ def _mindmap_ai_overrides(data):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def mindmap_ai_optimize(request, run_id, question_id):
     """Presenter (expert mode): ask the LLM for an optimisation proposal of
     the live mind map. Body: optional settings overrides ``{merge?,
@@ -2670,6 +2673,7 @@ def mindmap_log_reset(request, run_id, question_id, entry_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def optimize_wordcloud(request, run_id, question_id):
     """Optional AI cleanup of a word-cloud result: merge spelling variants
     and synonyms, group into thematic clusters. Non-destructive — the raw
@@ -2705,6 +2709,7 @@ def optimize_wordcloud(request, run_id, question_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def freetext_summary(request, run_id, question_id):
     """One-shot AI key statements (+ grouping) of a free-text question for
     the Quiz-Block walkthrough of a finished run. Same ``{merged, clusters}``
@@ -2876,6 +2881,7 @@ def wordcloud_ai(request, run_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def evaluate_freetext(request, run_id, question_id):
     """Optional AI evaluation of free-text answers: classify each distinct
     answer as korrekt / unklar / falsch. Non-destructive; counts are
@@ -2924,6 +2930,7 @@ def evaluate_freetext(request, run_id, question_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def run_summary(request, run_id):
     """Optional AI short report of one run: a compact German Markdown
     summary of the (anonymous, already-aggregated) results. Display-only."""

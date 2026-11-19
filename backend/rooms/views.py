@@ -47,6 +47,7 @@ from rest_framework.views import APIView
 
 from common import documents
 from common.i18n_fields import resolve_translated_text, translated_map
+from common.throttling import AIThrottle, AIVisionThrottle
 from live.models import MatrixCard, MindmapContribution, MindmapNode, Vote
 
 from . import ai_generate, ai_prompts, generation, image_alt, set_types
@@ -709,6 +710,7 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         methods=["post"],
         url_path="ai-generate",
         parser_classes=[parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser],
+        throttle_classes=[AIThrottle],
     )
     def ai_generate(self, request, pk=None):
         """Kick off an async question-generation job over an uploaded document
@@ -829,7 +831,12 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             status=201,
         )
 
-    @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/retry")
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/retry",
+        throttle_classes=[AIThrottle],
+    )
     def ai_generate_retry(self, request, pk=None, job_id=None):
         """Run a failed (or empty) generation again with the same material and
         settings, so the teacher need not re-upload the document (#302)."""
@@ -945,7 +952,9 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         job.save(update_fields=["reviewed", "updated_at"])
         return Response({"status": "ok"})
 
-    @action(detail=True, methods=["post"], url_path="ai-distractors")
+    @action(
+        detail=True, methods=["post"], url_path="ai-distractors", throttle_classes=[AIThrottle]
+    )
     def ai_distractors(self, request, pk=None):
         """Set-scoped distractor suggestions for a question that has not
         been saved yet (still being created in the editor) — same logic as
@@ -954,14 +963,18 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         self.get_object()  # ownership check
         return _ai_distractors_response(request, fallback_question=None)
 
-    @action(detail=True, methods=["post"], url_path="ai-rephrase")
+    @action(
+        detail=True, methods=["post"], url_path="ai-rephrase", throttle_classes=[AIThrottle]
+    )
     def ai_rephrase(self, request, pk=None):
         """Set-scoped rephrase suggestions for a question that has not been
         saved yet — see ``ai_distractors`` above."""
         self.get_object()  # ownership check
         return _ai_rephrase_response(request, fallback_question=None)
 
-    @action(detail=True, methods=["post"], url_path="ai-proofread")
+    @action(
+        detail=True, methods=["post"], url_path="ai-proofread", throttle_classes=[AIThrottle]
+    )
     def ai_proofread(self, request, pk=None):
         """Optional AI proofreading of a motion text (meeting sets only).
 
@@ -1279,13 +1292,17 @@ class QuestionViewSet(viewsets.ModelViewSet):
             self.get_serializer(after).data, status=status.HTTP_201_CREATED
         )
 
-    @action(detail=True, methods=["post"], url_path="ai-distractors")
+    @action(
+        detail=True, methods=["post"], url_path="ai-distractors", throttle_classes=[AIThrottle]
+    )
     def ai_distractors(self, request, pk=None):
         """Suggest plausible-but-wrong answer options (not saved). AI only."""
         question = self.get_object()
         return _ai_distractors_response(request, fallback_question=question)
 
-    @action(detail=True, methods=["post"], url_path="ai-rephrase")
+    @action(
+        detail=True, methods=["post"], url_path="ai-rephrase", throttle_classes=[AIThrottle]
+    )
     def ai_rephrase(self, request, pk=None):
         """Suggest clearer rephrasings of the question text (not saved)."""
         question = self.get_object()
@@ -1518,6 +1535,7 @@ class ImageAltSuggestionView(APIView):
     the uploader or anyone allowed to edit the image may ask."""
 
     permission_classes: ClassVar = [IsAuthenticated]
+    throttle_classes: ClassVar = [AIVisionThrottle]
 
     def post(self, request, pk):
         img = UploadedImage.objects.filter(pk=pk).first()

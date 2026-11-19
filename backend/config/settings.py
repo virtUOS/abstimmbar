@@ -247,6 +247,10 @@ REST_FRAMEWORK = {
     # Only scoped throttles, applied per action (no DEFAULT_THROTTLE_CLASSES).
     "DEFAULT_THROTTLE_RATES": {
         "committee-mail": "10/hour",
+        # Per-user caps for the AI endpoints (common/throttling.py, #343);
+        # "off" disables a scope, staff are never throttled.
+        "ai": os.environ.get("AI_THROTTLE_RATE") or "120/hour",
+        "ai_vision": os.environ.get("AI_VISION_THROTTLE_RATE") or "30/hour",
     },
 }
 
