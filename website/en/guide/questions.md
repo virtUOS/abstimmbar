@@ -308,8 +308,7 @@ recognised as well.
 
 ## Reusing questions { #reusing-questions }
 
-- **Copy from another set** (the **Add questions** menu; in the set's ⋮
-  menu it is called **Add questions from another set**) — pick questions
+- **Copy from another set** (the **Add questions** menu) — pick questions
   from your other sets and copy them here. Question types the set's type
   doesn't allow are marked.
 - **Copy to another set** or **Move to another set** — via a question's row

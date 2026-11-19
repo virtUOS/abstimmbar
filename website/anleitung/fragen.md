@@ -316,8 +316,7 @@ Typbezeichnungen werden ebenfalls erkannt.
 
 ## Fragen wiederverwenden
 
-- **Aus anderem Set kopieren** (Menü **Fragen hinzufügen**; im Menü ⋮ des
-  Sets heißt es **Fragen aus einem anderen Set übernehmen**) — wählen Sie
+- **Aus anderem Set kopieren** (Menü **Fragen hinzufügen**) — wählen Sie
   Fragen aus Ihren anderen Sets und kopieren Sie sie hierher. Fragetypen, die
   die Art des Sets nicht erlaubt, sind gekennzeichnet.
 - **In ein anderes Set kopieren** oder **verschieben** — über das Zeilenmenü
