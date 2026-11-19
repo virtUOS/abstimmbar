@@ -132,6 +132,8 @@ def _job_payload(job):
         "pages": job.pages, "density": job.density,
         "target_count": job.target_count, "reviewed": job.reviewed,
         "source": job.source, "skipped": job.skipped,
+        # Detected import format; "" for AI jobs.
+        "format": job.import_format,
     }
 
 
@@ -718,7 +720,7 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 question_set=question_set, created_by=request.user,
                 source=GenerationJob.Source.IMPORT, status=GenerationJob.Status.DONE,
                 source_text=source_text, source_chars=len(source_text),
-                drafts=result.drafts, skipped=skipped,
+                drafts=result.drafts, skipped=skipped, import_format=result.format,
                 total_chunks=0, done_chunks=0, pages=0, target_count=len(result.drafts),
             )
         return Response(

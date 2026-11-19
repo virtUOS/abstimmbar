@@ -267,6 +267,8 @@ class GenerationJob(TimeStampedModel):
     source = models.CharField(max_length=8, choices=Source.choices, default=Source.AI)
     # Entries the import reader skipped: [{"reason", "detail", "count"}].
     skipped = models.JSONField(default=list, blank=True)
+    # Import only: detected source format ("simple"/"gift"/"h5p"/"ilias").
+    import_format = models.CharField(max_length=8, blank=True, default="")
 
     @property
     def is_active(self):

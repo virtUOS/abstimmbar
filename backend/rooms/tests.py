@@ -3149,6 +3149,16 @@ class GenerationEndpointTests(ApiTestCase):
         self.assertEqual(r.json()["source"], "import")
         self.assertEqual(r.json()["skipped"], skipped)
 
+    def test_payload_format_empty_for_ai_job(self):
+        from .models import GenerationJob
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get(f"/api/question-sets/{self.qs.pk}/ai-generate/active/")
+        self.assertEqual(r.json()["source"], "ai")
+        self.assertEqual(r.json()["format"], "")
+
     def test_post_creates_job_and_returns_id(self):
         from .models import GenerationJob
         with self.override_settings(**AI_ON), \
@@ -6759,7 +6769,12 @@ class ImportQuestionsEndpointTests(ApiTestCase):
         data = self.client.get("/api/question-sets/active-generation/").json()
         self.assertEqual(data["id"], job_id)
         self.assertEqual(data["source"], "import")
+        self.assertEqual(data["format"], "simple")
         self.assertEqual(data["set_id"], self.qs.pk)
+        job = self.client.get(
+            f"/api/question-sets/{self.qs.pk}/ai-generate/jobs/{job_id}/"
+        ).json()
+        self.assertEqual(job["format"], "simple")
 
     def test_nul_and_surrogates_never_500(self):
         h5p_nul = self._zip({

@@ -437,6 +437,9 @@ export interface GenerationJob {
   source: "ai" | "import";
   /** Import only: what was left out, per reason and source detail. */
   skipped: ImportSkip[];
+  /** Import only: the detected source format; "" for AI jobs (may be
+   *  missing on stubbed payloads). */
+  format?: ImportFormat | "";
   /** Only present on the user-wide active-generation payload. */
   set_id?: number;
   set_title?: string;

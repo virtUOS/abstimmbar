@@ -17,7 +17,6 @@ import {
   results,
   selfCheck,
   type GenerationJob,
-  type ImportFormat,
   type Question,
   type QuestionKind,
   type QuestionSet,
@@ -875,12 +874,8 @@ export default function SetPage() {
   // review panel opens on top of it.
   const [reviewJob, setReviewJob] = useState<GenerationJob | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  // "Fragen übernehmen" (#323): the import dialog, and the format detected by
-  // the last import (the job payload doesn't carry it).
+  // "Fragen übernehmen" (#323): the import dialog.
   const [importOpen, setImportOpen] = useState(false);
-  const [importInfo, setImportInfo] = useState<{ jobId: number; format: ImportFormat } | null>(
-    null,
-  );
   const location = useLocation();
   // Move/copy a single question to another set (#87) — shared target-set
   // picker, ported from QuestionPage's move modal.
@@ -1853,10 +1848,9 @@ export default function SetPage() {
             pendingProposals={
               reviewJob && reviewJob.status === "done" ? reviewJob.drafts.length : 0
             }
-            onImported={async ({ job_id, format }) => {
+            onImported={async () => {
               // The import supersedes older proposals (#303) — go straight to
               // its review.
-              setImportInfo({ jobId: job_id, format });
               setImportOpen(false);
               await refreshReviewHint();
               setReviewOpen(true);
@@ -1881,7 +1875,6 @@ export default function SetPage() {
             }}
             onImported={reloadQuestions}
             onRetried={() => void refreshReviewHint()}
-            importInfo={importInfo}
           />
         </div>
       )}

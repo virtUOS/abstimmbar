@@ -68,6 +68,13 @@ test('pasted simple text → review → two questions taken over, AI scoring off
   // No AI wording in the review of an import.
   await expect(page.getByText(/KI/)).toHaveCount(0);
 
+  // The detected format is stored with the job: still shown after a reload,
+  // when the review is reopened from the set's hint.
+  await page.reload();
+  await expect(page.getByText('Übernommene Fragen warten auf Ihre Prüfung.')).toBeVisible();
+  await page.getByRole('button', { name: 'Prüfen', exact: true }).click();
+  await expect(page.getByText('Erkannt: Einfaches Textformat · 3 Fragen')).toBeVisible();
+
   await page.getByRole('checkbox', { name: /Welche Farbe hat der Himmel/ }).check();
   await page.getByRole('checkbox', { name: /Photosynthese/ }).check();
   await page.getByRole('button', { name: /Ausgewählte übernehmen/ }).click();

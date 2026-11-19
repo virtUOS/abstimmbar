@@ -18,7 +18,6 @@ import {
   generationFailureText,
   type GeneratedQuestion,
   type GenerationJob,
-  type ImportFormat,
 } from "../api";
 import AiAssistPanel from "./AiAssistPanel";
 import ImportSkipList, { IMPORT_FORMAT_LABEL } from "./ImportSkipList";
@@ -53,13 +52,8 @@ export default function AiReviewPanel({
   onClose,
   onImported,
   onRetried,
-  importInfo,
 }: {
   setId: number;
-  /** Format the import endpoint detected for job `jobId` (#323); the job
-   *  payload itself doesn't carry it, so it's only known right after the
-   *  import in this page session. */
-  importInfo?: { jobId: number; format: ImportFormat } | null;
   onClose: () => void;
   onImported: () => void | Promise<void>;
   /** A failed run was restarted (the panel follows the new job itself). */
@@ -293,7 +287,7 @@ export default function AiReviewPanel({
   /** "Detected: GIFT (Moodle) · 12 questions" plus what was skipped. */
   function importSummary() {
     if (!job) return null;
-    const format = importInfo && importInfo.jobId === job.id ? importInfo.format : null;
+    const format = job.format || null;
     return (
       <div className="space-y-2">
         <p className="text-sm text-slate-600 dark:text-slate-300">

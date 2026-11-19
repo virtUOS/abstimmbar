@@ -12,6 +12,11 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name='generationjob',
+            name='import_format',
+            field=models.CharField(blank=True, default='', max_length=8),
+        ),
+        migrations.AddField(
+            model_name='generationjob',
             name='skipped',
             field=models.JSONField(blank=True, default=list),
         ),
