@@ -15,6 +15,8 @@ from django.conf import settings
 from django.utils.translation import gettext
 from lxml import etree
 
+from rooms.sanitize import clean_html
+
 FORMATS = ("simple", "gift", "h5p", "ilias")
 
 MAX_QUESTIONS = 200
@@ -55,6 +57,28 @@ def html_paragraphs(text: str) -> str:
 
 
 _TAG_RE = re.compile(r"<[^>]*>")
+_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
+
+
+def has_image(html: str) -> bool:
+    return bool(_IMG_RE.search(html or ""))
+
+
+def strip_images(html: str) -> str:
+    return _IMG_RE.sub("", html or "")
+
+
+def clean_without_images(raw: str) -> tuple[str, bool]:
+    """Sanitize HTML without images; returns (html, an image was dropped).
+
+    Strips again after sanitizing because the sanitizer allows ``img`` and
+    normalizes tricks like ``<im<img>g`` or ``<image>`` into one.
+    """
+    raw = raw or ""
+    stripped = strip_images(raw)
+    html = clean_html(stripped)
+    cleaned = strip_images(html)
+    return cleaned.strip(), stripped != raw or cleaned != html
 
 
 def plain(html_or_text: str) -> str:
@@ -73,6 +97,14 @@ def finalize(result: ImportResult, allowed_kinds: tuple[str, ...]) -> ImportResu
     kept: list[dict] = []
     for draft in result.drafts:
         options = draft.get("options") or []
+        if (
+            draft["kind"] == "single_choice"
+            and not draft.get("binary_choice")
+            and sum(bool(o.get("is_correct")) for o in options) > 1
+        ):
+            # e.g. ILIAS single choice with several positive answers: the
+            # editor only accepts that as multiple choice; texts stay verbatim.
+            draft["kind"] = "multiple_choice"
         if draft["kind"] not in allowed_kinds:
             result.skip("not_allowed_in_set", draft["kind"])
         elif len(options) > MAX_OPTIONS:

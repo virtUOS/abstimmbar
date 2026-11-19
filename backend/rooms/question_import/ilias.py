@@ -10,19 +10,24 @@ the current ``ass*`` ids ILIAS writes today. Correctness is derived from
 from __future__ import annotations
 
 import math
-import re
 import zipfile
 
 from django.utils.translation import gettext
 
-from rooms.sanitize import clean_html
-
 from . import safezip
-from .core import ImportFailed, ImportResult, html_paragraphs, plain, safe_xml
+from .core import (
+    ImportFailed,
+    ImportResult,
+    clean_without_images,
+    has_image,
+    html_paragraphs,
+    plain,
+    safe_xml,
+    strip_images,
+)
 
 QTI_MAX = 20 * 1024 * 1024
 DETAIL_MAX = 80
-_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 
 _KINDS = {
     "SINGLE CHOICE QUESTION": "single_choice",
@@ -104,16 +109,6 @@ def _negated(el, stop) -> bool:
     return False
 
 
-def _clean_without_images(raw: str) -> tuple[str, bool]:
-    """Sanitize HTML without images; strip again after sanitizing because the
-    sanitizer allows ``img`` and normalizes tricks like ``<im<img>g`` or
-    ``<image>`` into one."""
-    stripped = _IMG_RE.sub("", raw)
-    html = clean_html(stripped)
-    cleaned = _IMG_RE.sub("", html)
-    return cleaned.strip(), stripped != raw or cleaned != html
-
-
 def _index(value: str) -> int | None:
     """Non-negative ASCII integer of bounded length, else None."""
     if not value or len(value) > 6 or not value.isascii() or not value.isdigit():
@@ -132,7 +127,7 @@ def _question_html(presentation) -> tuple[str, bool]:
             continue
         raw = _text(mt)
         if (mt.get("texttype") or "").lower() == "text/xhtml":
-            html, dropped = _clean_without_images(raw)
+            html, dropped = clean_without_images(raw)
             image = image or dropped
             parts.append(html)
         elif raw.strip():
@@ -153,8 +148,8 @@ def _labels(response) -> list[tuple[str, str, bool]]:
                 continue
             raw = _text(mt)
             if (mt.get("texttype") or "").lower() == "text/xhtml":
-                if _IMG_RE.search(raw):
-                    raw = _IMG_RE.sub("", raw)
+                if has_image(raw):
+                    raw = strip_images(raw)
                     image = True
                 raw = plain(raw)
             raw_parts.append(raw.strip())

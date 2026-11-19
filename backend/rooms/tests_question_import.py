@@ -7,7 +7,7 @@ from pathlib import Path
 
 from django.test import SimpleTestCase, override_settings
 
-from rooms.question_import import core, gift, h5p, ilias, safezip, simple
+from rooms.question_import import core, detect, gift, h5p, ilias, safezip, simple
 from rooms.question_import.core import (
     ImportFailed,
     ImportResult,
@@ -854,3 +854,132 @@ class SafeXmlTests(SimpleTestCase):
                      b"<quiz/>", b"<r>&undefined;</r>"):
             with self.assertRaises(ImportFailed, msg=data[:20]):
                 ilias.parse_xml(data)
+
+
+class SharedImageCleaningTests(SimpleTestCase):
+    """R6: one image-safe sanitizer in core, used by GIFT, H5P and ILIAS."""
+
+    TRICKS = ('Q <im<img>g src="x.png"> Ende', 'Q <image src="x.png"> Ende')
+
+    def test_core_clean_without_images(self):
+        for markup in self.TRICKS:
+            html, dropped = core.clean_without_images(f"<p>{markup}</p>")
+            self.assertNotIn("<img", html, markup)
+            self.assertNotIn("x.png", html, markup)
+            self.assertTrue(dropped, markup)
+        self.assertEqual(core.clean_without_images("<p>ohne</p>"), ("<p>ohne</p>", False))
+
+    def test_gift_obfuscated_img_removed(self):
+        for markup in self.TRICKS:
+            r = gift.parse(f"[html]{markup} {{=a ~b}}")
+            (d,) = r.drafts
+            self.assertNotIn("<img", d["text"], markup)
+            self.assertNotIn("x.png", d["text"], markup)
+            self.assertEqual(r.skipped, {("image_dropped", ""): 1}, markup)
+
+    def test_h5p_obfuscated_img_removed(self):
+        for markup in self.TRICKS:
+            r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question=f"<p>{markup}</p>")))
+            (d,) = r.drafts
+            self.assertNotIn("<img", d["text"], markup)
+            self.assertNotIn("x.png", d["text"], markup)
+            self.assertEqual(r.skipped, {("image_dropped", ""): 1}, markup)
+
+
+class FinalizeSingleChoiceTests(SimpleTestCase):
+    """R7: a non-binary single choice with several correct options becomes MC."""
+
+    def test_several_correct_single_choice_becomes_multiple(self):
+        d = draft(n=3)
+        d["options"][1]["is_correct"] = True
+        r = finalize(ImportResult(format="ilias", drafts=[d]), ALL)
+        (out,) = r.drafts
+        self.assertEqual(out["kind"], "multiple_choice")
+        self.assertEqual(opts(out), ["a", "a", "a"])
+        self.assertEqual(out["text"], "<p>x</p>")
+
+    def test_one_correct_and_binary_unchanged(self):
+        r = finalize(ImportResult(format="ilias", drafts=[draft(n=3)]), ALL)
+        self.assertEqual(r.drafts[0]["kind"], "single_choice")
+        b = draft(n=2)
+        b["binary_choice"] = True
+        b["options"][1]["is_correct"] = True
+        r = finalize(ImportResult(format="gift", drafts=[b]), ALL)
+        self.assertEqual(r.drafts[0]["kind"], "single_choice")
+
+    def test_converted_kind_checked_against_set(self):
+        d = draft(n=3)
+        d["options"][1]["is_correct"] = True
+        r = finalize(ImportResult(format="ilias", drafts=[d]), ("single_choice",))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("not_allowed_in_set", "multiple_choice"): 1})
+
+
+class DetectTests(SimpleTestCase):
+    def test_text_simple(self):
+        r = detect.read_text("F: Frage?\n* a\n- b\n")
+        self.assertEqual(r.format, "simple")
+        self.assertEqual(len(r.drafts), 1)
+
+    def test_text_gift(self):
+        r = detect.read_text("::T:: Frage? {=a ~b}\n")
+        self.assertEqual(r.format, "gift")
+        self.assertEqual(len(r.drafts), 1)
+
+    def test_detection_prefers_simple_when_f_prefix_present(self):
+        r = detect.read_text("F: Welche Menge ist {1,2,3}?\n* diese\n- keine\n\nq: Zweite\n- x\n- y\n")
+        self.assertEqual(r.format, "simple")
+        self.assertEqual(len(r.drafts), 2)
+        self.assertIn("{1,2,3}", r.drafts[0]["text"])
+
+    def test_text_without_markers_is_simple(self):
+        r = detect.read_text("irgendein Text")
+        self.assertEqual(r.format, "simple")
+        self.assertEqual(r.drafts, [])
+
+    def test_upload_utf8_bom(self):
+        r = detect.read_upload("\ufeffF: Größe?\n* groß\n- klein".encode(), "fragen.txt")
+        self.assertIn("Größe", r.drafts[0]["text"])
+
+    def test_cp1252_upload_umlauts(self):
+        r = detect.read_upload("F: Größe?\n* groß\n- klein".encode("cp1252"), "fragen.txt")
+        self.assertEqual(r.format, "simple")
+        self.assertIn("Größe", r.drafts[0]["text"])
+        self.assertEqual(opts(r.drafts[0]), ["groß", "klein"])
+
+    def test_undecodable_bytes_and_nul_do_not_crash(self):
+        r = detect.read_upload(b"F: a\x81b\x00c?\n* x\n- y", "f.txt")
+        self.assertNotIn("\x00", r.drafts[0]["text"])
+
+    def test_upload_gift_file(self):
+        r = detect.read_upload(b"Frage? {=a ~b}", "moodle.gift")
+        self.assertEqual(r.format, "gift")
+
+    def test_upload_h5p(self):
+        data = make_zip({
+            "h5p.json": json.dumps({"mainLibrary": "H5P.MultiChoice 1.16"}),
+            "content/content.json": json.dumps(mc()),
+        })
+        r = detect.read_upload(data, "quiz.h5p")
+        self.assertEqual(r.format, "h5p")
+        self.assertEqual(len(r.drafts), 1)
+
+    def test_upload_ilias_zip_and_xml(self):
+        xml = fixture("ilias_legacy_qti.xml")
+        r = detect.read_upload(make_zip({"1__0__qpl_2/1__0__qti_2.xml": xml}), "pool.zip")
+        self.assertEqual(r.format, "ilias")
+        self.assertTrue(r.drafts)
+        r = detect.read_upload(xml, "1__0__qti_2.xml")
+        self.assertEqual(r.format, "ilias")
+        r = detect.read_upload(xml, "export")  # sniffed without extension
+        self.assertEqual(r.format, "ilias")
+
+    def test_broken_zip_fails(self):
+        with self.assertRaises(ImportFailed):
+            detect.read_upload(b"PK\x03\x04kaputt", "x.zip")
+        with self.assertRaises(ImportFailed):
+            detect.read_upload(b"kein zip", "x.h5p")
+
+    def test_zip_without_questions_fails(self):
+        with self.assertRaises(ImportFailed):
+            detect.read_upload(make_zip({"readme.txt": "hi"}), "x.zip")

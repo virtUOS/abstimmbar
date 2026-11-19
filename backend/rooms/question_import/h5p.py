@@ -9,14 +9,11 @@ import zipfile
 
 from django.utils.translation import gettext
 
-from rooms.sanitize import clean_html
-
 from . import safezip
-from .core import ImportFailed, ImportResult, plain, true_false_labels
+from .core import ImportFailed, ImportResult, clean_without_images, plain, true_false_labels
 
 JSON_MAX = 5 * 1024 * 1024
 MAX_DEPTH = 12
-_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _BREAK_RE = re.compile(r"</p\s*>|<br\s*/?>", re.IGNORECASE)
 
 
@@ -45,11 +42,10 @@ def _text(value) -> str:
 
 
 def _question_html(raw, result: ImportResult) -> str:
-    raw = _text(raw)
-    if _IMG_RE.search(raw):
-        raw = _IMG_RE.sub("", raw)
+    html, dropped = clean_without_images(_text(raw))
+    if dropped:
         result.skip("image_dropped")
-    return clean_html(raw).strip()
+    return html
 
 
 def _solution_text(raw: str) -> str:

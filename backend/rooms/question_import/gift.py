@@ -10,13 +10,12 @@ import re
 
 from rooms.sanitize import clean_html
 
-from .core import ImportResult, html_paragraphs, plain, true_false_labels
+from .core import ImportResult, clean_without_images, html_paragraphs, plain, true_false_labels
 
 _ESCAPABLE = "~=#{}:\\n"
 _TITLE_RE = re.compile(r"^\s*::((?:\\.|(?!::).)*)::", re.DOTALL)
 _FORMAT_RE = re.compile(r"^\s*\[(html|markdown|plain|moodle)\]", re.IGNORECASE)
 _WEIGHT_RE = re.compile(r"^\s*%(-?\d+(?:\.\d+)?)%")
-_IMG_RE = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _TITLE_LINE_RE = re.compile(r"^\s*::[^:\n]+::", re.MULTILINE)
 
 
@@ -209,10 +208,10 @@ def _question_html(question: str, fmt: str, result: ImportResult) -> str:
     text = _unescape(question)
     if fmt != "html":
         return clean_html(html_paragraphs(text))
-    if _IMG_RE.search(text):
-        text = _IMG_RE.sub("", text)
+    html, dropped = clean_without_images(text)
+    if dropped:
         result.skip("image_dropped")
-    return clean_html(text)
+    return html
 
 
 def parse(text: str) -> ImportResult:
