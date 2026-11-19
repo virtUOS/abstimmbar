@@ -405,7 +405,8 @@ export interface Question {
 
 /** A draft question proposed by the AI from a document (not yet saved). */
 export interface GeneratedQuestion {
-  kind: "single_choice" | "multiple_choice" | "open_text";
+  /** Imports (#323) also yield `ordering` (options in the correct order). */
+  kind: "single_choice" | "multiple_choice" | "open_text" | "ordering";
   text: string;
   /** True/False drafts come back as single_choice + this flag (#79). */
   binary_choice?: boolean;
@@ -431,9 +432,27 @@ export interface GenerationJob {
   density: number;
   target_count: number;
   reviewed: boolean;
+  /** "import" for "Fragen übernehmen" (#323) jobs. Read defensively: stubbed
+   *  or older payloads may lack it (treat as "ai"). */
+  source: "ai" | "import";
+  /** Import only: what was left out, per reason and source detail. */
+  skipped: ImportSkip[];
   /** Only present on the user-wide active-generation payload. */
   set_id?: number;
   set_title?: string;
+}
+
+/** Source formats the question import recognises (#323). */
+export type ImportFormat = "simple" | "gift" | "h5p" | "ilias";
+
+/** One line of an import's "skipped" report: `reason` is a fixed code
+ *  (unsupported_type, invalid, too_many_options, option_too_long,
+ *  text_too_long, not_allowed_in_set, over_limit, image_dropped), `detail`
+ *  the source-side type or position. */
+export interface ImportSkip {
+  reason: string;
+  detail: string;
+  count: number;
 }
 
 /** A finished run without any proposals counts as failed (#302): either the
@@ -1059,6 +1078,17 @@ export const api = {
     if (opts.guidance?.trim()) body.append("guidance", opts.guidance.trim());
     return request<{ job_id: number }>(
       `/api/question-sets/${setId}/ai-generate/`,
+      { method: "POST", body },
+    );
+  },
+  /** "Fragen übernehmen" (#323): parse pasted text or an uploaded file
+   *  (simple text format, GIFT, H5P, ILIAS) into a reviewable job. */
+  importQuestions: (setId: number, input: { file: File } | { text: string }) => {
+    const body = new FormData();
+    if ("file" in input) body.append("file", input.file);
+    else body.append("text", input.text);
+    return request<{ job_id: number; format: ImportFormat; count: number; skipped: ImportSkip[] }>(
+      `/api/question-sets/${setId}/import-questions/`,
       { method: "POST", body },
     );
   },

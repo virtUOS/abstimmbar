@@ -52,5 +52,9 @@
   "{{count}} groups proposed — untick what you don't want._one": "{{count}} group proposed — untick it if you don't want it.",
   "{{count}} groups proposed — untick what you don't want._other": "{{count}} groups proposed — untick what you don't want.",
   "AI: {{count}} changes_one": "AI: {{count}} change",
-  "AI: {{count}} changes_other": "AI: {{count}} changes"
+  "AI: {{count}} changes_other": "AI: {{count}} changes",
+  "Detected: {{format}} · {{count}} questions_one": "Detected: {{format}} · {{count}} question",
+  "Detected: {{format}} · {{count}} questions_other": "Detected: {{format}} · {{count}} questions",
+  "{{count}} questions found_one": "{{count}} question found",
+  "{{count}} questions found_other": "{{count}} questions found"
 }
