@@ -11058,6 +11058,40 @@ class ImageCreditPayloadTests(LiveTestCase):
         entries = build_payloads(self.room)["participant"]["question"]["image_credits"]
         self.assertEqual([e["src"] for e in entries], [img.file.url])
 
+    def test_set_results_credit_lookup_does_not_query_per_question(self):
+        """M2: options are prefetched, so the bundled credit lookup is one
+        query regardless of the number of questions."""
+        from unittest import mock
+
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        from live import views as live_views
+        from rooms.models import Question
+
+        img = self.make_image()
+        self.put_in_text(img)
+        for i in range(3):
+            q = Question.objects.create(
+                question_set=self.question_set, kind="single_choice", text_de=f"Q{i}"
+            )
+            q.options.create(text="a", image=img.file.url, position=0)
+        self.open_question()
+        real = live_views.credits_for_questions
+        counts = []
+
+        def spy(questions):
+            with CaptureQueriesContext(connection) as ctx:
+                result = real(questions)
+            counts.append(len(ctx))
+            return result
+
+        self.client.force_login(self.owner)
+        with mock.patch.object(live_views, "credits_for_questions", spy):
+            response = self.client.get(f"/api/question-sets/{self.question_set.pk}/results/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(counts, [1])
+
     def test_quiz_context_has_credits(self):
         img = self.make_image()
         self.put_in_text(img)

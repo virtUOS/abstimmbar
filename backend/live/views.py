@@ -2237,7 +2237,7 @@ def set_results(request, set_id):
         .order_by("-created_at")
     )
     # One bundled credit lookup for every run (same questions in each).
-    questions = list(question_set.questions.all())
+    questions = list(question_set.questions.prefetch_related("options"))
     credits = credits_for_questions(questions)
     return Response({"results": [run_results(run, credits) for run in runs]})
 
