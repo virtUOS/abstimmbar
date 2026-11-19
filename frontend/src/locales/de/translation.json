@@ -1747,5 +1747,9 @@
   "Simple text format: a question starts with “Q:”, correct answers with “*”, wrong ones with “-”; “A:” adds a model solution to a free-text question.": "Einfaches Textformat: Eine Frage beginnt mit „F:“, richtige Antworten mit „*“, falsche mit „-“; „L:“ ergänzt bei einer Freitextfrage eine Musterlösung.",
   "All formats and rules in the guide": "Alle Formate und Regeln in der Anleitung",
   "Reading …": "Wird gelesen …",
-  "Import": "Übernehmen"
+  "Import": "Übernehmen",
+  "Image:": "Bild:",
+  "Images:": "Bilder:",
+  "by": "von",
+  "Public domain": "Gemeinfrei"
 }

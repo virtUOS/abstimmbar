@@ -636,6 +636,22 @@ export interface MindmapSeedNode {
   children: MindmapSeedNode[];
 }
 
+/** Image credit (#336); `editable` only on authoring (REST) responses. */
+export interface ImageCredit {
+  id: number;
+  src: string;
+  author: string;
+  title: string;
+  source: string;
+  license: string;
+  license_label: string;
+  license_url: string;
+  version: string;
+  text: string;
+  has_credit: boolean;
+  editable?: boolean;
+}
+
 export interface AnswerOption {
   id?: number;
   text: LocalizedText;
@@ -647,6 +663,7 @@ export interface AnswerOption {
 
 export interface Question {
   id: number;
+  image_credits?: ImageCredit[];
   question_set: number;
   section: number | null;
   kind: QuestionKind;
@@ -1886,6 +1903,8 @@ export interface LiveState {
     id: number;
     kind: QuestionKind;
     text: LocalizedText;
+    /** Credited images only (#336). */
+    image_credits?: ImageCredit[];
     multiple: boolean;
     allow_multiple?: boolean;
     wordcloud_batch_submit?: boolean;
@@ -2152,6 +2171,7 @@ export interface RunResults {
     position: number;
     kind: QuestionKind;
     text: LocalizedText;
+    image_credits?: ImageCredit[];
     votes: number;
     /** Recording mode (#53): how many of this question's votes are async. */
     votes_recording: number;
