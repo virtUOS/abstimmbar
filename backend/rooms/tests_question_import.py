@@ -5,6 +5,7 @@ import json
 import zipfile
 from pathlib import Path
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from rooms.question_import import core, detect, gift, h5p, ilias, safezip, simple
@@ -125,6 +126,19 @@ class SimpleFormatTests(SimpleTestCase):
             r = simple.parse(f"F: Frage\n{marker} a\n{marker} b\n")
             self.assertEqual(r.drafts, [])
             self.assertEqual(r.skipped, {("invalid", "Zeile 1"): 1})
+
+    def test_website_example_files_parse(self):
+        site = Path(settings.BASE_DIR).parent / "website"
+        for rel in ("anleitung/beispiel-fragen.txt", "en/guide/example-questions.txt"):
+            r = simple.parse((site / rel).read_text(encoding="utf-8"))
+            self.assertEqual(r.skipped, {}, rel)
+            self.assertEqual(
+                [d["kind"] for d in r.drafts],
+                ["single_choice", "multiple_choice", "single_choice", "ordering", "open_text"],
+                rel,
+            )
+            self.assertTrue(r.drafts[2].get("binary_choice"), rel)
+            self.assertTrue(r.drafts[4].get("model_solution"), rel)
 
 
 def draft(kind="single_choice", n=2, text="<p>x</p>", opt_text="a"):

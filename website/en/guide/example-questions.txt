@@ -1,0 +1,24 @@
+# Example file for "Import questions" (simple text format)
+# Q: new question, * correct, - wrong, A: model solution. Lines starting with # are comments.
+
+Q: Which city is the capital of Lower Saxony?
+* Hanover
+- Osnabrück
+- Brunswick
+
+Q: Which numbers are even? [multiple]
+* 2
+- 3
+* 4
+
+Q: The Earth is flat.
+- True
+* False
+
+Q: Put the steps in the correct order.
+1. Plan
+2. Implement
+3. Review
+
+Q: What are you taking away from today's session?
+A: A possible model solution (optional)

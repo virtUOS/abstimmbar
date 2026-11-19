@@ -8,6 +8,14 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- Fragen übernehmen: Fertige Fragen aus dem einfachen Textformat, aus GIFT
+  (Moodle), H5P oder einem ILIAS-Export werden wörtlich eingelesen, in der
+  Prüfansicht angezeigt und erst nach Bestätigung im Fragenset angelegt.
+  Übersprungenes wird mit Anzahl und Grund genannt. Funktioniert auch ohne KI,
+  im einfachen wie im Experten-Modus (#323).
+
 ### Behoben
 
 - Präsentation: Unter dem QR-Code steht wieder die vollständige
