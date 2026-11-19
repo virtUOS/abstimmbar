@@ -1,4 +1,4 @@
-# Beispieldatei für „Fragen übernehmen“ (einfaches Textformat)
+# Beispieldatei für „Fragen importieren“ (einfaches Textformat)
 # F: neue Frage, * richtig, - falsch, L: Musterlösung. Zeilen mit # sind Kommentare.
 
 F: Welche Stadt ist die Hauptstadt von Niedersachsen?

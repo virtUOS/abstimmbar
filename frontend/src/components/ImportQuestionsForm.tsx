@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-/** "Fragen übernehmen" (#323): bring existing questions in from pasted text
+/** "Fragen importieren" (#323): bring existing questions in from pasted text
  *  (simple text format or GIFT) or a file (.txt, .gift, .h5p, ILIAS .zip/.xml).
  *  Needs no AI and is offered in both modes. Parsing is synchronous; the
  *  result is a job reviewed in the same panel as AI proposals. */

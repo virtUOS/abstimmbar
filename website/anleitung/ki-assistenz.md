@@ -18,9 +18,9 @@ optional — Sie entscheiden immer selbst, was Sie übernehmen.
   ein; die KI ergänzt glaubwürdige Ablenker, die Sie einzeln übernehmen oder
   verwerfen.
 - **Frage umformulieren** — klarere oder kürzere Varianten Ihrer Frage.
-- **Fragen aus Dokument erzeugen** — über **Aus Dokument** im Set, aus PDF,
-  PowerPoint (PPTX) oder LibreOffice (ODP). *Beispiel:* Sie laden Ihre Folien
-  hoch, wählen ein Frageniveau, und die KI schlägt Einzel-,
+- **Fragen aus Dokument erzeugen** — über **Fragen hinzufügen** → **Aus
+  Dokument erstellen** im Set, aus PDF, PowerPoint (PPTX) oder LibreOffice
+  (ODP). *Beispiel:* Sie laden Ihre Folien hoch, wählen ein Frageniveau, und die KI schlägt Einzel-,
   Mehrfachauswahl- und Freitextfragen vor. Neben dem Folientext fließen
   auch Tabellen, Diagrammwerte und Sprechernotizen ein. Die Fragen verteilen
   sich gleichmäßig über die Folien (fast leere wie die Titelfolie zählen
