@@ -47,6 +47,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import ImageCreditsEditor from "../components/ImageCreditsEditor";
 import ImageDetailsDialog from "../components/ImageDetailsDialog";
 import MatrixSettings, { matrixProblem, type MatrixSettingsValue, type MatrixUpdate } from "../components/MatrixSettings";
+import { optionLabel } from "../optionImageAlt";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
 import { Button, ClampedNumberInput, EmptyState, Field, InfoHint, MenuItem, MoreMenu, ProOnly, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
@@ -1027,6 +1028,9 @@ export default function QuestionPage() {
     (localizedMap(o.text)[getDefaultContentLang() as "de" | "en"] ?? "").trim() !== "" ||
     (!isElection && !!o.image);
   const filledCandidates = options.filter(optionFilled).length;
+  /** 1-based position of an option (names its image buttons, #342). */
+  const optionPos = (id: (typeof options)[number]["clientId"]) =>
+    options.findIndex((o) => o.clientId === id) + 1;
   /** Image-only option (no canonical text) without a canonical description. */
   const optionAltMissing = (o: (typeof options)[number]) => {
     const canonical = getDefaultContentLang() as "de" | "en";
@@ -1210,7 +1214,7 @@ export default function QuestionPage() {
                 {isLikert ? t("Scale") : t("Answer options")}
               </span>
               <ul className="grid gap-1.5">
-                {options.map((option) => (
+                {options.map((option, index) => (
                   <li
                     key={option.clientId}
                     className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
@@ -1219,7 +1223,7 @@ export default function QuestionPage() {
                       <Check aria-label={t("Correct")} className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                     )}
                     <span className="text-slate-700 dark:text-slate-200">
-                      {localizedText(option.text) || <span className="italic text-slate-400">—</span>}
+                      {optionLabel(option, t("Answer {{n}}", { n: index + 1 })) || <span className="italic text-slate-400">—</span>}
                     </span>
                   </li>
                 ))}
@@ -1641,6 +1645,11 @@ export default function QuestionPage() {
                         <input
                           type="file"
                           accept="image/*"
+                          aria-label={
+                            item.image
+                              ? t("Replace image (answer {{n}})", { n: optionPos(item.id) })
+                              : t("Add image (answer {{n}})", { n: optionPos(item.id) })
+                          }
                           className="sr-only"
                           onChange={(event) => {
                             const file = event.target.files?.[0];
@@ -1653,7 +1662,7 @@ export default function QuestionPage() {
                     {!isLikert && !isElection && item.image && (
                       <Button
                         variant="ghost"
-                        aria-label={t("Edit image")}
+                        aria-label={t("Edit image (answer {{n}})", { n: optionPos(item.id) })}
                         title={t("Edit image")}
                         onClick={() => openOptionImageDialog(item.id, item.image!, "edit")}
                       >
@@ -1663,7 +1672,7 @@ export default function QuestionPage() {
                     {!isLikert && item.image && (
                       <Button
                         variant="ghost"
-                        aria-label={t("Remove image")}
+                        aria-label={t("Remove image (answer {{n}})", { n: optionPos(item.id) })}
                         title={t("Remove image")}
                         onClick={() => updateOption(item.id, { image: "", image_alt: emptyLoc })}
                       >
@@ -1677,6 +1686,7 @@ export default function QuestionPage() {
                       // that is missing).
                       <button
                         type="button"
+                        aria-label={t("Image description missing (answer {{n}})", { n: optionPos(item.id) })}
                         onClick={() =>
                           openOptionImageDialog(item.id, item.image!, "edit", getDefaultContentLang() as "de" | "en")
                         }

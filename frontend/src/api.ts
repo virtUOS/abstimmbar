@@ -2147,6 +2147,7 @@ export interface PriorityStat {
   id: number;
   text: LocalizedText;
   image?: string;
+  image_alt?: LocalizedText;
   avg: number;
   min: number;
   max: number;
@@ -2159,6 +2160,7 @@ export interface OrderingItem {
   id: number;
   text: LocalizedText;
   image?: string;
+  image_alt?: LocalizedText;
   correct_position: number;
   correct_rate: number;
   n: number;

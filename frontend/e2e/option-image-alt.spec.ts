@@ -6,7 +6,7 @@
  *  deletes them. No real AI calls (the suggestion is stubbed). */
 import type { Page } from '@playwright/test';
 import { test, expect, API_BASE_URL, csrfToken } from './fixtures';
-import { apiClient, control, createRoomWithQuestions, startRun } from './helpers/seed';
+import { apiClient, castAnswers, control, createRoomWithQuestions, joinParticipants, startRun } from './helpers/seed';
 
 const BASE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:5174';
 
@@ -177,6 +177,42 @@ test.describe('without AI vision', () => {
     } finally {
       await ctx.close();
     }
+  });
+
+  test('editor: image buttons carry the answer position in their name', async ({ page, trackRoom }) => {
+    const { url } = await uploadImage(page);
+    await openQuestion(page, trackRoom, [
+      { text: { de: 'Hund', en: 'Dog' }, image: url, image_alt: { de: 'x', en: '' } },
+      { text: { de: '', en: '' }, image: url },
+    ]);
+    for (const n of [1, 2]) {
+      await expect(page.getByRole('button', { name: `Bild bearbeiten (Antwort ${n})` })).toHaveCount(1);
+      await expect(page.getByRole('button', { name: `Bild entfernen (Antwort ${n})` })).toHaveCount(1);
+      await expect(page.getByLabel(`Bild austauschen (Antwort ${n})`)).toHaveCount(1);
+    }
+    await expect(page.getByRole('button', { name: 'Bildbeschreibung fehlt (Antwort 2)' })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /Bildbeschreibung fehlt \(Antwort 1\)/ })).toHaveCount(0);
+  });
+
+  test('results page: image-only options are named by alt, else "Antwort N"', async ({ page, trackRoom }) => {
+    const { url } = await uploadImage(page);
+    const q = await openQuestion(page, trackRoom, [
+      { text: { de: '', en: '' }, image: url, image_alt: { de: 'Ein Hund', en: '' } },
+      { text: { de: '', en: '' }, image: url },
+      { text: { de: 'Katze', en: 'Cat' }, image: url, image_alt: { de: 'Eine Katze', en: '' } },
+    ]);
+    const api = apiClient(page.request);
+    const runId = await startRun(api, q.setId);
+    await control(api, runId, 'open', q.id);
+    const options: number[] = (await api.get(`/api/questions/${q.id}/`)).options.map((o: { id: number }) => o.id);
+    const tokens = await joinParticipants(page.request, q.code, 3);
+    await castAnswers(page.request, q.code, { id: q.id, kind: 'single_choice', options }, tokens);
+    await control(api, runId, 'results', q.id);
+    await page.goto(`/sets/${q.setId}/results`);
+    await expect(page.getByRole('img', { name: 'Ein Hund' })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'Antwort 2' })).toBeVisible();
+    // Option with text: the text names it, the image is decoration.
+    await expect(page.getByRole('img', { name: 'Eine Katze' })).toHaveCount(0);
   });
 });
 

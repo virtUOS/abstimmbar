@@ -328,7 +328,7 @@ export default function AiReviewPanel({
                   {isImport && isMedia(option.image) && (
                     <img
                       src={`${API_BASE_URL}${option.image}`}
-                      alt={option.image_alt ?? ""}
+                      alt={option.text ? "" : (option.image_alt ?? "")}
                       className="mb-0.5 block max-h-16 max-w-[8rem] rounded border border-slate-200 object-contain dark:border-slate-700"
                     />
                   )}
