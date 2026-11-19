@@ -163,8 +163,8 @@ The credit is shown as a compact line below the question — on the beamer
 (also in the results walkthrough, there without links) and on the participant
 page (with the title and license linked), e.g. *Image: "Freshly Picked
 Blackcurrants" by Karen Jackson, CC BY-ND 4.0*; with several images *Images:
-… · …*. In the wide mindmap and four-field matrix view, where images are
-hidden, no line appears. Only images visible in the displayed language get a
+… · …*. In the wide mindmap and four-field matrix view on the beamer, where
+images are hidden, no line appears. Only images visible in the displayed language get a
 credit.
 
 ## Bilingual content (expert mode)

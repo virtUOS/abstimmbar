@@ -167,10 +167,10 @@ beim Import).
 
 Angezeigt wird der Nachweis als kompakte Zeile unter der Frage — auf dem
 Beamer (auch in der Ergebnis-Durchsicht, dort ohne Links) und auf der
-Teilnahmeseite (mit verlinkten Titel und Lizenz), z. B. *Bild: „Freshly Picked
-Blackcurrants“ von Karen Jackson, CC BY-ND 4.0*; bei mehreren Bildern
-*Bilder: … · …*. In der breiten Mindmap- und Vier-Felder-Ansicht, in der Bilder
-ausgeblendet sind, erscheint keine Zeile. Nur Bilder, die in der angezeigten
+Teilnahmeseite (mit verlinktem Titel und verlinkter Lizenz), z. B. *Bild:
+„Freshly Picked Blackcurrants“ von Karen Jackson, CC BY-ND 4.0*; bei mehreren
+Bildern *Bilder: … · …*. In der breiten Mindmap- und Vier-Felder-Ansicht auf dem
+Beamer, in der Bilder ausgeblendet sind, erscheint keine Zeile. Nur Bilder, die in der angezeigten
 Sprache sichtbar sind, erhalten einen Nachweis.
 
 ## Zweisprachige Inhalte (Experten-Modus)
