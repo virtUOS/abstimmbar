@@ -139,7 +139,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
                 {err("author")}
               </Field>
               <Field label={t("Title")}>
-                <TextInput value={draft.title} maxLength={200} onChange={(e) => set({ title: e.target.value })} />
+                <TextInput value={draft.title} maxLength={300} onChange={(e) => set({ title: e.target.value })} />
                 {err("title")}
               </Field>
             </div>
@@ -148,6 +148,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
                 type="url"
                 inputMode="url"
                 placeholder="https://"
+                maxLength={500}
                 value={draft.source}
                 onChange={(e) => set({ source: e.target.value })}
               />
@@ -173,6 +174,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
                   <TextInput
                     inputMode="decimal"
                     placeholder="4.0"
+                    maxLength={8}
                     value={draft.version}
                     onChange={(e) => set({ version: e.target.value })}
                   />
@@ -182,7 +184,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
             </div>
             {hasNote && (
               <Field label={t("License note")}>
-                <TextInput value={draft.text} maxLength={200} onChange={(e) => set({ text: e.target.value })} />
+                <TextInput value={draft.text} maxLength={100} onChange={(e) => set({ text: e.target.value })} />
                 {err("text")}
               </Field>
             )}

@@ -115,9 +115,14 @@ test('editor edits image credit', async ({ page, trackRoom }) => {
   const section = page.getByTestId('image-credits-editor');
   await expect(section.getByRole('heading', { name: 'Bildnachweise' })).toBeVisible();
   await expect(section.getByText('Kein Bildnachweis')).toBeVisible();
+  // Input limits match the backend (author 200, title 300, source 500).
+  await expect(section.getByLabel('Urheber:in')).toHaveAttribute('maxlength', '200');
+  await expect(section.getByLabel('Titel')).toHaveAttribute('maxlength', '300');
+  await expect(section.getByLabel('Quelle (Link)')).toHaveAttribute('maxlength', '500');
 
   await section.getByLabel('Urheber:in').fill('Karen Jackson');
   await section.getByRole('combobox', { name: /^Lizenz/ }).selectOption('cc-by');
+  await expect(section.getByLabel('Version')).toHaveAttribute('maxlength', '8');
   await section.getByLabel('Version').fill('4.0');
   await section.getByRole('button', { name: 'Nachweis speichern' }).click();
   await expect(section.getByText('Gespeichert')).toBeVisible();
