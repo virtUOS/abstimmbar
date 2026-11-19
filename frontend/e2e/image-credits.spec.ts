@@ -135,3 +135,58 @@ test('editor edits image credit', async ({ page, trackRoom }) => {
   await expect(again.getByLabel('Version')).toHaveValue('4.0');
   await expect(again.getByText('Kein Bildnachweis')).toHaveCount(0);
 });
+
+test('unsaved credit draft survives a question save on the page', async ({ page, trackRoom }) => {
+  // Expert mode: language tabs + "Mark as up to date" — the save that keeps
+  // the editor open and refreshes the question (and so its credits).
+  await page.route(/\/api\/whoami\/(\?.*)?$/, async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const response = await route.fetch();
+    const json = await response.json();
+    if (json.username) Object.assign(json, { onboarding_tour_seen: true, easy_mode: false });
+    await route.fulfill({ response, json });
+  });
+  const room = await createRoomWithQuestions(page.request, [], 'Credits draft', trackRoom, 'E2E Credits');
+  const token = await csrfToken(page.request);
+  const up = await page.request.post(`${API_BASE_URL}/api/images/`, {
+    headers: token ? { 'X-CSRFToken': token } : undefined,
+    multipart: { file: { name: 'draft.png', mimeType: 'image/png', buffer: PNG } },
+  });
+  expect(up.ok(), await up.text()).toBeTruthy();
+  const { url } = await up.json();
+  const api = apiClient(page.request);
+  const q = await api.post('/api/questions/', {
+    question_set: room.setId,
+    kind: 'single_choice',
+    text: { de: `<p>Was sehen Sie?</p><p><img src="${url}" alt=""></p>`, en: '<p>What do you see?</p>' },
+    options: [
+      { text: { de: 'Ein Bild', en: 'A picture' }, is_correct: true },
+      { text: { de: 'Nichts', en: 'Nothing' }, is_correct: false },
+    ],
+  });
+
+  await page.goto(`/sets/${room.setId}/questions/${q.id}`);
+  const section = page.getByTestId('image-credits-editor');
+  await section.getByLabel('Urheber:in').fill('Entwurf');
+  await section.getByLabel('Titel').fill('Noch nicht gespeichert');
+
+  // Edit the German text -> English turns stale; marking it up to date saves
+  // the question in place.
+  await page.locator('[data-tour="question.lang-tabs"] [contenteditable="true"]').first().click();
+  await page.keyboard.press('End');
+  await page.keyboard.type(' Neu');
+  await page.locator('[data-tour="question.lang-tabs"]').getByRole('tab', { name: /^en/ }).click();
+  const saved = page.waitForResponse(
+    (r) => r.url().includes(`/api/questions/${q.id}/`) && r.request().method() !== 'GET',
+  );
+  await page.getByRole('button', { name: 'Als aktuell markieren' }).click();
+  expect((await saved).ok()).toBeTruthy();
+  // The refreshed question has been rendered once the stale marker is gone.
+  await expect(
+    page.locator('[data-tour="question.lang-tabs"]').getByRole('tab', { name: /veraltet/ }),
+  ).toHaveCount(0);
+
+  await expect(section.getByLabel('Titel')).toHaveValue('Noch nicht gespeichert');
+  await expect(section.getByLabel('Urheber:in')).toHaveValue('Entwurf');
+  await expect(section.getByRole('button', { name: 'Nachweis speichern' })).toBeEnabled();
+});

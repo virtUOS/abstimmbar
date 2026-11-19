@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { api, requestBody, requestError, type ImageCredit } from "../api";
 import { ImageCredits } from "./ImageCredits";
@@ -56,20 +56,27 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
   const [error, setError] = useState("");
   const readOnly = saved.editable === false;
 
-  // The question was saved again: take over the fresh server state.
+  const isCc = draft.license.startsWith("cc-");
+  const dirty = (Object.keys(draft) as (keyof Draft)[]).some((k) => draft[k] !== saved[k]);
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  // Fresh server state (e.g. the question was saved again): take it over,
+  // but only when the stored credit actually changed — a refetch hands in a
+  // new object every time — and never overwrite unsaved input.
+  const creditKey = JSON.stringify([credit.id, credit.editable, credit.has_credit, toDraft(credit)]);
   useEffect(() => {
     setSaved(credit);
-    setDraft(toDraft(credit));
-  }, [credit]);
+    if (!dirtyRef.current) setDraft(toDraft(credit));
+    // Keyed by content, not identity (see above).
+  }, [creditKey]);
 
   const set = (patch: Partial<Draft>) => {
     setDraft((d) => ({ ...d, ...patch }));
     setDone(false);
   };
-  const isCc = draft.license.startsWith("cc-");
   // "Other" needs the note; "All rights reserved" may carry one (H5P extras).
   const hasNote = draft.license === "other" || draft.license === "arr";
-  const dirty = (Object.keys(draft) as (keyof Draft)[]).some((k) => draft[k] !== saved[k]);
 
   const save = async () => {
     setBusy(true);
