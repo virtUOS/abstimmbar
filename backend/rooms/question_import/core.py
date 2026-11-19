@@ -201,11 +201,18 @@ def image_srcs(html: str) -> list[str]:
     ]
 
 
+def normalize_alt(alt: str) -> str:
+    """Alt text as a plain one-liner: tags stripped, whitespace collapsed,
+    capped. Takes an already-decoded value, so entities are not decoded again."""
+    return " ".join(_sub_tags(_TAG_RE, alt or "").split())[:IMAGE_ALT_MAX]
+
+
 def image_alts(html: str) -> list[str]:
-    """``alt`` of every ``<img>`` in sanitized HTML, parallel to ``image_srcs``."""
+    """Normalized ``alt`` of every ``<img>`` in sanitized HTML, parallel to
+    ``image_srcs``."""
     html = html or ""
     return [
-        html_lib.unescape(_attr(_ALT_RE, tag)).strip()
+        normalize_alt(_attr(_ALT_RE, tag))
         for tag in _IMG_RE.findall(html, 0, html.rfind(">") + 1)
     ]
 

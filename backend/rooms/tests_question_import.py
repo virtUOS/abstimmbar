@@ -1395,6 +1395,23 @@ class H5PImageTests(SimpleTestCase):
         self.assertEqual(d["options"][0].get("image_alt"), "Ein roter Kreis")
         self.assertNotIn("image_alt", d["options"][1])
 
+    def test_h5p_answer_image_alt_normalized(self):
+        content = mc(answers=(
+            ('<img src="images/a.png" alt="' + "x" * 400 + '">', True),
+            ('<img src="images/b.png" alt="Zeile eins\n   Zeile  zwei">', False),
+            ('<img src="images/c.png" alt="a &amp;lt;b&amp;gt; &amp;amp; c">', False),
+        ))
+        r = h5p.parse(h5p_zip(
+            "H5P.MultiChoice 1.16", content,
+            {"content/images/a.png": png(), "content/images/b.png": png((0, 0, 255)),
+             "content/images/c.png": png((0, 255, 0))},
+        ))
+        [d] = r.drafts
+        alts = [o.get("image_alt") for o in d["options"]]
+        self.assertEqual(alts[0], "x" * 300)
+        self.assertEqual(alts[1], "Zeile eins Zeile zwei")
+        self.assertEqual(alts[2], "a &lt;b&gt; &amp; c")
+
     def test_h5p_dropped_answer_image_has_no_alt(self):
         content = mc(answers=(("A", True), ('B <img src="images/none.png" alt="weg">', False)))
         r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", content))
@@ -1523,6 +1540,21 @@ class IliasImageTests(SimpleTestCase):
         r = ilias.parse(safezip.open_zip(data))
         [d] = r.drafts
         self.assertEqual([o.get("image_alt") for o in d["options"]], ["Eine Katze", "Ein Hund", None])
+
+    def test_ilias_option_image_alt_normalized(self):
+        response = (
+            '<response_lid ident="MCSR"><render_choice>'
+            '<response_label ident="0"><material><matimage label="a.png" uri="objects/a.png" alt="' + "y" * 400 + '"/></material></response_label>'
+            '<response_label ident="1"><material><matimage label="b.png" uri="objects/b.png" alt="Zeile eins&#10;  Zeile zwei"/></material></response_label>'
+            '<response_label ident="2"><material><matimage label="c.png" uri="objects/c.png" alt="a &amp;lt;b&amp;gt; c"/></material></response_label>'
+            "</render_choice></response_lid>"
+        )
+        data = make_zip({"x/x_qti_1.xml": qti(qti_item(response=response, resprocessing=cond(0, 1))),
+                         "x/objects/a.png": png(), "x/objects/b.png": png((0, 0, 255)),
+                         "x/objects/c.png": png((0, 255, 0))})
+        [d] = ilias.parse(safezip.open_zip(data)).drafts
+        self.assertEqual([o["image_alt"] for o in d["options"]],
+                         ["y" * 300, "Zeile eins Zeile zwei", "a &lt;b&gt; c"])
 
     def test_ilias_option_inline_img_and_matimage_one_image(self):
         response = (

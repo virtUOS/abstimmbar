@@ -13,7 +13,6 @@ from rooms.images import MAX_IMAGE_BYTES
 
 from . import safezip
 from .core import (
-    IMAGE_ALT_MAX,
     MAX_OPTIONS,
     ImportFailed,
     ImportImage,
@@ -191,7 +190,7 @@ def _options(answers, correct, images: _Images) -> tuple[list[dict], bool]:
         if image:
             option["image"] = image
             if alt:
-                option["image_alt"] = alt[:IMAGE_ALT_MAX]
+                option["image_alt"] = alt
         options.append(option)
         dropped = dropped or lost
     return options, dropped

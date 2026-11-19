@@ -20,7 +20,6 @@ from rooms.images import MAX_IMAGE_BYTES
 
 from . import safezip
 from .core import (
-    IMAGE_ALT_MAX,
     MAX_OPTIONS,
     QUESTION_TEXT_MAX,
     ImportFailed,
@@ -34,6 +33,7 @@ from .core import (
     img_tag,
     import_filename,
     is_package_path,
+    normalize_alt,
     plain,
     safe_xml,
 )
@@ -271,7 +271,7 @@ def _labels(response, images: _ItemImages | None) -> list[tuple[str, str, str, s
                 src = images.matimage(el) if images is not None else ""
                 if src:
                     srcs.append(src)
-                    alts.append((el.get("alt") or "").strip())
+                    alts.append(normalize_alt(el.get("alt") or ""))
                 else:
                     dropped = True
                 continue
@@ -296,7 +296,7 @@ def _labels(response, images: _ItemImages | None) -> list[tuple[str, str, str, s
         dropped = dropped or len(srcs) > 1
         labels.append((
             (label.get("ident") or "").strip(), "".join(raw_parts).strip(),
-            image, alt_of[image][:IMAGE_ALT_MAX] if image else "", dropped,
+            image, alt_of[image] if image else "", dropped,
         ))
     return labels
 
