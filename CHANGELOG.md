@@ -15,9 +15,26 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 >   Caddyfile enthält die Weiterleitung bereits; wer die Caddyfile angepasst
 >   hat oder einen eigenen Reverse-Proxy betreibt, muss `/g/*` ergänzen
 >   (Liste der weiterzuleitenden Pfade in der Installationsanleitung).
+> - **Neue optionale Umgebungsvariablen `AI_VISION` und `AI_VISION_MODEL`**
+>   für den Bildbeschreibungs-Vorschlag (siehe Installationsanleitung). Ohne
+>   `AI_VISION=1` ändert sich nichts. Voraussetzung sind ein bildfähiges Modell
+>   und die Pakete basicbar-ui ≥ 0.11.1 sowie basicbar-integrations 0.5.0
+>   (per Image-Rebuild).
 
 ### Hinzugefügt
 
+- Bild-Dialog im Editor: Nach dem Hochladen eines Bildes öffnet sich der
+  Dialog „Bild einfügen“ mit Vorschau und Bildbeschreibung (Alternativtext);
+  bei Bildern im Fragetext zusätzlich mit den Feldern des Bildnachweises,
+  bei Antwortbildern nur mit diesen. Alle Angaben sind optional, „Überspringen“
+  (Esc) fügt das Bild trotzdem ein; die Werkzeugleisten-Schaltfläche
+  „Bildbeschreibung“ öffnet den Dialog erneut. Link-Einfügen und
+  Upload-Fehler nutzen keine Browser-Pop-ups mehr.
+- KI-Bildbeschreibung: Wenn die Betreiber `AI_VISION=1` (optional
+  `AI_VISION_MODEL`) setzen und das Modell Bilder versteht, erzeugt
+  „Vorschlag erstellen“ im Dialog einen Alternativtext (höchstens 150 Zeichen,
+  in der Sprache des bearbeiteten Reiters). Das verkleinerte Bild geht nur auf
+  Klick an den KI-Dienst.
 - Bildnachweise (#336): Jedes Bild kann Urheber:in, Titel, Quelle und Lizenz
   tragen (Abschnitt „Bildnachweise“ im Fragen-Editor); der Nachweis erscheint
   als Zeile unter der Frage auf Beamer und Teilnahmeseite und ist in Kopien und

@@ -18,6 +18,11 @@ optional — Sie entscheiden immer selbst, was Sie übernehmen.
   ein; die KI ergänzt glaubwürdige Ablenker, die Sie einzeln übernehmen oder
   verwerfen.
 - **Frage umformulieren** — klarere oder kürzere Varianten Ihrer Frage.
+- **Bildbeschreibung vorschlagen** — im Dialog **Bild einfügen** erzeugt die
+  KI einen Alternativtext zum Bild (bis 150 Zeichen), den Sie bearbeiten und
+  übernehmen. Nur verfügbar, wenn Ihre Einrichtung die Bildbeschreibung
+  freigeschaltet hat; das Bild wird erst auf Ihren Klick an den KI-Dienst
+  gesendet. Siehe [Bilder](fragen.md#bildbeschreibung).
 - **Fragen aus Dokument erzeugen** — über **Fragen hinzufügen** → **Aus
   Dokument erstellen** im Set, aus PDF, PowerPoint (PPTX) oder LibreOffice
   (ODP). *Beispiel:* Sie laden Ihre Folien hoch, wählen ein Frageniveau, und die KI schlägt Einzel-,

@@ -136,7 +136,28 @@ solution is shown is set per set and can be overridden per question:
 - **Time limit** — closes voting automatically after the chosen time.
 - **Images** — insert images into the question text via the image icon in
   the toolbar (or by dragging them in); each answer can have its own image,
-  too. You can add an [image credit](#bildnachweise) to every image.
+  too. You can add an [image credit](#bildnachweise) to every image and an
+  [image description](#image-description) for screen readers.
+
+## Inserting and describing images { #image-description }
+
+After you upload an image into a text field (question text, descriptions, info
+pages …), the **Insert image** dialog opens with a preview. Enter the **Image
+description (alt text)** there — screen readers read it aloud and it is shown
+if the image fails to load. Describe what the image shows and why it matters
+for the question. For images in the question text you can also fill in the
+[image credit](#bildnachweise) fields here. Everything is optional:
+**Apply** saves your input, **Skip** (or Esc) closes the dialog without
+entries — the image is inserted either way. The toolbar button **Image
+description** reopens the dialog later as **Edit image**. For answer images the
+dialog contains only the image-credit fields.
+
+If your institution has enabled image description, a **Create suggestion**
+button is available: only when you click is the image (downscaled) sent to the
+AI service; the suggestion (at most 150 characters, in the language of the tab
+you are editing) can be changed freely before you apply it. This is available
+to people who uploaded the image or may edit its credit. More under
+[AI assistance](ai-assistance.md).
 
 ## Image credits { #bildnachweise }
 

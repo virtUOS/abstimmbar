@@ -141,7 +141,30 @@ Lösung angezeigt wird, legen Sie je Set fest und können es je Frage
 - **Bilder** — fügen Sie über das Bild-Symbol der Werkzeugleiste (oder per
   Ziehen) Bilder in den Fragetext ein; auch jede Antwort kann ein eigenes Bild
   erhalten. Zu jedem Bild können Sie einen [Bildnachweis](#bildnachweise)
-  hinterlegen.
+  hinterlegen und eine [Bildbeschreibung](#bildbeschreibung) für Screenreader.
+
+## Bilder einfügen und beschreiben { #bildbeschreibung }
+
+Nach dem Hochladen eines Bildes in ein Textfeld (Fragetext, Beschreibungen,
+Infoseiten …) öffnet sich der Dialog **Bild einfügen** mit Vorschau. Dort
+tragen Sie die **Bildbeschreibung (Alternativtext)** ein — sie wird von
+Screenreadern vorgelesen und erscheint, wenn das Bild nicht lädt. Beschreiben
+Sie, was das Bild zeigt und warum es für die Frage wichtig ist. Bei Bildern im
+Fragetext können Sie hier zusätzlich die Felder des
+[Bildnachweises](#bildnachweise) ausfüllen. Alle Angaben sind optional:
+**Übernehmen** speichert sie, **Überspringen** (oder Esc) schließt den Dialog
+ohne Angaben — das Bild wird in jedem Fall eingefügt. Über die
+Werkzeugleisten-Schaltfläche **Bildbeschreibung** öffnen Sie den Dialog später
+erneut als **Bild bearbeiten**. Bei Antwortbildern enthält der Dialog nur die
+Felder des Bildnachweises.
+
+Wenn Ihre Einrichtung die Bildbeschreibung freigeschaltet hat, gibt es die
+Schaltfläche **Vorschlag erstellen**: Erst auf Ihren Klick wird das Bild
+(verkleinert) an den KI-Dienst gesendet; der Vorschlag (höchstens 150 Zeichen,
+in der Sprache des gerade bearbeiteten Reiters) lässt sich vor dem Übernehmen
+beliebig ändern. Verfügbar ist das für Personen, die das Bild hochgeladen haben
+oder dessen Bildnachweis ändern dürfen. Mehr dazu unter
+[KI-Assistenz](ki-assistenz.md).
 
 ## Bildnachweise { #bildnachweise }
 
