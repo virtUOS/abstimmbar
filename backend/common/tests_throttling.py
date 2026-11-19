@@ -151,6 +151,7 @@ class AIThrottleTests(ApiTestCase):
             f"/api/runs/{q}/questions/{q}/ai-freetext/",
             f"/api/runs/{q}/questions/{q}/ai-summary/",
             f"/api/runs/{q}/ai-summary/",
+            f"/api/runs/{q}/wordcloud-ai/",
         ]
         with _rates(ai="0/hour", ai_vision="0/hour"), mock.patch(DISTRACTORS) as m:
             for url in text_endpoints:

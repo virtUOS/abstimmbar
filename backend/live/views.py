@@ -2849,6 +2849,7 @@ def wordcloud_ai_settings(request, run_id, question_id):
 
 @api_view(["POST"])
 @permission_classes([IsAuthenticated])
+@throttle_classes([AIThrottle])
 def wordcloud_ai(request, run_id):
     """Presenter toggles the live AI word-cloud view on/off for a question.
 
