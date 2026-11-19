@@ -179,3 +179,30 @@ test('H5P with credited image → review shows image + credit → editor keeps t
   await expect(section.getByLabel('Urheber:in')).toHaveValue('Karen Jackson');
   await expect(section.getByText('Kein Bildnachweis')).toHaveCount(0);
 });
+
+test('one rejected proposal does not stop the others from being taken over', async ({ page, trackRoom }) => {
+  const room = await createRoomWithQuestions(page.request, [], 'Import Teilfehler', trackRoom, 'E2E Import');
+  await openImport(page, room.setId);
+  await page.getByRole('textbox', { name: 'Text einfügen' }).fill(SIMPLE_TEXT);
+  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+
+  // The first question POST is rejected by the server.
+  let rejected = false;
+  await page.route(/\/api\/questions\/$/, async (route) => {
+    if (route.request().method() !== 'POST' || rejected) return route.continue();
+    rejected = true;
+    await route.fulfill({ status: 400, json: { options: ['Add at least two answer options, each with text.'] } });
+  });
+  await page.getByRole('checkbox', { name: /Welche Farbe hat der Himmel/ }).check();
+  await page.getByRole('checkbox', { name: /Photosynthese/ }).check();
+  await page.getByRole('button', { name: /Ausgewählte übernehmen/ }).click();
+
+  await expect(page.getByText(/1 Frage konnte nicht übernommen werden\./)).toBeVisible();
+  // The panel stays open; the rejected proposal is still there.
+  await expect(page.getByRole('checkbox', { name: /Welche Farbe hat der Himmel/ })).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: /Photosynthese/ })).toHaveCount(0);
+  const response = await page.request.get(`${API_BASE_URL}/api/questions/?question_set=${room.setId}`);
+  const questions = (await response.json()).results as { kind: string }[];
+  expect(questions.map((q) => q.kind)).toEqual(['open_text']);
+});

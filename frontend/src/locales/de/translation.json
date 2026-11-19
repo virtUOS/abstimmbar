@@ -1764,5 +1764,7 @@
   "Unknown": "Unbekannt",
   "Other": "Sonstige",
   "Save credit": "Nachweis speichern",
-  "Saved": "Gespeichert"
+  "Saved": "Gespeichert",
+  "{{count}} questions could not be taken over._one": "{{count}} Frage konnte nicht übernommen werden.",
+  "{{count}} questions could not be taken over._other": "{{count}} Fragen konnten nicht übernommen werden."
 }

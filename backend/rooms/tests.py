@@ -8051,9 +8051,15 @@ class ImportQuestionsEndpointTests(ApiTestCase):
         self.assertIn(f'<img src="{uploaded.file.url}"', text)
         self.assertIn("Text /media/_import/1", text)
 
+    def _materialize(self, drafts, images):
+        from .question_import.core import ImportResult
+        from .question_import.materialize import materialize_images
+        result = ImportResult(format="h5p", drafts=drafts, images=images)
+        materialize_images(result, self.owner)
+        return result
+
     def test_materialize_strips_unresolved_and_skips_orphans(self):
         from .question_import.core import ImportImage
-        from .question_import.materialize import materialize_images
         drafts = [
             {"kind": "single_choice", "text": '<p><img src="/media/_import/9" alt=""></p><p>Q</p>',
              "options": [{"text": "a", "is_correct": True, "image": "/media/_import/8"},
@@ -8063,15 +8069,14 @@ class ImportQuestionsEndpointTests(ApiTestCase):
             "/media/_import/8": ImportImage(data=b"broken", filename="import.png"),
             "/media/_import/7": ImportImage(data=self._png(), filename="import.png"),  # orphan
         }
-        drafts, dropped = materialize_images(drafts, images, self.owner)
-        self.assertEqual(dropped, 1)  # one draft lost images
-        self.assertEqual(drafts[0]["text"], "<p></p><p>Q</p>")
-        self.assertEqual(drafts[0]["options"][0]["image"], "")
+        result = self._materialize(drafts, images)
+        self.assertEqual(result.skipped, {("image_dropped", ""): 1})  # once per draft
+        self.assertEqual(result.drafts[0]["text"], "<p></p><p>Q</p>")
+        self.assertEqual(result.drafts[0]["options"][0]["image"], "")
         self.assertEqual(UploadedImage.objects.count(), 0)
 
     def test_materialize_stores_shared_image_once(self):
         from .question_import.core import ImportImage
-        from .question_import.materialize import materialize_images
         img = '<p><img src="/media/_import/1" alt="x"></p>'
         drafts = [
             {"kind": "open_text", "text": img + "<p>A</p>", "options": []},
@@ -8083,8 +8088,9 @@ class ImportQuestionsEndpointTests(ApiTestCase):
             data=self._png(), filename="import.png",
             credit={"author": "Karen Jackson", "license": "cc0", "source": "javascript:x"},
         )}
-        drafts, dropped = materialize_images(drafts, images, self.owner)
-        self.assertEqual(dropped, 0)
+        result = self._materialize(drafts, images)
+        drafts = result.drafts
+        self.assertEqual(result.skipped, {})
         uploaded = UploadedImage.objects.get()
         url = uploaded.file.url
         self.assertEqual(uploaded.credit_source, "")  # invalid field dropped
@@ -8092,6 +8098,66 @@ class ImportQuestionsEndpointTests(ApiTestCase):
         self.assertEqual(drafts[1]["options"][0]["image"], url)
         self.assertEqual([c["src"] for c in drafts[0]["image_credits"]], [url])
         self.assertEqual([c["src"] for c in drafts[1]["image_credits"]], [url])
+
+    def _option_image_h5p(self, answers, question="<p>Welche?</p>", bad=b"kein Bild"):
+        return self._zip({
+            "h5p.json": {"mainLibrary": "H5P.MultiChoice"},
+            "content/content.json": {"question": question, "answers": answers},
+            "content/images/bad.png": bad,
+        })
+
+    def test_image_only_option_lost_option_removed(self):
+        data = self._option_image_h5p([
+            {"text": '<img src="images/bad.png" alt="">', "correct": False},
+            {"text": "Rot", "correct": True},
+            {"text": "Blau", "correct": False},
+        ])
+        body, job = self._import_job(data)
+        self.assertEqual([o["text"] for o in job.drafts[0]["options"]], ["Rot", "Blau"])
+        self.assertEqual(body["skipped"], [{"reason": "image_dropped", "detail": "", "count": 1}])
+
+    def test_image_only_option_lost_question_dropped(self):
+        from .models import GenerationJob
+        ok = self._option_image_h5p([
+            {"text": "Rot", "correct": True}, {"text": "Blau", "correct": False},
+        ], question="<p>Gültig</p>")
+        bad = self._option_image_h5p([
+            {"text": '<img src="images/bad.png" alt="">', "correct": True},
+            {"text": "Blau", "correct": False},
+        ])
+        # Only the broken question: nothing left -> same 400 as "none found".
+        r = self._upload(bad, "quiz.h5p")
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(r.json()["skipped"], [{"reason": "invalid", "detail": "", "count": 1}])
+        self.assertFalse(GenerationJob.objects.exists())
+        self.assertEqual(UploadedImage.objects.count(), 0)
+        # Its correct answer gone with two options left: dropped as well.
+        three = self._option_image_h5p([
+            {"text": '<img src="images/bad.png" alt="">', "correct": True},
+            {"text": "Rot", "correct": False}, {"text": "Blau", "correct": False},
+        ])
+        r = self._upload(three, "quiz.h5p")
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(self._upload(ok, "quiz.h5p").status_code, 201)
+
+    def test_image_only_question_text_lost_question_dropped(self):
+        data = self._option_image_h5p(
+            [{"text": "Rot", "correct": True}, {"text": "Blau", "correct": False}],
+            question='<p><img src="images/bad.png" alt=""></p>',
+        )
+        r = self._upload(data, "quiz.h5p")
+        self.assertEqual(r.status_code, 400, r.content)
+        self.assertEqual(r.json()["skipped"], [{"reason": "invalid", "detail": "", "count": 1}])
+
+    def test_image_dropped_once_per_draft_across_reading_and_storing(self):
+        # One image missing from the package (reading), one broken (storing).
+        data = self._option_image_h5p(
+            [{"text": "Rot", "correct": True}, {"text": "Blau", "correct": False}],
+            question='<p><img src="images/missing.png" alt=""><img src="images/bad.png" alt="">Q</p>',
+        )
+        body, job = self._import_job(data)
+        self.assertEqual(body["skipped"], [{"reason": "image_dropped", "detail": "", "count": 1}])
+        self.assertNotIn("<img", job.drafts[0]["text"])
 
     def test_adopted_draft_keeps_image(self):
         _, job = self._import_job(self._fixture("multichoice-image.h5p"))

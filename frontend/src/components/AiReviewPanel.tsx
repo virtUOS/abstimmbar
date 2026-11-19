@@ -209,32 +209,42 @@ export default function AiReviewPanel({
     if (!job) return;
     const drafts = job.drafts;
     const imported: string[] = [];
+    let failed = 0;
+    let firstError: unknown = null;
     setImporting(true);
     setError("");
-    try {
-      for (let index = 0; index < drafts.length; index++) {
-        if (!selected.has(index)) continue;
-        const draft = drafts[index];
+    // One rejected proposal (e.g. an imported image-only option whose image
+    // could not be stored) must not hold back the others.
+    for (let index = 0; index < drafts.length; index++) {
+      if (!selected.has(index)) continue;
+      const draft = drafts[index];
+      try {
         await api.createQuestion({
-          question_set: setId,
-          kind: draft.kind,
-          text: draft.text,
-          binary_choice: draft.binary_choice ?? false,
-          options: draft.options.map((option) => ({
-            text: option.text,
-            is_correct: option.is_correct,
-            ...(option.image ? { image: option.image } : {}),
-          })),
-          model_solution: draft.model_solution ?? "",
-          // Imported free-text questions never switch on AI scoring by
-          // themselves (#323) — the teacher opts in in the editor.
-          ai_evaluate:
-            !isImport && draft.kind === "open_text" && !!draft.model_solution,
-        });
+            question_set: setId,
+            kind: draft.kind,
+            text: draft.text,
+            binary_choice: draft.binary_choice ?? false,
+            options: draft.options.map((option) => ({
+              text: option.text,
+              is_correct: option.is_correct,
+              ...(option.image ? { image: option.image } : {}),
+            })),
+            model_solution: draft.model_solution ?? "",
+            // Imported free-text questions never switch on AI scoring by
+            // themselves (#323) — the teacher opts in in the editor.
+            ai_evaluate:
+              !isImport && draft.kind === "open_text" && !!draft.model_solution,
+          });
         imported.push(draft.text);
+      } catch (err) {
+        failed += 1;
+        firstError ??= err;
       }
-    } catch (err) {
-      setError(aiErrorText(err, t));
+    }
+    if (failed > 0) {
+      setError(
+        `${t("{{count}} questions could not be taken over.", { count: failed })} ${aiErrorText(firstError, t)}`,
+      );
     }
     // Take the created questions out of the job — also after a failure
     // midway, so a second attempt does not create them twice. The unselected

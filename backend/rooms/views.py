@@ -800,19 +800,18 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         except import_core.ImportFailed as exc:
             return Response({"detail": str(exc)}, status=400)
         import_core.finalize(result, set_types.allowed_kinds(question_set.type))
-        skipped = result.skipped_list()
-        if not result.drafts:
-            return Response(
-                {"detail": gettext("No questions found. Please check the format."),
-                 "format": result.format, "skipped": skipped},
-                status=400,
-            )
         with transaction.atomic():
-            # Package images (#336): only those of kept drafts are stored.
-            _, dropped = materialize_images(result.drafts, result.images, request.user)
-            if dropped:
-                result.skip("image_dropped", n=dropped)
-                skipped = result.skipped_list()
+            # Package images (#336): only those of kept drafts are stored; a
+            # draft whose image-only text/option could not be stored drops out.
+            materialize_images(result, request.user)
+            skipped = result.skipped_list()
+            if not result.drafts:
+                transaction.set_rollback(True)
+                return Response(
+                    {"detail": gettext("No questions found. Please check the format."),
+                     "format": result.format, "skipped": skipped},
+                    status=400,
+                )
             # One review slot per set: the newest proposals win (#303).
             GenerationJob.objects.filter(question_set=question_set, reviewed=False).update(
                 reviewed=True

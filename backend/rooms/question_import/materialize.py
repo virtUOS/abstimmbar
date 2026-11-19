@@ -16,7 +16,17 @@ import re
 from rooms.image_credits import apply_credit, credit_dict, has_credit
 from rooms.images import store_image_bytes
 
-from .core import _IMG_RE, _KEPT_SRC_RE, _SRC_RE, IMPORT_IMAGE_PREFIX, ImportImage, _attr
+from .core import (
+    _IMG_RE,
+    _KEPT_SRC_RE,
+    _SRC_RE,
+    IMPORT_IMAGE_PREFIX,
+    ImportImage,
+    ImportResult,
+    _attr,
+    has_image,
+    plain,
+)
 
 
 class _Store:
@@ -67,37 +77,75 @@ def _rewrite_html(value: str, store: _Store, used: list) -> tuple[str, bool]:
     return _IMG_RE.sub(replace, value[:cut]) + value[cut:], lost
 
 
-def materialize_images(
-    drafts: list[dict], images: dict[str, ImportImage], user
-) -> tuple[list[dict], int]:
-    """Store the images referenced by ``drafts`` and rewrite their references.
+def _materialize(draft: dict, store: _Store) -> bool:
+    """Store and rewrite the images of one draft; True if one was lost."""
+    used: list = []
+    draft["text"], lost = _rewrite_html(draft.get("text") or "", store, used)
+    for option in draft.get("options") or []:
+        image = option.get("image") or ""
+        if not image.startswith(IMPORT_IMAGE_PREFIX):
+            continue
+        uploaded = store.get(image)
+        if uploaded is None:
+            option["image"] = ""
+            lost = True
+        else:
+            option["image"] = uploaded.file.url
+            used.append(uploaded)
+    credits = {}
+    for uploaded in used:
+        if has_credit(uploaded) and uploaded.file.url not in credits:
+            credits[uploaded.file.url] = credit_dict(uploaded, uploaded.file.url)
+    if credits:
+        draft["image_credits"] = list(credits.values())
+    return lost
 
-    Returns (drafts, number of drafts that lost an image). An image that
-    cannot be stored is removed (``<img>`` stripped, option ``image`` = "").
-    Drafts with credited images get ``image_credits`` for the review preview.
+
+def _still_valid(draft: dict) -> bool:
+    """Drop options left with neither text nor image, then check what the
+    readers require of a question: a text (or image), at least two options
+    for choice/ordering kinds, and a correct answer for choice kinds that
+    had one."""
+    options = draft.get("options") or []
+    had_correct = any(o.get("is_correct") for o in options)
+    options = [o for o in options if (o.get("text") or "").strip() or o.get("image")]
+    draft["options"] = options
+    text = draft.get("text") or ""
+    if not (plain(text) or has_image(text)):
+        return False
+    if draft.get("kind") in _OPTION_KINDS:
+        if len(options) < 2:
+            return False
+        if had_correct and not any(o.get("is_correct") for o in options):
+            return False
+    return True
+
+
+_OPTION_KINDS = ("single_choice", "multiple_choice", "ordering")
+
+
+def materialize_images(result: ImportResult, user) -> None:
+    """Store the images the finalized drafts reference, rewrite references.
+
+    An image that cannot be stored is removed (``<img>`` stripped, option
+    ``image`` = ""); a draft that thereby no longer forms a valid question is
+    dropped and reported as ``invalid``. A kept draft that lost an image is
+    reported as ``image_dropped`` once, unless reading already did. Drafts
+    with credited images get ``image_credits`` for the review preview.
     """
-    store = _Store(images, user)
-    dropped = 0
-    for draft in drafts:
-        used: list = []
-        text, lost = _rewrite_html(draft.get("text") or "", store, used)
-        draft["text"] = text
-        for option in draft.get("options") or []:
-            image = option.get("image") or ""
-            if not image.startswith(IMPORT_IMAGE_PREFIX):
-                continue
-            uploaded = store.get(image)
-            if uploaded is None:
-                option["image"] = ""
-                lost = True
-            else:
-                option["image"] = uploaded.file.url
-                used.append(uploaded)
-        dropped += lost
-        credits = {}
-        for uploaded in used:
-            if has_credit(uploaded) and uploaded.file.url not in credits:
-                credits[uploaded.file.url] = credit_dict(uploaded, uploaded.file.url)
-        if credits:
-            draft["image_credits"] = list(credits.values())
-    return drafts, dropped
+    store = _Store(result.images, user)
+    kept: list[dict] = []
+    for index, draft in enumerate(result.drafts):
+        reported = index in result.image_reported
+        if not _materialize(draft, store):
+            kept.append(draft)
+        elif _still_valid(draft):
+            kept.append(draft)
+            if not reported:
+                result.skip("image_dropped")
+        else:
+            result.skip("invalid")
+            if reported:
+                result._unskip("image_dropped")  # question itself skipped
+    result.drafts = kept
+    result.image_reported = set()

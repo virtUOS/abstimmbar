@@ -49,6 +49,9 @@ class ImportResult:
     # placeholder src -> image, in order of first reference
     images: dict[str, ImportImage] = field(default_factory=dict)
     _image_keys: dict[str, str] = field(default_factory=dict, repr=False)
+    # Indices (into the finalized drafts) of drafts whose dropped image is
+    # already reported, so storing the images counts a draft at most once.
+    image_reported: set[int] = field(default_factory=set, repr=False)
 
     def images_full(self) -> bool:
         return len(self.images) >= MAX_IMPORT_IMAGES
@@ -284,8 +287,7 @@ def finalize(result: ImportResult, allowed_kinds: tuple[str, ...]) -> ImportResu
             if draft.get(IMAGE_FLAG):
                 result._unskip("image_dropped")
         kept = kept[:MAX_QUESTIONS]
-    for draft in kept:
-        draft.pop(IMAGE_FLAG, None)
+    result.image_reported = {i for i, draft in enumerate(kept) if draft.pop(IMAGE_FLAG, None)}
     result.drafts = kept
     return result
 
