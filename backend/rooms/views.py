@@ -695,9 +695,9 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         try:
             if upload is not None:
                 result = detect.read_upload(upload.read(), upload.name)
-                source_text = f"{upload.name} ({result.format})"
+                source_text = import_core.scrub_text(f"{upload.name} ({result.format})")
             else:
-                source_text = str(request.data.get("text") or "").replace("\x00", "")
+                source_text = import_core.scrub_text(str(request.data.get("text") or ""))
                 result = detect.read_text(source_text)
         except import_core.ImportFailed as exc:
             return Response({"detail": str(exc)}, status=400)

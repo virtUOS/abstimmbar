@@ -46,6 +46,12 @@ class ImportFailed(Exception):
     """File/text not readable -> 400 with str(exc) as message."""
 
 
+def scrub_text(text: str) -> str:
+    """Drop NUL and replace lone surrogates: PostgreSQL rejects NUL in text and
+    JSON, and neither the sanitizer nor UTF-8 encoding accept surrogates."""
+    return text.replace("\x00", "").encode("utf-8", "replace").decode("utf-8")
+
+
 def html_paragraphs(text: str) -> str:
     """Escape plain text; blank lines become paragraphs, newlines ``<br>``."""
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()

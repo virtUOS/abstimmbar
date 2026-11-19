@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 
 from . import gift, h5p, ilias, safezip, simple
-from .core import ImportResult
+from .core import ImportResult, scrub_text
 
 _ZIP_MAGIC = (b"PK\x03\x04", b"PK\x05\x06")
 _ZIP_EXTENSIONS = (".zip", ".h5p")
@@ -20,17 +20,16 @@ _SIMPLE_QUESTION_RE = re.compile(r"^\s*[FQ]\s*:", re.IGNORECASE | re.MULTILINE)
 
 
 def decode(data: bytes) -> str:
-    """UTF-8 (BOM allowed), else Windows-1252; never raises. NUL is dropped
-    (PostgreSQL rejects it in text and JSON)."""
+    """UTF-8 (BOM allowed), else Windows-1252; never raises."""
     try:
         text = data.decode("utf-8-sig")
     except UnicodeDecodeError:
         text = data.decode("cp1252", errors="replace")
-    return text.replace("\x00", "")
+    return scrub_text(text)
 
 
 def read_text(text: str) -> ImportResult:
-    text = text.replace("\x00", "")
+    text = scrub_text(text)
     if _SIMPLE_QUESTION_RE.search(text):
         return simple.parse(text)
     if gift.looks_like_gift(text):

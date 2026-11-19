@@ -927,10 +927,13 @@ class DetectTests(SimpleTestCase):
         self.assertEqual(len(r.drafts), 1)
 
     def test_detection_prefers_simple_when_f_prefix_present(self):
-        r = detect.read_text("F: Welche Menge ist {1,2,3}?\n* diese\n- keine\n\nq: Zweite\n- x\n- y\n")
+        text = "F: Welche Menge ist {1,2,3}?\n* diese\n- keine\n\nq: Nennen Sie ein Element aus {1,2,3}\n"
+        self.assertTrue(gift.looks_like_gift(text))  # precondition: braces look like GIFT
+        r = detect.read_text(text)
         self.assertEqual(r.format, "simple")
-        self.assertEqual(len(r.drafts), 2)
+        self.assertEqual([d["kind"] for d in r.drafts], ["single_choice", "open_text"])
         self.assertIn("{1,2,3}", r.drafts[0]["text"])
+        self.assertIn("{1,2,3}", r.drafts[1]["text"])
 
     def test_text_without_markers_is_simple(self):
         r = detect.read_text("irgendein Text")

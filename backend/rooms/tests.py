@@ -6760,3 +6760,26 @@ class ImportQuestionsEndpointTests(ApiTestCase):
         self.assertEqual(data["id"], job_id)
         self.assertEqual(data["source"], "import")
         self.assertEqual(data["set_id"], self.qs.pk)
+
+    def test_nul_and_surrogates_never_500(self):
+        h5p_nul = self._zip({
+            "h5p.json": '{"mainLibrary": "H5P.MultiChoice\\u0000 1.16"}',
+            "content/content.json": '{"question": "<p>Q\\u0000?</p>", "answers": ['
+            '{"text": "A\\u0000", "correct": true}, {"text": "B", "correct": false}]}',
+        })
+        h5p_surrogate = self._zip({
+            "h5p.json": '{"mainLibrary": "H5P.MultiChoice 1.16"}',
+            "content/content.json": '{"question": "<p>Q\\ud800?</p>", "answers": ['
+            '{"text": "A\\udfff", "correct": true}, {"text": "B", "correct": false}]}',
+        })
+        from .models import GenerationJob
+        for data in (h5p_nul, h5p_surrogate):
+            r = self._upload(data, "quiz.h5p")
+            self.assertEqual(r.status_code, 201, r.content)
+        r = self.client.post(
+            self.url, '{"text": "F: Q\\ud800\\u0000?\\n* a\\n- b"}', content_type="application/json"
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        for job in GenerationJob.objects.all():
+            self.assertNotIn("\\x00", str(job.drafts))  # repr of a NUL
+            self.assertNotIn("\x00", job.source_text)

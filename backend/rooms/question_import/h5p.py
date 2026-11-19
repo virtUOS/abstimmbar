@@ -10,7 +10,14 @@ import zipfile
 from django.utils.translation import gettext
 
 from . import safezip
-from .core import ImportFailed, ImportResult, clean_without_images, plain, true_false_labels
+from .core import (
+    ImportFailed,
+    ImportResult,
+    clean_without_images,
+    plain,
+    scrub_text,
+    true_false_labels,
+)
 
 JSON_MAX = 5 * 1024 * 1024
 MAX_DEPTH = 12
@@ -21,10 +28,21 @@ def is_h5p(zf: zipfile.ZipFile) -> bool:
     return "h5p.json" in safezip.names(zf)
 
 
+def _scrub(value):
+    """NUL/lone surrogates can enter via JSON escapes (\\u0000, \\ud800)."""
+    if isinstance(value, str):
+        return scrub_text(value)
+    if isinstance(value, list):
+        return [_scrub(v) for v in value]
+    if isinstance(value, dict):
+        return {_scrub(k): _scrub(v) for k, v in value.items()}
+    return value
+
+
 def _json(zf: zipfile.ZipFile, name: str):
     raw = safezip.read(zf, name, JSON_MAX)
     try:
-        return json.loads(raw.decode("utf-8-sig"))
+        return _scrub(json.loads(raw.decode("utf-8-sig")))
     except (ValueError, UnicodeDecodeError, RecursionError) as exc:
         raise ImportFailed(gettext("%(name)s is not valid JSON.") % {"name": name}) from exc
 
