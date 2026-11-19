@@ -974,18 +974,29 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     for (const key of Object.keys(sections)) sections[key].hidden = key !== id;
   }
 
+  // Alt text for an option image: the text names the choice when present
+  // (img alt stays empty, so a screen reader reads the text once); an
+  // image-only option falls back to the resolved image_alt (resolved like the
+  // option text: UI language, then canonical language).
+  function optionImageAlt(option) {
+    if (locText(option.text)) return "";
+    return locText(option.image_alt);
+  }
+
   // Option label with an optional image (v2, relative /media/ URL).
   function fillOptionButton(button, option) {
     if (option.image) {
       const img = document.createElement("img");
       img.src = option.image;
-      img.alt = "";
+      const alt = optionImageAlt(option);
+      img.alt = alt;
       img.style.cssText =
         "display:block;max-height:120px;border-radius:10px;margin-bottom:6px";
       button.appendChild(img);
       const label = document.createElement("span");
       label.textContent = locText(option.text);
       button.appendChild(label);
+      if (alt) button.setAttribute("aria-label", alt);
     } else {
       button.textContent = locText(option.text);
     }
@@ -1676,7 +1687,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       if (o.image) {
         const img = document.createElement("img");
         img.src = o.image;
-        img.alt = "";
+        img.alt = optionImageAlt(o);
         img.style.cssText = "display:block;max-height:80px;border-radius:8px;margin-bottom:4px";
         label.appendChild(img);
       }

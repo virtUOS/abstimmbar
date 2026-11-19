@@ -58,7 +58,11 @@ def options_with_counts(run, question):
         {
             "id": option.pk,
             "text": translated_map(option, "text"),
-            **({"image": option.image} if option.image else {}),
+            **(
+                {"image": option.image, "image_alt": translated_map(option, "image_alt")}
+                if option.image
+                else {}
+            ),
             "is_correct": option.is_correct,
             "is_abstention": option.is_abstention,
             "count": combined.get(option.pk, 0),
@@ -301,7 +305,11 @@ def priority_stats(run, question):
             {
                 "id": option.pk,
                 "text": translated_map(option, "text"),
-                **({"image": option.image} if option.image else {}),
+                **(
+                    {"image": option.image, "image_alt": translated_map(option, "image_alt")}
+                    if option.image
+                    else {}
+                ),
                 "avg": round(row["avg"], 1) if row else 0,
                 "min": row["min"] if row else 0,
                 "max": row["max"] if row else 0,
@@ -346,7 +354,11 @@ def ordering_stats(run, question):
             {
                 "id": option.pk,
                 "text": translated_map(option, "text"),
-                **({"image": option.image} if option.image else {}),
+                **(
+                    {"image": option.image, "image_alt": translated_map(option, "image_alt")}
+                    if option.image
+                    else {}
+                ),
                 "correct_position": option.position + 1,
                 "correct_rate": round(100.0 * c / n, 1) if n else 0,
                 "n": n,

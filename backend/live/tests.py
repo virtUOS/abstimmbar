@@ -11058,6 +11058,25 @@ class ImageCreditPayloadTests(LiveTestCase):
         entries = build_payloads(self.room)["participant"]["question"]["image_credits"]
         self.assertEqual([e["src"] for e in entries], [img.file.url])
 
+    def test_option_image_alt_in_payload_and_results(self):
+        from .results import options_with_counts
+
+        img = self.make_image()
+        self.wrong.image = img.file.url
+        self.wrong.image_alt_de = "Ein Hund"
+        self.wrong.image_alt_en = "A dog"
+        self.wrong.save()
+        self.open_question()
+        for role in ("participant", "presenter"):
+            opts = build_payloads(self.room)[role]["question"]["options"]
+            row = next(o for o in opts if o["id"] == self.wrong.pk)
+            self.assertEqual(row["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+            others = [o for o in opts if o["id"] != self.wrong.pk]
+            self.assertTrue(all("image_alt" not in o for o in others))
+        rows = options_with_counts(active_run(self.room), self.question)
+        row = next(o for o in rows if o["id"] == self.wrong.pk)
+        self.assertEqual(row["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+
     def test_set_results_credit_lookup_does_not_query_per_question(self):
         """M2: options are prefetched, so the bundled credit lookup is one
         query regardless of the number of questions."""
@@ -11174,6 +11193,20 @@ class ParticipantCreditTemplateTests(LiveTestCase):
         for cid in ("question-credits", "quiz-credits", "results-credits", "rec-credits",
                     "check-credits", "mm-credits", "mx-credits"):
             self.assertIn(f'class="image-credits" id="{cid}"', html)
+
+    def test_option_image_alt_rendering_rule(self):
+        from pathlib import Path
+
+        import live
+
+        src = (Path(live.__file__).parent / "templates/live/participant.html").read_text()
+        block = src.split("function fillOptionButton")[1].split("async function post")[0]
+        self.assertIn("optionImageAlt(option)", block)
+        self.assertIn('setAttribute("aria-label"', block)
+        self.assertNotIn("innerHTML", block)
+        helper = src.split("function optionImageAlt")[1].split("function fillOptionButton")[0]
+        self.assertIn("locText(option.image_alt)", helper)
+        self.assertIn("locText(option.text)", helper)
 
     def test_render_credits_never_assigns_inner_html(self):
         from pathlib import Path
