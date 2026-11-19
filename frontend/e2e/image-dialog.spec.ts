@@ -233,10 +233,6 @@ test.describe('without AI vision', () => {
   });
 
   test('link from the in-app dialog is applied to the selection', async ({ page, trackRoom }) => {
-    // @basicbar/ui 0.10.0 (unreleased): the text selection collapses to the
-    // start when the URL dialog closes (Firefox and Chromium), so the link is
-    // not applied. Remove once basicbar keeps the selection across the dialog.
-    test.fail(true, 'basicbar link dialog loses the text selection');
     await openQuestion(page, trackRoom);
     await editor(page).getByText('Was sehen Sie?').dblclick();
     await page.locator('[data-tour="question.lang-tabs"]').getByRole('button', { name: 'Link' }).click();
