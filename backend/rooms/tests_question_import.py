@@ -1194,9 +1194,19 @@ class RegexComplexityTests(SimpleTestCase):
             ]},
             "lt in question": mc(question="<" * n),
             "img in question": mc(question="<img " * (n // 5)),
+            "newlines in question and answer": {"question": "\n" * n, "answers": [
+                {"text": "\n" * n, "correct": True}, {"text": "B", "correct": False},
+            ]},
+            "spaces in question and answer": {"question": " " * n, "answers": [
+                {"text": " " * n, "correct": True}, {"text": "B", "correct": False},
+            ]},
         }.items():
             zf = h5p_zip("H5P.MultiChoice 1.16", content)
             self.assertFast(lambda zf=zf: h5p.parse(zf), label)
+        for ws in ("\n", " "):
+            essay = {"taskDescription": ws * n, "solution": {"sample": ws * n}}
+            zf = h5p_zip("H5P.Essay 1.5", essay)
+            self.assertFast(lambda zf=zf: h5p.parse(zf), f"essay {ws!r}")
 
     def test_ilias(self):
         n = self.N
@@ -1212,6 +1222,14 @@ class RegexComplexityTests(SimpleTestCase):
             "deep and wide": qti(qti_item(
                 qtype="TEXT QUESTION",
                 question="<x>" * 200 + "<mattext>a</mattext>" * (n // 20) + "</x>" * 200,
+            )),
+            "newlines and spaces": qti(qti_item(
+                question="<mattext>" + "\n" * (n // 2) + "</mattext>"
+                + '<mattext texttype="text/xhtml">' + " " * (n // 2) + "</mattext>",
+                response=choice_response(labels=(
+                    "\n" * (n // 4) + "A", '<mattext texttype="text/xhtml">' + " " * (n // 4) + "B</mattext>",
+                )),
+                resprocessing=cond(0, 1),
             )),
             "many labels": qti(qti_item(
                 qtype="ORDERING QUESTION",
