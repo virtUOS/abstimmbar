@@ -1533,14 +1533,6 @@ export default function SetPage() {
             </div>
             <MoreMenu label={t("Set actions")}>
               <MenuItem onClick={startMetaEdit}><Settings aria-hidden className="h-4 w-4" />{t("Settings")}</MenuItem>
-              {/* Pulling in questions is core authoring — available in both
-                  modes, unlike the Pro-only actions below (#87). */}
-              <div data-tour="set.copy">
-                <MenuItem onClick={() => void openPull()}>
-                  <CopyPlus aria-hidden className="h-4 w-4" />
-                  {t("Add questions from another set …")}
-                </MenuItem>
-              </div>
               {/* Easy mode (#52): hide duplicate / export / share / archive. */}
               {!easyMode && (
                 <>
