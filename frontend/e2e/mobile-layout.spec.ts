@@ -170,6 +170,24 @@ for (const colorScheme of ['light', 'dark'] as const) {
         await expect(menu).toBeHidden();
       });
 
+      // "Fragen hinzufügen" shares the sheet with "+ Neue Frage".
+      test('add-questions menu opens as a full-screen sheet', async ({ page, seed }) => {
+        await page.goto(`/sets/${seed.setId}`);
+        await page.getByRole('button', { name: /^(Fragen hinzufügen|Add questions)$/ }).click();
+        const menu = page.locator('[role="menu"]');
+        await expect(menu).toBeVisible();
+        await expectInViewport(menu, 'add-questions menu');
+        await expectNoHorizontalOverflow(page, 'add-questions menu open');
+        for (const item of await menu.getByRole('menuitem').all()) {
+          await expectInViewport(item, `add-questions item "${(await item.innerText()).trim()}"`);
+        }
+        await menu
+          .locator('xpath=..')
+          .getByRole('button', { name: /^(Schließen|Close)$/ })
+          .click();
+        await expect(menu).toBeHidden();
+      });
+
       test('user menu opens inside the viewport', async ({ page }) => {
         await page.goto('/');
         await expect(page.locator('[data-tour="rooms.list"]')).toBeVisible();

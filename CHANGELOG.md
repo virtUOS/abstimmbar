@@ -44,6 +44,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Geändert
 
+- Fragenset: „Aus Dokument“ und „Fragen übernehmen“ sind im neuen Menü
+  „Fragen hinzufügen“ neben „+ Neue Frage“ zusammengefasst — mit „Aus
+  Dokument erstellen“ (KI), „Fragen importieren“ und „Aus anderem Set
+  kopieren“, jeweils mit einer kurzen Erklärung. „Fragen übernehmen“ heißt
+  jetzt „Fragen importieren“.
 - Oberfläche: React 19, Vite 8 und Tailwind CSS 4 (vorher React 18, Vite 6
   und Tailwind 3). Verwaltung und Präsentation brauchen damit einen
   aktuellen Browser (Chrome/Edge ab 111, Firefox ab 128, Safari ab 16.4);

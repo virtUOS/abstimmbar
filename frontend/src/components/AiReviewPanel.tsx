@@ -82,7 +82,7 @@ export default function AiReviewPanel({
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState("");
   const [pollError, setPollError] = useState("");
-  // Jobs of "Fragen übernehmen" (#323) are reviewed like AI proposals but
+  // Jobs of "Fragen importieren" (#323) are reviewed like AI proposals but
   // without AI wording or retry. Older/stubbed payloads lack `source`.
   const isImport = job?.source === "import";
 

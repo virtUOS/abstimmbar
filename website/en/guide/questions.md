@@ -40,6 +40,12 @@ Add a new question to the set via **“+ New question”**. The menu groups the
 question types by **what your participants do** — so every type has exactly
 one place. It only shows the types the set's type allows.
 
+To bring in several questions at once, use the **Add questions** menu next
+to it: **Create from document** (AI suggests questions from your slides or
+script, see [AI assistance](ai-assistance.md)), **Import questions** (see
+[Importing existing questions](#fertige-fragen-ubernehmen)) and **Copy from
+another set** (see [Reusing questions](#reusing-questions)).
+
 ### Choose
 
 Participants choose from given answers.
@@ -214,12 +220,14 @@ ILIAS, or from a tool of your own — you don't have to retype them.
 **Import questions** reads them **verbatim**: with question type, answers
 and marked correct answers. Nothing is reworded or shortened. It needs no AI
 and is available in both simple and expert mode. To bring in questions from
-your own sets, use **Add questions from another set** instead (see
+your own sets, use **Copy from another set** instead (see
 [Reusing questions](#reusing-questions)).
 
 How it works:
 
-1. Open the question set and choose **Import questions**.
+1. Open the question set and choose **Add questions** → **Import
+   questions**. In a still empty set, **Import questions** is also offered
+   right in the middle of the page.
 2. Paste the text or upload a file (`.txt`, `.gift`, `.h5p`, `.zip` or
    `.xml`). The format is detected automatically.
 3. The **Review imported questions** view shows the detected format, the
@@ -300,7 +308,7 @@ recognised as well.
 
 ## Reusing questions { #reusing-questions }
 
-- **Add questions from another set** (the set's ⋮ menu) — pick questions
+- **Copy from another set** (the **Add questions** menu) — pick questions
   from your other sets and copy them here. Question types the set's type
   doesn't allow are marked.
 - **Copy to another set** or **Move to another set** — via a question's row

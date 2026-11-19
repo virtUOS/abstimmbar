@@ -40,6 +40,12 @@ Eine neue Frage legen Sie im Set über **„+ Neue Frage“** an. Das Menü ordn
 die Fragetypen danach, **was Ihre Teilnehmenden tun** — so hat jeder Typ genau
 einen Platz. Es zeigt nur die Typen, die die Art des Sets erlaubt.
 
+Mehrere Fragen auf einmal holen Sie über das Menü **Fragen hinzufügen**
+daneben: **Aus Dokument erstellen** (die KI schlägt Fragen aus Folien oder
+Skript vor, siehe [KI-Assistenz](ki-assistenz.md)), **Fragen importieren**
+(siehe [Fertige Fragen importieren](#fertige-fragen-ubernehmen)) und **Aus
+anderem Set kopieren** (siehe [Fragen wiederverwenden](#fragen-wiederverwenden)).
+
 ### Auswählen
 
 Teilnehmende wählen aus vorgegebenen Antworten.
@@ -214,22 +220,24 @@ Ergebnisseite** erscheinen beide Ergebnisse ebenfalls gegenübergestellt,
 gekennzeichnet mit **Vorher** und **Nachher**. Die Stimmen werden getrennt
 gezählt.
 
-## Fertige Fragen übernehmen { #fertige-fragen-ubernehmen }
+## Fertige Fragen importieren { #fertige-fragen-ubernehmen }
 
 Haben Sie Ihre Fragen schon fertig — aus früheren Semestern, aus Moodle oder
 ILIAS oder aus einem eigenen Werkzeug —, müssen Sie sie nicht neu eintippen.
-**Fragen übernehmen** liest sie **wörtlich** ein: mit Fragetyp, Antworten und
+**Fragen importieren** liest sie **wörtlich** ein: mit Fragetyp, Antworten und
 markierten richtigen Antworten. Nichts wird umformuliert oder gekürzt. Es
 braucht keine KI und steht im einfachen und im Experten-Modus zur Verfügung.
-Fragen aus Ihren eigenen Sets holen Sie dagegen mit **Fragen aus einem anderen
-Set übernehmen** (siehe [Fragen wiederverwenden](#fragen-wiederverwenden)).
+Fragen aus Ihren eigenen Sets holen Sie dagegen mit **Aus anderem Set
+kopieren** (siehe [Fragen wiederverwenden](#fragen-wiederverwenden)).
 
 So gehen Sie vor:
 
-1. Öffnen Sie das Fragenset und wählen Sie **Fragen übernehmen**.
+1. Öffnen Sie das Fragenset und wählen Sie **Fragen hinzufügen** →
+   **Fragen importieren**. In einem noch leeren Set finden Sie
+   **Fragen importieren** auch direkt in der Seitenmitte.
 2. Fügen Sie den Text ein oder laden Sie eine Datei hoch (`.txt`, `.gift`,
    `.h5p`, `.zip` oder `.xml`). Das Format wird automatisch erkannt.
-3. In der Ansicht **Übernommene Fragen prüfen** sehen Sie das erkannte Format,
+3. In der Ansicht **Importierte Fragen prüfen** sehen Sie das erkannte Format,
    die Fragen und eine Liste dessen, was nicht übernommen werden konnte.
    Wählen Sie die Fragen aus, die Sie behalten möchten, und übernehmen Sie sie.
    Erst dann werden sie im Set angelegt. Die übrigen bleiben erhalten und
@@ -308,7 +316,7 @@ Typbezeichnungen werden ebenfalls erkannt.
 
 ## Fragen wiederverwenden
 
-- **Fragen aus einem anderen Set übernehmen** (Menü ⋮ des Sets) — wählen Sie
+- **Aus anderem Set kopieren** (Menü **Fragen hinzufügen**) — wählen Sie
   Fragen aus Ihren anderen Sets und kopieren Sie sie hierher. Fragetypen, die
   die Art des Sets nicht erlaubt, sind gekennzeichnet.
 - **In ein anderes Set kopieren** oder **verschieben** — über das Zeilenmenü

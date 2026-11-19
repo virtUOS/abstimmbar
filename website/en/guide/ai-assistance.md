@@ -17,9 +17,9 @@ and you always decide for yourself what to use.
   *Example:* you type in the question and the correct answer; the AI adds
   convincing distractors that you can accept or discard one by one.
 - **Rephrase question** — clearer or shorter versions of your question.
-- **Generate questions from document** — via **From document** in the set,
-  from PDF, PowerPoint (PPTX) or LibreOffice (ODP). *Example:* you upload
-  your slides, pick a question level, and the AI suggests single-choice,
+- **Generate questions from document** — via **Add questions** → **Create
+  from document** in the set, from PDF, PowerPoint (PPTX) or LibreOffice
+  (ODP). *Example:* you upload your slides, pick a question level, and the AI suggests single-choice,
   multiple-choice and free-text questions. Besides the slide text, tables,
   chart values and speaker notes are taken into account. The questions are
   spread evenly across the slides (nearly empty ones such as the title slide
