@@ -963,3 +963,70 @@ msgstr "Noch keine Begriffe …"
 #: live/templates/live/participant.html
 msgid "No answers yet …"
 msgstr "Noch keine Antworten …"
+
+#: rooms/question_import/safezip.py
+msgid "The file is not a readable ZIP archive."
+msgstr "Die Datei ist kein lesbares ZIP-Archiv."
+
+#: rooms/question_import/safezip.py
+msgid "The archive contains too many files."
+msgstr "Das Archiv enthält zu viele Dateien."
+
+#: rooms/question_import/safezip.py
+msgid "The archive is too large when unpacked."
+msgstr "Das Archiv ist entpackt zu groß."
+
+#: rooms/question_import/safezip.py
+msgid "The archive contains an invalid file name."
+msgstr "Das Archiv enthält einen unzulässigen Dateinamen."
+
+#: rooms/question_import/safezip.py
+msgid "The archive is damaged or encrypted."
+msgstr "Das Archiv ist beschädigt oder verschlüsselt."
+
+#: rooms/question_import/safezip.py
+#, python-format
+msgid "The file %(name)s is missing in the archive."
+msgstr "Im Archiv fehlt die Datei %(name)s."
+
+#: rooms/question_import/safezip.py
+#, python-format
+msgid "The file %(name)s in the archive is too large."
+msgstr "Die Datei %(name)s im Archiv ist zu groß."
+
+#: rooms/question_import/safezip.py
+#, python-format
+msgid "%(name)s is not valid JSON."
+msgstr "%(name)s ist kein gültiges JSON."
+
+#: rooms/question_import/core.py
+msgid "The file is not valid XML."
+msgstr "Die Datei ist kein gültiges XML."
+
+#: rooms/question_import/core.py
+msgid "The XML file declares entities, which are not allowed."
+msgstr "Die XML-Datei deklariert Entitäten; das ist nicht zulässig."
+
+#: rooms/question_import/ilias.py
+msgid "The archive contains no ILIAS question export (qti.xml)."
+msgstr "Das Archiv enthält keinen ILIAS-Fragenexport (qti.xml)."
+
+#: rooms/question_import/ilias.py
+msgid "The XML file is not an ILIAS QTI export."
+msgstr "Die XML-Datei ist kein ILIAS-QTI-Export."
+
+#: rooms/views.py
+msgid "The file is larger than 10 MB."
+msgstr "Die Datei ist größer als 10 MB."
+
+#: rooms/views.py
+msgid "Please wait until the running generation has finished, or cancel it."
+msgstr "Bitte warten Sie, bis die laufende Erzeugung fertig ist, oder brechen Sie sie ab."
+
+#: rooms/views.py
+msgid "No questions found. Please check the format."
+msgstr "Keine Fragen erkannt. Bitte prüfen Sie das Format."
+
+#: rooms/question_import/detect.py
+msgid "The text is longer than 1 MB."
+msgstr "Der Text ist länger als 1 MB."

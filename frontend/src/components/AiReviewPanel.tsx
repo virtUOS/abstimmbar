@@ -6,9 +6,11 @@
  * button, which only starts runs). Attaches to the set's latest un-reviewed
  * job, shows live progress while it runs, then a selectable draft list to
  * import or discard. Imported proposals leave the job and the unselected
- * ones stay for later review (#292); once none remain, or on discard, the job
+ * ones stay for later review (#292) — for AI runs and for imports of
+ * existing questions (#323) alike; once none remain, or on discard, the job
  * is reviewed, so the hint and status bar stop surfacing it. */
-import { Check } from "lucide-react";
+import { stripHtml } from "@basicbar/ui";
+import { Check, FileInput } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
@@ -20,13 +22,28 @@ import {
   type GenerationJob,
 } from "../api";
 import AiAssistPanel from "./AiAssistPanel";
+import ImportSkipList, { IMPORT_FORMAT_LABEL } from "./ImportSkipList";
 import { Button } from "./ui";
 
 const KIND_LABEL: Record<string, string> = {
   single_choice: "Single Choice",
   multiple_choice: "Multiple Choice",
   open_text: "Free text",
+  ordering: "Ordering",
 };
+
+/** Imported question text (sanitized HTML) as one readable line: keep a
+ *  space where paragraphs and line breaks end, or `textContent` glues them. */
+function importedText(html: string): string {
+  return stripHtml(html.replace(/<br\s*\/?>|<\/(p|li|h\d|div|blockquote)>/gi, "$& "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function kindLabel(draft: GeneratedQuestion): string | undefined {
+  if (draft.kind === "single_choice" && draft.binary_choice) return "True/False";
+  return KIND_LABEL[draft.kind];
+}
 
 function isActive(job: GenerationJob | null): boolean {
   return !!job && (job.status === "pending" || job.status === "running");
@@ -51,6 +68,9 @@ export default function AiReviewPanel({
   const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState("");
   const [pollError, setPollError] = useState("");
+  // Jobs of "Fragen übernehmen" (#323) are reviewed like AI proposals but
+  // without AI wording or retry. Older/stubbed payloads lack `source`.
+  const isImport = job?.source === "import";
 
   // Attach to the set's latest un-reviewed job on open.
   useEffect(() => {
@@ -154,9 +174,11 @@ export default function AiReviewPanel({
   function failedActions() {
     return (
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="primary" disabled={retrying} onClick={() => void retry()}>
-          {t("Try again")}
-        </Button>
+        {!isImport && (
+          <Button variant="primary" disabled={retrying} onClick={() => void retry()}>
+            {t("Try again")}
+          </Button>
+        )}
         <Button variant="ghost" onClick={() => void discard()}>
           {t("Discard")}
         </Button>
@@ -189,7 +211,10 @@ export default function AiReviewPanel({
             is_correct: option.is_correct,
           })),
           model_solution: draft.model_solution ?? "",
-          ai_evaluate: draft.kind === "open_text" && !!draft.model_solution,
+          // Imported free-text questions never switch on AI scoring by
+          // themselves (#323) — the teacher opts in in the editor.
+          ai_evaluate:
+            !isImport && draft.kind === "open_text" && !!draft.model_solution,
         });
         imported.push(draft.text);
       }
@@ -229,26 +254,35 @@ export default function AiReviewPanel({
     return (
       <div className="min-w-0 flex-1">
         <div className="text-xs uppercase tracking-wide text-slate-400">
-          {KIND_LABEL[draft.kind] ? t(KIND_LABEL[draft.kind]) : draft.kind}
+          {kindLabel(draft) ? t(kindLabel(draft)!) : draft.kind}
           {source && (
             <span className="normal-case tracking-normal"> · {source}</span>
           )}
         </div>
-        <div className="text-sm font-medium text-slate-900 dark:text-slate-100">
-          {draft.text}
+        <div className="break-words text-sm font-medium text-slate-900 dark:text-slate-100">
+          {/* Imported question texts are sanitized HTML; AI drafts are plain. */}
+          {isImport ? importedText(draft.text) : draft.text}
         </div>
         {draft.options.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-sm text-slate-600 dark:text-slate-300">
             {draft.options.map((option, oi) => (
-              <li key={oi} className="flex items-center gap-1.5">
-                {option.is_correct ? (
-                  <Check aria-hidden className="h-4 w-4 text-brand-600" />
+              <li key={oi} className="flex items-start gap-1.5 break-words">
+                {draft.kind === "ordering" ? (
+                  // Options come in the correct order: number them.
+                  <span className="inline-block w-4 shrink-0 text-right tabular-nums text-slate-400">
+                    {oi + 1}.
+                  </span>
+                ) : option.is_correct ? (
+                  <Check aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
                 ) : (
-                  <span aria-hidden className="inline-block h-4 w-4" />
+                  <span aria-hidden className="inline-block h-4 w-4 shrink-0" />
                 )}
                 <span
                   className={
-                    option.is_correct ? "text-brand-700 dark:text-brand-300" : ""
+                    "min-w-0 " +
+                    (option.is_correct && draft.kind !== "ordering"
+                      ? "text-brand-700 dark:text-brand-300"
+                      : "")
                   }
                 >
                   {option.text}
@@ -258,7 +292,7 @@ export default function AiReviewPanel({
           </ul>
         )}
         {draft.kind === "open_text" && draft.model_solution && (
-          <div className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+          <div className="mt-1 break-words text-sm text-slate-600 dark:text-slate-300">
             <span className="text-slate-400">{t("Model solution")}: </span>
             {draft.model_solution}
           </div>
@@ -277,6 +311,28 @@ export default function AiReviewPanel({
       <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-700/60 dark:bg-amber-950/40 dark:text-amber-200">
         {job.notice ||
           t("The document is long — only its first sections were used for generation.")}
+      </div>
+    );
+  }
+
+  /** "Detected: GIFT (Moodle) · 12 questions" plus what was skipped. The
+   *  count is what the import found, including questions already taken
+   *  over (#292). */
+  function importSummary() {
+    if (!job) return null;
+    const format = job.format || null;
+    const found = job.drafts.length + (job.imported_count ?? 0);
+    return (
+      <div className="space-y-2">
+        <p className="text-sm text-slate-600 dark:text-slate-300">
+          {format && IMPORT_FORMAT_LABEL[format]
+            ? t("Detected: {{format}} · {{count}} questions", {
+                format: t(IMPORT_FORMAT_LABEL[format]),
+                count: found,
+              })
+            : t("{{count}} questions found", { count: found })}
+        </p>
+        <ImportSkipList skipped={job.skipped ?? []} />
       </div>
     );
   }
@@ -372,13 +428,18 @@ export default function AiReviewPanel({
     const allSelected = selected.size === drafts.length;
     return (
       <div className="space-y-2">
-        {truncationBanner()}
-        <div className="flex items-center justify-between">
+        {isImport ? importSummary() : truncationBanner()}
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {t("{{selected}} of {{total}} selected — review the drafts and use them.", {
-              selected: selected.size,
-              total: drafts.length,
-            })}
+            {isImport
+              ? t("{{selected}} of {{total}} selected — review the questions and take over the ones you want.", {
+                  selected: selected.size,
+                  total: drafts.length,
+                })
+              : t("{{selected}} of {{total}} selected — review the drafts and use them.", {
+                  selected: selected.size,
+                  total: drafts.length,
+                })}
           </p>
           <button
             type="button"
@@ -426,7 +487,11 @@ export default function AiReviewPanel({
 
   return (
     <div className="mb-4">
-      <AiAssistPanel title={t("Review generated questions")}>
+      <AiAssistPanel
+        title={isImport ? t("Review imported questions") : t("Review generated questions")}
+        icon={isImport ? FileInput : undefined}
+        aiNote={!isImport}
+      >
         {renderBody()}
         {(error || pollError) && (
           <p className="mt-2 text-sm text-danger">{error || pollError}</p>

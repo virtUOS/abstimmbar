@@ -11,6 +11,7 @@ import html
 import json
 import operator
 import re
+from collections import Counter
 from functools import reduce
 from typing import ClassVar
 
@@ -36,6 +37,7 @@ from django.db.models.deletion import Collector
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import strip_tags
+from django.utils.translation import gettext
 from rest_framework import parsers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -57,6 +59,8 @@ from .images import (
     normalize_image,
 )
 from .models import GenerationJob, Question, QuestionSet, Room, Section
+from .question_import import core as import_core
+from .question_import import detect
 from .serializers import (
     AgendaLocked,
     QuestionSerializer,
@@ -68,6 +72,9 @@ from .serializers import (
     next_outline_position,
 )
 from .transfer import duplicate_question, duplicate_set, export_set, import_set
+
+# Question import (#323): upload gate before any reading.
+MAX_IMPORT_BYTES = 10 * 1024 * 1024
 
 
 def _display_name(user):
@@ -185,6 +192,9 @@ def _job_payload(job):
         "pages": job.pages, "density": job.density,
         "target_count": job.target_count, "reviewed": job.reviewed,
         "imported_count": job.imported_count,
+        "source": job.source, "skipped": job.skipped,
+        # Detected import format; "" for AI jobs.
+        "format": job.import_format,
     }
 
 
@@ -751,6 +761,67 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         )
         return Response({"job_id": job.id}, status=201)
 
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="import-questions",
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser],
+    )
+    def import_questions(self, request, pk=None):
+        """Import existing questions verbatim (#323) from pasted text (simple
+        format or GIFT) or an uploaded file (GIFT, H5P, ILIAS QTI) into a
+        finished review job (source "import"). No AI is involved, so this
+        works with AI switched off; nothing is saved until the review."""
+        question_set = self.get_object()  # ownership check
+        upload = request.FILES.get("file")
+        if upload is not None and upload.size > MAX_IMPORT_BYTES:
+            return Response({"detail": gettext("The file is larger than 10 MB.")}, status=400)
+        if GenerationJob.objects.filter(
+            question_set=question_set,
+            status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
+        ).exists():
+            return Response(
+                {"detail": gettext(
+                    "Please wait until the running generation has finished, or cancel it."
+                )},
+                status=409,
+            )
+        try:
+            if upload is not None:
+                result = detect.read_upload(upload.read(), upload.name)
+                source_text = import_core.scrub_text(f"{upload.name} ({result.format})")
+            else:
+                data = request.data if isinstance(request.data, dict) else {}
+                source_text = import_core.scrub_text(str(data.get("text") or ""))
+                result = detect.read_text(source_text)
+        except import_core.ImportFailed as exc:
+            return Response({"detail": str(exc)}, status=400)
+        import_core.finalize(result, set_types.allowed_kinds(question_set.type))
+        skipped = result.skipped_list()
+        if not result.drafts:
+            return Response(
+                {"detail": gettext("No questions found. Please check the format."),
+                 "format": result.format, "skipped": skipped},
+                status=400,
+            )
+        with transaction.atomic():
+            # One review slot per set: the newest proposals win (#303).
+            GenerationJob.objects.filter(question_set=question_set, reviewed=False).update(
+                reviewed=True
+            )
+            job = GenerationJob.objects.create(
+                question_set=question_set, created_by=request.user,
+                source=GenerationJob.Source.IMPORT, status=GenerationJob.Status.DONE,
+                source_text=source_text, source_chars=len(source_text),
+                drafts=result.drafts, skipped=skipped, import_format=result.format,
+                total_chunks=0, done_chunks=0, pages=0, target_count=len(result.drafts),
+            )
+        return Response(
+            {"job_id": job.id, "format": result.format, "count": len(result.drafts),
+             "skipped": skipped},
+            status=201,
+        )
+
     @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/retry")
     def ai_generate_retry(self, request, pk=None, job_id=None):
         """Run a failed (or empty) generation again with the same material and
@@ -825,8 +896,10 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/imported")
     def ai_generate_imported(self, request, pk=None, job_id=None):
         """Record proposals the teacher took over into the set (#292):
-        ``{"texts": [...]}`` names them by question text (unique per job, the
-        worker dedupes), so a repeated request is harmless. They are removed
+        ``{"texts": [...]}`` names them by question text, one proposal per
+        entry (AI drafts are unique per job, the worker dedupes; imports of
+        existing questions, #323, may repeat a text), so a repeated request
+        for unique texts is harmless. They are removed
         from the job; the rest stays open for later review. The job counts as
         reviewed once no proposal remains."""
         self.get_object()
@@ -840,8 +913,16 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             if job.is_active:
                 # The worker still rewrites the drafts from memory.
                 return Response({"detail": "This generation is still running."}, status=400)
-            used = set(texts)
-            remaining = [d for d in job.drafts if d.get("text") not in used]
+            # Counted, not a set: imported questions (#323) are not deduped
+            # and may share a text ("Welche Aussage ist richtig?"), so each
+            # named text takes over exactly one proposal.
+            used = Counter(texts)
+            remaining = []
+            for draft in job.drafts:
+                if used[draft.get("text")] > 0:
+                    used[draft.get("text")] -= 1
+                else:
+                    remaining.append(draft)
             job.imported_count += len(job.drafts) - len(remaining)
             job.drafts = remaining
             if not remaining:
