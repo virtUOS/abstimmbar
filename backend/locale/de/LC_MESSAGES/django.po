@@ -645,3 +645,38 @@ msgstr "Nur ein Punkt pro Karte."
 #, python-brace-format
 msgid "{i} of {n}"
 msgstr "{i} von {n}"
+
+#: rooms/question_import/safezip.py
+msgid "The file is not a readable ZIP archive."
+msgstr "Die Datei ist kein lesbares ZIP-Archiv."
+
+#: rooms/question_import/safezip.py
+msgid "The archive contains too many files."
+msgstr "Das Archiv enthält zu viele Dateien."
+
+#: rooms/question_import/safezip.py
+msgid "The archive is too large when unpacked."
+msgstr "Das Archiv ist entpackt zu groß."
+
+#: rooms/question_import/safezip.py
+msgid "The archive contains an invalid file name."
+msgstr "Das Archiv enthält einen unzulässigen Dateinamen."
+
+#: rooms/question_import/safezip.py
+msgid "The archive is damaged or encrypted."
+msgstr "Das Archiv ist beschädigt oder verschlüsselt."
+
+#: rooms/question_import/safezip.py
+#, python-format
+msgid "The file %(name)s is missing in the archive."
+msgstr "Im Archiv fehlt die Datei %(name)s."
+
+#: rooms/question_import/safezip.py
+#, python-format
+msgid "The file %(name)s in the archive is too large."
+msgstr "Die Datei %(name)s im Archiv ist zu groß."
+
+#: rooms/question_import/safezip.py
+#, python-format
+msgid "%(name)s is not valid JSON."
+msgstr "%(name)s ist kein gültiges JSON."

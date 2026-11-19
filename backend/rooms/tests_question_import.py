@@ -520,3 +520,22 @@ class H5PTests(SimpleTestCase):
         zf = safezip.open_zip(make_zip({"h5p.json": "{}", "content/content.json": big}))
         with self.assertRaises(ImportFailed):
             h5p.parse(zf)
+
+    def test_deeply_nested_json_fails_cleanly(self):
+        deep = "[" * 200000 + "]" * 200000
+        zf = safezip.open_zip(make_zip({"h5p.json": "{}", "content/content.json": deep}))
+        with self.assertRaises(ImportFailed):
+            h5p.parse(zf)
+
+    def test_non_list_container_fields(self):
+        for lib, key in (
+            ("H5P.QuestionSet 1.20", "questions"),
+            ("H5P.Column 1.18", "content"),
+            ("H5P.SingleChoiceSet 1.11", "choices"),
+        ):
+            for bad in (5, True, "abc"):
+                r = h5p.parse(h5p_zip(lib, {key: bad}))
+                self.assertEqual(r.drafts, [])
+                self.assertEqual(sum(r.skipped.values()), 1, (lib, bad))
+                [(reason, _)] = r.skipped
+                self.assertEqual(reason, "invalid")

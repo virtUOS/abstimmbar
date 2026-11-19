@@ -7,6 +7,8 @@ import json
 import re
 import zipfile
 
+from django.utils.translation import gettext
+
 from rooms.sanitize import clean_html
 
 from . import safezip
@@ -26,8 +28,16 @@ def _json(zf: zipfile.ZipFile, name: str):
     raw = safezip.read(zf, name, JSON_MAX)
     try:
         return json.loads(raw.decode("utf-8-sig"))
-    except (ValueError, UnicodeDecodeError) as exc:
-        raise ImportFailed(f"{name} ist kein gültiges JSON.") from exc
+    except (ValueError, UnicodeDecodeError, RecursionError) as exc:
+        raise ImportFailed(gettext("%(name)s is not valid JSON.") % {"name": name}) from exc
+
+
+def _list(value, source: str, result: ImportResult) -> list:
+    if isinstance(value, list):
+        return value
+    if value not in (None, [], ""):
+        result.skip("invalid", source)
+    return []
 
 
 def _text(value) -> str:
@@ -96,7 +106,7 @@ def _truefalse(params: dict, result: ImportResult) -> None:
 
 
 def _singlechoiceset(params: dict, result: ImportResult) -> None:
-    for choice in params.get("choices") or []:
+    for choice in _list(params.get("choices"), "H5P.SingleChoiceSet", result):
         if not isinstance(choice, dict):
             result.skip("invalid", "H5P.SingleChoiceSet")
             continue
@@ -138,11 +148,11 @@ def _walk(library, params, result: ImportResult, depth: int = 0) -> None:
     if handler:
         handler(params, result)
     elif name == "H5P.QuestionSet":
-        for q in params.get("questions") or []:
+        for q in _list(params.get("questions"), "H5P.QuestionSet", result):
             if isinstance(q, dict):
                 _walk(q.get("library"), q.get("params"), result, depth + 1)
     elif name == "H5P.Column":
-        for item in params.get("content") or []:
+        for item in _list(params.get("content"), "H5P.Column", result):
             inner = item.get("content") if isinstance(item, dict) else None
             if isinstance(inner, dict):
                 _walk(inner.get("library"), inner.get("params"), result, depth + 1)

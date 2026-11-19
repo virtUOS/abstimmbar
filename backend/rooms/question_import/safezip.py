@@ -10,6 +10,8 @@ from __future__ import annotations
 import io
 import zipfile
 
+from django.utils.translation import gettext
+
 from .core import ImportFailed
 
 MAX_ENTRIES = 500
@@ -30,11 +32,11 @@ def open_zip(data: bytes) -> zipfile.ZipFile:
         zf = zipfile.ZipFile(io.BytesIO(data))
         infos = zf.infolist()
     except (zipfile.BadZipFile, ValueError, OSError, EOFError, NotImplementedError) as exc:
-        raise ImportFailed("Die Datei ist kein lesbares ZIP-Archiv.") from exc
+        raise ImportFailed(gettext("The file is not a readable ZIP archive.")) from exc
     if len(infos) > MAX_ENTRIES:
-        raise ImportFailed("Das Archiv enthält zu viele Dateien.")
+        raise ImportFailed(gettext("The archive contains too many files."))
     if sum(i.file_size for i in infos) > MAX_TOTAL_BYTES:
-        raise ImportFailed("Das Archiv ist entpackt zu groß.")
+        raise ImportFailed(gettext("The archive is too large when unpacked."))
     return zf
 
 
@@ -44,16 +46,16 @@ def names(zf: zipfile.ZipFile) -> list[str]:
 
 def read(zf: zipfile.ZipFile, name: str, max_bytes: int) -> bytes:
     if not _safe(name):
-        raise ImportFailed("Das Archiv enthält einen unzulässigen Dateinamen.")
+        raise ImportFailed(gettext("The archive contains an invalid file name."))
     try:
         info = zf.getinfo(name)
     except KeyError as exc:
-        raise ImportFailed(f"Im Archiv fehlt die Datei {name}.") from exc
+        raise ImportFailed(gettext("The file %(name)s is missing in the archive.") % {"name": name}) from exc
     try:
         with zf.open(info) as fh:
             buf = fh.read(max_bytes + 1)
     except (zipfile.BadZipFile, RuntimeError, NotImplementedError, OSError, EOFError, ValueError) as exc:
-        raise ImportFailed("Das Archiv ist beschädigt oder verschlüsselt.") from exc
+        raise ImportFailed(gettext("The archive is damaged or encrypted.")) from exc
     if len(buf) > max_bytes:
-        raise ImportFailed(f"Die Datei {name} im Archiv ist zu groß.")
+        raise ImportFailed(gettext("The file %(name)s in the archive is too large.") % {"name": name})
     return buf
