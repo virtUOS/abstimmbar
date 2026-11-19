@@ -94,6 +94,7 @@ survives the live updates.
 <section id="mindmap" hidden>
   <p class="soft" id="mm-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="mm-question"></div>
+  <div class="image-credits" id="mm-credits" hidden></div>
   <p class="soft" id="mm-intro" style="margin-top:4px" hidden></p>
   <p id="mm-status" aria-live="polite" style="margin-top:6px;font-weight:600;font-size:14px" hidden></p>
   <div id="mm-tree"></div>
@@ -201,6 +202,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
 <section id="matrix" hidden>
   <p class="soft" id="mx-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="mx-question"></div>
+  <div class="image-credits" id="mx-credits" hidden></div>
   <p id="mx-status" aria-live="polite" style="margin-top:6px;font-weight:600;font-size:14px;color:var(--ink-soft)" hidden></p>
   <div id="mx-form">
     <p class="mx-cap" id="mx-zone-cap">{% trans "Choose a field" %}</p>
@@ -447,6 +449,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   <p class="soft" id="rec-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="rec-text"></div>
   <div id="rec-options"></div>
+  <div class="image-credits" id="rec-credits" hidden></div>
   <form id="rec-textform" hidden>
     <input type="text" id="rec-word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
@@ -476,6 +479,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   </div>
   <div class="question-text" id="check-text"></div>
   <div id="check-options"></div>
+  <div class="image-credits" id="check-credits" hidden></div>
   <form id="check-textform" hidden>
     <input type="text" id="check-word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
@@ -3325,6 +3329,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       mmQuestionHtml = html;
       document.getElementById("mm-question").innerHTML = html;
     }
+    renderCredits(document.getElementById("mm-credits"), q.image_credits, html, []);
     mmCountdown();
     const open = mmCanContribute();
     const remaining = mmRemaining();
@@ -4238,6 +4243,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       mxQuestionHtml = html;
       mxEl("mx-question").innerHTML = html;
     }
+    renderCredits(mxEl("mx-credits"), q.image_credits, html, []);
     mxCountdown();
     const sig = JSON.stringify(s) + "|" + (document.documentElement.lang || "");
     if (sig !== mxSig) {
@@ -4527,7 +4533,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       .replace("{i}", String(recIndex + 1)).replace("{n}", String(rec.questions.length));
     document.getElementById("rec-prev").disabled = recIndex === 0;
     document.getElementById("rec-next").disabled = recIndex === rec.questions.length - 1;
-    document.getElementById("rec-text").innerHTML = locText(q.text);
+    const recHtml = locText(q.text);
+    document.getElementById("rec-text").innerHTML = recHtml;
+    renderCredits(document.getElementById("rec-credits"), q.image_credits, recHtml,
+      (q.options || []).map((o) => o.image));
     const optionsBox = document.getElementById("rec-options");
     const results = document.getElementById("rec-results");
     document.getElementById("rec-feedback").hidden = true;
@@ -4888,7 +4897,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       prev.style.opacity = prev.disabled ? "0.35" : "";
       nextNav.style.opacity = nextNav.disabled ? "0.35" : "";
     }
-    document.getElementById("check-text").innerHTML = locText(q.text);
+    const checkHtml = locText(q.text);
+    document.getElementById("check-text").innerHTML = checkHtml;
+    renderCredits(document.getElementById("check-credits"), q.image_credits, checkHtml,
+      (q.options || []).map((o) => o.image));
     const optionsBox = document.getElementById("check-options");
     const form = document.getElementById("check-textform");
     const word = document.getElementById("check-word");
@@ -5128,14 +5140,19 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       const qtext = document.createElement("div");
       qtext.className = "question-text";
       qtext.style.cssText = "font-weight:600;margin-bottom:8px";
-      qtext.innerHTML = locText(q.text);
+      const reviewHtml = locText(q.text);
+      qtext.innerHTML = reviewHtml;
+      const reviewCredits = document.createElement("div");
+      reviewCredits.className = "image-credits";
+      renderCredits(reviewCredits, q.image_credits, reviewHtml,
+        (q.options || []).map((o) => o.image));
       const optionsBox = document.createElement("div");
       const feedback = document.createElement("p");
       feedback.style.cssText = "margin-top:10px;font-weight:600";
       const solution = document.createElement("div");
       solution.style.cssText = "margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:10px 14px";
       solution.hidden = true;
-      card.append(qtext, optionsBox);
+      card.append(qtext, optionsBox, reviewCredits);
       if (ans) {
         // revisit=false: no "already answered" note in the collected review.
         renderCheckAnswered(q, ans, optionsBox, feedback, solution, false, false);

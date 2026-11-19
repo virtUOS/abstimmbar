@@ -11103,6 +11103,12 @@ class ParticipantCreditTemplateTests(LiveTestCase):
         self.assertIn("Image:", html)
         self.assertIn("Public domain", html)
 
+    def test_containers_exist_for_all_question_views(self):
+        html = self.client.get(f"/p/{self.room.code}/?lang=de").content.decode()
+        for cid in ("question-credits", "quiz-credits", "results-credits", "rec-credits",
+                    "check-credits", "mm-credits", "mx-credits"):
+            self.assertIn(f'class="image-credits" id="{cid}"', html)
+
     def test_render_credits_never_assigns_inner_html(self):
         from pathlib import Path
 
