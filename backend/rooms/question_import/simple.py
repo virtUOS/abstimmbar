@@ -39,7 +39,7 @@ def _build(q: _Q, result: ImportResult) -> None:
     if not q.options:
         draft = {"kind": "open_text", "text": html, "options": []}
         if q.solution:
-            draft["model_solution"] = clean_html(html_paragraphs("\n".join(q.solution)))
+            draft["model_solution"] = "\n".join(q.solution).strip()
         result.drafts.append(draft)
         return
     if q.solution is not None or len(q.options) < 2 or ("n" in kinds and len(kinds) > 1):

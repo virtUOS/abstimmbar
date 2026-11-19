@@ -70,7 +70,7 @@ class SimpleFormatTests(SimpleTestCase):
             r = simple.parse(f"F: Was nehmen Sie mit?\n{prefix}: Eine Lösung\n")
             (d,) = r.drafts
             self.assertEqual(d["kind"], "open_text")
-            self.assertEqual(d["model_solution"], "<p>Eine Lösung</p>")
+            self.assertEqual(d["model_solution"], "Eine Lösung")
         r = simple.parse("F: Was nehmen Sie mit?\n")
         self.assertEqual(r.drafts[0]["kind"], "open_text")
         self.assertFalse(r.drafts[0].get("model_solution"))
