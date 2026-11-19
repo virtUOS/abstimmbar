@@ -10971,3 +10971,120 @@ class HubParticipantCountTests(SimpleTestCase):
         self.assertEqual(hub.participant_count(1), 4)  # the other tab stays
         hub.unsubscribe(1, subs[1])
         self.assertEqual(hub.participant_count(1), 3)
+
+
+class ImageCreditPayloadTests(LiveTestCase):
+    """Image credits (#336) ride along in the live/preview/quiz payloads."""
+
+    def make_image(self, author="Karen Jackson", license="cc-by-nd", version="4.0"):
+        import io
+
+        from django.core.files.base import ContentFile
+        from PIL import Image
+
+        from rooms.models import UploadedImage
+
+        buffer = io.BytesIO()
+        Image.new("RGB", (4, 4), "green").save(buffer, format="PNG")
+        img = UploadedImage(
+            uploader=self.owner,
+            credit_author=author,
+            credit_license=license,
+            credit_license_version=version,
+        )
+        img.file.save("c.png", ContentFile(buffer.getvalue()), save=False)
+        img.save()
+        return img
+
+    def put_in_text(self, img, question=None):
+        question = question or self.question
+        question.text_de = f'<p>Bild</p><img src="{img.file.url}">'
+        question.save()
+
+    def test_open_question_payload_has_credits(self):
+        img = self.make_image()
+        self.put_in_text(img)
+        self.open_question()
+        payloads = build_payloads(self.room)
+        for role in ("participant", "presenter"):
+            entries = payloads[role]["question"]["image_credits"]
+            self.assertEqual(len(entries), 1)
+            self.assertEqual(entries[0]["license_label"], "CC BY-ND 4.0")
+            self.assertEqual(entries[0]["author"], "Karen Jackson")
+            self.assertNotIn("editable", entries[0])
+
+    def test_payload_without_credit_has_empty_list(self):
+        self.put_in_text(self.make_image(author="", license=""))
+        self.open_question()
+        payloads = build_payloads(self.room)
+        self.assertEqual(payloads["participant"]["question"]["image_credits"], [])
+        self.assertEqual(payloads["presenter"]["question"]["image_credits"], [])
+
+    def test_option_image_credit_in_payload(self):
+        img = self.make_image()
+        self.wrong.image = img.file.url
+        self.wrong.save()
+        self.open_question()
+        entries = build_payloads(self.room)["participant"]["question"]["image_credits"]
+        self.assertEqual([e["src"] for e in entries], [img.file.url])
+
+    def test_quiz_context_has_credits(self):
+        img = self.make_image()
+        self.put_in_text(img)
+        self.client.force_login(self.owner)
+        self.client.post(
+            f"/api/question-sets/{self.question_set.pk}/start-run/",
+            {"mode": "self_paced"},
+            content_type="application/json",
+        )
+        self.client.logout()
+        token = self.join()
+        payload = self.client.get(
+            f"/api/live/rooms/{self.room.code}/quiz/", {"token": token}
+        ).json()
+        entry = next(q for q in payload["questions"] if q["id"] == self.question.pk)
+        self.assertEqual(entry["image_credits"][0]["license_label"], "CC BY-ND 4.0")
+
+    def test_preview_has_credits(self):
+        import re
+
+        img = self.make_image()
+        self.put_in_text(img)
+        self.client.force_login(self.owner)
+        body = self.client.get(f"/question-preview/{self.question.pk}/").content.decode()
+        raw = re.search(
+            r'<script id="preview-state" type="application/json">(.*?)</script>', body, re.DOTALL
+        ).group(1)
+        state = json.loads(raw)
+        self.assertEqual(
+            state["question"]["image_credits"][0]["license_label"], "CC BY-ND 4.0"
+        )
+
+    def test_results_phase_question_has_credits(self):
+        self.put_in_text(self.make_image())
+        self.question_set.show_results_to_participants = True
+        self.question_set.save()
+        run = self.open_question()
+        run.phase = Run.Phase.RESULTS
+        run.save()
+        question = build_payloads(self.room)["participant"]["question"]
+        self.assertEqual(question["image_credits"][0]["license_label"], "CC BY-ND 4.0")
+
+    def test_build_payloads_query_count_stable(self):
+        first = self.make_image()
+        self.put_in_text(first)
+        self.open_question()
+
+        def count():
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+
+            with CaptureQueriesContext(connection) as ctx:
+                build_payloads(self.room)
+            return len(ctx)
+
+        one = count()
+        second = self.make_image(author="Anna")
+        self.question.text_de += f'<img src="{second.file.url}">'
+        self.question.save()
+        self.assertEqual(count(), one)

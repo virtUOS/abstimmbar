@@ -32,6 +32,7 @@ from common.csv_safe import csv_safe
 from common.i18n_fields import resolve_translated_text, translated_map
 from common.markdown import render_markdown
 from common.models import SiteConfig
+from rooms.image_credits import credits_for_questions
 from rooms.models import AnswerOption, Question, QuestionSet, Room
 
 from . import (
@@ -187,7 +188,11 @@ def question_preview(request, question_id):
             "corner": room.presentation_corner,
         },
         "set_title": translated_map(question.question_set, "title"),
-        "question": question_payload(question, shuffle_seed=0),
+        "question": question_payload(
+            question,
+            shuffle_seed=0,
+            credits=credits_for_questions([question]).get(question.pk, []),
+        ),
     }
     if question.kind == Question.Kind.MINDMAP:
         preview_state["mindmap"] = mindmap.preview_tree(question)
@@ -651,6 +656,7 @@ def quiz(request, code):
                         entry["is_correct"] = own_order == solution
             answered[str(vote_obj.question_id)] = entry
 
+    credits = credits_for_questions(questions)
     return Response(
         {
             # {de, en} map (#33 MR2), matching every other title/text field in
@@ -658,7 +664,10 @@ def quiz(request, code):
             "set_title": translated_map(run.question_set, "title"),
             "feedback": feedback,
             "allow_back": run.question_set.allow_back_navigation,
-            "questions": [question_payload(q, shuffle_seed=run.pk) for q in questions],
+            "questions": [
+                question_payload(q, shuffle_seed=run.pk, credits=credits.get(q.pk))
+                for q in questions
+            ],
             "answered": answered,
             "ends_at": run.quiz_ends_at.isoformat() if run.quiz_ends_at else None,
         }
@@ -1465,12 +1474,16 @@ def recording_questions(request, token):
                     entry["correct"] = sorted(correct_ids)
             answered[str(vote_obj.question_id)] = entry
 
+    credits = credits_for_questions(questions)
     return Response(
         {
             "set_title": translated_map(run.question_set, "title"),
             "room_code": run.question_set.room.code,
             "feedback": feedback,
-            "questions": [question_payload(q, shuffle_seed=run.pk) for q in questions],
+            "questions": [
+                question_payload(q, shuffle_seed=run.pk, credits=credits.get(q.pk))
+                for q in questions
+            ],
             "answered": answered,
         }
     )
@@ -1704,6 +1717,7 @@ def check_questions(request, token):
         # on — self-check is anonymous).
         random.shuffle(questions)
 
+    credits = credits_for_questions(questions)
     return Response(
         {
             "set_title": translated_map(qs, "title"),
@@ -1712,7 +1726,11 @@ def check_questions(request, token):
             "single": single,
             "questions": [
                 {
-                    **question_payload(q, shuffle_seed=random.randrange(1 << 30)),
+                    **question_payload(
+                        q,
+                        shuffle_seed=random.randrange(1 << 30),
+                        credits=credits.get(q.pk),
+                    ),
                     **_self_check_solution(q),
                     "ai_evaluate": q.kind == Question.Kind.OPEN_TEXT and q.ai_evaluate,
                 }
