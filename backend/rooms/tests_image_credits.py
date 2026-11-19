@@ -127,7 +127,7 @@ class ImageCreditsTests(TestCase):
             img.clean()
 
 
-class ImageCreditApiTests(ApiTestCase):
+class _CreditApiBase(ApiTestCase):
     def setUp(self):
         super().setUp()
         self.qset = QuestionSet.objects.create(room=self.room, title="S")
@@ -157,6 +157,8 @@ class ImageCreditApiTests(ApiTestCase):
             text_de=f'<p><img src="{src}" alt=""></p>',
         )
 
+
+class ImageCreditApiTests(_CreditApiBase):
     def test_question_payload_lists_images_with_editable(self):
         img, src = self._upload()
         q = self._question(src)
@@ -254,3 +256,100 @@ class ImageCreditApiTests(ApiTestCase):
         for q in (q1, q2):
             entries = self.client.get(f"/api/questions/{q.id}/").json()["image_credits"]
             self.assertEqual([e["author"] for e in entries], ["Zed"])
+
+
+class ImageCreditEditRightTests(_CreditApiBase):
+    """I1: uploader, staff, or owner of EVERY room referencing the image."""
+
+    def _foreign_room(self, owner):
+        room = Room.objects.create(title_de="Fremd")
+        room.owners.add(owner)
+        return QuestionSet.objects.create(room=room, title="F")
+
+    def _embed(self, qset, src, field="text_de"):
+        return Question.objects.create(
+            question_set=qset, kind="single_choice", **{field: f'<p><img src="{src}" alt=""></p>'}
+        )
+
+    def _patch(self, img, user, author="X"):
+        self.client.force_login(user)
+        return self.client.patch(
+            f"/api/images/{img.id}/credit/", {"author": author}, content_type="application/json"
+        )
+
+    def _editable(self, q, user):
+        self.client.force_login(user)
+        return self.client.get(f"/api/questions/{q.id}/").json()["image_credits"][0]["editable"]
+
+    def test_stranger_embedding_foreign_src_is_read_only(self):
+        img, src = self._upload()  # uploaded by owner, used in owner's room
+        self._question(src)
+        stranger_q = self._embed(self._foreign_room(self.other), src)
+        self.assertFalse(self._editable(stranger_q, self.other))
+        self.assertEqual(self._patch(img, self.other, "Eve").status_code, 404)
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "")
+
+    def test_co_owner_of_only_room_may_edit(self):
+        img, src = self._upload(user=self.other)
+        q = self._question(src)
+        self.assertTrue(self._editable(q, self.owner))
+        self.assertEqual(self._patch(img, self.owner).status_code, 200)
+
+    def test_duplicated_into_second_own_room_still_editable(self):
+        img, src = self._upload(user=self.other)
+        q = self._question(src)
+        self._embed(self._foreign_room(self.owner), src)
+        self.assertTrue(self._editable(q, self.owner))
+        self.assertEqual(self._patch(img, self.owner).status_code, 200)
+
+    def test_also_used_in_foreign_room_only_uploader_may_edit(self):
+        third = get_user_model().objects.create_user(username="third")
+        img, src = self._upload(user=self.other)  # uploader: other
+        q = self._question(src)  # owner's room
+        self._embed(self._foreign_room(third), src)  # e.g. shared-set copy
+        self.assertFalse(self._editable(q, self.owner))
+        self.assertEqual(self._patch(img, self.owner).status_code, 404)
+        self.assertEqual(self._patch(img, self.other, "Up").status_code, 200)
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "Up")
+
+    def test_staff_may_edit(self):
+        staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+        img, src = self._upload()
+        self._question(src)
+        self._embed(self._foreign_room(self.other), src)
+        self.assertEqual(self._patch(img, staff).status_code, 200)
+
+    def test_text_en_only_reference(self):
+        img, src = self._upload(user=self.other)
+        self._embed(self.qset, src, field="text_en")
+        self.assertEqual(self._patch(img, self.owner).status_code, 200)
+
+    def test_option_image_reference(self):
+        img, src = self._upload(user=self.other)
+        q = Question.objects.create(question_set=self.qset, kind="single_choice", text_de="Q")
+        AnswerOption.objects.create(question=q, text="a", image=src, position=0)
+        self.assertEqual(self._patch(img, self.owner).status_code, 200)
+
+    def test_unreferenced_foreign_image_not_editable(self):
+        img, _ = self._upload(user=self.other)
+        self.assertEqual(self._patch(img, self.owner).status_code, 404)
+
+    def test_unauthenticated_patch_rejected(self):
+        img, _ = self._upload()
+        self.client.logout()
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", {"author": "X"}, content_type="application/json"
+        )
+        self.assertIn(response.status_code, (401, 403))
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "")
+
+    def test_umlaut_filename_co_owner(self):
+        img = UploadedImage.objects.create(uploader=self.other, file="question-images/Bär Öl.png")
+        src = img.file.url
+        self.assertNotIn("ä", src)  # percent-encoded, as stored in question HTML
+        q = self._question(src)
+        self.assertTrue(self._editable(q, self.owner))
+        self.assertEqual(self._patch(img, self.owner).status_code, 200)

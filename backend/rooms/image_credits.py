@@ -134,26 +134,38 @@ def credits_for_questions(questions):
     return result
 
 
+def image_srcs(img):
+    """The srcs under which question HTML / option images reference ``img``:
+    the percent-encoded ``file.url`` (what the editor and imports store) and,
+    defensively, the unquoted form."""
+    url = img.file.url
+    return list(dict.fromkeys([url, unquote(url)]))
+
+
 def can_edit_image(user, img):
-    """Uploader, staff, or owner of a room containing a question that
-    references the image (text in either content language, or an option
-    image)."""
+    """Staff, the uploader, or a user who owns EVERY room in which the image
+    is referenced (question text in either content language, or an option
+    image) — and it is referenced at least once. Embedding a foreign image's
+    public src in an own room therefore grants nothing."""
     if not getattr(user, "is_authenticated", False):
         return False
     if user.is_staff or img.uploader_id == user.pk:
         return True
     from django.db.models import Q
 
-    from .models import Question
+    from .models import Question, Room
 
-    src = f"{settings.MEDIA_URL.rstrip('/')}/{img.file.name}"
-    return (
-        Question.objects.filter(question_set__room__owners=user)
-        .filter(
-            Q(text_de__contains=src) | Q(text_en__contains=src) | Q(options__image=src)
-        )
-        .exists()
+    srcs = image_srcs(img)
+    refs = Q(options__image__in=srcs)
+    for src in srcs:
+        refs |= Q(text_de__contains=src) | Q(text_en__contains=src)
+    room_ids = set(
+        Question.objects.filter(refs).values_list("question_set__room_id", flat=True)
     )
+    if not room_ids:
+        return False
+    owned = Room.objects.filter(pk__in=room_ids, owners=user).distinct().count()
+    return owned == len(room_ids)
 
 
 def apply_credit(uploaded, credit):

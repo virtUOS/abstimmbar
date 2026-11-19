@@ -157,9 +157,11 @@ Mit **Nachweis speichern** übernehmen Sie die Angaben; Bilder ohne Nachweis
 sind mit **Kein Bildnachweis** markiert. Neu eingefügte Bilder erscheinen im
 Abschnitt, nachdem Sie die Frage gespeichert haben.
 
-Der Nachweis gehört zum Bild, nicht zur einzelnen Frage: Wer die Frage
-bearbeiten darf, darf ihn ändern, und die Änderung gilt überall, wo das Bild
-verwendet wird (z. B. in duplizierten Sets). Kopien, Duplikate und der
+Der Nachweis gehört zum Bild, nicht zur einzelnen Frage: Ändern dürfen ihn
+die Person, die das Bild hochgeladen hat, und alle, denen sämtliche Räume
+gehören, in denen das Bild verwendet wird. Wird das Bild auch in einem fremden
+Raum verwendet, sehen Sie den Nachweis nur. Die Änderung gilt überall, wo das
+Bild verwendet wird (z. B. in duplizierten Sets). Kopien, Duplikate und der
 JSON-Export behalten die Nachweise (ältere Abstimmbar-Versionen ignorieren sie
 beim Import).
 

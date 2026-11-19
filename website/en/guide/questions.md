@@ -151,9 +151,11 @@ thumbnail and these fields:
 image credit**. Newly inserted images appear in the section once you have
 saved the question.
 
-The credit belongs to the image, not to a single question: anyone who may edit
-the question may change it, and the change applies everywhere the image is
-used (e.g. in duplicated sets). Copies, duplicates and the JSON export keep
+The credit belongs to the image, not to a single question: it may be changed
+by the person who uploaded the image and by anyone who owns all the rooms in
+which the image is used. If the image is also used in someone else's room, you
+only see the credit. The change applies everywhere the image is used (e.g. in
+duplicated sets). Copies, duplicates and the JSON export keep
 the credits (older Abstimmbar versions ignore them on import).
 
 The credit is shown as a compact line below the question — on the beamer
