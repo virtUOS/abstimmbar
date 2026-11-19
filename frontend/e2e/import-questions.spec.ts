@@ -1,4 +1,4 @@
-/** "Fragen übernehmen" (#323): paste questions in the simple text format or
+/** "Fragen importieren" (#323): paste questions in the simple text format or
  *  GIFT, review them like AI proposals, take over a selection. The button is
  *  core authoring — offered in easy mode and without AI, so whoami is stubbed
  *  to `easy_mode: true, ai_enabled: false`. Only an "E2E Import" room is
@@ -56,7 +56,10 @@ const GIFT_TEXT = `::Tiere:: Ordnen Sie die Laute zu. {
 
 async function openImport(page: import('@playwright/test').Page, setId: number) {
   await page.goto(`/sets/${setId}`);
-  await page.getByRole('button', { name: 'Fragen übernehmen' }).first().click();
+  // The header's "Fragen hinzufügen" menu (the empty state has a direct
+  // button too); the menu item's name includes its one-line explanation.
+  await page.getByRole('button', { name: 'Fragen hinzufügen' }).click();
+  await page.getByRole('menuitem', { name: /^Fragen importieren/ }).click();
 }
 
 test('pasted simple text → review → two questions taken over, AI scoring off', async ({ page, trackRoom }) => {
@@ -64,9 +67,9 @@ test('pasted simple text → review → two questions taken over, AI scoring off
   await openImport(page, room.setId);
 
   await page.getByRole('textbox', { name: 'Text einfügen' }).fill(SIMPLE_TEXT);
-  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+  await page.getByRole('button', { name: 'Importieren', exact: true }).click();
 
-  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+  await expect(page.getByText('Importierte Fragen prüfen')).toBeVisible();
   await expect(page.getByText('Erkannt: Einfaches Textformat · 3 Fragen')).toBeVisible();
   // No AI wording in the review of an import.
   await expect(page.getByText(/KI/)).toHaveCount(0);
@@ -74,7 +77,7 @@ test('pasted simple text → review → two questions taken over, AI scoring off
   // The detected format is stored with the job: still shown after a reload,
   // when the review is reopened from the set's hint.
   await page.reload();
-  await expect(page.getByText('Übernommene Fragen warten auf Ihre Prüfung.')).toBeVisible();
+  await expect(page.getByText('Importierte Fragen warten auf Ihre Prüfung.')).toBeVisible();
   // Scoped to the page: an import running in a parallel test can show the
   // app-wide status bar with its own "Prüfen" button.
   await page.getByRole('main').getByRole('button', { name: 'Prüfen', exact: true }).click();
@@ -83,9 +86,9 @@ test('pasted simple text → review → two questions taken over, AI scoring off
   await page.getByRole('checkbox', { name: /Welche Farbe hat der Himmel/ }).check();
   await page.getByRole('checkbox', { name: /Photosynthese/ }).check();
   await page.getByRole('button', { name: /Ausgewählte übernehmen/ }).click();
-  await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+  await expect(page.getByText('Importierte Fragen prüfen')).toHaveCount(0);
   // The third, unselected question stays for later review (#292).
-  await expect(page.getByText('Übernommene Fragen warten auf Ihre Prüfung.')).toBeVisible();
+  await expect(page.getByText('Importierte Fragen warten auf Ihre Prüfung.')).toBeVisible();
 
   const response = await page.request.get(`${API_BASE_URL}/api/questions/?question_set=${room.setId}`);
   const questions = (await response.json()).results as {
@@ -109,12 +112,12 @@ test('GIFT matching question is skipped and reported', async ({ page, trackRoom 
   await openImport(page, room.setId);
 
   await page.getByRole('textbox', { name: 'Text einfügen' }).fill(GIFT_TEXT);
-  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+  await page.getByRole('button', { name: 'Importieren', exact: true }).click();
 
   await expect(page.getByText('Erkannt: GIFT (Moodle) · 1 Frage')).toBeVisible();
   await expect(page.getByText('1 übersprungen: Zuordnung (nicht unterstützt)')).toBeVisible();
   await page.getByRole('button', { name: 'Verwerfen', exact: true }).click();
-  await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+  await expect(page.getByText('Importierte Fragen prüfen')).toHaveCount(0);
 });
 
 test('uploaded GIFT file → review with skip notice', async ({ page, trackRoom }) => {
@@ -128,14 +131,14 @@ test('uploaded GIFT file → review with skip notice', async ({ page, trackRoom 
     buffer: Buffer.from(GIFT_TEXT, 'utf-8'),
   });
   await expect(page.getByText('moodle.gift')).toBeVisible();
-  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+  await page.getByRole('button', { name: 'Importieren', exact: true }).click();
 
-  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+  await expect(page.getByText('Importierte Fragen prüfen')).toBeVisible();
   await expect(page.getByText('Erkannt: GIFT (Moodle) · 1 Frage')).toBeVisible();
   await expect(page.getByText('1 übersprungen: Zuordnung (nicht unterstützt)')).toBeVisible();
   await expect(page.getByRole('checkbox', { name: /Welche Zahlen sind Primzahlen/ })).toBeVisible();
   await page.getByRole('button', { name: 'Verwerfen', exact: true }).click();
-  await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+  await expect(page.getByText('Importierte Fragen prüfen')).toHaveCount(0);
 });
 
 /** Self-made H5P MultiChoice with a 2×2 PNG, credited "Rotes Quadrat" by
@@ -155,9 +158,9 @@ test('H5P with credited image → review shows image + credit → editor keeps t
     mimeType: 'application/zip',
     buffer: fs.readFileSync(H5P_IMAGE),
   });
-  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+  await page.getByRole('button', { name: 'Importieren', exact: true }).click();
 
-  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+  await expect(page.getByText('Importierte Fragen prüfen')).toBeVisible();
   const preview = page.getByRole('img', { name: 'Rote Fläche' });
   await expect(preview).toBeVisible();
   await expect(preview).toHaveAttribute('src', /\/media\/question-images\//);
@@ -169,7 +172,7 @@ test('H5P with credited image → review shows image + credit → editor keeps t
 
   await page.getByRole('checkbox', { name: /Welche Farbe hat die Fläche/ }).check();
   await page.getByRole('button', { name: /Ausgewählte übernehmen/ }).click();
-  await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+  await expect(page.getByText('Importierte Fragen prüfen')).toHaveCount(0);
 
   const response = await page.request.get(`${API_BASE_URL}/api/questions/?question_set=${room.setId}`);
   const [question] = (await response.json()).results as { id: number }[];
@@ -184,8 +187,8 @@ test('one rejected proposal does not stop the others from being taken over', asy
   const room = await createRoomWithQuestions(page.request, [], 'Import Teilfehler', trackRoom, 'E2E Import');
   await openImport(page, room.setId);
   await page.getByRole('textbox', { name: 'Text einfügen' }).fill(SIMPLE_TEXT);
-  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
-  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+  await page.getByRole('button', { name: 'Importieren', exact: true }).click();
+  await expect(page.getByText('Importierte Fragen prüfen')).toBeVisible();
 
   // The first question POST is rejected by the server.
   let rejected = false;

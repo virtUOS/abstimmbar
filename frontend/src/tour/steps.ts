@@ -198,7 +198,7 @@ export const proTour: TourStep[] = [
     bodyKey: "The menu groups the types by what participants do: choose from answers, rate & order, or answer openly. Next we’ll look at each one." },
   { id: "set.ai-generate", page: "set", target: "set.ai-generate", kind: "info", modes: ["pro"], requiresAi: true,
     titleKey: "Shortcuts",
-    bodyKey: "‘From document’ drafts questions from your slides (PDF, PowerPoint, Impress) with AI. Questions from another set can be added via the set’s ⋯ menu." },
+    bodyKey: "‘Add questions’ brings in several at once: ‘Create from document’ drafts questions from your slides with AI, ‘Import questions’ takes over finished questions from Moodle, H5P or ILIAS, and ‘Copy from another set’ reuses your own." },
   ]),
   ...inSection("types", [
   q("single_choice", "Single Choice", "Participants pick exactly one answer. Tick the correct one — or none for an opinion poll. For Yes/No and True/False there is a separate entry in the menu."),

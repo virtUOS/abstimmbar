@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, FileInput, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, Vote, X, type LucideIcon } from "lucide-react";
+import { Archive, ArrowDownUp, BarChart3, Check, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, FileInput, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, Vote, type LucideIcon } from "lucide-react";
 import {
   aiErrorText,
   api,
@@ -27,6 +27,7 @@ import {
 import { useEasyMode } from "../App";
 import AiGenerateForm from "../components/AiGenerateForm";
 import AiReviewPanel from "../components/AiReviewPanel";
+import { DropdownSheet, SheetMenuItem } from "../components/DropdownSheet";
 import FileDropzone from "../components/FileDropzone";
 import ImportQuestionsForm from "../components/ImportQuestionsForm";
 import HomeCrumb from "../components/HomeCrumb";
@@ -546,36 +547,6 @@ function NewQuestionMenu({
 }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(event: PointerEvent) {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open]);
-
-  // Phones: the menu is a full-screen sheet — keep the page behind it from
-  // scrolling and put the focus on its close button.
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!open || !window.matchMedia("(max-width: 639px)").matches) return;
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    closeRef.current?.focus();
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
 
   // Guided tour: the "Question types" step opens this menu to spotlight it.
   useTourSignal("open-question-menu", () => setOpen(true));
@@ -583,95 +554,104 @@ function NewQuestionMenu({
   useTourSignal("close-question-menu", () => setOpen(false));
 
   return (
-    <div className="relative" ref={ref}>
-      <Button
-        variant="primary"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-        className="inline-flex items-center gap-2"
-      >
-        <span className="text-base leading-none">+</span>
-        {t("New question")}
-        <ChevronDown
-          aria-hidden
-          className={`h-4 w-4 transition-transform duration-150 ${open ? "rotate-180" : ""}`}
-        />
-      </Button>
-      {open && (
-        // Phones: a full-screen sheet with its own title bar and ✕ (a
-        // dropdown under the button ran off the small screen). From `sm` up
-        // the familiar dropdown under the button.
-        <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-slate-950 sm:absolute sm:inset-auto sm:right-0 sm:z-30 sm:mt-2 sm:block sm:w-80 sm:overflow-hidden sm:rounded-xl sm:border sm:border-slate-200 sm:shadow-lg sm:shadow-slate-900/5 sm:dark:border-slate-700 sm:dark:bg-slate-900">
-          <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3 dark:border-slate-800 sm:hidden">
-            <span className="text-base font-semibold text-slate-900 dark:text-slate-100">
-              {t("New question")}
-            </span>
-            <button
-              type="button"
-              ref={closeRef}
-              onClick={() => setOpen(false)}
-              aria-label={t("Close")}
-              className="-mr-2 rounded-full p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"
-            >
-              <X aria-hidden className="h-5 w-5" />
-            </button>
-          </div>
-        <div
-          role="menu"
-          data-tour="set.type-list"
-          className="min-h-0 flex-1 overflow-y-auto py-1 sm:max-h-[75vh]"
-        >
-          {QUESTION_TYPE_GROUPS.map((group) => {
-            const types = QUESTION_TYPES.filter(
-              (type) => type.group === group.id && allowedKinds.includes(type.kind),
-            );
-            if (types.length === 0) return null;
-            return (
-              <div
-                key={group.id}
-                role="group"
-                aria-label={t(group.label)}
-                className="py-1 [&+&]:border-t [&+&]:border-slate-100 dark:[&+&]:border-slate-800"
-              >
-                <div className="px-3 pb-1 pt-1.5">
-                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
-                    {t(group.label)}
-                  </div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">{t(group.description)}</div>
-                </div>
-                {types.map((type) => (
-            <button
-              key={type.label}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                setOpen(false);
-                onPick(type.kind, type.template);
-              }}
-              className="flex w-full items-start gap-2.5 px-3 py-2 text-left hover:bg-slate-50 dark:hover:bg-slate-800"
-            >
-              <type.icon
-                aria-hidden
-                className="mt-0.5 h-4 w-4 shrink-0 text-brand-600 dark:text-brand-400"
-              />
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-slate-900 dark:text-slate-100">
-                  {t(type.label)}
-                </span>
-                <span className="block text-xs text-slate-500 dark:text-slate-400">
-                  {t(type.description)}
-                </span>
-              </span>
-            </button>
-                ))}
+    <DropdownSheet
+      title={t("New question")}
+      leading={<span className="text-base leading-none">+</span>}
+      variant="primary"
+      open={open}
+      onOpenChange={setOpen}
+      menuTour="set.type-list"
+    >
+      {QUESTION_TYPE_GROUPS.map((group) => {
+        const types = QUESTION_TYPES.filter(
+          (type) => type.group === group.id && allowedKinds.includes(type.kind),
+        );
+        if (types.length === 0) return null;
+        return (
+          <div
+            key={group.id}
+            role="group"
+            aria-label={t(group.label)}
+            className="py-1 [&+&]:border-t [&+&]:border-slate-100 dark:[&+&]:border-slate-800"
+          >
+            <div className="px-3 pb-1 pt-1.5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                {t(group.label)}
               </div>
-            );
-          })}
-        </div>
-        </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400">{t(group.description)}</div>
+            </div>
+            {types.map((type) => (
+              <SheetMenuItem
+                key={type.label}
+                icon={type.icon}
+                label={t(type.label)}
+                description={t(type.description)}
+                onClick={() => {
+                  setOpen(false);
+                  onPick(type.kind, type.template);
+                }}
+              />
+            ))}
+          </div>
+        );
+      })}
+    </DropdownSheet>
+  );
+}
+
+/** "Fragen hinzufügen" dropdown next to "+ Neue Frage": the ways to bring in
+ * several questions at once, each with a one-line explanation. Always a menu,
+ * even with a single entry, so the header looks the same in every set. */
+function AddQuestionsMenu({
+  onGenerate,
+  onImport,
+  onPull,
+}: {
+  /** "Aus Dokument erstellen" (AI); omitted when AI is not available. */
+  onGenerate?: () => void;
+  /** "Fragen importieren" (#323); omitted in committee meetings. */
+  onImport?: () => void;
+  /** "Aus anderem Set kopieren" (#87). */
+  onPull: () => void;
+}) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const pick = (action: () => void) => () => {
+    setOpen(false);
+    action();
+  };
+  return (
+    <DropdownSheet
+      title={t("Add questions")}
+      leading={<FolderInput aria-hidden className="h-4 w-4" />}
+      open={open}
+      onOpenChange={setOpen}
+    >
+      {onGenerate && (
+        <SheetMenuItem
+          icon={Sparkles}
+          label={t("Create from document")}
+          description={t("AI suggests questions from your slides or script (PDF, PowerPoint, Impress).")}
+          onClick={pick(onGenerate)}
+        />
       )}
-    </div>
+      {onImport && (
+        <SheetMenuItem
+          icon={FileInput}
+          label={t("Import questions")}
+          description={t(
+            "Takes over existing questions from Moodle (GIFT), H5P, ILIAS or a text list – verbatim, no AI.",
+          )}
+          onClick={pick(onImport)}
+        />
+      )}
+      <SheetMenuItem
+        icon={CopyPlus}
+        label={t("Copy from another set")}
+        description={t("Copies selected questions from another of your question sets.")}
+        onClick={pick(onPull)}
+      />
+    </DropdownSheet>
   );
 }
 
@@ -914,7 +894,7 @@ export default function SetPage() {
   // review panel opens on top of it.
   const [reviewJob, setReviewJob] = useState<GenerationJob | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  // "Fragen übernehmen" (#323): the import dialog.
+  // "Fragen importieren" (#323): the import dialog.
   const [importOpen, setImportOpen] = useState(false);
   const location = useLocation();
   // Move/copy a single question to another set (#87) — shared target-set
@@ -1337,7 +1317,7 @@ export default function SetPage() {
     }
   }
 
-  /** "Fragen übernehmen" (#323): one assist panel at a time. */
+  /** "Fragen importieren" (#323): one assist panel at a time. */
   function openImport() {
     setImportOpen(true);
     setGenerateOpen(false);
@@ -2093,29 +2073,27 @@ export default function SetPage() {
               <ListTree aria-hidden className="h-4 w-4" />{isMeeting ? t("TOPs") : t("Sections")}
             </Button>
           </ProOnly>
-          {aiVisible && (
-            <div data-tour="set.ai-generate">
-              <Button
-                onClick={() => {
-                  setGenerateOpen(true);
-                  setImportOpen(false);
-                  setReviewOpen(false);
-                  setEditingSections(false);
-                }}
-                className="inline-flex items-center gap-1.5"
-              >
-                <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
-              </Button>
-            </div>
-          )}
-          {/* #323: core authoring, no AI needed — offered in both modes and
-              every teaching set type; committee meetings (resolutions,
-              elections) are not built from quiz exports. */}
-          {!isMeeting && (
-            <Button onClick={openImport} className="inline-flex items-center gap-1.5">
-              <FileInput aria-hidden className="h-4 w-4" />{t("Import questions")}
-            </Button>
-          )}
+          {/* Bulk ways in (AI from a document, import #323, copy from
+              another set #87) bundled in one menu. Import is core authoring,
+              no AI needed — offered in both modes and every teaching set type;
+              committee meetings (resolutions, elections) are not built from
+              quiz exports. */}
+          <div data-tour={aiVisible ? "set.ai-generate" : undefined}>
+            <AddQuestionsMenu
+              onGenerate={
+                aiVisible
+                  ? () => {
+                      setGenerateOpen(true);
+                      setImportOpen(false);
+                      setReviewOpen(false);
+                      setEditingSections(false);
+                    }
+                  : undefined
+              }
+              onImport={isMeeting ? undefined : openImport}
+              onPull={() => void openPull()}
+            />
+          </div>
           <div data-tour="set.add-question">
             <NewQuestionMenu
               onPick={(kind, template) => void addQuestion(kind, template)}

@@ -822,7 +822,7 @@ export interface GenerationJob {
   page_label?: "slide" | "page" | "";
   /** Proposals already taken over into the set; they left `drafts` (#292). */
   imported_count?: number;
-  /** "import" for "Fragen übernehmen" (#323) jobs. Read defensively: stubbed
+  /** "import" for "Fragen importieren" (#323) jobs. Read defensively: stubbed
    *  or older payloads may lack it (treat as "ai"). */
   source: "ai" | "import";
   /** Import only: what was left out, per reason and source detail. */
@@ -1701,7 +1701,7 @@ export const api = {
       { method: "POST", body },
     );
   },
-  /** "Fragen übernehmen" (#323): parse pasted text or an uploaded file
+  /** "Fragen importieren" (#323): parse pasted text or an uploaded file
    *  (simple text format, GIFT, H5P, ILIAS) into a reviewable job. */
   importQuestions: (setId: number, input: { file: File } | { text: string }) => {
     const body = new FormData();
