@@ -144,7 +144,14 @@ export function CreditFields({
 /** Editor section "Image credits" (#336): one card per image of the saved
  *  question, saved individually (the credit belongs to the image file and
  *  applies everywhere it is used). */
-export default function ImageCreditsEditor({ credits }: { credits: ImageCredit[] }) {
+export default function ImageCreditsEditor({
+  credits,
+  onSaved,
+}: {
+  credits: ImageCredit[];
+  /** Called with the server's credit after a card was saved. */
+  onSaved?: (credit: ImageCredit) => void;
+}) {
   const { t } = useTranslation();
   if (!credits.length) return null;
   return (
@@ -155,14 +162,14 @@ export default function ImageCreditsEditor({ credits }: { credits: ImageCredit[]
       </p>
       <ul className="mt-3 space-y-4">
         {credits.map((c) => (
-          <CreditCard key={c.id} credit={c} />
+          <CreditCard key={c.id} credit={c} onSaved={onSaved} />
         ))}
       </ul>
     </section>
   );
 }
 
-function CreditCard({ credit }: { credit: ImageCredit }) {
+function CreditCard({ credit, onSaved }: { credit: ImageCredit; onSaved?: (credit: ImageCredit) => void }) {
   const { t } = useTranslation();
   const [saved, setSaved] = useState(credit);
   const [draft, setDraft] = useState<CreditDraft>(toCreditDraft(credit));
@@ -200,6 +207,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
       setSaved(next);
       setDraft(toCreditDraft(next));
       setDone(true);
+      onSaved?.(next);
     } catch (err) {
       const { fields, message } = creditSaveErrors(err);
       setErrors(fields);

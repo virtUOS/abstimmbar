@@ -97,7 +97,7 @@ export default function TranslatableField({
   useEffect(() => () => pendingDialog.current?.resolve(null), []);
   /** Rich-text image upload for the shared editor: stores the file in our
    *  media storage and returns its relative /media/… URL (the only kind the
-   *  backend sanitizer keeps). The editor alerts with the error's message, so
+   *  backend sanitizer keeps). The editor shows the error's message inline, so
    *  hand it the translated server detail, not the raw JSON body (#280). */
   async function uploadEditorImage(file: File): Promise<string> {
     try {

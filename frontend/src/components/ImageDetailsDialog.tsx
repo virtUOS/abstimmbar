@@ -86,6 +86,7 @@ export default function ImageDetailsDialog({
   const [error, setError] = useState("");
   const [suggesting, setSuggesting] = useState(false);
   const [suggestError, setSuggestError] = useState("");
+  const [suggested, setSuggested] = useState(false);
   // What the `close` event reports; null = skipped/cancelled.
   const result = useRef<ImageDetailsResult | null>(null);
   const done = useRef(false);
@@ -153,9 +154,13 @@ export default function ImageDetailsDialog({
     if (imageId === undefined || suggesting) return;
     setSuggesting(true);
     setSuggestError("");
+    setSuggested(false);
     try {
       const { alt: suggestion } = await api.suggestImageAlt(imageId, lang);
-      if (!done.current) setAlt(suggestion);
+      if (!done.current) {
+        setAlt(suggestion);
+        setSuggested(true);
+      }
     } catch (err) {
       if (!done.current) setSuggestError(detailText(requestError(err), t));
     } finally {
@@ -226,11 +231,9 @@ export default function ImageDetailsDialog({
                     {t("Suggest")}
                   </span>
                 </Button>
-                {suggesting && (
-                  <span role="status" className="text-sm text-slate-500 dark:text-slate-400">
-                    {t("Creating suggestion …")}
-                  </span>
-                )}
+                <span role="status" className="text-sm text-slate-500 dark:text-slate-400">
+                  {suggesting ? t("Creating suggestion …") : suggested ? t("Suggestion inserted") : ""}
+                </span>
               </div>
             )}
             {suggestError && (

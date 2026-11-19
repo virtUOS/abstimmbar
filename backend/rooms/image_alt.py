@@ -50,7 +50,7 @@ def _clean(text: str) -> str:
         cut = text[:MAX_ALT]
         space = cut.rfind(" ")
         text = (cut[:space] if space > 0 else cut).rstrip(" ,;:-")
-    return text
+    return text[:1].upper() + text[1:]
 
 
 def suggest_alt(img, lang: str) -> str:

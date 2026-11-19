@@ -37,7 +37,7 @@ class SuggestAltTests(ApiTestCase):
         self.assertEqual(m.call_args.kwargs["model"], "vm")
         self.assertEqual(m.call_args.kwargs["images"][0][1], "image/jpeg")
         with mock.patch(CHAT, return_value={"alt": "An image of a cat"}):
-            self.assertEqual(image_alt.suggest_alt(img, "en"), "a cat")
+            self.assertEqual(image_alt.suggest_alt(img, "en"), "A cat")
 
     @override_settings(**VISION_ON)
     def test_suggest_alt_empty_raises(self):

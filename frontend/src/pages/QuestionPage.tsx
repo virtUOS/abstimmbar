@@ -1316,7 +1316,7 @@ export default function QuestionPage() {
             {t("Question text is required.")}
           </p>
         )}
-        {!isNew && imageCredits.length > 0 && <ImageCreditsEditor credits={imageCredits} />}
+        {!isNew && imageCredits.length > 0 && <ImageCreditsEditor credits={imageCredits} onSaved={imageCreditSaved} />}
         {optionImageDialog && (
           <ImageDetailsDialog
             src={optionImageDialog.src}

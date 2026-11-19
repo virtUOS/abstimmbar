@@ -288,9 +288,28 @@ test.describe('with AI vision', () => {
     await expect(dialog.getByLabel('Bildbeschreibung (Alternativtext)')).toHaveValue(
       'Roter Punkt auf weißem Grund',
     );
+    await expect(dialog.getByRole('status')).toHaveText('Vorschlag eingefügt');
     expect(body).toEqual({ lang: 'de' });
     await dialog.getByRole('button', { name: 'Übernehmen' }).click();
     await expect(editor(page).locator('img[alt="Roter Punkt auf weißem Grund"]')).toHaveCount(1);
+  });
+
+  test('no suggestion request unless Suggest is clicked', async ({ page, trackRoom }) => {
+    let requests = 0;
+    await page.route(/\/api\/images\/\d+\/alt-suggestion\/$/, async (route) => {
+      requests += 1;
+      await route.fulfill({ json: { alt: 'Sollte nie geladen werden' } });
+    });
+    await openQuestion(page, trackRoom);
+    let dialog = await uploadInEditor(page);
+    await expect(dialog.getByRole('button', { name: 'Vorschlag erstellen' })).toBeVisible();
+    await dialog.getByLabel('Bildbeschreibung (Alternativtext)').fill('Eigener Text');
+    await dialog.getByRole('button', { name: 'Übernehmen' }).click();
+    await expect(editor(page).locator('img[alt="Eigener Text"]')).toHaveCount(1);
+    dialog = await uploadInEditor(page);
+    await dialog.getByRole('button', { name: 'Überspringen' }).click();
+    await expect(dialog).toBeHidden();
+    expect(requests).toBe(0);
   });
 
   test('suggest error shows message', async ({ page, trackRoom }) => {
