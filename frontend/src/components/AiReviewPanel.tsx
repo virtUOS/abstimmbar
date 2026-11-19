@@ -31,6 +31,14 @@ const KIND_LABEL: Record<string, string> = {
   ordering: "Ordering",
 };
 
+/** Imported question text (sanitized HTML) as one readable line: keep a
+ *  space where paragraphs and line breaks end, or `textContent` glues them. */
+function importedText(html: string): string {
+  return stripHtml(html.replace(/<br\s*\/?>|<\/(p|li|h\d|div|blockquote)>/gi, "$& "))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function kindLabel(draft: GeneratedQuestion): string | undefined {
   if (draft.kind === "single_choice" && draft.binary_choice) return "True/False";
   return KIND_LABEL[draft.kind];
@@ -228,7 +236,7 @@ export default function AiReviewPanel({
         </div>
         <div className="break-words text-sm font-medium text-slate-900 dark:text-slate-100">
           {/* Imported question texts are sanitized HTML; AI drafts are plain. */}
-          {isImport ? stripHtml(draft.text) : draft.text}
+          {isImport ? importedText(draft.text) : draft.text}
         </div>
         {draft.options.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-sm text-slate-600 dark:text-slate-300">
