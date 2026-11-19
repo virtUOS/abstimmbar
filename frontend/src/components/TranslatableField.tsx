@@ -30,6 +30,8 @@ export type TranslatableFieldVariant = "input" | "rich";
 const uploadedImages = new Map<string, { id: number; credit?: ImageCredit }>();
 
 interface PendingImageDialog {
+  /** Per request: a new dialog never reuses the previous one's state. */
+  key: number;
   image: InsertedImage;
   lang: string;
   resolve: (answer: { alt: string } | null) => void;
@@ -89,7 +91,7 @@ export default function TranslatableField({
   const { t } = useTranslation();
   const [imageDialog, setImageDialog] = useState<PendingImageDialog | null>(null);
   const pendingDialog = useRef<PendingImageDialog | null>(null);
-  pendingDialog.current = imageDialog;
+  const dialogKey = useRef(0);
   // The editor waits for every answer (its dialogs run one after another):
   // never leave one pending when the field goes away.
   useEffect(() => () => pendingDialog.current?.resolve(null), []);
@@ -109,7 +111,14 @@ export default function TranslatableField({
 
   /** The editor's image dialog (after an upload / "Image description"). */
   function askImageDetails(image: InsertedImage, lang: string) {
-    return new Promise<{ alt: string } | null>((resolve) => setImageDialog({ image, lang, resolve }));
+    return new Promise<{ alt: string } | null>((resolve) => {
+      // The editor never overlaps its calls; should one still be pending,
+      // settle it rather than leave the editor waiting forever.
+      pendingDialog.current?.resolve(null);
+      const next = { key: ++dialogKey.current, image, lang, resolve };
+      pendingDialog.current = next;
+      setImageDialog(next);
+    });
   }
 
   function finishImageDialog(result: ImageDetailsResult | null) {
@@ -125,11 +134,12 @@ export default function TranslatableField({
     pending.resolve(result ? { alt: result.alt } : null);
   }
 
-  function renderImageDialog({ image, lang }: PendingImageDialog) {
+  function renderImageDialog({ key, image, lang }: PendingImageDialog) {
     const known = imageCredits?.find((c) => c.src === image.src);
     const uploaded = uploadedImages.get(image.src);
     return (
       <ImageDetailsDialog
+        key={key}
         src={image.src}
         imageId={known?.id ?? uploaded?.id}
         mode={image.mode}

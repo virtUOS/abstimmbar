@@ -75,9 +75,13 @@ export default function ImageDetailsDialog({
   const titleId = useId();
   const altId = useId();
   const [alt, setAlt] = useState(initialAlt);
-  const initialCredit = credit ? toCreditDraft(credit) : EMPTY_CREDIT_DRAFT;
+  // The comparison baseline for "changed credit fields", fixed on open.
+  const [initialCredit] = useState<CreditDraft>(() => (credit ? toCreditDraft(credit) : EMPTY_CREDIT_DRAFT));
   const [draft, setDraft] = useState<CreditDraft>(initialCredit);
   const [saving, setSaving] = useState(false);
+  // Synchronous guard: Enter and a click in the same tick see the same
+  // (stale) `saving` state and must not send two PATCHes.
+  const applying = useRef(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [suggesting, setSuggesting] = useState(false);
@@ -122,7 +126,8 @@ export default function ImageDetailsDialog({
   }
 
   async function apply() {
-    if (saving) return;
+    if (applying.current) return;
+    applying.current = true;
     const next: ImageDetailsResult = { alt: alt.trim() };
     const patch = withCredit && creditEditable ? changedCredit() : {};
     if (imageId !== undefined && Object.keys(patch).length) {
@@ -136,6 +141,7 @@ export default function ImageDetailsDialog({
         setErrors(fields);
         setError(message ? detailText(message, t) : "");
         setSaving(false);
+        applying.current = false;
         return; // stays open with the input
       }
       setSaving(false);
