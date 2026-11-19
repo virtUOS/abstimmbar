@@ -23,6 +23,12 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Hinzugefügt
 
+- Bildbeschreibung (Alternativtext) für Antwortbilder (#342): zweisprachig,
+  im Bild-Dialog (auch mit KI-Vorschlag, wenn freigeschaltet) und über den Stift
+  „Bild bearbeiten“ an der Antwort; reine Bildantworten ohne Beschreibung zeigen
+  den Hinweis „Bildbeschreibung fehlt“. Screenreader lesen bei reinen
+  Bildantworten die Beschreibung, bei Antworten mit Text den Text. Kopien,
+  JSON-Export/-Import und der Import aus H5P/ILIAS behalten sie.
 - Bild-Dialog im Editor: Nach dem Hochladen eines Bildes öffnet sich der
   Dialog „Bild einfügen“ mit Vorschau und Bildbeschreibung (Alternativtext);
   bei Bildern im Fragetext zusätzlich mit den Feldern des Bildnachweises,
