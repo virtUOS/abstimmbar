@@ -24,10 +24,8 @@ _CODES = {
     "CC0 1.0": "cc0",
     "CC PDM": "pd",
     "PD": "pd",
-    "C": "other",
+    "C": "arr",
 }
-# Stored in the canonical content language (CONTENT_DEFAULT_LANGUAGE "de").
-ALL_RIGHTS_RESERVED = "Alle Rechte vorbehalten"
 AUTHOR_MAX = 200
 TITLE_MAX = 300
 SOURCE_MAX = 500
@@ -60,7 +58,9 @@ def h5p_credit(metadata: dict, license_code: str, version: str, extras: str) -> 
 
     Unknown codes (``U``, ``GNU GPL``, ``ODC PDDL`` …) leave the license
     empty but keep author/title/source. The version is kept only for the CC
-    licenses that have one; ``licenseExtras`` only extends the text of ``C``.
+    licenses that have one. ``C`` maps to ``arr`` (all rights reserved; the
+label is translated by the clients) and only it keeps ``licenseExtras`` as
+the license note.
     """
     metadata = metadata if isinstance(metadata, dict) else {}
     code = _str(license_code)
@@ -69,10 +69,8 @@ def h5p_credit(metadata: dict, license_code: str, version: str, extras: str) -> 
     if not key.startswith("cc-by") or not re.fullmatch(VERSION_RE, version):
         version = ""
     text = ""
-    if key == "other":
-        extra = _str(extras)
-        text = f"{ALL_RIGHTS_RESERVED}; {extra}" if extra else ALL_RIGHTS_RESERVED
-        text = text[:TEXT_MAX]
+    if key == "arr":
+        text = _str(extras)[:TEXT_MAX]
     credit = {
         "author": _authors(metadata),
         "title": _str(metadata.get("title"))[:TITLE_MAX],

@@ -149,9 +149,9 @@ Vorschaubild und diesen Feldern:
 - **Urheber:in** und **Titel** des Bildes,
 - **Quelle** — ein Link (`http://` oder `https://`),
 - **Lizenz** — CC BY, CC BY-SA, CC BY-ND, CC BY-NC, CC BY-NC-SA, CC BY-NC-ND,
-  CC0, Gemeinfrei, Sonstige oder Unbekannt. Bei CC-Lizenzen wählen Sie
-  zusätzlich die **Version**, bei **Sonstige** ergänzen Sie einen
-  **Lizenzhinweis**.
+  CC0, Gemeinfrei, Alle Rechte vorbehalten, Sonstige oder Unbekannt. Bei
+  CC-Lizenzen wählen Sie zusätzlich die **Version**, bei **Sonstige** ergänzen
+  Sie einen **Lizenzhinweis** (bei **Alle Rechte vorbehalten** optional).
 
 Mit **Nachweis speichern** übernehmen Sie die Angaben; Bilder ohne Nachweis
 sind mit **Kein Bildnachweis** markiert. Neu eingefügte Bilder erscheinen im

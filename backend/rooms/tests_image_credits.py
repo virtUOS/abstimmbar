@@ -47,6 +47,7 @@ class ImageCreditsTests(TestCase):
             ic.license_url("pd", ""), "https://creativecommons.org/publicdomain/mark/1.0/"
         )
         self.assertEqual(ic.license_url("other", ""), "")
+        self.assertEqual(ic.license_url("arr", ""), "")
         self.assertEqual(ic.license_url("", ""), "")
 
     def test_license_label(self):
@@ -55,6 +56,7 @@ class ImageCreditsTests(TestCase):
         self.assertEqual(ic.license_label("cc0", "3.0"), "CC0 1.0")
         self.assertEqual(ic.license_label("pd", ""), "")
         self.assertEqual(ic.license_label("other", ""), "")
+        self.assertEqual(ic.license_label("arr", ""), "")
         self.assertEqual(ic.license_label("", ""), "")
 
     def test_has_credit_author_or_license_only(self):
@@ -240,6 +242,17 @@ class ImageCreditApiTests(_CreditApiBase):
         self.assertEqual(response.status_code, 200)
         img.refresh_from_db()
         self.assertEqual(img.credit_license_version, "4.0")
+
+    def test_patch_accepts_all_rights_reserved(self):
+        img, _ = self._upload()
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", {"license": "arr", "text": "Nur Lehre"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual((body["license_label"], body["license_url"]), ("", ""))
+        self.assertTrue(body["has_credit"])
 
     def test_patch_rejects_unknown_license(self):
         self._bad({"author": "x", "license": "gpl"})

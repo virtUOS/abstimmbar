@@ -67,6 +67,8 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
     setDone(false);
   };
   const isCc = draft.license.startsWith("cc-");
+  // "Other" needs the note; "All rights reserved" may carry one (H5P extras).
+  const hasNote = draft.license === "other" || draft.license === "arr";
   const dirty = (Object.keys(draft) as (keyof Draft)[]).some((k) => draft[k] !== saved[k]);
 
   const save = async () => {
@@ -77,7 +79,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
       const updated = await api.updateImageCredit(saved.id, {
         ...draft,
         version: isCc ? draft.version : "",
-        text: draft.license === "other" ? draft.text : "",
+        text: hasNote ? draft.text : "",
       });
       const next = { ...saved, ...updated };
       setSaved(next);
@@ -120,7 +122,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
         <ImageCredits credits={[saved]} html="" optionImages={[saved.src]} links={false} />
         {readOnly ? (
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            {t("You can't edit this image credit; it belongs to another room.")}
+            {t("You can't edit this image credit; the image is also used in a room that isn't yours.")}
           </p>
         ) : (
           <>
@@ -154,6 +156,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
                     </option>
                   ))}
                   <option value="pd">{t("Public domain")}</option>
+                  <option value="arr">{t("All rights reserved")}</option>
                   <option value="other">{t("Other")}</option>
                 </Select>
                 {err("license")}
@@ -170,7 +173,7 @@ function CreditCard({ credit }: { credit: ImageCredit }) {
                 </Field>
               )}
             </div>
-            {draft.license === "other" && (
+            {hasNote && (
               <Field label={t("License note")}>
                 <TextInput value={draft.text} maxLength={200} onChange={(e) => set({ text: e.target.value })} />
                 {err("text")}

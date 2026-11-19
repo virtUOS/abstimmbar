@@ -144,8 +144,9 @@ thumbnail and these fields:
 - **Author** and **Title** of the image,
 - **Source** — a link (`http://` or `https://`),
 - **License** — CC BY, CC BY-SA, CC BY-ND, CC BY-NC, CC BY-NC-SA, CC BY-NC-ND,
-  CC0, Public domain, Other or Unknown. For CC licenses you also pick the
-  **version**; for **Other** you add a **license note**.
+  CC0, Public domain, All rights reserved, Other or Unknown. For CC licenses
+  you also pick the **version**; for **Other** you add a **license note**
+  (optional for **All rights reserved**).
 
 **Save credit** stores the details; images without a credit are marked **No
 image credit**. Newly inserted images appear in the section once you have

@@ -23,6 +23,7 @@ LICENSES = {
     "cc-by-nc-nd": "CC BY-NC-ND",
     "cc0": "CC0",
     "pd": "",
+    "arr": "",  # all rights reserved
     "other": "",
 }
 LICENSE_CHOICES = [(key, key) for key in LICENSES]

@@ -1042,3 +1042,6 @@ msgstr "von"
 
 msgid "Public domain"
 msgstr "Gemeinfrei"
+
+msgid "All rights reserved"
+msgstr "Alle Rechte vorbehalten"

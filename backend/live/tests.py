@@ -11126,12 +11126,14 @@ class ParticipantCreditTemplateTests(LiveTestCase):
         self.assertIn('class="image-credits"', html)
         self.assertIn("Bild:", html)
         self.assertIn("Gemeinfrei", html)
+        self.assertIn("Alle Rechte vorbehalten", html)
 
     def test_container_and_strings_en(self):
         html = self.client.get(f"/p/{self.room.code}/?lang=en").content.decode()
         self.assertIn('class="image-credits"', html)
         self.assertIn("Image:", html)
         self.assertIn("Public domain", html)
+        self.assertIn("All rights reserved", html)
 
     def test_containers_exist_for_all_question_views(self):
         html = self.client.get(f"/p/{self.room.code}/?lang=de").content.decode()

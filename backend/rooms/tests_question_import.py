@@ -1578,8 +1578,8 @@ class ImportImageCoreTests(SimpleTestCase):
             ("CC0 1.0", "", "", {"license": "cc0", "version": "", "text": ""}),
             ("CC PDM", "", "", {"license": "pd", "version": "", "text": ""}),
             ("PD", "CC0 1.0", "", {"license": "pd", "version": "", "text": ""}),
-            ("C", "", "", {"license": "other", "version": "", "text": "Alle Rechte vorbehalten"}),
-            ("C", "", "Nur Lehre", {"license": "other", "version": "", "text": "Alle Rechte vorbehalten; Nur Lehre"}),
+            ("C", "", "", {"license": "arr", "version": "", "text": ""}),
+            ("C", "", "Nur Lehre", {"license": "arr", "version": "", "text": "Nur Lehre"}),
             ("CC BY", "4.0", "Extra", {"license": "cc-by", "version": "4.0", "text": ""}),
             ("U", "", "", {"license": "", "version": "", "text": ""}),
             ("", "", "", {"license": "", "version": "", "text": ""}),
@@ -1592,6 +1592,8 @@ class ImportImageCoreTests(SimpleTestCase):
             )
         long = licenses.h5p_credit({}, "C", "", "x" * 300)
         self.assertEqual(len(long["text"]), 100)
+        # All rights reserved without author: still a credit (license set).
+        self.assertEqual(licenses.h5p_credit({}, "C", "", "")["license"], "arr")
         self.assertEqual(licenses.h5p_credit({}, "U", "", ""), {})
         self.assertEqual(licenses.h5p_credit({}, None, None, None), {})
 

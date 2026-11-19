@@ -653,6 +653,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     creditMany: "{% trans 'Images:' %}",
     creditBy: "{% trans 'by' %}",
     creditPublicDomain: "{% trans 'Public domain' %}",
+    creditAllRightsReserved: "{% trans 'All rights reserved' %}",
   };
   // Authored content (question/option text, set title, results labels) now
   // arrives as a {de, en} map — the SSE hub broadcasts one payload to every
@@ -705,6 +706,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
         nodes.push(part(c.author, c.source));
       }
       const lic = c.license === "pd" ? I18N.creditPublicDomain
+        : c.license === "arr" ? I18N.creditAllRightsReserved + (c.text ? "; " + c.text : "")
         : (c.license === "other" ? (c.text || "") : (c.license_label || ""));
       if (lic) {
         if (nodes.length) nodes.push(document.createTextNode(", "));

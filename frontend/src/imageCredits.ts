@@ -32,7 +32,13 @@ export function formatCreditParts(
 ): { title?: string; author?: string; license?: string; licenseUrl?: string; source?: string } {
   const [open, close] = lang.startsWith("en") ? ["“", "”"] : ["„", "“"];
   const license =
-    c.license === "pd" ? t("Public domain") : c.license === "other" ? c.text : c.license_label;
+    c.license === "pd"
+      ? t("Public domain")
+      : c.license === "arr"
+        ? [t("All rights reserved"), c.text].filter(Boolean).join("; ")
+        : c.license === "other"
+          ? c.text
+          : c.license_label;
   return {
     title: c.title ? `${open}${c.title}${close}` : undefined,
     author: c.author || undefined,
