@@ -9,6 +9,7 @@ from collections import Counter
 from django.db.models import Avg, Count, Max, Min
 
 from common.i18n_fields import translated_map
+from rooms.image_credits import credits_for_questions
 from rooms.models import Question
 
 from . import matrix, matrix_rating, mindmap_rating
@@ -430,9 +431,15 @@ def participant_total(run):
     return len(tokens)
 
 
-def run_results(run):
-    """Full per-question aggregation of one run (management results view)."""
-    questions = run.question_set.questions.prefetch_related("options")
+def run_results(run, credits=None):
+    """Full per-question aggregation of one run (management results view).
+
+    ``credits`` is the bundled ``credits_for_questions`` result (question id
+    -> credited images); computed here when not given, so callers listing
+    several runs of one set pass it once (#336)."""
+    questions = list(run.question_set.questions.prefetch_related("options"))
+    if credits is None:
+        credits = credits_for_questions(questions)
     items = []
     for question in questions:
         item = {
@@ -451,6 +458,8 @@ def run_results(run):
             # Vorher-Nachher-Paar (#54): the before-question this one mirrors,
             # so the results view can pair them for comparison (null otherwise).
             "before_question": question.before_question_id,
+            # Image credits (#336): credited images only, no `editable`.
+            "image_credits": credits.get(question.pk, []),
         }
         if question.kind == Question.Kind.MINDMAP:
             item["mindmap"] = build_tree(run, question, presenter=False)

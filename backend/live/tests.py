@@ -11001,6 +11001,36 @@ class ImageCreditPayloadTests(LiveTestCase):
         question.text_de = f'<p>Bild</p><img src="{img.file.url}">'
         question.save()
 
+    def test_results_entries_have_credits_without_extra_queries(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+
+        img = self.make_image()
+        self.put_in_text(img)
+        run = self.open_question()
+        token = self.join()
+        self.vote(token, options=[self.correct.pk])
+        run.phase = Run.Phase.FINISHED
+        run.save()
+        self.client.force_login(self.owner)
+        url = f"/api/question-sets/{self.question_set.pk}/results/"
+
+        with CaptureQueriesContext(connection) as one:
+            entry = self.client.get(url).json()["results"][0]["questions"][0]
+        credit = entry["image_credits"][0]
+        self.assertEqual(credit["src"], img.file.url)
+        self.assertEqual(credit["author"], "Karen Jackson")
+        self.assertEqual(credit["license_label"], "CC BY-ND 4.0")
+        self.assertNotIn("editable", credit)
+
+        second = self.make_image(author="Zweite")
+        self.question.text_de += f'<img src="{second.file.url}">'
+        self.question.save()
+        with CaptureQueriesContext(connection) as two:
+            entry = self.client.get(url).json()["results"][0]["questions"][0]
+        self.assertEqual(len(entry["image_credits"]), 2)
+        self.assertEqual(len(two), len(one))
+
     def test_open_question_payload_has_credits(self):
         img = self.make_image()
         self.put_in_text(img)

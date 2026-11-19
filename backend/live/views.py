@@ -2236,7 +2236,10 @@ def set_results(request, set_id):
         question_set.runs.filter(mindmap.answered_runs_q())
         .order_by("-created_at")
     )
-    return Response({"results": [run_results(run) for run in runs]})
+    # One bundled credit lookup for every run (same questions in each).
+    questions = list(question_set.questions.all())
+    credits = credits_for_questions(questions)
+    return Response({"results": [run_results(run, credits) for run in runs]})
 
 
 @api_view(["DELETE"])
