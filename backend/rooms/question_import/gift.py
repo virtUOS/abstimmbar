@@ -12,7 +12,7 @@ from rooms.sanitize import clean_html
 
 from .core import ImportResult, html_paragraphs, plain, true_false_labels
 
-_ESCAPABLE = "~=#{}:"
+_ESCAPABLE = "~=#{}:\\n"
 _TITLE_RE = re.compile(r"^\s*::((?:\\.|(?!::).)*)::", re.DOTALL)
 _FORMAT_RE = re.compile(r"^\s*\[(html|markdown|plain|moodle)\]", re.IGNORECASE)
 _WEIGHT_RE = re.compile(r"^\s*%(-?\d+(?:\.\d+)?)%")
@@ -21,7 +21,9 @@ _TITLE_LINE_RE = re.compile(r"^\s*::[^:\n]+::", re.MULTILINE)
 
 
 def _unescape(s: str) -> str:
-    return re.sub(r"\\([~=#{}:])", r"\1", s)
+    return re.sub(
+        r"\\([~=#{}:\\n])", lambda m: "\n" if m.group(1) == "n" else m.group(1), s
+    )
 
 
 def _unescaped(s: str, chars: str) -> list[tuple[int, str]]:
@@ -124,6 +126,10 @@ def _build(lineno: int, body: str, result: ImportResult) -> None:
         return
     question = body[:start].strip()
     content = body[start + 1 : end]
+    for pos, _ in _unescaped(content, "#"):
+        if content.startswith("####", pos):
+            content = content[:pos]  # general feedback tail
+            break
     if not question:
         result.skip("invalid", detail)
         return

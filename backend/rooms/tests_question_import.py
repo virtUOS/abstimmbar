@@ -265,6 +265,30 @@ class GiftFormatTests(SimpleTestCase):
         r = gift.parse("Leere Option {=a ~}")
         self.assertEqual(r.skipped, {("invalid", "Zeile 1"): 1})
 
+    def test_general_feedback_tail(self):
+        r = gift.parse("Essay {####Allgemeines Feedback}")
+        self.assertEqual(r.skipped, {})
+        self.assertEqual(r.drafts[0]["kind"], "open_text")
+        r = gift.parse("Frage? {=a#ja ~b#nein ####Allgemein}")
+        (d,) = r.drafts
+        self.assertEqual(d["kind"], "single_choice")
+        self.assertEqual(opts(d), ["a", "b"])
+        self.assertEqual(correct(d), ["a"])
+        r = gift.parse("Frage? {T####fb}")
+        self.assertTrue(r.drafts[0]["binary_choice"])
+
+    def test_newline_and_backslash_escapes(self):
+        r = gift.parse("Zeile\\nzwei {=a ~b}")
+        self.assertEqual(r.drafts[0]["text"], "<p>Zeile<br>zwei</p>")
+        r = gift.parse("Pfad C:\\\\x {=a\\\\ ~b}")
+        (d,) = r.drafts
+        self.assertIn("C:\\x", d["text"])
+        self.assertEqual(opts(d), ["a\\", "b"])
+        r = gift.parse("Backslash \\\\{=a ~b}")
+        self.assertEqual(r.drafts[0]["text"], "<p>Backslash \\</p>")
+        r = gift.parse("[html]a\\nb {=x ~y}")
+        self.assertIn("a\nb", r.drafts[0]["text"])
+
     def test_looks_like_gift(self):
         self.assertTrue(gift.looks_like_gift("Frage? {=a ~b}"))
         self.assertTrue(gift.looks_like_gift("::T:: Text"))
