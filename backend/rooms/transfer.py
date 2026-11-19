@@ -51,7 +51,7 @@ from rest_framework import serializers
 from common.i18n_fields import LANGS, translated_map
 
 from . import matrix, mindmap, set_types
-from .image_credits import media_name_for_src
+from .image_credits import has_credit, media_name_for_src
 from .images import (
     MAX_ANIMATED_IMAGE_BYTES,
     MAX_IMAGE_BYTES,
@@ -313,7 +313,7 @@ def _uploaded_image_for(src):
 
 
 def _embedded_images(srcs):
-    """{src: {"content_type", "data"}} for every resolvable src."""
+    """{src: {"content_type", "data"[, "credit"]}} for every resolvable src."""
     images = {}
     for src in srcs:
         if src in images:
@@ -332,7 +332,42 @@ def _embedded_images(srcs):
             "content_type": Image.MIME.get(fmt, "application/octet-stream"),
             "data": base64.b64encode(raw).decode("ascii"),
         }
+        if has_credit(uploaded):
+            images[src]["credit"] = {
+                key: getattr(uploaded, attr) for key, attr in _credit_fields().items()
+            }
     return images
+
+
+def _credit_fields():
+    """{export key: UploadedImage attribute} of the credit fields."""
+    from .serializers import ImageCreditSerializer
+
+    return ImageCreditSerializer.FIELD_MAP
+
+
+def _apply_credit(uploaded, credit):
+    """Set the credit fields of ``uploaded`` from an import entry.
+
+    Every field goes through the PATCH serializer's validation on its own;
+    invalid or unknown values are dropped, never failing the import.
+    """
+    from .serializers import ImageCreditSerializer
+
+    if not isinstance(credit, dict):
+        return
+    values = {}
+    for key, attr in ImageCreditSerializer.FIELD_MAP.items():
+        if key not in credit:
+            continue
+        serializer = ImageCreditSerializer(data={key: credit[key]})
+        if serializer.is_valid():
+            values[attr] = serializer.validated_data[key]
+    if not values:
+        return
+    for attr, value in values.items():
+        setattr(uploaded, attr, value)
+    uploaded.save(update_fields=list(values))
 
 
 def _collect_image_srcs(question_set, sections, questions):
@@ -423,6 +458,7 @@ class _ImageImporter:
             normalized = ContentFile(raw, name=f"{stem[:80]}.{fmt}")
         uploaded = UploadedImage(uploader=self.user)
         uploaded.file.save(normalized.name, normalized, save=True)
+        _apply_credit(uploaded, entry.get("credit"))
         return uploaded
 
 

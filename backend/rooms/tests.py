@@ -2811,6 +2811,83 @@ class EmbeddedImageTransferTests(ApiTestCase):
         # References without an embedded image stay as they are.
         self.assertIn("/media/question-images/2020/01/fehlt.webp", question.text_de)
 
+    def _credited_set(self):
+        url = self._upload("credit.png")
+        stored = UploadedImage.objects.get(file=url[len("/media/"):])
+        stored.credit_author = "Ada"
+        stored.credit_title = "Bild"
+        stored.credit_source = "https://example.org/b"
+        stored.credit_license = "cc-by"
+        stored.credit_license_version = "4.0"
+        stored.credit_license_text = "x"
+        stored.save()
+        qset = QuestionSet.objects.create(room=self.room, title_de="Credit")
+        Question.objects.create(
+            question_set=qset, kind="single_choice",
+            text_de=f'<p>x</p><img src="{url}" alt="">',
+        )
+        return qset, url
+
+    def _import_new(self, data):
+        response = self.client.post(
+            f"/api/rooms/{self.room.pk}/import-set/", data, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 201, response.content[:300])
+        text = QuestionSet.objects.get(pk=response.json()["id"]).questions.get().text_de
+        src = re.search(r'<img src="([^"]+)"', text).group(1)
+        return UploadedImage.objects.get(file=src[len("/media/"):])
+
+    def test_export_includes_credit(self):
+        qset, url = self._credited_set()
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        self.assertEqual(
+            data["images"][url]["credit"],
+            {"author": "Ada", "title": "Bild", "source": "https://example.org/b",
+             "license": "cc-by", "version": "4.0", "text": "x"},
+        )
+
+    def test_export_omits_credit_when_empty(self):
+        qset, _ = self._set_with_images()
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        self.assertTrue(all("credit" not in e for e in data["images"].values()))
+
+    def test_import_applies_credit(self):
+        qset, _ = self._credited_set()
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        new = self._import_new(data)
+        self.assertEqual(
+            (new.credit_author, new.credit_title, new.credit_source,
+             new.credit_license, new.credit_license_version, new.credit_license_text),
+            ("Ada", "Bild", "https://example.org/b", "cc-by", "4.0", "x"),
+        )
+
+    def test_import_ignores_invalid_credit_fields(self):
+        qset, url = self._credited_set()
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        data["images"][url]["credit"].update(
+            source="javascript:x", license="bogus", version="1.2.3", extra="y"
+        )
+        new = self._import_new(data)
+        self.assertEqual(new.credit_source, "")
+        self.assertEqual(new.credit_license, "")
+        self.assertEqual(new.credit_license_version, "")
+        self.assertEqual(new.credit_author, "Ada")
+        self.assertEqual(new.credit_title, "Bild")
+
+    def test_import_ignores_non_dict_credit(self):
+        qset, url = self._credited_set()
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        data["images"][url]["credit"] = "nope"
+        new = self._import_new(data)
+        self.assertEqual(new.credit_author, "")
+
+    def test_legacy_entry_without_credit_ok(self):
+        qset, url = self._credited_set()
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        del data["images"][url]["credit"]
+        new = self._import_new(data)
+        self.assertEqual(new.credit_author, "")
+
     def test_non_ascii_filename_round_trip(self):
         url = self._upload("Bäume.png")
         self.assertIn("%", url)
