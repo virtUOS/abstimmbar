@@ -1308,6 +1308,29 @@ class ResultsApiTests(LiveTestCase):
         self.assertNotIn("{", body)
         self.assertNotIn("'de'", body)
 
+    def test_csv_image_only_option_uses_image_alt(self):
+        """#342: an option without text is labelled by its (canonical) image
+        description in the CSV instead of an empty cell."""
+        import csv
+        import io
+
+        self.correct.text_de = ""
+        self.correct.text_en = ""
+        self.correct.image = "/media/question-images/2026/11/a.png"
+        self.correct.image_alt_de = "Ein Hund"
+        self.correct.image_alt_en = "A dog"
+        self.correct.save()
+        self._run_with_votes()
+        self.client.force_login(self.owner)
+        body = self.client.get(
+            f"/api/question-sets/{self.question_set.pk}/results.csv",
+            headers={"accept-language": "de"},
+        ).content.decode("utf-8-sig")
+        rows = list(csv.DictReader(io.StringIO(body), delimiter=";"))
+        self.assertEqual(
+            {row["antwort"] for row in rows}, {"Ein Hund", "5"}
+        )
+
     def test_csv_choice_percent_and_local_start_time(self):
         """#284: choice rows carry the percentage the results page shows
         (share of the question's votes, one decimal), and "gestartet" is
@@ -3933,6 +3956,18 @@ class OrderingStatsTests(LiveTestCase):
              for idx, opt in enumerate(order)]
         )
 
+    def test_stats_emit_image_alt_for_image_options(self):
+        from .results import ordering_stats
+
+        self.oa.image = "/media/x.png"
+        self.oa.image_alt_de = "Ein Hund"
+        self.oa.image_alt_en = "A dog"
+        self.oa.save()
+        stats = ordering_stats(self.run, self.oq)
+        items = {it["id"]: it for it in stats["items"]}
+        self.assertEqual(items[self.oa.pk]["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+        self.assertNotIn("image_alt", items[self.ob.pk])
+
     def test_correct_rates_and_full_rate(self):
         from .results import ordering_stats
         self._submit([self.oa, self.ob, self.oc])          # fully correct
@@ -4036,6 +4071,18 @@ class PriorityStatsTests(LiveTestCase):
             phase=Run.Phase.CLOSED,
             active_question=self.pq,
         )
+
+    def test_stats_emit_image_alt_for_image_options(self):
+        from .results import priority_stats
+
+        self.oa.image = "/media/x.png"
+        self.oa.image_alt_de = "Ein Hund"
+        self.oa.image_alt_en = "A dog"
+        self.oa.save()
+        stats = priority_stats(self.run, self.pq)
+        items = {it["id"]: it for it in stats}
+        self.assertEqual(items[self.oa.pk]["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+        self.assertNotIn("image_alt", items[self.ob.pk])
 
     def _submit(self, a, b):
         tok = ParticipantToken.objects.create(room=self.room)
@@ -11058,6 +11105,25 @@ class ImageCreditPayloadTests(LiveTestCase):
         entries = build_payloads(self.room)["participant"]["question"]["image_credits"]
         self.assertEqual([e["src"] for e in entries], [img.file.url])
 
+    def test_option_image_alt_in_payload_and_results(self):
+        from .results import options_with_counts
+
+        img = self.make_image()
+        self.wrong.image = img.file.url
+        self.wrong.image_alt_de = "Ein Hund"
+        self.wrong.image_alt_en = "A dog"
+        self.wrong.save()
+        self.open_question()
+        for role in ("participant", "presenter"):
+            opts = build_payloads(self.room)[role]["question"]["options"]
+            row = next(o for o in opts if o["id"] == self.wrong.pk)
+            self.assertEqual(row["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+            others = [o for o in opts if o["id"] != self.wrong.pk]
+            self.assertTrue(all("image_alt" not in o for o in others))
+        rows = options_with_counts(active_run(self.room), self.question)
+        row = next(o for o in rows if o["id"] == self.wrong.pk)
+        self.assertEqual(row["image_alt"], {"de": "Ein Hund", "en": "A dog"})
+
     def test_set_results_credit_lookup_does_not_query_per_question(self):
         """M2: options are prefetched, so the bundled credit lookup is one
         query regardless of the number of questions."""
@@ -11174,6 +11240,25 @@ class ParticipantCreditTemplateTests(LiveTestCase):
         for cid in ("question-credits", "quiz-credits", "results-credits", "rec-credits",
                     "check-credits", "mm-credits", "mx-credits"):
             self.assertIn(f'class="image-credits" id="{cid}"', html)
+
+    def test_option_image_alt_rendering_rule(self):
+        from pathlib import Path
+
+        import live
+
+        src = (Path(live.__file__).parent / "templates/live/participant.html").read_text()
+        block = src.split("function fillOptionButton")[1].split("async function post")[0]
+        self.assertIn("optionImageAlt(option)", block)
+        self.assertIn('setAttribute("aria-label"', block)
+        self.assertNotIn("innerHTML", block)
+        helper = src.split("function optionImageAlt")[1].split("function fillOptionButton")[0]
+        self.assertIn("locText(option.image_alt)", helper)
+        self.assertIn("locText(option.text)", helper)
+
+    def test_image_only_option_without_alt_gets_numbered_aria_label(self):
+        html = self.client.get(f"/p/{self.room.code}/?lang=de").content.decode()
+        self.assertIn("Antwort {n}", html)
+        self.assertIn("I18N.answerN", html)
 
     def test_render_credits_never_assigns_inner_html(self):
         from pathlib import Path

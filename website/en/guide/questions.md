@@ -149,8 +149,18 @@ for the question. For images in the question text you can also fill in the
 [image credit](#bildnachweise) fields here. Everything is optional:
 **Apply** saves your input, **Skip** (or Esc) closes the dialog without
 entries — the image is inserted either way. The toolbar button **Image
-description** reopens the dialog later as **Edit image**. For answer images the
-dialog contains only the image-credit fields.
+description** reopens the dialog later as **Edit image**.
+
+**Answer images** use the same dialog: after uploading, it opens with the image
+description (in the language of the tab you are editing) and the image-credit
+fields; the pencil **Edit image** on the answer reopens it. If an answer
+consists only of an image, the description is what screen readers announce on
+the participant page, the projector and in the results (without a description:
+“Answer 3”). If the answer has text, the text is read and the image is treated
+as decoration. If an image-only answer has no description in the content's main
+language, the entry shows the hint **Image description missing** (a click opens
+the dialog); it does not stop you from saving. Copies, JSON export/import and
+question import (H5P, ILIAS) keep the description.
 
 If your institution has enabled image description, a **Suggest**
 button is available: only when you click is the image (downscaled) sent to the

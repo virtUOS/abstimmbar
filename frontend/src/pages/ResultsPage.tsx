@@ -23,6 +23,7 @@ import {
 import { useApp, useEasyMode } from "../App";
 import { fmtNum, fmtPct } from "../format";
 import { localizedText, RichText, stripHtml } from "@basicbar/ui";
+import { optionImageName, optionLabel } from "../optionImageAlt";
 import AiAssistPanel from "../components/AiAssistPanel";
 import HomeCrumb from "../components/HomeCrumb";
 import { Button, ConfirmInline, EmptyState, TextInput } from "../components/ui";
@@ -599,6 +600,8 @@ export default function ResultsPage() {
                                     <ResultBar
                                       index={i}
                                       label={localizedText(option.text)}
+                                      image={option.image}
+                                      imageAlt={optionImageName(option, t("Answer {{n}}", { n: i + 1 }))}
                                       count={count}
                                       pct={percent}
                                       state={hasCorrect ? (option.is_correct ? "correct" : "wrong") : "neutral"}
@@ -621,7 +624,7 @@ export default function ResultsPage() {
                                 <PriorityBar
                                   key={opt.id}
                                   index={i}
-                                  label={localizedText(opt.text)}
+                                  label={optionLabel(opt, "")}
                                   avg={opt.avg}
                                   min={opt.min}
                                   max={opt.max}
@@ -654,7 +657,7 @@ export default function ResultsPage() {
                                           style={{ gridRow: 2 * i + 1 }}
                                         >
                                           <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
-                                          <span className="truncate">{localizedText(it.text)}</span>
+                                          <span className="truncate">{optionLabel(it, t("Answer {{n}}", { n: it.correct_position }))}</span>
                                         </div>,
                                       ];
                                       if (link) {
@@ -851,6 +854,7 @@ function MindmapOutline({
  * sits above the after bar, each labelled. Options are paired by position;
  * percentages use each side's own vote total. */
 function BeforeAfterChoice({ before, after }: { before: ResultQuestion; after: ResultQuestion }) {
+  const { t } = useTranslation();
   const options = after.options ?? [];
   const hasCorrect = options.some((o) => o.is_correct);
   const pctOf = (count: number, total: number) => (total ? Math.round((count / total) * 100) : 0);
@@ -864,6 +868,8 @@ function BeforeAfterChoice({ before, after }: { before: ResultQuestion; after: R
             key={option.id}
             index={index}
             label={localizedText(option.text)}
+            image={option.image}
+            imageAlt={optionImageName(option, t("Answer {{n}}", { n: index + 1 }))}
             count={count}
             pct={pctOf(count, after.votes)}
             before={{ count: beforeCount, pct: pctOf(beforeCount, before.votes) }}

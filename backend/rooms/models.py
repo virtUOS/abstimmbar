@@ -606,6 +606,8 @@ class AnswerOption(TimeStampedModel):
     # v2: optional image (relative /media/ URL from the upload endpoint,
     # like images embedded in question HTML — same instance-local caveat).
     image = models.CharField(max_length=300, blank=True, default="")
+    # #342: alt text for the image (translated; used when the option has no text).
+    image_alt = models.CharField(max_length=300, blank=True, default="")
     is_correct = models.BooleanField(default=False)
     # Likert only: an optional "Enthaltung" — flagged so ordinal analyses
     # can exclude it from the scale (v2 review feedback).

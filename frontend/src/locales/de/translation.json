@@ -819,6 +819,7 @@
   "Image upload failed": "Bild-Upload fehlgeschlagen",
   "Image description (alt text)": "Bildbeschreibung (Alternativtext)",
   "Image description": "Bildbeschreibung",
+  "Image description missing": "Bildbeschreibung fehlt",
   "Beta": "Beta",
   "About the beta": "Hinweis zur Beta-Version",
   "Show beta label": "Beta-Label anzeigen",
@@ -1780,5 +1781,11 @@
   "AI suggests questions from your slides or script (PDF, PowerPoint, Impress).": "Die KI schlägt Fragen aus Folien oder Skript vor (PDF, PowerPoint, Impress).",
   "Takes over existing questions from Moodle (GIFT), H5P, ILIAS or a text list – verbatim, no AI.": "Übernimmt fertige Fragen aus Moodle (GIFT), H5P, ILIAS oder einer Textliste – wörtlich, ohne KI.",
   "Copy from another set": "Aus anderem Set kopieren",
-  "Copies selected questions from another of your question sets.": "Kopiert ausgewählte Fragen aus einem Ihrer anderen Fragensets."
+  "Copies selected questions from another of your question sets.": "Kopiert ausgewählte Fragen aus einem Ihrer anderen Fragensets.",
+  "Answer {{n}}": "Antwort {{n}}",
+  "Replace image (answer {{n}})": "Bild austauschen (Antwort {{n}})",
+  "Add image (answer {{n}})": "Bild hinzufügen (Antwort {{n}})",
+  "Edit image (answer {{n}})": "Bild bearbeiten (Antwort {{n}})",
+  "Remove image (answer {{n}})": "Bild entfernen (Antwort {{n}})",
+  "Image description missing (answer {{n}})": "Bildbeschreibung fehlt (Antwort {{n}})"
 }

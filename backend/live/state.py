@@ -92,7 +92,11 @@ def question_payload(question, shuffle_seed, credits=None):
                 "id": o.pk,
                 "text": translated_map(o, "text"),
                 "is_abstention": o.is_abstention,
-                **({"image": o.image} if o.image else {}),
+                **(
+                    {"image": o.image, "image_alt": translated_map(o, "image_alt")}
+                    if o.image
+                    else {}
+                ),
             }
             for o in options
         ],

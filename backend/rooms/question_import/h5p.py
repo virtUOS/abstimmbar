@@ -19,6 +19,7 @@ from .core import (
     ImportResult,
     clean_keeping_images,
     has_image,
+    image_alts,
     image_srcs,
     img_tag,
     import_filename,
@@ -123,15 +124,17 @@ class _Images:
         """Sanitized HTML with inline images resolved; (html, dropped)."""
         return clean_keeping_images(_text(raw), self.add)
 
-    def option(self, raw) -> tuple[str, str, bool]:
-        """(plain text, option image, dropped) of an answer: its first image
-        becomes the option image, further ones are dropped."""
+    def option(self, raw) -> tuple[str, str, str, bool]:
+        """(plain text, option image, its alt, dropped) of an answer: its first
+        image becomes the option image, further ones are dropped."""
         raw = _text(raw)
         if not has_image(raw):
-            return plain(raw), "", False  # verbatim, as before (#323)
+            return plain(raw), "", "", False  # verbatim, as before (#323)
         html, dropped = self.html(raw)
-        srcs = list(dict.fromkeys(image_srcs(html)))
-        return plain(html), srcs[0] if srcs else "", dropped or len(srcs) > 1
+        srcs = image_srcs(html)
+        unique = list(dict.fromkeys(srcs))
+        alt = image_alts(html)[0] if srcs else ""
+        return plain(html), unique[0] if unique else "", alt, dropped or len(unique) > 1
 
 
 def _credit(mtype: dict, file: dict) -> dict:
@@ -182,10 +185,12 @@ def _options(answers, correct, images: _Images) -> tuple[list[dict], bool]:
     """Options from raw answer HTML; ``correct(i, answer)`` -> bool."""
     options, dropped = [], False
     for i, answer in enumerate(answers):
-        text, image, lost = images.option(answer if isinstance(answer, str) else answer.get("text"))
+        text, image, alt, lost = images.option(answer if isinstance(answer, str) else answer.get("text"))
         option = {"text": text, "is_correct": correct(i, answer)}
         if image:
             option["image"] = image
+            if alt:
+                option["image_alt"] = alt
         options.append(option)
         dropped = dropped or lost
     return options, dropped

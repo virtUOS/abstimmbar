@@ -242,6 +242,14 @@ def join(request, code):
     return Response({"token": token.key})
 
 
+def _option_csv_label(option):
+    """CSV label of a result option: its text, else (image-only option, #342)
+    its image description, both resolved to the canonical language."""
+    return resolve_translated_text(option["text"]) or resolve_translated_text(
+        option.get("image_alt") or ""
+    )
+
+
 def _clean_priority_points(question, raw):
     """Validate a ``priorities`` submission (#58).
 
@@ -3092,7 +3100,7 @@ def results_csv(request, set_id):
                 for option in priority_stats(run, question):
                     writer.writerow(
                         base
-                        + [resolve_translated_text(option["text"]), "",
+                        + [_option_csv_label(option), "",
                            option["avg"], option["min"], option["max"], ""]
                     )
             elif question.kind == Question.Kind.ORDERING:
@@ -3103,7 +3111,7 @@ def results_csv(request, set_id):
                 for item in stats["items"]:
                     writer.writerow(
                         base
-                        + [resolve_translated_text(item["text"]), "",
+                        + [_option_csv_label(item), "",
                            item["correct_rate"], "", "", item["correct_position"]]
                     )
                 writer.writerow(
@@ -3131,7 +3139,7 @@ def results_csv(request, set_id):
                 for option in options:
                     writer.writerow(
                         base
-                        + [resolve_translated_text(option["text"]),
+                        + [_option_csv_label(option),
                            "x" if option["is_correct"] else "",
                            option["count"], option.get("onsite", ""),
                            option.get("recording", ""),

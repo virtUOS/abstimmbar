@@ -46,6 +46,7 @@ import { MindmapAiDrawer, useMindmapAi } from "../results/mindmapAi";
 import MindmapModerationList from "../results/MindmapModerationList";
 import { Footer, FooterIconButton, buildViewSegments, type ViewSegment } from "./presenter/footer";
 import HelpOverlay from "./presenter/HelpOverlay";
+import { optionImageName, optionLabel } from "../optionImageAlt";
 import MatrixPanel from "./presenter/MatrixPanel";
 import { rememberRedirect } from "../App";
 import { INK, NEUTRAL_EDGE, NEUTRAL_TILE, evalColor, categoryColor, categoryDeep, categoryHue } from "../results/palette";
@@ -2476,7 +2477,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                   {option.image && (
                     <img
                       src={`${API_BASE_URL}${option.image}`}
-                      alt=""
+                      alt={optionImageName(option, t("Answer {{n}}", { n: i + 1 }))}
                       className="max-h-28 rounded-xl"
                     />
                   )}
@@ -2550,7 +2551,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
           {question.kind === "priorities" && state.priorities && phase === "results" && (
             <div className="mt-8 space-y-4">
               {state.priorities.map((opt, i) => (
-                <PriorityBar key={opt.id} index={i} label={localizedText(opt.text)} avg={opt.avg} min={opt.min} max={opt.max} animate />
+                <PriorityBar key={opt.id} index={i} label={optionLabel(opt, "")} avg={opt.avg} min={opt.min} max={opt.max} animate />
               ))}
             </div>
           )}
@@ -2583,6 +2584,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                     index={i}
                     label={localizedText(option.text)}
                     image={option.image}
+                    imageAlt={optionImageName(option, t("Answer {{n}}", { n: i + 1 }))}
                     count={count}
                     pct={percent}
                     state={barState}
@@ -3236,7 +3238,7 @@ function WalkthroughResultBody({
     return (
       <div className="mt-8 space-y-4">
         {item.priorities.map((opt, i) => (
-          <PriorityBar key={opt.id} index={i} label={localizedText(opt.text)} avg={opt.avg} min={opt.min} max={opt.max} animate />
+          <PriorityBar key={opt.id} index={i} label={optionLabel(opt, "")} avg={opt.avg} min={opt.min} max={opt.max} animate />
         ))}
       </div>
     );
@@ -3325,6 +3327,7 @@ function WalkthroughResultBody({
             index={i}
             label={localizedText(option.text)}
             image={option.image}
+            imageAlt={optionImageName(option, t("Answer {{n}}", { n: i + 1 }))}
             count={count}
             pct={percent}
             state={barState}

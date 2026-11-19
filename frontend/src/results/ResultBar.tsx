@@ -30,6 +30,7 @@ export default function ResultBar({
   index,
   label,
   image,
+  imageAlt = "",
   count,
   pct,
   state = "neutral",
@@ -42,6 +43,9 @@ export default function ResultBar({
   index: number;
   label: React.ReactNode;
   image?: string | null;
+  /** The image's alt text: empty when `label` already names the option
+   *  (see `optionImageAlt`). */
+  imageAlt?: string;
   count: number;
   pct: number;
   state?: BarState;
@@ -97,7 +101,7 @@ export default function ResultBar({
           </span>
         )}
         {image && (
-          <img src={`${API_BASE_URL}${image}`} alt="" className="max-h-12 rounded-lg" />
+          <img src={`${API_BASE_URL}${image}`} alt={imageAlt} className="max-h-12 rounded-lg" />
         )}
         <span
           className={`min-w-0 wrap-anywhere ${state === "correct" ? "font-bold" : ""} ${state === "wrong" ? `text-slate-500${darkText}` : ""}`}

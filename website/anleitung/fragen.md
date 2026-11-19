@@ -155,8 +155,19 @@ Fragetext können Sie hier zusätzlich die Felder des
 **Übernehmen** speichert sie, **Überspringen** (oder Esc) schließt den Dialog
 ohne Angaben — das Bild wird in jedem Fall eingefügt. Über die
 Werkzeugleisten-Schaltfläche **Bildbeschreibung** öffnen Sie den Dialog später
-erneut als **Bild bearbeiten**. Bei Antwortbildern enthält der Dialog nur die
-Felder des Bildnachweises.
+erneut als **Bild bearbeiten**.
+
+**Antwortbilder** haben denselben Dialog: Nach dem Hochladen öffnet er sich mit
+der Bildbeschreibung (in der Sprache des gerade bearbeiteten Reiters) und den
+Feldern des Bildnachweises; der Stift **Bild bearbeiten** an der Antwort öffnet
+ihn erneut. Besteht eine Antwort nur aus einem Bild, ist die Beschreibung das,
+was Screenreader auf Teilnahmeseite, Beamer und in den Ergebnissen vorlesen
+(ohne Beschreibung „Antwort 3“). Hat die Antwort einen Text, wird der Text
+vorgelesen und das Bild als Dekoration behandelt. Fehlt bei einer reinen
+Bildantwort die Beschreibung in der Hauptsprache des Inhalts, erscheint am
+Eintrag der Hinweis **Bildbeschreibung fehlt** (ein Klick öffnet den Dialog);
+er hindert Sie nicht am Speichern. Kopien, JSON-Export/-Import und die
+Fragenübernahme (H5P, ILIAS) behalten die Beschreibung.
 
 Wenn Ihre Einrichtung die Bildbeschreibung freigeschaltet hat, gibt es die
 Schaltfläche **Vorschlag erstellen**: Erst auf Ihren Klick wird das Bild

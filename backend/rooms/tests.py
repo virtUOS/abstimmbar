@@ -8088,6 +8088,22 @@ class ImportQuestionsEndpointTests(ApiTestCase):
         self.assertEqual(result.drafts[0]["options"][0]["image"], "")
         self.assertEqual(UploadedImage.objects.count(), 0)
 
+    def test_materialize_keeps_option_image_alt_and_clears_it_with_lost_image(self):
+        from .question_import.core import ImportImage
+        drafts = [{"kind": "single_choice", "text": "<p>Q</p>", "options": [
+            {"text": "", "is_correct": True, "image": "/media/_import/1", "image_alt": "Ein Kreis"},
+            {"text": "b", "is_correct": False, "image": "/media/_import/2", "image_alt": "Kaputt"},
+        ]}]
+        images = {
+            "/media/_import/1": ImportImage(data=self._png(), filename="import.png"),
+            "/media/_import/2": ImportImage(data=b"broken", filename="import.png"),
+        }
+        options = self._materialize(drafts, images).drafts[0]["options"]
+        self.assertEqual(options[0]["image_alt"], "Ein Kreis")
+        self.assertTrue(options[0]["image"].startswith("/media/"))
+        self.assertEqual(options[1]["image"], "")
+        self.assertNotIn("image_alt", options[1])
+
     def test_materialize_stores_shared_image_once(self):
         from .question_import.core import ImportImage
         img = '<p><img src="/media/_import/1" alt="x"></p>'

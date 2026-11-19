@@ -6,7 +6,7 @@
  * the live presenter view and the walkthrough. */
 import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { localizedText } from "@basicbar/ui";
+import { optionLabel } from "../optionImageAlt";
 import type { OrderingResults } from "../api";
 import { fmtNum, fmtPct } from "../format";
 import { useCountUp, useReducedMotion } from "./motion";
@@ -39,7 +39,7 @@ export default function OrderingResult({
               style={{ gridRow: 2 * i + 1 }}
             >
               <span className="tabular-nums text-slate-400">{it.correct_position}.</span>
-              <span>{localizedText(it.text)}</span>
+              <span>{optionLabel(it, t("Answer {{n}}", { n: it.correct_position }))}</span>
             </div>,
           ];
           if (link) {

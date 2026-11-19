@@ -47,6 +47,7 @@ import HomeCrumb from "../components/HomeCrumb";
 import ImageCreditsEditor from "../components/ImageCreditsEditor";
 import ImageDetailsDialog from "../components/ImageDetailsDialog";
 import MatrixSettings, { matrixProblem, type MatrixSettingsValue, type MatrixUpdate } from "../components/MatrixSettings";
+import { optionLabel } from "../optionImageAlt";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
 import { Button, ClampedNumberInput, EmptyState, Field, InfoHint, MenuItem, MoreMenu, ProOnly, SegmentedControl, TextInput, ToggleSwitch } from "../components/ui";
@@ -299,8 +300,21 @@ export default function QuestionPage() {
   const [previewNonce, setPreviewNonce] = useState(0);
   const [error, setError] = useState("");
   const [optionImageError, setOptionImageError] = useState("");
-  /** Just-uploaded option image whose credit dialog is open. */
-  const [optionImageDialog, setOptionImageDialog] = useState<{ id: number; src: string } | null>(null);
+  /** The open option-image dialog (#342): alt text in `lang` + credit. */
+  const [optionImageDialog, setOptionImageDialog] = useState<{
+    key: number;
+    clientId: number;
+    src: string;
+    mode: "insert" | "edit";
+    lang: "de" | "en";
+  } | null>(null);
+  const optionDialogKey = useRef(0);
+  /** Per option (clientId): the language tab currently shown — the
+   *  language whose alt text the image dialog edits. */
+  const [optionLangs, setOptionLangs] = useState<Record<number, "de" | "en">>({});
+  /** Option images uploaded in this page session (src → id and the credit
+   *  saved in the dialog): not yet in `question.image_credits` until saved. */
+  const uploadedOptionImages = useRef(new Map<string, { id: number; credit?: ImageCredit }>());
   const [moveTargets, setMoveTargets] = useState<QuestionSet[] | null>(null);
   const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
   const [moveRooms, setMoveRooms] = useState<{ id: number; title: string }[]>([]);
@@ -513,8 +527,10 @@ export default function QuestionPage() {
     setOptionImageError("");
     try {
       const uploaded = await api.uploadImage(file);
-      updateOption(clientId, { image: uploaded.url });
-      setOptionImageDialog({ id: uploaded.id, src: uploaded.url });
+      uploadedOptionImages.current.set(uploaded.url, { id: uploaded.id });
+      // A new image: the old one's description no longer fits.
+      updateOption(clientId, { image: uploaded.url, image_alt: emptyLoc });
+      openOptionImageDialog(clientId, uploaded.url, "insert");
     } catch (err) {
       // #280: a rejected upload used to fail silently.
       setOptionImageError(
@@ -537,6 +553,52 @@ export default function QuestionPage() {
   );
   function imageCreditSaved(credit: ImageCredit) {
     setSavedCredits((current) => ({ ...current, [credit.id]: credit }));
+  }
+
+  function openOptionImageDialog(
+    clientId: number,
+    src: string,
+    mode: "insert" | "edit",
+    lang: "de" | "en" = optionLangs[clientId] ?? (getDefaultContentLang() as "de" | "en"),
+  ) {
+    setOptionImageDialog({ key: ++optionDialogKey.current, clientId, src, mode, lang });
+  }
+
+  function renderOptionImageDialog(dialog: NonNullable<typeof optionImageDialog>) {
+    const option = options.find((o) => o.clientId === dialog.clientId);
+    const known = imageCredits.find((c) => c.src === dialog.src);
+    const uploaded = uploadedOptionImages.current.get(dialog.src);
+    return (
+      <ImageDetailsDialog
+        key={dialog.key}
+        src={dialog.src}
+        imageId={known?.id ?? uploaded?.id}
+        mode={dialog.mode}
+        lang={dialog.lang}
+        alt={localizedMap(option?.image_alt ?? "")[dialog.lang] ?? ""}
+        credit={known ?? uploaded?.credit}
+        // Own uploads are always editable.
+        creditEditable={known ? known.editable !== false : true}
+        showAlt
+        maxLength={300}
+        aiVision={!!whoami?.ai_vision_enabled}
+        onDone={(result) => {
+          setOptionImageDialog(null);
+          if (!result) return;
+          if (result.credit) {
+            imageCreditSaved(result.credit);
+            if (uploaded) uploadedOptionImages.current.set(dialog.src, { ...uploaded, credit: result.credit });
+          }
+          setOptions((current) =>
+            current.map((o) =>
+              o.clientId === dialog.clientId
+                ? { ...o, image_alt: setLocalizedLang(o.image_alt ?? emptyLoc, dialog.lang, result.alt) }
+                : o,
+            ),
+          );
+        }}
+      />
+    );
   }
 
   function setCorrect(clientId: number, checked: boolean) {
@@ -966,6 +1028,18 @@ export default function QuestionPage() {
     (localizedMap(o.text)[getDefaultContentLang() as "de" | "en"] ?? "").trim() !== "" ||
     (!isElection && !!o.image);
   const filledCandidates = options.filter(optionFilled).length;
+  /** 1-based position of an option (names its image buttons, #342). */
+  const optionPos = (id: (typeof options)[number]["clientId"]) =>
+    options.findIndex((o) => o.clientId === id) + 1;
+  /** Image-only option (no canonical text) without a canonical description. */
+  const optionAltMissing = (o: (typeof options)[number]) => {
+    const canonical = getDefaultContentLang() as "de" | "en";
+    return (
+      !!o.image &&
+      !(localizedMap(o.text)[canonical] ?? "").trim() &&
+      !(localizedMap(o.image_alt ?? "")[canonical] ?? "").trim()
+    );
+  };
   const tooFewCandidates = isElection && filledCandidates > 0 && maxVotes > filledCandidates && !cumulate;
   const isChoice =
     question.kind !== "word_cloud" &&
@@ -1140,7 +1214,7 @@ export default function QuestionPage() {
                 {isLikert ? t("Scale") : t("Answer options")}
               </span>
               <ul className="grid gap-1.5">
-                {options.map((option) => (
+                {options.map((option, index) => (
                   <li
                     key={option.clientId}
                     className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm dark:border-slate-800"
@@ -1149,7 +1223,7 @@ export default function QuestionPage() {
                       <Check aria-label={t("Correct")} className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
                     )}
                     <span className="text-slate-700 dark:text-slate-200">
-                      {localizedText(option.text) || <span className="italic text-slate-400">—</span>}
+                      {optionLabel(option, t("Answer {{n}}", { n: index + 1 })) || <span className="italic text-slate-400">—</span>}
                     </span>
                   </li>
                 ))}
@@ -1317,23 +1391,7 @@ export default function QuestionPage() {
           </p>
         )}
         {!isNew && imageCredits.length > 0 && <ImageCreditsEditor credits={imageCredits} onSaved={imageCreditSaved} />}
-        {optionImageDialog && (
-          <ImageDetailsDialog
-            src={optionImageDialog.src}
-            imageId={optionImageDialog.id}
-            mode="insert"
-            // Credit only: no alt text, so the language doesn't matter.
-            lang={whoami?.content_default_language ?? "de"}
-            alt=""
-            creditEditable
-            showAlt={false}
-            aiVision={false}
-            onDone={(result) => {
-              if (result?.credit) imageCreditSaved(result.credit);
-              setOptionImageDialog(null);
-            }}
-          />
-        )}
+        {optionImageDialog && renderOptionImageDialog(optionImageDialog)}
         {isMeeting && !isNew && (
           <TranslationStatusLine setId={set.id} questionId={question.id} savedKey={question} />
         )}
@@ -1562,6 +1620,11 @@ export default function QuestionPage() {
                         setOptionSynced(item.id, setLocalizedLang(item.text, lang, value))
                       }
                       onMarkSynced={() => setOptionSynced(item.id, item.text)}
+                      onActiveLangChange={(lang) =>
+                        setOptionLangs((current) =>
+                          current[item.id] === lang ? current : { ...current, [item.id]: lang },
+                        )
+                      }
                     />
                     {/* Phones: pushes image/delete to the row's right end. */}
                     <span aria-hidden className="flex-1 sm:hidden" />
@@ -1582,6 +1645,11 @@ export default function QuestionPage() {
                         <input
                           type="file"
                           accept="image/*"
+                          aria-label={
+                            item.image
+                              ? t("Replace image (answer {{n}})", { n: optionPos(item.id) })
+                              : t("Add image (answer {{n}})", { n: optionPos(item.id) })
+                          }
                           className="sr-only"
                           onChange={(event) => {
                             const file = event.target.files?.[0];
@@ -1591,15 +1659,42 @@ export default function QuestionPage() {
                         />
                       </label>
                     )}
+                    {!isLikert && !isElection && item.image && (
+                      <Button
+                        variant="ghost"
+                        aria-label={t("Edit image (answer {{n}})", { n: optionPos(item.id) })}
+                        title={t("Edit image")}
+                        onClick={() => openOptionImageDialog(item.id, item.image!, "edit")}
+                      >
+                        <Pencil aria-hidden className="h-4 w-4" />
+                      </Button>
+                    )}
                     {!isLikert && item.image && (
                       <Button
                         variant="ghost"
-                        aria-label={t("Remove image")}
+                        aria-label={t("Remove image (answer {{n}})", { n: optionPos(item.id) })}
                         title={t("Remove image")}
-                        onClick={() => updateOption(item.id, { image: "" })}
+                        onClick={() => updateOption(item.id, { image: "", image_alt: emptyLoc })}
                       >
                         <ImageOff aria-hidden className="h-4 w-4" />
                       </Button>
+                    )}
+                    {!isLikert && !isElection && optionAltMissing(item) && (
+                      // #342: an image-only option is named by its
+                      // description alone. A hint, never a save blocker; it
+                      // opens the dialog in the canonical language (the one
+                      // that is missing).
+                      <button
+                        type="button"
+                        aria-label={t("Image description missing (answer {{n}})", { n: optionPos(item.id) })}
+                        onClick={() =>
+                          openOptionImageDialog(item.id, item.image!, "edit", getDefaultContentLang() as "de" | "en")
+                        }
+                        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900 max-sm:order-last"
+                      >
+                        <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+                        {t("Image description missing")}
+                      </button>
                     )}
                     {!binaryChoice && (
                       <Button
