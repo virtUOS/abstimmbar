@@ -1,9 +1,18 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 Universität Osnabrück (virtUOS)
+import io
+import json
+import zipfile
+
 from django.test import SimpleTestCase, override_settings
 
-from rooms.question_import import gift, simple
-from rooms.question_import.core import ImportResult, finalize, true_false_labels
+from rooms.question_import import gift, h5p, safezip, simple
+from rooms.question_import.core import (
+    ImportFailed,
+    ImportResult,
+    finalize,
+    true_false_labels,
+)
 
 ALL = ("single_choice", "multiple_choice", "open_text", "ordering")
 
@@ -315,3 +324,199 @@ class GiftFormatTests(SimpleTestCase):
         r = gift.parse(text)
         self.assertEqual(len(r.drafts), 8)
         self.assertEqual(r.skipped, {})
+
+
+def make_zip(entries: dict[str, bytes | str], compression=zipfile.ZIP_DEFLATED) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", compression) as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+class SafeZipTests(SimpleTestCase):
+    def test_broken_bytes(self):
+        with self.assertRaises(ImportFailed):
+            safezip.open_zip(b"definitely not a zip")
+
+    def test_declared_size_over_limit(self):
+        # highly compressible zeros: 31 MB declared, tiny on the wire
+        data = make_zip({"big.bin": b"\0" * (31 * 1024 * 1024)})
+        self.assertLess(len(data), 1024 * 1024)
+        with self.assertRaises(ImportFailed):
+            safezip.open_zip(data)
+
+    def test_too_many_entries(self):
+        data = make_zip({f"f{i}.txt": "x" for i in range(501)})
+        with self.assertRaises(ImportFailed):
+            safezip.open_zip(data)
+
+    def test_500_entries_ok(self):
+        zf = safezip.open_zip(make_zip({f"f{i}.txt": "x" for i in range(500)}))
+        self.assertEqual(len(safezip.names(zf)), 500)
+
+    def test_unsafe_names_ignored_and_rejected(self):
+        zf = safezip.open_zip(
+            make_zip({"../evil": "x", "/abs": "x", "a/../../b": "x", "ok.txt": "fine"})
+        )
+        self.assertEqual(safezip.names(zf), ["ok.txt"])
+        for bad in ("../evil", "/abs", "a/../../b"):
+            with self.assertRaises(ImportFailed):
+                safezip.read(zf, bad, 100)
+        self.assertEqual(safezip.read(zf, "ok.txt", 100), b"fine")
+
+    def test_read_streams_with_cap(self):
+        zf = safezip.open_zip(make_zip({"a.txt": b"x" * 1000}))
+        with self.assertRaises(ImportFailed):
+            safezip.read(zf, "a.txt", 999)
+        self.assertEqual(len(safezip.read(zf, "a.txt", 1000)), 1000)
+
+    def test_read_missing(self):
+        zf = safezip.open_zip(make_zip({"a.txt": "x"}))
+        with self.assertRaises(ImportFailed):
+            safezip.read(zf, "nope.txt", 10)
+
+
+# Field names compared on 2026-11-19 against the public semantics.json of
+# h5p/h5p-multi-choice, h5p/h5p-true-false, h5p/h5p-single-choice-set and
+# otacke/h5p-essay (GitHub); QuestionSet/Column shapes follow the spec. No
+# real export was available without a login. No third-party .h5p is committed.
+def h5p_zip(main: str, content, extra: dict | None = None) -> zipfile.ZipFile:
+    entries = {
+        "h5p.json": json.dumps({"title": "T", "mainLibrary": main}),
+        "content/content.json": json.dumps(content),
+    }
+    entries.update(extra or {})
+    return safezip.open_zip(make_zip(entries))
+
+
+def mc(question="<p>Q?</p>", answers=(("A", True), ("B", False)), **extra):
+    return {
+        "question": question,
+        "answers": [
+            {"text": f"<div>{t}</div>\n", "correct": c, "tipsAndFeedback": {}}
+            for t, c in answers
+        ],
+        **extra,
+    }
+
+
+class H5PTests(SimpleTestCase):
+    def test_is_h5p(self):
+        self.assertTrue(h5p.is_h5p(h5p_zip("H5P.MultiChoice 1.16", mc())))
+        self.assertFalse(h5p.is_h5p(safezip.open_zip(make_zip({"qti.xml": "<x/>"}))))
+
+    def test_multichoice_single(self):
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc()))
+        self.assertEqual(r.format, "h5p")
+        [d] = r.drafts
+        self.assertEqual(d["kind"], "single_choice")
+        self.assertEqual(d["text"], "<p>Q?</p>")
+        self.assertEqual(opts(d), ["A", "B"])
+        self.assertEqual(correct(d), ["A"])
+        self.assertEqual(r.skipped, {})
+
+    def test_multichoice_multiple(self):
+        r = h5p.parse(h5p_zip(
+            "H5P.MultiChoice 1.16", mc(answers=(("A", True), ("B", True), ("C", False)))
+        ))
+        self.assertEqual(r.drafts[0]["kind"], "multiple_choice")
+        self.assertEqual(correct(r.drafts[0]), ["A", "B"])
+
+    def test_multichoice_without_correct_is_invalid(self):
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(answers=(("A", False), ("B", False)))))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("invalid", "H5P.MultiChoice"): 1})
+
+    @override_settings(CONTENT_DEFAULT_LANGUAGE="de")
+    def test_truefalse(self):
+        r = h5p.parse(h5p_zip("H5P.TrueFalse 1.8", {"question": "<p>Himmel blau?</p>", "correct": "true"}))
+        [d] = r.drafts
+        self.assertTrue(d["binary_choice"])
+        self.assertEqual(opts(d), ["Wahr", "Falsch"])
+        self.assertEqual(correct(d), ["Wahr"])
+
+    @override_settings(CONTENT_DEFAULT_LANGUAGE="en")
+    def test_truefalse_false_english(self):
+        r = h5p.parse(h5p_zip("H5P.TrueFalse 1.8", {"question": "<p>Q</p>", "correct": "false"}))
+        self.assertEqual(correct(r.drafts[0]), ["False"])
+
+    def test_single_choice_set(self):
+        content = {"choices": [
+            {"question": "<p>Q1</p>", "answers": ["<p>Right</p>", "Wrong", "Wrong2"]},
+            {"question": "<p>Q2</p>", "answers": ["R", "W"]},
+        ]}
+        r = h5p.parse(h5p_zip("H5P.SingleChoiceSet 1.11", content))
+        self.assertEqual([d["kind"] for d in r.drafts], ["single_choice"] * 2)
+        self.assertEqual(correct(r.drafts[0]), ["Right"])
+        self.assertEqual(opts(r.drafts[1]), ["R", "W"])
+
+    def test_essay_with_sample(self):
+        content = {
+            "taskDescription": "<p>Explain.</p>",
+            "solution": {"introduction": "", "sample": "<p>Line one</p><p>Line &amp; two</p>"},
+        }
+        [d] = h5p.parse(h5p_zip("H5P.Essay 1.5", content)).drafts
+        self.assertEqual(d["kind"], "open_text")
+        self.assertEqual(d["model_solution"], "Line one\nLine & two")
+        self.assertNotIn("<", d["model_solution"])
+        self.assertNotIn("ai_evaluate", d)
+
+    def test_essay_without_sample(self):
+        [d] = h5p.parse(h5p_zip("H5P.Essay 1.5", {"taskDescription": "<p>Explain.</p>"})).drafts
+        self.assertNotIn("model_solution", d)
+
+    def test_question_set_skips_unsupported(self):
+        content = {"questions": [
+            {"library": "H5P.MultiChoice 1.16", "params": mc()},
+            {"library": "H5P.Blanks 1.14", "params": {"questions": ["*x*"]}},
+        ]}
+        r = h5p.parse(h5p_zip("H5P.QuestionSet 1.20", content))
+        self.assertEqual(len(r.drafts), 1)
+        self.assertEqual(r.skipped, {("unsupported_type", "H5P.Blanks"): 1})
+
+    def test_column_recursive(self):
+        content = {"content": [
+            {"content": {"library": "H5P.MultiChoice 1.16", "params": mc()}},
+            {"content": {"library": "H5P.QuestionSet 1.20", "params": {"questions": [
+                {"library": "H5P.TrueFalse 1.8", "params": {"question": "Q", "correct": "true"}},
+            ]}}},
+        ]}
+        r = h5p.parse(h5p_zip("H5P.Column 1.18", content))
+        self.assertEqual(len(r.drafts), 2)
+
+    def test_unsupported_main_library(self):
+        r = h5p.parse(h5p_zip("H5P.Blanks 1.14", {"questions": []}))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("unsupported_type", "H5P.Blanks"): 1})
+
+    def test_media_image_dropped_question_kept(self):
+        media = {"type": {"library": "H5P.Image 1.1", "params": {"file": {"path": "images/a.png"}}}}
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media)))
+        self.assertEqual(len(r.drafts), 1)
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_inline_img_stripped(self):
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question='<p>Q <img src="a.png"> ?</p>')))
+        self.assertNotIn("<img", r.drafts[0]["text"])
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_question_html_sanitized(self):
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question='<p>Q<script>x()</script></p>')))
+        self.assertNotIn("script", r.drafts[0]["text"])
+
+    def test_missing_content_json(self):
+        zf = safezip.open_zip(make_zip({"h5p.json": json.dumps({"mainLibrary": "H5P.MultiChoice 1.16"})}))
+        with self.assertRaises(ImportFailed):
+            h5p.parse(zf)
+
+    def test_invalid_json(self):
+        zf = safezip.open_zip(make_zip({"h5p.json": "{", "content/content.json": "{}"}))
+        with self.assertRaises(ImportFailed):
+            h5p.parse(zf)
+
+    def test_content_json_too_large(self):
+        big = json.dumps({"x": "a" * (5 * 1024 * 1024 + 10)})
+        zf = safezip.open_zip(make_zip({"h5p.json": "{}", "content/content.json": big}))
+        with self.assertRaises(ImportFailed):
+            h5p.parse(zf)
