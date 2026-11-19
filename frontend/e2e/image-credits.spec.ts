@@ -90,3 +90,48 @@ test('wide mindmap layout hides question images and therefore the credit', async
   await expect(page.getByText('Ideen sammeln')).toBeVisible();
   await expect(page.getByText(/Karen Jackson/)).toHaveCount(0);
 });
+
+test('editor edits image credit', async ({ page, trackRoom }) => {
+  const room = await createRoomWithQuestions(page.request, [], 'Credits editor', trackRoom, 'E2E Credits');
+  const token = await csrfToken(page.request);
+  const up = await page.request.post(`${API_BASE_URL}/api/images/`, {
+    headers: token ? { 'X-CSRFToken': token } : undefined,
+    multipart: { file: { name: 'plain.png', mimeType: 'image/png', buffer: PNG } },
+  });
+  expect(up.ok(), await up.text()).toBeTruthy();
+  const { url } = await up.json();
+  const api = apiClient(page.request);
+  const q = await api.post('/api/questions/', {
+    question_set: room.setId,
+    kind: 'single_choice',
+    text: { de: `<p>Was sehen Sie?</p><p><img src="${url}" alt=""></p>`, en: '' },
+    options: [
+      { text: { de: 'Ein Bild', en: 'A picture' }, is_correct: true },
+      { text: { de: 'Nichts', en: 'Nothing' }, is_correct: false },
+    ],
+  });
+
+  await page.goto(`/sets/${room.setId}/questions/${q.id}`);
+  const section = page.getByTestId('image-credits-editor');
+  await expect(section.getByRole('heading', { name: 'Bildnachweise' })).toBeVisible();
+  await expect(section.getByText('Kein Bildnachweis')).toBeVisible();
+
+  await section.getByLabel('Urheber:in').fill('Karen Jackson');
+  await section.getByRole('combobox', { name: /^Lizenz/ }).selectOption('cc-by');
+  await section.getByLabel('Version').fill('4.0');
+  await section.getByRole('button', { name: 'Nachweis speichern' }).click();
+  await expect(section.getByText('Gespeichert')).toBeVisible();
+  await expect(section.getByText('Kein Bildnachweis')).toHaveCount(0);
+
+  // Server-side validation is shown inline.
+  await section.getByLabel('Quelle (Link)').fill('ftp://example.org/x');
+  await section.getByRole('button', { name: 'Nachweis speichern' }).click();
+  await expect(section.getByRole('alert')).toBeVisible();
+
+  await page.reload();
+  const again = page.getByTestId('image-credits-editor');
+  await expect(again.getByLabel('Urheber:in')).toHaveValue('Karen Jackson');
+  await expect(again.getByRole('combobox', { name: /^Lizenz/ })).toHaveValue('cc-by');
+  await expect(again.getByLabel('Version')).toHaveValue('4.0');
+  await expect(again.getByText('Kein Bildnachweis')).toHaveCount(0);
+});

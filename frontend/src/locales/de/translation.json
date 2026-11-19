@@ -1751,5 +1751,18 @@
   "Image:": "Bild:",
   "Images:": "Bilder:",
   "by": "von",
-  "Public domain": "Gemeinfrei"
+  "Public domain": "Gemeinfrei",
+  "Image credits": "Bildnachweise",
+  "Optional. The credit is shown to participants and on the presenter view; it belongs to the image file and applies wherever it is used.": "Optional. Der Nachweis wird Teilnehmenden und in der Präsentationsansicht angezeigt; er gehört zur Bilddatei und gilt überall, wo das Bild verwendet wird.",
+  "No image credit": "Kein Bildnachweis",
+  "You can't edit this image credit; it belongs to another room.": "Sie können diesen Bildnachweis nicht bearbeiten; das Bild gehört zu einem anderen Raum.",
+  "Author": "Urheber:in",
+  "Source (link)": "Quelle (Link)",
+  "License": "Lizenz",
+  "License note": "Lizenzhinweis",
+  "Version": "Version",
+  "Unknown": "Unbekannt",
+  "Other": "Sonstige",
+  "Save credit": "Nachweis speichern",
+  "Saved": "Gespeichert"
 }

@@ -1840,6 +1840,16 @@ export const api = {
     });
   },
 
+  /** Edit the credit of an uploaded image (#336); 400 carries field errors. */
+  updateImageCredit: (
+    id: number,
+    patch: Partial<Pick<ImageCredit, "author" | "title" | "source" | "license" | "version" | "text">>,
+  ) =>
+    request<ImageCredit>(`/api/images/${id}/credit/`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
   /** Optional machine-translation pre-fill (LibreTranslate, #33 MR2 Phase 4);
    * 503 if the backend has no provider configured (checked via
    * `isTranslationEnabled()` before offering this in the UI). */
