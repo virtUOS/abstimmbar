@@ -52,6 +52,9 @@ export default function GenerationStatusBar() {
   const running = job.status === "pending" || job.status === "running";
   // A failed or empty run never claims "0 questions — review" (#302).
   const failed = generationFailed(job);
+  // Imported questions (#323) wait for review like AI proposals, worded
+  // neutrally and without a retry.
+  const isImport = job.source === "import";
 
   async function review() {
     navigate(`/sets/${job!.set_id}`, { state: { openReview: true } });
@@ -112,6 +115,12 @@ export default function GenerationStatusBar() {
               {generationFailureText(job, t)}
               {retryError && <span className="block text-danger">{retryError}</span>}
             </span>
+          ) : isImport ? (
+            <span>
+              {t("Imported questions for “{{title}}” are waiting for your review.", {
+                title: job.set_title ?? "",
+              })}
+            </span>
           ) : (
             <span>
               {t("{{n}} questions for “{{title}}” generated — review now.", {
@@ -132,7 +141,7 @@ export default function GenerationStatusBar() {
           )}
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {failed && (
+          {failed && !isImport && (
             <Button variant="ghost" disabled={retrying} onClick={() => void retry()}>
               {t("Try again")}
             </Button>

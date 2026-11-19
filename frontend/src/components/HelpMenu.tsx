@@ -7,15 +7,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ExternalLink, HelpCircle } from "lucide-react";
+import { guideUrl as guideUrlFor } from "../guide";
 import type { TourMode } from "../tour/steps";
-
-/** The guide on the project website, in the UI language (German at the
- *  site root, English under /en/). Build-time overrides: VITE_GUIDE_URL
- *  (German UI) and VITE_GUIDE_URL_EN (English UI). */
-const GUIDE_URL = {
-  de: import.meta.env.VITE_GUIDE_URL || "https://virtuos.github.io/abstimmbar/anleitung/",
-  en: import.meta.env.VITE_GUIDE_URL_EN || "https://virtuos.github.io/abstimmbar/en/guide/",
-};
 
 export default function HelpMenu({
   easyMode,
@@ -26,7 +19,7 @@ export default function HelpMenu({
   onStartTour: (mode: TourMode) => void;
 }) {
   const { t, i18n } = useTranslation();
-  const guideUrl = i18n.language?.startsWith("de") ? GUIDE_URL.de : GUIDE_URL.en;
+  const guideUrl = guideUrlFor(i18n.language);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 

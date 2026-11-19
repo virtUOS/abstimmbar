@@ -234,6 +234,10 @@ class GenerationJob(TimeStampedModel):
         FAILED = "failed"
         CANCELLED = "cancelled"
 
+    class Source(models.TextChoices):
+        AI = "ai"
+        IMPORT = "import"
+
     question_set = models.ForeignKey(
         QuestionSet, on_delete=models.CASCADE, related_name="generation_jobs"
     )
@@ -259,6 +263,12 @@ class GenerationJob(TimeStampedModel):
     density = models.FloatField(default=1.0)
     target_count = models.PositiveIntegerField(default=0)
     reviewed = models.BooleanField(default=False)
+    # Where the drafts come from: AI generation or an import of existing questions.
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.AI)
+    # Entries the import reader skipped: [{"reason", "detail", "count"}].
+    skipped = models.JSONField(default=list, blank=True)
+    # Import only: detected source format ("simple"/"gift"/"h5p"/"ilias").
+    import_format = models.CharField(max_length=8, blank=True, default="")
 
     @property
     def is_active(self):

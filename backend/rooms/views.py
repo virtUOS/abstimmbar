@@ -20,6 +20,7 @@ from django.db.models import Case, Count, Exists, IntegerField, Max, OuterRef, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils.html import strip_tags
+from django.utils.translation import gettext
 from rest_framework import parsers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -34,6 +35,8 @@ from live.models import MatrixCard, MindmapContribution, MindmapNode, Vote
 from . import ai_generate, ai_prompts, generation, set_types
 from .images import InvalidImageError, normalize_image
 from .models import GenerationJob, Question, QuestionSet, Room, Section
+from .question_import import core as import_core
+from .question_import import detect
 from .serializers import (
     QuestionSerializer,
     QuestionSetSerializer,
@@ -52,6 +55,8 @@ MAX_IMAGE_BYTES = 20 * 1024 * 1024
 # Animated GIF/WebP are stored as uploaded (not transcoded), so they keep
 # the old, tighter limit.
 MAX_ANIMATED_IMAGE_BYTES = 5 * 1024 * 1024
+# Question import (#323): upload gate before any reading.
+MAX_IMPORT_BYTES = 10 * 1024 * 1024
 
 
 def _display_name(user):
@@ -126,6 +131,9 @@ def _job_payload(job):
         "unsuitable_reason": job.unsuitable_reason, "error": job.error,
         "pages": job.pages, "density": job.density,
         "target_count": job.target_count, "reviewed": job.reviewed,
+        "source": job.source, "skipped": job.skipped,
+        # Detected import format; "" for AI jobs.
+        "format": job.import_format,
     }
 
 
@@ -660,6 +668,67 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
             pages=pages, density=density, target_count=target,
         )
         return Response({"job_id": job.id}, status=201)
+
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="import-questions",
+        parser_classes=[parsers.MultiPartParser, parsers.FormParser, parsers.JSONParser],
+    )
+    def import_questions(self, request, pk=None):
+        """Import existing questions verbatim (#323) from pasted text (simple
+        format or GIFT) or an uploaded file (GIFT, H5P, ILIAS QTI) into a
+        finished review job (source "import"). No AI is involved, so this
+        works with AI switched off; nothing is saved until the review."""
+        question_set = self.get_object()  # ownership check
+        upload = request.FILES.get("file")
+        if upload is not None and upload.size > MAX_IMPORT_BYTES:
+            return Response({"detail": gettext("The file is larger than 10 MB.")}, status=400)
+        if GenerationJob.objects.filter(
+            question_set=question_set,
+            status__in=[GenerationJob.Status.PENDING, GenerationJob.Status.RUNNING],
+        ).exists():
+            return Response(
+                {"detail": gettext(
+                    "Please wait until the running generation has finished, or cancel it."
+                )},
+                status=409,
+            )
+        try:
+            if upload is not None:
+                result = detect.read_upload(upload.read(), upload.name)
+                source_text = import_core.scrub_text(f"{upload.name} ({result.format})")
+            else:
+                data = request.data if isinstance(request.data, dict) else {}
+                source_text = import_core.scrub_text(str(data.get("text") or ""))
+                result = detect.read_text(source_text)
+        except import_core.ImportFailed as exc:
+            return Response({"detail": str(exc)}, status=400)
+        import_core.finalize(result, set_types.allowed_kinds(question_set.type))
+        skipped = result.skipped_list()
+        if not result.drafts:
+            return Response(
+                {"detail": gettext("No questions found. Please check the format."),
+                 "format": result.format, "skipped": skipped},
+                status=400,
+            )
+        with transaction.atomic():
+            # One review slot per set: the newest proposals win (#303).
+            GenerationJob.objects.filter(question_set=question_set, reviewed=False).update(
+                reviewed=True
+            )
+            job = GenerationJob.objects.create(
+                question_set=question_set, created_by=request.user,
+                source=GenerationJob.Source.IMPORT, status=GenerationJob.Status.DONE,
+                source_text=source_text, source_chars=len(source_text),
+                drafts=result.drafts, skipped=skipped, import_format=result.format,
+                total_chunks=0, done_chunks=0, pages=0, target_count=len(result.drafts),
+            )
+        return Response(
+            {"job_id": job.id, "format": result.format, "count": len(result.drafts),
+             "skipped": skipped},
+            status=201,
+        )
 
     @action(detail=True, methods=["post"], url_path=r"ai-generate/jobs/(?P<job_id>[0-9]+)/retry")
     def ai_generate_retry(self, request, pk=None, job_id=None):

@@ -1,0 +1,24 @@
+# Beispieldatei für „Fragen übernehmen“ (einfaches Textformat)
+# F: neue Frage, * richtig, - falsch, L: Musterlösung. Zeilen mit # sind Kommentare.
+
+F: Welche Stadt ist die Hauptstadt von Niedersachsen?
+* Hannover
+- Osnabrück
+- Braunschweig
+
+F: Welche Zahlen sind gerade? [mehrfach]
+* 2
+- 3
+* 4
+
+F: Die Erde ist eine Scheibe.
+- Wahr
+* Falsch
+
+F: Bringen Sie die Schritte in die richtige Reihenfolge.
+1. Planen
+2. Umsetzen
+3. Prüfen
+
+F: Was nehmen Sie aus der heutigen Sitzung mit?
+L: Eine mögliche Musterlösung (optional)
