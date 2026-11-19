@@ -49,7 +49,7 @@ from rest_framework import serializers
 from common.i18n_fields import LANGS, translated_map
 
 from . import matrix, mindmap, set_types
-from .image_credits import apply_credit, has_credit, media_name_for_src
+from .image_credits import apply_credit, media_name_for_src
 from .images import MAX_IMAGE_BYTES, image_format, store_image_bytes
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import unique_title
@@ -325,10 +325,9 @@ def _embedded_images(srcs):
             "content_type": Image.MIME.get(fmt, "application/octet-stream"),
             "data": base64.b64encode(raw).decode("ascii"),
         }
-        if has_credit(uploaded):
-            images[src]["credit"] = {
-                key: getattr(uploaded, attr) for key, attr in _credit_fields().items()
-            }
+        credit = {key: getattr(uploaded, attr) for key, attr in _credit_fields().items()}
+        if any(credit.values()):
+            images[src]["credit"] = credit
     return images
 
 

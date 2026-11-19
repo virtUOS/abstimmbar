@@ -2846,6 +2846,19 @@ class EmbeddedImageTransferTests(ApiTestCase):
              "license": "cc-by", "version": "4.0", "text": "x"},
         )
 
+    def test_title_only_credit_round_trips(self):
+        """M7: a credit without author/license (not "has credit") still
+        travels with the export."""
+        qset, url = self._credited_set()
+        UploadedImage.objects.filter(file=url[len("/media/"):]).update(
+            credit_author="", credit_license="", credit_license_version="",
+            credit_license_text="", credit_source="",
+        )
+        data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
+        self.assertEqual(data["images"][url]["credit"]["title"], "Bild")
+        new = self._import_new(data)
+        self.assertEqual((new.credit_title, new.credit_author), ("Bild", ""))
+
     def test_export_omits_credit_when_empty(self):
         qset, _ = self._set_with_images()
         data = self.client.get(f"/api/question-sets/{qset.pk}/export/").json()
