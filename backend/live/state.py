@@ -13,6 +13,7 @@ import nh3
 from django.db.models import Count
 
 from common.i18n_fields import translated_map
+from rooms.image_credits import credits_for_questions
 from rooms.models import Question
 
 from . import (
@@ -50,7 +51,7 @@ def active_run(room):
     )
 
 
-def question_payload(question, shuffle_seed):
+def question_payload(question, shuffle_seed, credits=None):
     # Stable per-run shuffle: every device sees the same random order, and the
     # results tally reuses this order via the same helper (#127). Ordering (#72)
     # always shuffles so the correct order (option.position, never in the
@@ -82,6 +83,10 @@ def question_payload(question, shuffle_seed):
         # whether to poll my-evaluation for this question. False for every
         # non-open_text question.
         "participant_feedback": question.participant_feedback,
+        # Image credits (#336): only images that carry a credit; callers that
+        # render several questions pass the bundled result of
+        # ``credits_for_questions``.
+        "image_credits": credits or [],
         "options": [
             {
                 "id": o.pk,
@@ -145,6 +150,8 @@ def build_payloads(room):
         # Predefined branches belong to every run's tree from the start.
         mindmap.ensure_seed(run, question)
 
+    credits = credits_for_questions([question]).get(question.pk, []) if question else []
+
     participant = dict(base)
     # Presenter left without ending (✕/Esc): devices show „paused". Only on
     # an unfinished run — ``active_run`` never returns a finished one.
@@ -153,13 +160,13 @@ def build_payloads(room):
     if ends_at:
         participant["ends_at"] = ends_at
     if question and run.phase == Run.Phase.OPEN:
-        participant["question"] = question_payload(question, shuffle_seed=run.pk)
+        participant["question"] = question_payload(question, shuffle_seed=run.pk, credits=credits)
     if is_mindmap and run.phase in (
         Run.Phase.OPEN, Run.Phase.CLOSED, Run.Phase.RESULTS
     ):
         # The shared tree stays readable on devices after closing (read-only
         # outside "open"); hidden nodes are left out entirely.
-        participant["question"] = question_payload(question, shuffle_seed=run.pk)
+        participant["question"] = question_payload(question, shuffle_seed=run.pk, credits=credits)
         participant["mindmap"] = mindmap.build_tree(run, question, presenter=False)
         rating = mindmap_rating.payload(run, question, presenter=False)
         if rating is not None:
@@ -170,7 +177,7 @@ def build_payloads(room):
     ):
         # Settings only — never the board: participants see just their own
         # cards (fetched via matrix/mine), the board lives on the beamer.
-        participant["question"] = question_payload(question, shuffle_seed=run.pk)
+        participant["question"] = question_payload(question, shuffle_seed=run.pk, credits=credits)
         participant["matrix_settings"] = matrix.settings_payload(question)
         rating = matrix_rating.participant_payload(run, question)
         if rating is not None:
@@ -188,6 +195,7 @@ def build_payloads(room):
             "id": question.pk,
             "kind": question.kind,
             "text": translated_map(question, "text"),
+            "image_credits": credits,
         }
         if question.kind in Question.TEXT_KINDS:
             participant["words"] = words_with_counts(run, question)
@@ -222,7 +230,7 @@ def build_payloads(room):
     if ends_at:
         presenter["ends_at"] = ends_at
     if question:
-        presenter["question"] = question_payload(question, shuffle_seed=run.pk)
+        presenter["question"] = question_payload(question, shuffle_seed=run.pk, credits=credits)
         # Presenter-only (not in the participant payload): the AI grouping
         # instruction shown/edited in the word-cloud AI panel.
         presenter["question"]["wordcloud_grouping"] = question.wordcloud_grouping

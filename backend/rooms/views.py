@@ -50,6 +50,7 @@ from common.i18n_fields import resolve_translated_text, translated_map
 from live.models import MatrixCard, MindmapContribution, MindmapNode, Vote
 
 from . import ai_generate, ai_prompts, generation, set_types
+from .image_credits import can_edit_image, credit_dict
 from .images import (
     # The size caps live in images.py (shared with the JSON import, #290);
     # they stay importable — and patchable — as rooms.views names.
@@ -58,11 +59,13 @@ from .images import (
     InvalidImageError,
     normalize_image,
 )
-from .models import GenerationJob, Question, QuestionSet, Room, Section
+from .models import GenerationJob, Question, QuestionSet, Room, Section, UploadedImage
 from .question_import import core as import_core
 from .question_import import detect
+from .question_import.materialize import materialize_images
 from .serializers import (
     AgendaLocked,
+    ImageCreditSerializer,
     QuestionSerializer,
     QuestionSetSerializer,
     RoomSerializer,
@@ -797,14 +800,18 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
         except import_core.ImportFailed as exc:
             return Response({"detail": str(exc)}, status=400)
         import_core.finalize(result, set_types.allowed_kinds(question_set.type))
-        skipped = result.skipped_list()
-        if not result.drafts:
-            return Response(
-                {"detail": gettext("No questions found. Please check the format."),
-                 "format": result.format, "skipped": skipped},
-                status=400,
-            )
         with transaction.atomic():
+            # Package images (#336): only those of kept drafts are stored; a
+            # draft whose image-only text/option could not be stored drops out.
+            materialize_images(result, request.user)
+            skipped = result.skipped_list()
+            if not result.drafts:
+                transaction.set_rollback(True)
+                return Response(
+                    {"detail": gettext("No questions found. Please check the format."),
+                     "format": result.format, "skipped": skipped},
+                    status=400,
+                )
             # One review slot per set: the newest proposals win (#303).
             GenerationJob.objects.filter(question_set=question_set, reviewed=False).update(
                 reviewed=True
@@ -1485,3 +1492,22 @@ class ImageUploadView(APIView):
         serializer.is_valid(raise_exception=True)
         serializer.save(uploader=request.user)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ImageCreditView(APIView):
+    """Edit the attribution of an uploaded image (#336). The credit belongs
+    to the file, so a change applies everywhere the image is used."""
+
+    permission_classes: ClassVar = [IsAuthenticated]
+
+    def patch(self, request, pk):
+        img = UploadedImage.objects.filter(pk=pk).first()
+        # 404 also for "not yours" — don't leak the image's existence.
+        if img is None or not can_edit_image(request.user, img):
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = ImageCreditSerializer(data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        for field, value in serializer.to_model_values().items():
+            setattr(img, field, value)
+        img.save(update_fields=list(serializer.to_model_values()))
+        return Response({**credit_dict(img, img.file.url), "editable": True})

@@ -636,6 +636,22 @@ export interface MindmapSeedNode {
   children: MindmapSeedNode[];
 }
 
+/** Image credit (#336); `editable` only on authoring (REST) responses. */
+export interface ImageCredit {
+  id: number;
+  src: string;
+  author: string;
+  title: string;
+  source: string;
+  license: string;
+  license_label: string;
+  license_url: string;
+  version: string;
+  text: string;
+  has_credit: boolean;
+  editable?: boolean;
+}
+
 export interface AnswerOption {
   id?: number;
   text: LocalizedText;
@@ -647,6 +663,7 @@ export interface AnswerOption {
 
 export interface Question {
   id: number;
+  image_credits?: ImageCredit[];
   question_set: number;
   section: number | null;
   kind: QuestionKind;
@@ -773,7 +790,10 @@ export interface GeneratedQuestion {
   text: string;
   /** True/False drafts come back as single_choice + this flag (#79). */
   binary_choice?: boolean;
-  options: { text: string; is_correct: boolean }[];
+  /** `image`: /media/ URL of an option image kept by the import (#336). */
+  options: { text: string; is_correct: boolean; image?: string }[];
+  /** Import only: credits of the draft's credited images (#336). */
+  image_credits?: ImageCredit[];
   /** open_text only: AI-generated reference answer to score against. */
   model_solution?: string;
   /** Page/slide the question refers to, when the model named one (#304). */
@@ -1823,6 +1843,16 @@ export const api = {
     });
   },
 
+  /** Edit the credit of an uploaded image (#336); 400 carries field errors. */
+  updateImageCredit: (
+    id: number,
+    patch: Partial<Pick<ImageCredit, "author" | "title" | "source" | "license" | "version" | "text">>,
+  ) =>
+    request<ImageCredit>(`/api/images/${id}/credit/`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
   /** Optional machine-translation pre-fill (LibreTranslate, #33 MR2 Phase 4);
    * 503 if the backend has no provider configured (checked via
    * `isTranslationEnabled()` before offering this in the UI). */
@@ -1886,6 +1916,8 @@ export interface LiveState {
     id: number;
     kind: QuestionKind;
     text: LocalizedText;
+    /** Credited images only (#336). */
+    image_credits?: ImageCredit[];
     multiple: boolean;
     allow_multiple?: boolean;
     wordcloud_batch_submit?: boolean;
@@ -2152,6 +2184,7 @@ export interface RunResults {
     position: number;
     kind: QuestionKind;
     text: LocalizedText;
+    image_credits?: ImageCredit[];
     votes: number;
     /** Recording mode (#53): how many of this question's votes are async. */
     votes_recording: number;

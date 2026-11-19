@@ -130,7 +130,42 @@ solution is shown is set per set and can be overridden per question:
 - **Time limit** — closes voting automatically after the chosen time.
 - **Images** — insert images into the question text via the image icon in
   the toolbar (or by dragging them in); each answer can have its own image,
-  too.
+  too. You can add an [image credit](#bildnachweise) to every image.
+
+## Image credits { #bildnachweise }
+
+Every image — in the question text, as an answer image or imported — can carry
+an image credit. It is **never mandatory**; missing details block nothing.
+
+As soon as the saved question contains images, the editor shows an **Image
+credits** section below the question text. Each image gets a card with a
+thumbnail and these fields:
+
+- **Author** and **Title** of the image,
+- **Source** — a link (`http://` or `https://`),
+- **License** — CC BY, CC BY-SA, CC BY-ND, CC BY-NC, CC BY-NC-SA, CC BY-NC-ND,
+  CC0, Public domain, All rights reserved, Other or Unknown. For CC licenses
+  you also pick the **version**; for **Other** you add a **license note**
+  (optional for **All rights reserved**).
+
+**Save credit** stores the details; images without a credit are marked **No
+image credit**. Newly inserted images appear in the section once you have
+saved the question.
+
+The credit belongs to the image, not to a single question: it may be changed
+by the person who uploaded the image and by anyone who owns all the rooms in
+which the image is used. If the image is also used in someone else's room, you
+only see the credit. The change applies everywhere the image is used (e.g. in
+duplicated sets). Copies, duplicates and the JSON export keep
+the credits (older Abstimmbar versions ignore them on import).
+
+The credit is shown as a compact line below the question — on the beamer
+(also in the results walkthrough, there without links) and on the participant
+page (with the title and license linked), e.g. *Image: "Freshly Picked
+Blackcurrants" by Karen Jackson, CC BY-ND 4.0*; with several images *Images:
+… · …*. In the wide mindmap and four-field matrix view on the beamer, where
+images are hidden, no line appears. Only images visible in the displayed language get a
+credit.
 
 ## Bilingual content (expert mode)
 
@@ -192,8 +227,13 @@ How it works:
    you want to keep and accept them. Only then are they created in the set.
    The others are kept for later review until you discard the rest.
 
-Images and feedback texts are not imported (a question with an image is kept,
-only the image is missing). AI evaluation for free-text questions is off for
+Images from **H5P** (above the question, inline and as answer images) are
+imported together with their [image credit](#bildnachweise) — author, title,
+source and license come from the H5P metadata. Images from **ILIAS** (question
+and answer images) are imported without a credit, since ILIAS provides none.
+At most 100 images are taken over per import. **GIFT** and the simple text
+format cannot carry images; there the notice "Image not imported" remains.
+Feedback texts are not imported. AI evaluation for free-text questions is off for
 imported questions; switch it on in the question's editor if you want it.
 Nothing disappears silently: anything skipped is reported with a count and
 the reason.
@@ -251,8 +291,8 @@ A: A possible model solution (optional)
 | Format | Imported | Skipped (with notice) |
 |---|---|---|
 | **GIFT** (Moodle text format, `.gift`/`.txt` or pasted) | Multiple choice, weighted answers with several positive weights (multiple choice), true/false, short answer (free text with model solution), essay (free text) | Matching, numerical questions, cloze, descriptions (text without an answer block) |
-| **H5P** (`.h5p`) | Multiple Choice, True/False, Single Choice Set, Essay; also inside Question Set and Column | all other H5P content types (e.g. Blanks), counted by name |
-| **ILIAS** (export of a test or question pool as `.zip`, or the `.xml` alone) | Single choice, multiple choice, free text, ordering with text | all other question types (e.g. Kprim, cloze, matching), ordering with images |
+| **H5P** (`.h5p`) | Multiple Choice, True/False, Single Choice Set, Essay; also inside Question Set and Column; images with credits | all other H5P content types (e.g. Blanks), counted by name |
+| **ILIAS** (export of a test or question pool as `.zip`, or the `.xml` alone) | Single choice, multiple choice, free text, ordering with text; images in question and answers (without credit) | all other question types (e.g. Kprim, cloze, matching), ordering with images |
 
 For GIFT, titles (`::Title::`), categories, comments and feedback are
 ignored. For ILIAS, the current QTI export is read; older type names are
@@ -270,7 +310,7 @@ recognised as well.
 - **Export (JSON)** (expert mode) — saves the set as a file. In a room, you
   bring such a file back in via the ⋮ menu → **Import question set (JSON)**,
   for example on another Abstimmbar instance. Uploaded images are included
-  in the file and come along on import; an import file may be up to 32 MiB.
+  in the file and come along on import, as do their image credits; an import file may be up to 32 MiB.
 - **Copy set (share link)** (expert mode) — creates a link that colleagues
   can use to take a copy of the set **into their own room**; your original
   remains unchanged. Optionally, you specify a **license for sharing**

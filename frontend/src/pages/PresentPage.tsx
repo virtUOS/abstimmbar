@@ -31,6 +31,7 @@ import {
   type WordCloudModeration,
 } from "../api";
 import { localizedText, RichText, stripHtml } from "@basicbar/ui";
+import { ImageCredits } from "../components/ImageCredits";
 import LikertResult from "../components/LikertResult";
 import { useTourSignal } from "../tour/signals";
 import ResultBar, { type BarState } from "../results/ResultBar";
@@ -1852,6 +1853,13 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             ai={walkAi[walkAiKey]}
             onRetryAi={retryWalkAi}
           />
+          <ImageCredits
+            className="mt-6"
+            links={false}
+            credits={item.image_credits}
+            html={localizedText(item.text)}
+            optionImages={(item.options ?? []).map((o) => o.image)}
+          />
         </div>
       </Shell>
     );
@@ -2685,6 +2693,17 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
                 onModerate={onModerateWord}
               />
             ))}
+
+          {/* Image credits (#336): under the question and its options; plain text
+              (no links on the beamer). The wide mindmap/matrix layout hides
+              question images, so nothing is credited there. */}
+          <ImageCredits
+            className="mt-6"
+            links={false}
+            credits={question.image_credits}
+            html={wideShown ? "" : localizedText(question.text)}
+            optionImages={wideShown ? [] : [...question.options.map((o) => o.image), ...(state.results ?? []).map((o) => o.image)]}
+          />
 
           {showModHandle && (
               <>

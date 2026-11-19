@@ -134,7 +134,44 @@ Lösung angezeigt wird, legen Sie je Set fest und können es je Frage
   Zeit.
 - **Bilder** — fügen Sie über das Bild-Symbol der Werkzeugleiste (oder per
   Ziehen) Bilder in den Fragetext ein; auch jede Antwort kann ein eigenes Bild
-  erhalten.
+  erhalten. Zu jedem Bild können Sie einen [Bildnachweis](#bildnachweise)
+  hinterlegen.
+
+## Bildnachweise { #bildnachweise }
+
+Jedes Bild — im Fragetext, als Antwortbild oder übernommen — kann einen
+Bildnachweis tragen. Er ist **nie Pflicht**; fehlende Angaben blockieren nichts.
+
+Sobald die gespeicherte Frage Bilder enthält, erscheint im Editor unter dem
+Fragetext der Abschnitt **Bildnachweise**. Je Bild gibt es eine Karte mit
+Vorschaubild und diesen Feldern:
+
+- **Urheber:in** und **Titel** des Bildes,
+- **Quelle** — ein Link (`http://` oder `https://`),
+- **Lizenz** — CC BY, CC BY-SA, CC BY-ND, CC BY-NC, CC BY-NC-SA, CC BY-NC-ND,
+  CC0, Gemeinfrei, Alle Rechte vorbehalten, Sonstige oder Unbekannt. Bei
+  CC-Lizenzen wählen Sie zusätzlich die **Version**, bei **Sonstige** ergänzen
+  Sie einen **Lizenzhinweis** (bei **Alle Rechte vorbehalten** optional).
+
+Mit **Nachweis speichern** übernehmen Sie die Angaben; Bilder ohne Nachweis
+sind mit **Kein Bildnachweis** markiert. Neu eingefügte Bilder erscheinen im
+Abschnitt, nachdem Sie die Frage gespeichert haben.
+
+Der Nachweis gehört zum Bild, nicht zur einzelnen Frage: Ändern dürfen ihn
+die Person, die das Bild hochgeladen hat, und alle, denen sämtliche Räume
+gehören, in denen das Bild verwendet wird. Wird das Bild auch in einem fremden
+Raum verwendet, sehen Sie den Nachweis nur. Die Änderung gilt überall, wo das
+Bild verwendet wird (z. B. in duplizierten Sets). Kopien, Duplikate und der
+JSON-Export behalten die Nachweise (ältere Abstimmbar-Versionen ignorieren sie
+beim Import).
+
+Angezeigt wird der Nachweis als kompakte Zeile unter der Frage — auf dem
+Beamer (auch in der Ergebnis-Durchsicht, dort ohne Links) und auf der
+Teilnahmeseite (mit verlinktem Titel und verlinkter Lizenz), z. B. *Bild:
+„Freshly Picked Blackcurrants“ von Karen Jackson, CC BY-ND 4.0*; bei mehreren
+Bildern *Bilder: … · …*. In der breiten Mindmap- und Vier-Felder-Ansicht auf dem
+Beamer, in der Bilder ausgeblendet sind, erscheint keine Zeile. Nur Bilder, die in der angezeigten
+Sprache sichtbar sind, erhalten einen Nachweis.
 
 ## Zweisprachige Inhalte (Experten-Modus)
 
@@ -198,8 +235,13 @@ So gehen Sie vor:
    Erst dann werden sie im Set angelegt. Die übrigen bleiben erhalten und
    lassen sich später prüfen, bis Sie den Rest verwerfen.
 
-Bilder und Feedbacktexte werden nicht übernommen (eine Frage mit Bild bleibt
-erhalten, nur das Bild fehlt). Die KI-Bewertung für Freitextfragen ist bei
+Bilder aus **H5P** (über der Frage, im Text und als Antwortbilder) werden
+samt [Bildnachweis](#bildnachweise) übernommen — Urheber:in, Titel, Quelle und
+Lizenz stammen aus den H5P-Metadaten. Bilder aus **ILIAS** (Frage- und
+Antwortbilder) werden ohne Nachweis übernommen, da ILIAS keinen mitliefert.
+Pro Import werden höchstens 100 Bilder übernommen. **GIFT** und das einfache
+Textformat können keine Bilder tragen; dort bleibt es beim Hinweis „Bild nicht
+übernommen“. Feedbacktexte werden nicht übernommen. Die KI-Bewertung für Freitextfragen ist bei
 übernommenen Fragen aus; schalten Sie sie bei Bedarf im Editor der Frage ein.
 Nichts verschwindet stillschweigend: Übersprungenes wird mit Anzahl und Grund
 genannt.
@@ -257,8 +299,8 @@ L: Eine mögliche Musterlösung (optional)
 | Format | Übernommen | Übersprungen (mit Hinweis) |
 |---|---|---|
 | **GIFT** (Moodle-Textformat, `.gift`/`.txt` oder eingefügt) | Multiple Choice, gewichtete Antworten mit mehreren positiven Gewichten (Mehrfachauswahl), Wahr/Falsch, Kurzantwort (Freitext mit Musterlösung), Essay (Freitext) | Zuordnung, numerische Fragen, Lückentext, Beschreibungen (Text ohne Antwortblock) |
-| **H5P** (`.h5p`) | Multiple Choice, True/False, Single Choice Set, Essay; auch innerhalb von Question Set und Column | alle anderen H5P-Inhaltstypen (z. B. Blanks), nach Namen gezählt |
-| **ILIAS** (Export von Test oder Fragenpool als `.zip`, oder die `.xml` allein) | Single Choice, Multiple Choice, Freitext, Sortierfrage mit Text | alle anderen Fragetypen (z. B. Kprim, Lückentext, Zuordnung), Sortierung mit Bildern |
+| **H5P** (`.h5p`) | Multiple Choice, True/False, Single Choice Set, Essay; auch innerhalb von Question Set und Column; Bilder mit Bildnachweis | alle anderen H5P-Inhaltstypen (z. B. Blanks), nach Namen gezählt |
+| **ILIAS** (Export von Test oder Fragenpool als `.zip`, oder die `.xml` allein) | Single Choice, Multiple Choice, Freitext, Sortierfrage mit Text; Bilder in Frage und Antworten (ohne Bildnachweis) | alle anderen Fragetypen (z. B. Kprim, Lückentext, Zuordnung), Sortierung mit Bildern |
 
 Bei GIFT werden Titel (`::Titel::`), Kategorien, Kommentare und Feedback
 ignoriert. Von ILIAS wird der aktuelle QTI-Export gelesen; ältere
@@ -276,7 +318,8 @@ Typbezeichnungen werden ebenfalls erkannt.
 - **Export (JSON)** (Experten-Modus) — speichert das Set als Datei. Im Raum
   holen Sie eine solche Datei über das Menü ⋮ → **Fragenset importieren (JSON)** wieder
   herein, etwa auf einer anderen Abstimmbar-Instanz. Hochgeladene Bilder sind
-  in der Datei enthalten und kommen beim Import mit; eine Importdatei darf
+  in der Datei enthalten und kommen beim Import mit, ebenso ihre
+  Bildnachweise; eine Importdatei darf
   bis zu 32 MiB groß sein.
 - **Set kopieren (Freigabe-Link)** (Experten-Modus) — erzeugt einen Link, mit
   dem Kolleginnen und Kollegen eine Kopie des Sets **in ihren eigenen Raum**

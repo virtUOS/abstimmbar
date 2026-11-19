@@ -38,25 +38,19 @@ the explicit ``<field>_de``/``<field>_en`` columns instead.
 import base64
 import binascii
 import html
-import io
 import posixpath
 import re
 from urllib.parse import unquote
 
 from django.conf import settings
-from django.core.files.base import ContentFile
 from PIL import Image
 from rest_framework import serializers
 
 from common.i18n_fields import LANGS, translated_map
 
 from . import matrix, mindmap, set_types
-from .images import (
-    MAX_ANIMATED_IMAGE_BYTES,
-    MAX_IMAGE_BYTES,
-    InvalidImageError,
-    normalize_image,
-)
+from .image_credits import apply_credit, media_name_for_src
+from .images import MAX_IMAGE_BYTES, image_format, store_image_bytes
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import unique_title
 from .question_fields import clean_evaluation_categories
@@ -305,19 +299,14 @@ def _uploaded_image_for(src):
     instance's uploads (external, legacy, traversal) never touches the
     filesystem.
     """
-    if not src or clean_media_url(src) != src:
-        return None
-    prefix = _media_prefix()
-    if not src.startswith(prefix):
-        return None
-    name = unquote(src[len(prefix):])
+    name = media_name_for_src(src)
     if not name:
         return None
     return UploadedImage.objects.filter(file=name).first()
 
 
 def _embedded_images(srcs):
-    """{src: {"content_type", "data"}} for every resolvable src."""
+    """{src: {"content_type", "data"[, "credit"]}} for every resolvable src."""
     images = {}
     for src in srcs:
         if src in images:
@@ -330,13 +319,23 @@ def _embedded_images(srcs):
                 raw = fh.read()
         except OSError:
             continue  # DB row without a file (e.g. media volume lost)
-        fmt = _image_format(raw)
+        fmt = image_format(raw)
         images[src] = {
             # Informational only; the import sniffs the bytes itself.
             "content_type": Image.MIME.get(fmt, "application/octet-stream"),
             "data": base64.b64encode(raw).decode("ascii"),
         }
+        credit = {key: getattr(uploaded, attr) for key, attr in _credit_fields().items()}
+        if any(credit.values()):
+            images[src]["credit"] = credit
     return images
+
+
+def _credit_fields():
+    """{export key: UploadedImage attribute} of the credit fields."""
+    from .serializers import ImageCreditSerializer
+
+    return ImageCreditSerializer.FIELD_MAP
 
 
 def _collect_image_srcs(question_set, sections, questions):
@@ -412,34 +411,10 @@ class _ImageImporter:
             return None
         # The client's content_type is ignored: Pillow sniffs the bytes.
         stem = posixpath.splitext(posixpath.basename(unquote(src)))[0] or "image"
-        original = ContentFile(raw, name=f"{stem[:80]}.img")
-        try:
-            normalized = normalize_image(original)
-        except InvalidImageError:
-            return None
-        if normalized is original:
-            # Animated GIF/WebP pass through untranscoded (as on upload).
-            if len(raw) > MAX_ANIMATED_IMAGE_BYTES:
-                return None
-            fmt = _ANIMATED_EXTENSIONS.get(_image_format(raw))
-            if fmt is None:
-                return None
-            normalized = ContentFile(raw, name=f"{stem[:80]}.{fmt}")
-        uploaded = UploadedImage(uploader=self.user)
-        uploaded.file.save(normalized.name, normalized, save=True)
+        uploaded = store_image_bytes(raw, f"{stem}.img", self.user)
+        if uploaded is not None:
+            apply_credit(uploaded, entry.get("credit"))
         return uploaded
-
-
-_ANIMATED_EXTENSIONS = {"GIF": "gif", "WEBP": "webp", "PNG": "png"}
-
-
-def _image_format(raw):
-    """Pillow's format name for bytes normalize_image already accepted."""
-    try:
-        with Image.open(io.BytesIO(raw)) as img:
-            return img.format
-    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
-        return None
 
 
 def export_set(question_set):

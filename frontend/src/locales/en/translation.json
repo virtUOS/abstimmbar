@@ -70,5 +70,7 @@
   "Detected: {{format}} · {{count}} questions_one": "Detected: {{format}} · {{count}} question",
   "Detected: {{format}} · {{count}} questions_other": "Detected: {{format}} · {{count}} questions",
   "{{count}} questions found_one": "{{count}} question found",
-  "{{count}} questions found_other": "{{count}} questions found"
+  "{{count}} questions found_other": "{{count}} questions found",
+  "{{count}} questions could not be taken over._one": "{{count}} question could not be taken over.",
+  "{{count}} questions could not be taken over._other": "{{count}} questions could not be taken over."
 }

@@ -8,12 +8,15 @@ nested writes use a replace-by-id strategy: options the client omits are
 deleted, options with an ``id`` are updated, options without one are created.
 Option order follows array order.
 """
+import re
 from typing import ClassVar
 
 from django.conf import settings
+from django.core.validators import URLValidator
 from django.db.models import Count, Max
 from django.utils import timezone
 from django.utils.html import strip_tags
+from django.utils.translation import gettext
 from rest_framework import serializers
 from rest_framework.exceptions import APIException
 
@@ -21,6 +24,14 @@ from common.i18n_fields import LANGS, TranslatedMapMixin
 from common.serializers import TranslationSyncMixin
 
 from . import hooks, matrix, mindmap, set_types
+from .image_credits import (
+    LICENSES,
+    VERSION_RE,
+    can_edit_image,
+    credits_for_question,
+    images_by_src,
+    question_image_srcs,
+)
 from .models import AnswerOption, Question, QuestionSet, Room, Section, UploadedImage
 from .naming import generate_default_titles, make_titles_unique, meeting_default_titles
 from .question_fields import clean_evaluation_categories
@@ -499,6 +510,9 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
     before_question = serializers.PrimaryKeyRelatedField(read_only=True)
     after_question = serializers.SerializerMethodField()
     is_after = serializers.SerializerMethodField()
+    # Image credits (#336): every resolvable image of the question, incl.
+    # those without credit (the editor flags them), plus the caller's edit right.
+    image_credits = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
@@ -525,9 +539,21 @@ class QuestionSerializer(TranslationSyncMixin, TranslatedMapMixin, serializers.M
             "matrix_rating_mode", "matrix_rating_budget", "matrix_rating_multi",
             "matrix_rating_live",
             "reveal_answers", "before_question", "after_question", "is_after",
+            "image_credits",
             "created_at", "updated_at",
         ]
         read_only_fields: ClassVar = ["position"]
+
+    def get_image_credits(self, obj):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        images = images_by_src(question_image_srcs(obj))
+        entries = credits_for_question(obj, images, include_empty=True)
+        by_id = {img.id: img for img in images.values()}
+        return [
+            {**e, "editable": can_edit_image(user, by_id[e["id"]]) if user else False}
+            for e in entries
+        ]
 
     def get_after_question(self, obj):
         try:
@@ -827,3 +853,40 @@ class UploadedImageSerializer(serializers.ModelSerializer):
 
     def get_url(self, obj):
         return obj.file.url
+
+
+class ImageCreditSerializer(serializers.Serializer):
+    """PATCH body of an image credit; keys map to UploadedImage.credit_*."""
+
+    FIELD_MAP: ClassVar = {
+        "author": "credit_author",
+        "title": "credit_title",
+        "source": "credit_source",
+        "license": "credit_license",
+        "version": "credit_license_version",
+        "text": "credit_license_text",
+    }
+
+    author = serializers.CharField(max_length=200, allow_blank=True, required=False)
+    title = serializers.CharField(max_length=300, allow_blank=True, required=False)
+    source = serializers.CharField(max_length=500, allow_blank=True, required=False)
+    license = serializers.ChoiceField(
+        choices=[*LICENSES, ""], allow_blank=True, required=False
+    )
+    version = serializers.CharField(max_length=8, allow_blank=True, required=False)
+    text = serializers.CharField(max_length=100, allow_blank=True, required=False)
+
+    def validate_version(self, value):
+        if value and not re.fullmatch(VERSION_RE, value):
+            raise serializers.ValidationError(gettext("Invalid license version."))
+        return value
+
+    def validate_source(self, value):
+        if value and not value.lower().startswith(("http://", "https://")):
+            raise serializers.ValidationError(gettext("Source must be an http(s) URL."))
+        if value:
+            URLValidator()(value)
+        return value
+
+    def to_model_values(self):
+        return {self.FIELD_MAP[k]: v for k, v in self.validated_data.items()}

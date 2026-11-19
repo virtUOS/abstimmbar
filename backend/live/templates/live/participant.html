@@ -46,6 +46,7 @@ multi-line note must use {% comment %} or it renders as text.)
   <p class="soft" id="countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="question-text"></div>
   <div id="options"></div>
+  <div class="image-credits" id="question-credits" hidden></div>
   {# Likert scale (#86): a connected row of segment buttons, one tap = one vote. #}
   <div id="likert" hidden></div>
   <form id="wordcloud" hidden>
@@ -93,6 +94,7 @@ survives the live updates.
 <section id="mindmap" hidden>
   <p class="soft" id="mm-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="mm-question"></div>
+  <div class="image-credits" id="mm-credits" hidden></div>
   <p class="soft" id="mm-intro" style="margin-top:4px" hidden></p>
   <p id="mm-status" aria-live="polite" style="margin-top:6px;font-weight:600;font-size:14px" hidden></p>
   <div id="mm-tree"></div>
@@ -200,6 +202,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
 <section id="matrix" hidden>
   <p class="soft" id="mx-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="mx-question"></div>
+  <div class="image-credits" id="mx-credits" hidden></div>
   <p id="mx-status" aria-live="polite" style="margin-top:6px;font-weight:600;font-size:14px;color:var(--ink-soft)" hidden></p>
   <div id="mx-form">
     <p class="mx-cap" id="mx-zone-cap">{% trans "Choose a field" %}</p>
@@ -242,6 +245,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
 <section id="resultsview" hidden>
   <div class="question-text" id="results-question"></div>
   <div id="results-list" style="margin-top:12px"></div>
+  <div class="image-credits" id="results-credits" hidden></div>
 </section>
 
 <section id="done" class="center" hidden>
@@ -410,6 +414,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   <p class="soft" id="quiz-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="quiz-text"></div>
   <div id="quiz-options"></div>
+  <div class="image-credits" id="quiz-credits" hidden></div>
   <form id="quiz-textform" hidden>
     <input type="text" id="quiz-word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
@@ -444,6 +449,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   <p class="soft" id="rec-countdown" aria-live="polite" hidden></p>
   <div class="question-text" id="rec-text"></div>
   <div id="rec-options"></div>
+  <div class="image-credits" id="rec-credits" hidden></div>
   <form id="rec-textform" hidden>
     <input type="text" id="rec-word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
@@ -473,6 +479,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
   </div>
   <div class="question-text" id="check-text"></div>
   <div id="check-options"></div>
+  <div class="image-credits" id="check-credits" hidden></div>
   <form id="check-textform" hidden>
     <input type="text" id="check-word" maxlength="60" autocomplete="off"
            placeholder="{% trans 'Your term …' %}" aria-label="{% trans 'Answer' %}" hidden>
@@ -642,6 +649,11 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     mmRatingRunning: "{% trans 'The rating is in progress — terms cannot be added or removed now.' %}",
     mmAlreadyRated: "{% trans 'This term has already been rated and cannot be removed.' %}",
     noQuestions: "{% trans 'There are no questions to answer here.' %}",
+    creditOne: "{% trans 'Image:' %}",
+    creditMany: "{% trans 'Images:' %}",
+    creditBy: "{% trans 'by' %}",
+    creditPublicDomain: "{% trans 'Public domain' %}",
+    creditAllRightsReserved: "{% trans 'All rights reserved' %}",
   };
   // Authored content (question/option text, set title, results labels) now
   // arrives as a {de, en} map — the SSE hub broadcasts one payload to every
@@ -654,6 +666,57 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     return v[lang] || v["{{ CONTENT_DEFAULT_LANGUAGE|default:'de' }}"] ||
       Object.values(v).find(Boolean) || "";
   }
+  /* credits:start */
+  // Image credits (#336): one muted line under the question. Only credits whose
+  // src occurs in the language-resolved question HTML (or in an option image)
+  // are shown. Built with createElement/textContent only; links only for
+  // http(s) URLs.
+  function renderCredits(container, credits, html, optionImages) {
+    container.replaceChildren();
+    container.hidden = true;
+    const visible = new Set((optionImages || []).filter(Boolean));
+    const doc = new DOMParser().parseFromString(html || "", "text/html");
+    doc.querySelectorAll("img").forEach((img) => {
+      const src = img.getAttribute("src");
+      if (src) visible.add(src);
+    });
+    const shown = (credits || []).filter((c) => c && visible.has(c.src) && c.has_credit !== false);
+    if (!shown.length) return;
+    const safeUrl = (u) => (typeof u === "string" && /^https?:\/\//i.test(u)) ? u : "";
+    const part = (text, url) => {
+      const href = safeUrl(url);
+      if (!href) return document.createTextNode(text);
+      const a = document.createElement("a");
+      a.href = href;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = text;
+      return a;
+    };
+    const lq = (document.documentElement.lang || "de").split("-")[0] === "en" ? ["\u201c", "\u201d"] : ["\u201e", "\u201c"];
+    container.append(document.createTextNode(
+      (shown.length > 1 ? I18N.creditMany : I18N.creditOne) + " "));
+    shown.forEach((c, i) => {
+      if (i) container.append(document.createTextNode(" \u00b7 "));
+      const nodes = [];
+      if (c.title) {
+        nodes.push(part(lq[0] + c.title + lq[1], c.source));
+        if (c.author) nodes.push(document.createTextNode(" " + I18N.creditBy + " " + c.author));
+      } else if (c.author) {
+        nodes.push(part(c.author, c.source));
+      }
+      const lic = c.license === "pd" ? I18N.creditPublicDomain
+        : c.license === "arr" ? I18N.creditAllRightsReserved + (c.text ? "; " + c.text : "")
+        : (c.license === "other" ? (c.text || "") : (c.license_label || ""));
+      if (lic) {
+        if (nodes.length) nodes.push(document.createTextNode(", "));
+        nodes.push(part(lic, c.license_url));
+      }
+      container.append(...nodes);
+    });
+    container.hidden = false;
+  }
+  /* credits:end */
   // Numbers in the page language (#293): "66,7 %" / "5,3" in German,
   // "66.7%" / "5.3" in English. CSS widths keep the raw numbers.
   const NUM_LANG = (document.documentElement.lang || "de").split("-")[0];
@@ -1260,8 +1323,11 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
 
   function renderResults() {
     captureResults();
-    document.getElementById("results-question").innerHTML =
-      locText(state.question && state.question.text);
+    const resHtml = locText(state.question && state.question.text);
+    document.getElementById("results-question").innerHTML = resHtml;
+    renderCredits(document.getElementById("results-credits"),
+      state.question && state.question.image_credits, resHtml,
+      ((state.question && state.question.options) || []).map((o) => o.image));
     const list = document.getElementById("results-list");
     list.replaceChildren();
     const mine = state.question && history.items[String(state.question.id)];
@@ -1671,7 +1737,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     // renderPrioritiesSlider re-adds it when this question is a priorities one.
     clearPriBudget(optionsBox.parentNode);
     clearOrderingUi(optionsBox.parentNode);
-    document.getElementById("question-text").innerHTML = locText(q.text);
+    const qHtml = locText(q.text);
+    document.getElementById("question-text").innerHTML = qHtml;
+    renderCredits(document.getElementById("question-credits"), q.image_credits, qHtml,
+      (q.options || []).map((o) => o.image));
     const wordcloud = document.getElementById("wordcloud");
     const opentext = document.getElementById("opentext");
     const submitMulti = document.getElementById("submit-multi");
@@ -1970,7 +2039,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
     const ans = quiz.answered[String(q.id)];
     document.getElementById("quiz-progress").textContent = I18N.questionProgress
       .replace("{i}", String(quizIndex + 1)).replace("{n}", String(quiz.questions.length));
-    document.getElementById("quiz-text").innerHTML = locText(q.text);
+    const quizHtml = locText(q.text);
+    document.getElementById("quiz-text").innerHTML = quizHtml;
+    renderCredits(document.getElementById("quiz-credits"), q.image_credits, quizHtml,
+      (q.options || []).map((o) => o.image));
     const optionsBox = document.getElementById("quiz-options");
     const form = document.getElementById("quiz-textform");
     const word = document.getElementById("quiz-word");
@@ -3259,6 +3331,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       mmQuestionHtml = html;
       document.getElementById("mm-question").innerHTML = html;
     }
+    renderCredits(document.getElementById("mm-credits"), q.image_credits, html, []);
     mmCountdown();
     const open = mmCanContribute();
     const remaining = mmRemaining();
@@ -4172,6 +4245,7 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       mxQuestionHtml = html;
       mxEl("mx-question").innerHTML = html;
     }
+    renderCredits(mxEl("mx-credits"), q.image_credits, html, []);
     mxCountdown();
     const sig = JSON.stringify(s) + "|" + (document.documentElement.lang || "");
     if (sig !== mxSig) {
@@ -4461,7 +4535,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       .replace("{i}", String(recIndex + 1)).replace("{n}", String(rec.questions.length));
     document.getElementById("rec-prev").disabled = recIndex === 0;
     document.getElementById("rec-next").disabled = recIndex === rec.questions.length - 1;
-    document.getElementById("rec-text").innerHTML = locText(q.text);
+    const recHtml = locText(q.text);
+    document.getElementById("rec-text").innerHTML = recHtml;
+    renderCredits(document.getElementById("rec-credits"), q.image_credits, recHtml,
+      (q.options || []).map((o) => o.image));
     const optionsBox = document.getElementById("rec-options");
     const results = document.getElementById("rec-results");
     document.getElementById("rec-feedback").hidden = true;
@@ -4822,7 +4899,10 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       prev.style.opacity = prev.disabled ? "0.35" : "";
       nextNav.style.opacity = nextNav.disabled ? "0.35" : "";
     }
-    document.getElementById("check-text").innerHTML = locText(q.text);
+    const checkHtml = locText(q.text);
+    document.getElementById("check-text").innerHTML = checkHtml;
+    renderCredits(document.getElementById("check-credits"), q.image_credits, checkHtml,
+      (q.options || []).map((o) => o.image));
     const optionsBox = document.getElementById("check-options");
     const form = document.getElementById("check-textform");
     const word = document.getElementById("check-word");
@@ -5062,14 +5142,19 @@ anyone else's cards (the board lives on the beamer). Script: the mx* block.
       const qtext = document.createElement("div");
       qtext.className = "question-text";
       qtext.style.cssText = "font-weight:600;margin-bottom:8px";
-      qtext.innerHTML = locText(q.text);
+      const reviewHtml = locText(q.text);
+      qtext.innerHTML = reviewHtml;
+      const reviewCredits = document.createElement("div");
+      reviewCredits.className = "image-credits";
+      renderCredits(reviewCredits, q.image_credits, reviewHtml,
+        (q.options || []).map((o) => o.image));
       const optionsBox = document.createElement("div");
       const feedback = document.createElement("p");
       feedback.style.cssText = "margin-top:10px;font-weight:600";
       const solution = document.createElement("div");
       solution.style.cssText = "margin-top:10px;border:1px solid var(--line);border-radius:12px;padding:10px 14px";
       solution.hidden = true;
-      card.append(qtext, optionsBox);
+      card.append(qtext, optionsBox, reviewCredits);
       if (ans) {
         // revisit=false: no "already answered" note in the collected review.
         renderCheckAnswered(q, ans, optionsBox, feedback, solution, false, false);

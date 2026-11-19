@@ -6,17 +6,21 @@
 ``Section`` (optional named groups inside a set) is a v2 feature; questions
 carry a flat ``position`` so sections can be added later without remodeling.
 """
+import re
 import secrets
 from typing import ClassVar
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import IntegrityError, models
+from django.utils.translation import gettext
 
 from common.models import TimeStampedModel
 
 from . import matrix as mx
 from . import mindmap as mm
+from .image_credits import LICENSE_CHOICES, VERSION_RE
 from .wordlist import WORDS
 
 # Room codes are three ASCII words joined by hyphens (ADR-0006), e.g.
@@ -626,6 +630,29 @@ class UploadedImage(TimeStampedModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="uploaded_images"
     )
     file = models.ImageField(upload_to="question-images/%Y/%m/")
+    # Credit (#336): optional attribution shown with the image.
+    credit_author = models.CharField(max_length=200, blank=True, default="")
+    credit_title = models.CharField(max_length=300, blank=True, default="")
+    credit_source = models.URLField(max_length=500, blank=True, default="")
+    credit_license = models.CharField(
+        max_length=32, blank=True, default="", choices=LICENSE_CHOICES
+    )
+    credit_license_version = models.CharField(max_length=8, blank=True, default="")
+    credit_license_text = models.CharField(max_length=100, blank=True, default="")
+
+    def clean(self):
+        super().clean()
+        errors = {}
+        if self.credit_license_version and not re.fullmatch(
+            VERSION_RE, self.credit_license_version
+        ):
+            errors["credit_license_version"] = gettext("Invalid license version.")
+        if self.credit_source and not self.credit_source.lower().startswith(
+            ("http://", "https://")
+        ):
+            errors["credit_source"] = gettext("Source must be an http(s) URL.")
+        if errors:
+            raise ValidationError(errors)
 
     def __str__(self):
         return self.file.name

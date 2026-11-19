@@ -43,6 +43,7 @@ import MindmapSeedEditor, {
   type EditableSeedNode,
 } from "../components/MindmapSeedEditor";
 import HomeCrumb from "../components/HomeCrumb";
+import ImageCreditsEditor from "../components/ImageCreditsEditor";
 import MatrixSettings, { matrixProblem, type MatrixSettingsValue, type MatrixUpdate } from "../components/MatrixSettings";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
@@ -1291,6 +1292,9 @@ export default function QuestionPage() {
           <p className="mt-1 text-sm text-danger">
             {t("Question text is required.")}
           </p>
+        )}
+        {!isNew && question?.image_credits && question.image_credits.length > 0 && (
+          <ImageCreditsEditor credits={question.image_credits} />
         )}
         {isMeeting && !isNew && (
           <TranslationStatusLine setId={set.id} questionId={question.id} savedKey={question} />

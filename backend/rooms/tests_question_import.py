@@ -7,14 +7,17 @@ from pathlib import Path
 
 from django.conf import settings
 from django.test import SimpleTestCase, override_settings
+from PIL import Image
 
-from rooms.question_import import core, detect, gift, h5p, ilias, safezip, simple
+from rooms.question_import import core, detect, gift, h5p, ilias, licenses, safezip, simple
 from rooms.question_import.core import (
+    IMPORT_IMAGE_PREFIX,
     ImportFailed,
     ImportResult,
     finalize,
     true_false_labels,
 )
+from rooms.sanitize import clean_html, clean_media_url
 
 ALL = ("single_choice", "multiple_choice", "open_text", "ordering")
 
@@ -671,7 +674,9 @@ class IliasTrunkFixtureTests(SimpleTestCase):
             ["single_choice", "ordering", "multiple_choice"],
         )
         self.assertEqual(self.result.skipped, {
-            ("image_dropped", ""): 2,
+            # The media object behind an uri needs the ZIP; the base64 option
+            # image (Gold) is kept.
+            ("image_dropped", ""): 1,
             ("unsupported_type", "assKprimChoice"): 1,
         })
 
@@ -686,10 +691,12 @@ class IliasTrunkFixtureTests(SimpleTestCase):
         d = self.drafts[1]
         self.assertEqual(opts(d), ["Planung", "Umsetzung", "Auswertung"])
 
-    def test_option_image_dropped_text_kept(self):
+    def test_option_image_kept_text_kept(self):
         d = self.drafts[2]
         self.assertEqual(opts(d), ["Schwarz", "Blau", "Gold"])
         self.assertEqual(correct(d), ["Schwarz", "Gold"])
+        self.assertEqual([o.get("image", "") for o in d["options"]], ["", "", IMPORT_IMAGE_PREFIX + "1"])
+        self.assertEqual(self.result.images[IMPORT_IMAGE_PREFIX + "1"].data, b"\x89PNG\r\n\x1a\n")
 
 
 class IliasTests(SimpleTestCase):
@@ -1237,3 +1244,363 @@ class RegexComplexityTests(SimpleTestCase):
             )),
         }.items():
             self.assertFast(lambda xml=xml: ilias.parse_xml(xml), label)
+
+
+# -- images kept via side-channel (#336) ---------------------------------------
+
+def png(color=(255, 0, 0)) -> bytes:
+    """A tiny self-made PNG (no third-party file)."""
+    buf = io.BytesIO()
+    Image.new("RGB", (2, 2), color).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def h5p_media(path="images/a.png", alt="Bild", decorative=False, metadata=None, copyright=None):
+    file = {"path": path, "mime": "image/png"}
+    if copyright is not None:
+        file["copyright"] = copyright
+    media = {"type": {
+        "library": "H5P.Image 1.1",
+        "params": {"file": file, "alt": alt, "decorative": decorative},
+    }}
+    if metadata is not None:
+        media["type"]["metadata"] = metadata
+    return media
+
+
+PH1 = IMPORT_IMAGE_PREFIX + "1"
+PH2 = IMPORT_IMAGE_PREFIX + "2"
+
+
+class H5PImageTests(SimpleTestCase):
+    def test_h5p_media_image_kept_with_credit(self):
+        r = h5p.parse(safezip.open_zip(fixture("multichoice-image.h5p")))
+        [d] = r.drafts
+        self.assertTrue(d["text"].startswith(f'<p><img src="{PH1}"'), d["text"])
+        self.assertIn("Welche Farbe hat die Fläche?", d["text"])
+        self.assertEqual(r.skipped, {})
+        self.assertEqual(list(r.images), [PH1])
+        img = r.images[PH1]
+        self.assertTrue(img.data.startswith(b"\x89PNG"))
+        self.assertEqual(img.alt, "Rote Fläche")
+        self.assertIn('alt="Rote Fläche"', d["text"])
+        self.assertEqual(img.credit, {
+            "author": "Karen Jackson",
+            "title": "Rotes Quadrat",
+            "source": "https://example.org/bild",
+            "license": "cc-by-nd",
+            "version": "4.0",
+            "text": "",
+        })
+        self.assertTrue(img.filename.isascii())
+        self.assertTrue(img.filename.endswith(".png"))
+        finalize(r, ALL)
+        self.assertEqual(len(r.drafts), 1)
+        self.assertEqual(r.skipped, {})
+
+    def test_h5p_license_unknown_no_credit(self):
+        for media in (
+            h5p_media(copyright={"license": "U"}),
+            h5p_media(metadata={"license": "U", "authors": []}),
+            h5p_media(),
+        ):
+            r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media), {"content/images/a.png": png()}))
+            self.assertEqual(r.skipped, {})
+            self.assertEqual(r.images[PH1].credit, {})
+
+    def test_h5p_old_copyright_credit(self):
+        media = h5p_media(copyright={
+            "license": "CC BY-SA", "version": "3.0", "author": "Max Muster", "title": "Turm", "source": "",
+        })
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media), {"content/images/a.png": png()}))
+        self.assertEqual(r.images[PH1].credit, {
+            "author": "Max Muster", "title": "Turm", "source": "", "license": "cc-by-sa", "version": "3.0", "text": "",
+        })
+
+    def test_h5p_title_only_metadata_falls_back_to_copyright(self):
+        media = h5p_media(
+            metadata={"title": "Image", "license": "U"},
+            copyright={"license": "CC BY", "version": "4.0", "author": "Max Muster"},
+        )
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media), {"content/images/a.png": png()}))
+        self.assertEqual(r.images[PH1].credit["author"], "Max Muster")
+        self.assertEqual(r.images[PH1].credit["license"], "cc-by")
+        # Title only and nothing else: kept as is (shows no credit line).
+        media = h5p_media(metadata={"title": "Image", "license": "U"})
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media), {"content/images/a.png": png()}))
+        self.assertEqual(r.images[PH1].credit["title"], "Image")
+        self.assertEqual(r.images[PH1].credit["license"], "")
+        self.assertEqual(r.images[PH1].credit["author"], "")
+
+    def test_h5p_option_text_without_image_verbatim(self):
+        content = {"choices": [{"question": "<p>Q</p>", "answers": ["a<b", "c"]}]}
+        r = h5p.parse(h5p_zip("H5P.SingleChoiceSet 1.11", content))
+        self.assertEqual(opts(r.drafts[0]), ["a<b", "c"])
+
+    def test_h5p_decorative_empty_alt(self):
+        media = h5p_media(alt="Hübsch", decorative=True)
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media), {"content/images/a.png": png()}))
+        self.assertEqual(r.images[PH1].alt, "")
+        self.assertTrue(r.drafts[0]["text"].startswith(f'<p><img src="{PH1}" alt=""'), r.drafts[0]["text"])
+
+    def test_h5p_missing_image_file_dropped(self):
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question='<p>Q <img src="images/none.png"></p>')))
+        [d] = r.drafts
+        self.assertNotIn("<img", d["text"])
+        self.assertEqual(r.images, {})
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_h5p_inline_image_kept(self):
+        r = h5p.parse(h5p_zip(
+            "H5P.MultiChoice 1.16", mc(question='<p>Q <img src="images/b.png" alt="Turm"> ?</p>'),
+            {"content/images/b.png": png()},
+        ))
+        self.assertEqual(r.drafts[0]["text"], f'<p>Q <img src="{PH1}" alt="Turm"> ?</p>')
+        self.assertEqual(r.skipped, {})
+
+    def test_h5p_same_image_twice_one_entry(self):
+        question = '<p><img src="images/a.png"> und <img src="images/a.png"></p>'
+        r = h5p.parse(h5p_zip(
+            "H5P.MultiChoice 1.16", mc(question=question, media=h5p_media()), {"content/images/a.png": png()},
+        ))
+        self.assertEqual(list(r.images), [PH1])
+        self.assertEqual(r.drafts[0]["text"].count(f'src="{PH1}"'), 3)
+        self.assertEqual(r.skipped, {})
+
+    def test_h5p_answer_image_becomes_option_image(self):
+        content = mc(answers=(('A <img src="images/a.png">', True), ('<img src="images/b.png">', False)))
+        r = h5p.parse(h5p_zip(
+            "H5P.MultiChoice 1.16", content,
+            {"content/images/a.png": png(), "content/images/b.png": png((0, 0, 255))},
+        ))
+        [d] = r.drafts
+        self.assertEqual(d["options"], [
+            {"text": "A", "is_correct": True, "image": PH1},
+            {"text": "", "is_correct": False, "image": PH2},
+        ])
+        self.assertEqual(r.skipped, {})
+        finalize(r, ALL)
+        self.assertEqual(len(r.drafts), 1)
+
+    def test_h5p_answer_image_missing_and_no_text_invalid(self):
+        content = mc(answers=(("A", True), ('<img src="images/none.png">', False)))
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", content))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("invalid", "H5P.MultiChoice"): 1})
+
+    def test_h5p_non_image_media_dropped(self):
+        media = {"type": {"library": "H5P.Video 1.6", "params": {"sources": [{"path": "videos/a.mp4"}]}}}
+        r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(media=media)))
+        self.assertEqual(len(r.drafts), 1)
+        self.assertEqual(r.images, {})
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_path_traversal_image_rejected(self):
+        for question, media in (
+            ('<p>Q <img src="../../etc/x.png"></p>', None),
+            ("<p>Q</p>", h5p_media(path="../../etc/x.png")),
+            ("<p>Q</p>", h5p_media(path="../h5p.json")),
+            ('<p>Q <img src="/etc/x.png"></p>', None),
+            ('<p>Q <img src="https://evil.example/x.png"></p>', None),
+            ('<p>Q <img src="data:image/png;base64,iVBORw0KGgo="></p>', None),
+        ):
+            extra = {"media": media} if media else {}
+            r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question=question, **extra)))
+            [d] = r.drafts
+            self.assertNotIn("<img", d["text"], question)
+            self.assertEqual(r.images, {}, question)
+            self.assertEqual(r.skipped, {("image_dropped", ""): 1}, question)
+
+    def test_literal_media_src_in_package_dropped(self):
+        """A package must not reference placeholders or this instance's files."""
+        for src in (PH1, "/media/question-images/2026/11/x.webp"):
+            r = h5p.parse(h5p_zip("H5P.MultiChoice 1.16", mc(question=f'<p>Q <img src="{src}"></p>')))
+            self.assertNotIn("<img", r.drafts[0]["text"], src)
+            self.assertEqual(r.skipped, {("image_dropped", ""): 1}, src)
+
+    def test_image_cap_100(self):
+        n = core.MAX_IMPORT_IMAGES + 1
+        questions = [
+            {"library": "H5P.MultiChoice 1.16", "params": mc(question=f'<p>Q{i} <img src="images/{i}.png"></p>')}
+            for i in range(n)
+        ]
+        files = {f"content/images/{i}.png": png() for i in range(n)}
+        r = h5p.parse(h5p_zip("H5P.QuestionSet 1.20", {"questions": questions}, files))
+        self.assertEqual(len(r.drafts), n)
+        self.assertEqual(len(r.images), core.MAX_IMPORT_IMAGES)
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+        self.assertNotIn("<img", r.drafts[-1]["text"])
+
+    def test_image_of_skipped_question_not_counted(self):
+        r = h5p.parse(h5p_zip("H5P.Essay 1.5", {"taskDescription": '<p>Q <img src="images/x.png"></p>'}))
+        finalize(r, ("single_choice",))
+        self.assertEqual(r.drafts, [])
+        self.assertEqual(r.skipped, {("not_allowed_in_set", "open_text"): 1})
+
+
+class IliasImageTests(SimpleTestCase):
+    B64 = "iVBORw0KGgo="
+
+    def test_ilias_base64_matimage_kept(self):
+        r = ilias.parse_xml(qti(qti_item(
+            question=f'<mattext>Q?</mattext><matimage imagtype="image/png" label="q.png" embedded="base64">{self.B64}</matimage>',
+            response=choice_response(), resprocessing=cond(0, 1),
+        )))
+        [d] = r.drafts
+        self.assertEqual(d["text"], f'<p>Q?</p><p><img src="{PH1}" alt=""></p>')
+        self.assertEqual(r.images[PH1].data, b"\x89PNG\r\n\x1a\n")
+        self.assertEqual(r.images[PH1].credit, {})
+        self.assertEqual(r.skipped, {})
+
+    def test_ilias_broken_base64_dropped(self):
+        r = ilias.parse_xml(qti(qti_item(
+            question='<mattext>Q?</mattext><matimage label="q.png" embedded="base64">!!!x</matimage>',
+            response=choice_response(), resprocessing=cond(0, 1),
+        )))
+        self.assertEqual(r.images, {})
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_ilias_uri_matimage_from_zip(self):
+        data = make_zip({
+            "1_0_tst_5/1_0_qti_5.xml": fixture("ilias_trunk_test_qti.xml"),
+            "1_0_tst_5/objects/il_0_mob_77/katze.png": png(),
+        })
+        r = ilias.parse(safezip.open_zip(data))
+        d = r.drafts[0]
+        # The inline <img src="il_0_mob_77"> and its matimage are one image.
+        self.assertEqual(d["text"].count("<img"), 1)
+        self.assertIn(f'src="{PH1}"', d["text"])
+        self.assertNotIn("il_0_mob", d["text"])
+        self.assertEqual(r.images[PH1].data, png())
+        self.assertNotIn(("image_dropped", ""), r.skipped)
+
+    def test_ilias_uri_option_image_from_zip(self):
+        response = (
+            '<response_lid ident="MCSR"><render_choice>'
+            '<response_label ident="0"><material><mattext>A</mattext></material></response_label>'
+            '<response_label ident="1"><material><matimage label="b.png" uri="objects/b.png"/></material></response_label>'
+            "</render_choice></response_lid>"
+        )
+        data = make_zip({"x/x_qti_1.xml": qti(qti_item(response=response, resprocessing=cond(0, 1))),
+                         "x/objects/b.png": png()})
+        r = ilias.parse(safezip.open_zip(data))
+        [d] = r.drafts
+        self.assertEqual(d["options"][1], {"text": "", "is_correct": False, "image": PH1})
+        self.assertEqual(r.skipped, {})
+
+    def test_ilias_option_inline_img_and_matimage_one_image(self):
+        response = (
+            '<response_lid ident="MCSR"><render_choice>'
+            '<response_label ident="0"><material><mattext>A</mattext></material></response_label>'
+            '<response_label ident="1"><material><mattext texttype="text/xhtml">&lt;p&gt;B '
+            '&lt;img src="il_0_mob_5"&gt;&lt;/p&gt;</mattext>'
+            '<matimage label="il_0_mob_5" uri="objects/il_0_mob_5/b.png"/></material></response_label>'
+            "</render_choice></response_lid>"
+        )
+        data = make_zip({"x/x_qti_1.xml": qti(qti_item(response=response, resprocessing=cond(0, 1))),
+                         "x/objects/il_0_mob_5/b.png": png()})
+        r = ilias.parse(safezip.open_zip(data))
+        [d] = r.drafts
+        self.assertEqual(d["options"][1], {"text": "B", "is_correct": False, "image": PH1})
+        self.assertEqual(list(r.images), [PH1])
+        self.assertEqual(r.skipped, {})
+
+    def test_ilias_xml_uri_image_dropped(self):
+        r = ilias.parse_xml(qti(qti_item(
+            question='<mattext>Q?</mattext><matimage label="q.png" uri="objects/q.png"/>',
+            response=choice_response(), resprocessing=cond(0, 1),
+        )))
+        [d] = r.drafts
+        self.assertEqual(d["text"], "<p>Q?</p>")
+        self.assertEqual(r.images, {})
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_ilias_uri_traversal_dropped(self):
+        data = make_zip({"x/x_qti_1.xml": qti(qti_item(
+            question='<mattext>Q?</mattext><matimage label="q.png" uri="../../etc/x.png"/>',
+            response=choice_response(), resprocessing=cond(0, 1),
+        ))})
+        r = ilias.parse(safezip.open_zip(data))
+        self.assertEqual(r.images, {})
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+
+class ImportImageCoreTests(SimpleTestCase):
+    def test_gift_still_drops_images(self):
+        r = gift.parse('[html]Siehe <img src="x.png"> Bild {=a ~b}')
+        self.assertNotIn("<img", r.drafts[0]["text"])
+        self.assertEqual(r.images, {})
+        self.assertEqual(r.skipped, {("image_dropped", ""): 1})
+
+    def test_placeholder_survives_sanitizer(self):
+        html = f'<p><img src="{PH1}" alt="a"></p>'
+        self.assertEqual(clean_html(html), html)
+        self.assertEqual(clean_media_url(IMPORT_IMAGE_PREFIX + "100"), IMPORT_IMAGE_PREFIX + "100")
+
+    def test_add_image_dedupes_by_key(self):
+        r = ImportResult(format="h5p")
+        self.assertEqual(r.add_image(core.ImportImage(b"a", "a.png"), key="content/a.png"), PH1)
+        self.assertEqual(r.add_image(core.ImportImage(b"a", "a.png"), key="content/a.png"), PH1)
+        self.assertEqual(r.add_image(core.ImportImage(b"b", "b.png")), PH2)
+        self.assertEqual(list(r.images), [PH1, PH2])
+
+    def test_clean_keeping_images(self):
+        seen = []
+
+        def resolve(src):
+            seen.append(src)
+            return PH1 if src == "ok.png" else ""
+
+        html, dropped = core.clean_keeping_images(
+            '<p>A <img src="ok.png" alt="x &quot;y&quot;" onerror="x()"> <img src="bad.png"></p>', resolve,
+        )
+        self.assertEqual(html, f'<p>A <img src="{PH1}" alt="x &quot;y&quot;"> </p>')
+        self.assertTrue(dropped)
+        self.assertEqual(seen, ["ok.png", "bad.png"])
+        self.assertEqual(core.clean_keeping_images("<p>ohne</p>", resolve), ("<p>ohne</p>", False))
+
+    def test_clean_keeping_images_obfuscated(self):
+        for markup in ('<im<img>g src="ok.png">', '<image src="ok.png">', f'<im<img>g src="{PH1}">'):
+            html, dropped = core.clean_keeping_images(f"<p>Q {markup}</p>", lambda src: "")
+            self.assertNotIn("<img", html, markup)
+            self.assertTrue(dropped, markup)
+
+    def test_h5p_credit_mapping(self):
+        meta = {"authors": [{"name": "A"}, {"name": "B"}], "title": "T"}
+        table = [
+            ("CC BY", "4.0", "", {"license": "cc-by", "version": "4.0", "text": ""}),
+            ("CC BY-SA", "3.0", "", {"license": "cc-by-sa", "version": "3.0", "text": ""}),
+            ("CC BY-ND", "4.0", "", {"license": "cc-by-nd", "version": "4.0", "text": ""}),
+            ("CC BY-NC", "2.5", "", {"license": "cc-by-nc", "version": "2.5", "text": ""}),
+            ("CC BY-NC-SA", "4.0", "", {"license": "cc-by-nc-sa", "version": "4.0", "text": ""}),
+            ("CC BY-NC-ND", "4.0", "", {"license": "cc-by-nc-nd", "version": "4.0", "text": ""}),
+            ("CC BY", "v4", "", {"license": "cc-by", "version": "", "text": ""}),
+            ("CC0 1.0", "", "", {"license": "cc0", "version": "", "text": ""}),
+            ("CC PDM", "", "", {"license": "pd", "version": "", "text": ""}),
+            ("PD", "CC0 1.0", "", {"license": "pd", "version": "", "text": ""}),
+            ("C", "", "", {"license": "arr", "version": "", "text": ""}),
+            ("C", "", "Nur Lehre", {"license": "arr", "version": "", "text": "Nur Lehre"}),
+            ("CC BY", "4.0", "Extra", {"license": "cc-by", "version": "4.0", "text": ""}),
+            ("U", "", "", {"license": "", "version": "", "text": ""}),
+            ("", "", "", {"license": "", "version": "", "text": ""}),
+            ("GNU GPL", "v3", "", {"license": "", "version": "", "text": ""}),
+        ]
+        for code, version, extras, expected in table:
+            credit = licenses.h5p_credit(meta, code, version, extras)
+            self.assertEqual(
+                credit, {"author": "A, B", "title": "T", "source": "", **expected}, code,
+            )
+        long = licenses.h5p_credit({}, "C", "", "x" * 300)
+        self.assertEqual(len(long["text"]), 100)
+        # All rights reserved without author: still a credit (license set).
+        self.assertEqual(licenses.h5p_credit({}, "C", "", "")["license"], "arr")
+        self.assertEqual(licenses.h5p_credit({}, "U", "", ""), {})
+        self.assertEqual(licenses.h5p_credit({}, None, None, None), {})
+
+    def test_h5p_credit_tolerates_garbage(self):
+        for meta in ({"authors": "x"}, {"authors": [1, None, {"name": 5}]}, {"title": 3, "source": []}, None):
+            self.assertEqual(licenses.h5p_credit(meta, ["CC BY"], 4, {}), {}, meta)
+        credit = licenses.h5p_credit({"source": "javascript:alert(1)", "title": "T"}, "CC BY", "", "")
+        self.assertEqual(credit["source"], "")
+        credit = licenses.h5p_credit({"authors": [{"name": "x" * 300}]}, "CC BY", "", "")
+        self.assertEqual(len(credit["author"]), 200)

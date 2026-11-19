@@ -18,6 +18,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ### Hinzugefügt
 
+- Bildnachweise (#336): Jedes Bild kann Urheber:in, Titel, Quelle und Lizenz
+  tragen (Abschnitt „Bildnachweise“ im Fragen-Editor); der Nachweis erscheint
+  als Zeile unter der Frage auf Beamer und Teilnahmeseite und ist in Kopien und
+  JSON-Export enthalten. Der Import übernimmt jetzt Bilder aus H5P (mit
+  Nachweis aus den Metadaten) und ILIAS (ohne Nachweis).
 - Gremien-Raum (Teil 1): Raumtyp für Gremien mit Statusgruppen, Mitgliedern,
   Stellvertretungen und Beobachtergruppe; Sitzungen mit Termin, persönlichen
   Links und Vertretungen. Abstimmen folgt.
