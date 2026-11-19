@@ -152,11 +152,13 @@ entries — the image is inserted either way. The toolbar button **Image
 description** reopens the dialog later as **Edit image**. For answer images the
 dialog contains only the image-credit fields.
 
-If your institution has enabled image description, a **Create suggestion**
+If your institution has enabled image description, a **Suggest**
 button is available: only when you click is the image (downscaled) sent to the
 AI service; the suggestion (at most 150 characters, in the language of the tab
-you are editing) can be changed freely before you apply it. This is available
-to people who uploaded the image or may edit its credit. More under
+you are editing) can be changed freely before you apply it. It appears
+for images in the question text, and for images you uploaded in the current
+editing session, as long as you may edit the image; not for older images in
+other fields after reloading the page. More under
 [AI assistance](ai-assistance.md).
 
 ## Image credits { #bildnachweise }

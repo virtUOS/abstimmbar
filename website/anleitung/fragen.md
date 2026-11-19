@@ -162,8 +162,9 @@ Wenn Ihre Einrichtung die Bildbeschreibung freigeschaltet hat, gibt es die
 Schaltfläche **Vorschlag erstellen**: Erst auf Ihren Klick wird das Bild
 (verkleinert) an den KI-Dienst gesendet; der Vorschlag (höchstens 150 Zeichen,
 in der Sprache des gerade bearbeiteten Reiters) lässt sich vor dem Übernehmen
-beliebig ändern. Verfügbar ist das für Personen, die das Bild hochgeladen haben
-oder dessen Bildnachweis ändern dürfen. Mehr dazu unter
+beliebig ändern. Die Schaltfläche erscheint bei Bildern im Fragetext und bei Bildern, die Sie in
+der laufenden Bearbeitung hochgeladen haben, sofern Sie das Bild bearbeiten
+dürfen; bei älteren Bildern in anderen Feldern nach einem Neuladen nicht. Mehr dazu unter
 [KI-Assistenz](ki-assistenz.md).
 
 ## Bildnachweise { #bildnachweise }

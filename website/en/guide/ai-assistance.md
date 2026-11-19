@@ -16,6 +16,7 @@ and you always decide for yourself what to use.
 - **Suggest distractors** — plausible wrong answers for choice questions.
   *Example:* you type in the question and the correct answer; the AI adds
   convincing distractors that you can accept or discard one by one.
+- **Rephrase question** — clearer or shorter versions of your question.
 - **Suggest image description** — in the **Insert image** dialog the AI
   proposes alt text for the image (up to 150 characters) that you can edit and
   apply. Only available if your institution has enabled image description; the

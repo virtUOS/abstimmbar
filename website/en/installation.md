@@ -621,7 +621,7 @@ editor's image dialog. It requires a configured AI connection
 model that understands images. **`AI_VISION_MODEL`** (optional) selects a
 dedicated model for it; if unset, `AI_MODEL` is used. Privacy: an image is
 sent to the configured AI service only when an authorised person explicitly
-clicks "Create suggestion" in the dialog (downscaled to at most 1024 px).
+clicks "Suggest" in the dialog (downscaled to at most 1024 px).
 Nothing is transmitted automatically. Both variables are read at startup —
 recreate the container.
 
