@@ -177,6 +177,93 @@ Ergebnisseite** erscheinen beide Ergebnisse ebenfalls gegenübergestellt,
 gekennzeichnet mit **Vorher** und **Nachher**. Die Stimmen werden getrennt
 gezählt.
 
+## Fertige Fragen übernehmen { #fertige-fragen-ubernehmen }
+
+Haben Sie Ihre Fragen schon fertig — aus früheren Semestern, aus Moodle oder
+ILIAS oder aus einem eigenen Werkzeug —, müssen Sie sie nicht neu eintippen.
+**Fragen übernehmen** liest sie **wörtlich** ein: mit Fragetyp, Antworten und
+markierten richtigen Antworten. Nichts wird umformuliert oder gekürzt. Es
+braucht keine KI und steht im einfachen und im Experten-Modus zur Verfügung.
+Fragen aus Ihren eigenen Sets holen Sie dagegen mit **Fragen aus einem anderen
+Set übernehmen** (siehe [Fragen wiederverwenden](#fragen-wiederverwenden)).
+
+So gehen Sie vor:
+
+1. Öffnen Sie das Fragenset und wählen Sie **Fragen übernehmen**.
+2. Fügen Sie den Text ein oder laden Sie eine Datei hoch (`.txt`, `.gift`,
+   `.h5p`, `.zip` oder `.xml`). Das Format wird automatisch erkannt.
+3. In der Ansicht **Übernommene Fragen prüfen** sehen Sie das erkannte Format,
+   die Fragen und eine Liste dessen, was nicht übernommen werden konnte.
+   Wählen Sie die Fragen aus, die Sie behalten möchten, und übernehmen Sie sie.
+   Erst dann werden sie im Set angelegt. Die übrigen bleiben erhalten und
+   lassen sich später prüfen, bis Sie den Rest verwerfen.
+
+Bilder und Feedbacktexte werden nicht übernommen (eine Frage mit Bild bleibt
+erhalten, nur das Bild fehlt). Die KI-Bewertung für Freitextfragen ist bei
+übernommenen Fragen aus; schalten Sie sie bei Bedarf im Editor der Frage ein.
+Nichts verschwindet stillschweigend: Übersprungenes wird mit Anzahl und Grund
+genannt.
+
+### Das einfache Textformat
+
+```text
+F: Welche Stadt ist die Hauptstadt von Niedersachsen?
+* Hannover
+- Osnabrück
+- Braunschweig
+
+F: Welche Zahlen sind gerade? [mehrfach]
+* 2
+- 3
+* 4
+
+F: Die Erde ist eine Scheibe.
+- Wahr
+* Falsch
+
+F: Bringen Sie die Schritte in die richtige Reihenfolge.
+1. Planen
+2. Umsetzen
+3. Prüfen
+
+F: Was nehmen Sie aus der heutigen Sitzung mit?
+L: Eine mögliche Musterlösung (optional)
+```
+
+[Beispieldatei herunterladen](beispiel-fragen.txt){ download }
+
+- Eine neue Frage beginnt mit `F:` (oder `Q:`). Weitere Zeilen ohne Präfix
+  gehören zum Fragetext, bis die erste Option kommt.
+- `*` kennzeichnet eine richtige, `-` eine falsche Option; nach dem Zeichen
+  folgt ein Leerzeichen (`-5 Grad` bleibt also Fragetext). Genau eine richtige
+  Option ergibt eine Einzelauswahl, mehrere richtige eine Mehrfachauswahl,
+  keine richtige eine Umfrage. `[mehrfach]` am Ende der Fragezeile erzwingt
+  eine Mehrfachauswahl.
+- Genau die beiden Optionen Wahr/Falsch (oder Richtig/Falsch, True/False)
+  ergeben eine Wahr/Falsch-Frage.
+- Nummerierte Zeilen (`1.`, `2.` …, ebenfalls mit Leerzeichen danach) ergeben
+  eine Sortierfrage in dieser Reihenfolge.
+- Ohne Optionen ist die Frage ein Freitext; `L:` (oder `A:`) setzt eine
+  Musterlösung.
+- Leerzeilen trennen Fragen, sind aber nicht nötig. Zeilen, die mit `#` oder
+  `//` beginnen, sind Kommentare.
+- Eine Frage mit nur einer Option, gemischten Markierungen oder leerem Text
+  wird übersprungen und mit Zeilennummer gemeldet.
+- Pro Import werden höchstens 200 Fragen gelesen; eingefügter Text und
+  Textdateien dürfen höchstens 1 MB groß sein.
+
+### Weitere Formate
+
+| Format | Übernommen | Übersprungen (mit Hinweis) |
+|---|---|---|
+| **GIFT** (Moodle-Textformat, `.gift`/`.txt` oder eingefügt) | Multiple Choice, gewichtete Antworten mit mehreren positiven Gewichten (Mehrfachauswahl), Wahr/Falsch, Kurzantwort (Freitext mit Musterlösung), Essay (Freitext) | Zuordnung, numerische Fragen, Lückentext, Beschreibungen (Text ohne Antwortblock) |
+| **H5P** (`.h5p`) | Multiple Choice, True/False, Single Choice Set, Essay; auch innerhalb von Question Set und Column | alle anderen H5P-Inhaltstypen (z. B. Blanks), nach Namen gezählt |
+| **ILIAS** (Export von Test oder Fragenpool als `.zip`, oder die `.xml` allein) | Single Choice, Multiple Choice, Freitext, Sortierfrage mit Text | alle anderen Fragetypen (z. B. Kprim, Lückentext, Zuordnung), Sortierung mit Bildern |
+
+Bei GIFT werden Titel (`::Titel::`), Kategorien, Kommentare und Feedback
+ignoriert. Von ILIAS wird der aktuelle QTI-Export gelesen; ältere
+Typbezeichnungen werden ebenfalls erkannt.
+
 ## Fragen wiederverwenden
 
 - **Fragen aus einem anderen Set übernehmen** (Menü ⋮ des Sets) — wählen Sie

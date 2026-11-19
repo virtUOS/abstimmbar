@@ -4,7 +4,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Link, useLocation, useNavigate, useParams } from "react-router";
-import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, Vote, X, type LucideIcon } from "lucide-react";
+import { Archive, ArrowDownUp, BarChart3, Check, ChevronDown, CircleDot, CircleHelp, Cloud, Copy, CopyPlus, Download, FileInput, Files, FolderInput, Gavel, Grid2x2, Languages, Link2, ListChecks, ListTree, MessageSquareText, Network, Play, Scale, Settings, Share2, SlidersHorizontal, Sparkles, Square, SquareStop, Timer, ToggleLeft, Trash2, TriangleAlert, Vote, X, type LucideIcon } from "lucide-react";
 import {
   aiErrorText,
   api,
@@ -28,6 +28,7 @@ import { useEasyMode } from "../App";
 import AiGenerateForm from "../components/AiGenerateForm";
 import AiReviewPanel from "../components/AiReviewPanel";
 import FileDropzone from "../components/FileDropzone";
+import ImportQuestionsForm from "../components/ImportQuestionsForm";
 import HomeCrumb from "../components/HomeCrumb";
 import MeetingPanel from "../committee/MeetingPanel";
 import { agendaLabels } from "../committee/agendaLabels";
@@ -777,6 +778,8 @@ function GenerationReviewHint({
   const running = job.status === "pending" || job.status === "running";
   if (job.status === "cancelled") return null;
   const failed = generationFailed(job);
+  // Imported questions (#323): neutral wording, no retry/settings.
+  const isImport = job.source === "import";
 
   async function retry() {
     setRetrying(true);
@@ -828,6 +831,8 @@ function GenerationReviewHint({
             <span>{generationFailureText(job, t)}</span>
             {retryError && <p className="mt-1 text-danger">{retryError}</p>}
           </>
+        ) : isImport ? (
+          <span>{t("Imported questions are waiting for your review.")}</span>
         ) : (
           <span>
             {job.imported_count
@@ -844,12 +849,16 @@ function GenerationReviewHint({
       <div className="flex shrink-0 flex-wrap items-center gap-2">
         {failed ? (
           <>
-            <Button variant="primary" disabled={retrying} onClick={() => void retry()}>
-              {t("Try again")}
-            </Button>
-            <Button variant="ghost" onClick={onChangeSettings}>
-              {t("Change settings")}
-            </Button>
+            {!isImport && (
+              <>
+                <Button variant="primary" disabled={retrying} onClick={() => void retry()}>
+                  {t("Try again")}
+                </Button>
+                <Button variant="ghost" onClick={onChangeSettings}>
+                  {t("Change settings")}
+                </Button>
+              </>
+            )}
             <Button variant="ghost" onClick={() => void onDiscard()}>
               {t("Discard")}
             </Button>
@@ -905,6 +914,8 @@ export default function SetPage() {
   // review panel opens on top of it.
   const [reviewJob, setReviewJob] = useState<GenerationJob | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
+  // "Fragen übernehmen" (#323): the import dialog.
+  const [importOpen, setImportOpen] = useState(false);
   const location = useLocation();
   // Move/copy a single question to another set (#87) — shared target-set
   // picker, ported from QuestionPage's move modal.
@@ -1324,6 +1335,15 @@ export default function SetPage() {
     } catch (err) {
       setXferError(t(requestDetail(err) ?? String(err)));
     }
+  }
+
+  /** "Fragen übernehmen" (#323): one assist panel at a time. */
+  function openImport() {
+    setImportOpen(true);
+    setGenerateOpen(false);
+    setPendingUpload(null);
+    setReviewOpen(false);
+    setEditingSections(false);
   }
 
   /** Open the pull picker: choose a source set, then check off questions to
@@ -1915,7 +1935,28 @@ export default function SetPage() {
         </div>
       )}
 
-      {aiAllowed && reviewOpen && (
+      {importOpen && (
+        <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
+          <ImportQuestionsForm
+            setId={id}
+            pendingProposals={
+              reviewJob && reviewJob.status === "done" ? reviewJob.drafts.length : 0
+            }
+            onImported={async () => {
+              // The import supersedes older proposals (#303) — go straight to
+              // its review.
+              setImportOpen(false);
+              await refreshReviewHint();
+              setReviewOpen(true);
+            }}
+            onClose={() => setImportOpen(false)}
+          />
+        </div>
+      )}
+
+      {/* Bound to "there is a job", not to aiEnabled: imports (#323) are
+          reviewed here even when AI is off. */}
+      {reviewOpen && (
         <div className="mb-4 border-t border-slate-100 pt-6 dark:border-slate-800">
           <AiReviewPanel
             // Remount when the set's current job changes, so the panel never
@@ -1932,7 +1973,7 @@ export default function SetPage() {
         </div>
       )}
 
-      {aiAllowed && !reviewOpen && reviewJob && (
+      {!reviewOpen && reviewJob && (
         <GenerationReviewHint
           job={reviewJob}
           onReview={() => setReviewOpen(true)}
@@ -2057,6 +2098,7 @@ export default function SetPage() {
               <Button
                 onClick={() => {
                   setGenerateOpen(true);
+                  setImportOpen(false);
                   setReviewOpen(false);
                   setEditingSections(false);
                 }}
@@ -2065,6 +2107,14 @@ export default function SetPage() {
                 <Sparkles aria-hidden className="h-4 w-4" />{t("From document")}
               </Button>
             </div>
+          )}
+          {/* #323: core authoring, no AI needed — offered in both modes and
+              every teaching set type; committee meetings (resolutions,
+              elections) are not built from quiz exports. */}
+          {!isMeeting && (
+            <Button onClick={openImport} className="inline-flex items-center gap-1.5">
+              <FileInput aria-hidden className="h-4 w-4" />{t("Import questions")}
+            </Button>
           )}
           <div data-tour="set.add-question">
             <NewQuestionMenu
@@ -2147,6 +2197,12 @@ export default function SetPage() {
               <CopyPlus aria-hidden className="h-4 w-4" />
               {t("Add questions from another set …")}
             </Button>
+            {!isMeeting && (
+              <Button onClick={openImport} className="inline-flex items-center gap-1.5">
+                <FileInput aria-hidden className="h-4 w-4" />
+                {t("Import questions")}
+              </Button>
+            )}
             {aiVisible && (
               <FileDropzone
                 accept=".pdf,.pptx,.odp"
@@ -2154,6 +2210,7 @@ export default function SetPage() {
                 onFile={(f) => {
                   setPendingUpload(f);
                   setGenerateOpen(true);
+                  setImportOpen(false);
                   setReviewOpen(false);
                 }}
                 hint={t("Generate questions from a document (PDF, PPTX or ODP)")}

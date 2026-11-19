@@ -31,6 +31,11 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 - Gremien-Raum: Übersetzungen des Beschlusstexts werden erst nach
   Bestätigung durch die Sitzungsleitung angezeigt; optionales
   KI-Korrekturlesen; Tastaturfokus bleibt in Dialogen.
+- Fragen übernehmen: Fertige Fragen aus dem einfachen Textformat, aus GIFT
+  (Moodle), H5P oder einem ILIAS-Export werden wörtlich eingelesen, in der
+  Prüfansicht angezeigt und erst nach Bestätigung im Fragenset angelegt.
+  Übersprungenes wird mit Anzahl und Grund genannt. Funktioniert auch ohne KI,
+  im einfachen wie im Experten-Modus (#323).
 
 ### Geändert
 

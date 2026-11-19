@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE questestinterop SYSTEM "ims_qtiasiv1p2p1.dtd">
+<!-- Self-authored fixture (Apache-2.0, Universitaet Osnabrueck) shaped like a
+     current ILIAS (trunk) test export: assessment/section wrapper, ass*
+     question type ids, media objects, nested ordering material. -->
+<questestinterop>
+  <assessment ident="il_0_tst_56" title="Demo-Test">
+    <qticomment/>
+    <section ident="1">
+      <item ident="il_0_qst_11" title="Bildfrage" maxattempts="0">
+        <qticomment/>
+        <itemmetadata><qtimetadata>
+          <qtimetadatafield><fieldlabel>ILIAS_VERSION</fieldlabel><fieldentry>9.5 2025-01-01</fieldentry></qtimetadatafield>
+          <qtimetadatafield><fieldlabel>QUESTIONTYPE</fieldlabel><fieldentry>assSingleChoice</fieldentry></qtimetadatafield>
+          <qtimetadatafield><fieldlabel>AUTHOR</fieldlabel><fieldentry>Demo</fieldentry></qtimetadatafield>
+          <qtimetadatafield><fieldlabel>thumb_size</fieldlabel><fieldentry>150</fieldentry></qtimetadatafield>
+          <qtimetadatafield><fieldlabel>feedback_setting</fieldlabel><fieldentry>2</fieldentry></qtimetadatafield>
+        </qtimetadata></itemmetadata>
+        <presentation label="Bildfrage">
+          <flow>
+            <material>
+              <mattext texttype="text/xhtml">&lt;p&gt;Welches Tier sehen Sie?&lt;/p&gt;&lt;p&gt;&lt;img src="il_0_mob_77" alt="" width="200" height="100" /&gt;&lt;/p&gt;</mattext>
+              <matimage label="il_0_mob_77" uri="objects/il_0_mob_77/katze.png"/>
+            </material>
+            <response_lid ident="MCSR" rcardinality="Single">
+              <render_choice shuffle="Yes">
+                <response_label ident="0"><material><mattext texttype="text/plain">Katze</mattext></material></response_label>
+                <response_label ident="1"><material><mattext texttype="text/plain">Hund</mattext></material></response_label>
+              </render_choice>
+            </response_lid>
+          </flow>
+        </presentation>
+        <resprocessing>
+          <outcomes><decvar/></outcomes>
+          <respcondition continue="Yes"><conditionvar><varequal respident="MCSR">0</varequal></conditionvar><setvar action="Add">2</setvar><displayfeedback feedbacktype="Response" linkrefid="response_0"/></respcondition>
+          <respcondition continue="Yes"><conditionvar><varequal respident="MCSR">1</varequal></conditionvar><setvar action="Add">0</setvar><displayfeedback feedbacktype="Response" linkrefid="response_1"/></respcondition>
+        </resprocessing>
+      </item>
+      <item ident="il_0_qst_12" title="Sortierung" maxattempts="0">
+        <itemmetadata><qtimetadata>
+          <qtimetadatafield><fieldlabel>QUESTIONTYPE</fieldlabel><fieldentry>assOrderingQuestion</fieldentry></qtimetadatafield>
+          <qtimetadatafield><fieldlabel>points</fieldlabel><fieldentry>3</fieldentry></qtimetadatafield>
+        </qtimetadata></itemmetadata>
+        <presentation label="Sortierung">
+          <flow>
+            <material><mattext texttype="text/plain">Bringen Sie die Phasen in die richtige Reihenfolge.</mattext></material>
+            <response_lid ident="OQT" rcardinality="Ordered">
+              <render_choice shuffle="Yes">
+                <response_label ident="4711_0_0_0"><material><material><mattext texttype="text/plain">Planung</mattext></material></material><material><mattext label="answerdepth">0</mattext></material></response_label>
+                <response_label ident="815_1_1_0"><material><material><mattext texttype="text/plain">Umsetzung</mattext></material></material><material><mattext label="answerdepth">0</mattext></material></response_label>
+                <response_label ident="9001_2_2_0"><material><material><mattext texttype="text/plain">Auswertung</mattext></material></material><material><mattext label="answerdepth">0</mattext></material></response_label>
+              </render_choice>
+            </response_lid>
+          </flow>
+        </presentation>
+        <resprocessing>
+          <outcomes><decvar/></outcomes>
+          <respcondition continue="Yes"><conditionvar><varequal respident="OQT" index="0">0</varequal></conditionvar><setvar action="Add">1</setvar><displayfeedback feedbacktype="Response" linkrefid="link_0"/></respcondition>
+          <respcondition continue="Yes"><conditionvar><varequal respident="OQT" index="1">1</varequal></conditionvar><setvar action="Add">1</setvar><displayfeedback feedbacktype="Response" linkrefid="link_1"/></respcondition>
+          <respcondition continue="Yes"><conditionvar><varequal respident="OQT" index="2">2</varequal></conditionvar><setvar action="Add">1</setvar><displayfeedback feedbacktype="Response" linkrefid="link_2"/></respcondition>
+          <respcondition continue="Yes"><conditionvar><varequal respident="OQT" index="0">0</varequal><varequal respident="OQT" index="1">1</varequal><varequal respident="OQT" index="2">2</varequal></conditionvar><displayfeedback feedbacktype="Response" linkrefid="response_allcorrect"/></respcondition>
+          <respcondition continue="Yes"><conditionvar><not><varequal respident="OQT" index="0">0</varequal><varequal respident="OQT" index="1">1</varequal><varequal respident="OQT" index="2">2</varequal></not></conditionvar><displayfeedback feedbacktype="Response" linkrefid="response_onenotcorrect"/></respcondition>
+        </resprocessing>
+      </item>
+      <item ident="il_0_qst_13" title="Mehrfach" maxattempts="0">
+        <itemmetadata><qtimetadata>
+          <qtimetadatafield><fieldlabel>QUESTIONTYPE</fieldlabel><fieldentry>assMultipleChoice</fieldentry></qtimetadatafield>
+        </qtimetadata></itemmetadata>
+        <presentation label="Mehrfach">
+          <flow>
+            <material><mattext texttype="text/plain">Welche Farben hat die deutsche Flagge?</mattext></material>
+            <response_lid ident="MCMR" rcardinality="Multiple">
+              <render_choice shuffle="Yes" minnumber="0" maxnumber="3">
+                <response_label ident="0"><material><mattext texttype="text/plain">Schwarz</mattext></material></response_label>
+                <response_label ident="1"><material><mattext texttype="text/plain">Blau</mattext></material></response_label>
+                <response_label ident="2"><material><mattext texttype="text/plain">Gold</mattext><matimage imagtype="image/png" label="gold.png" embedded="base64">iVBORw0KGgo=</matimage></material></response_label>
+              </render_choice>
+            </response_lid>
+          </flow>
+        </presentation>
+        <resprocessing>
+          <outcomes><decvar/></outcomes>
+          <respcondition continue="Yes"><conditionvar><varequal respident="MCMR">0</varequal></conditionvar><setvar action="Add">1</setvar></respcondition>
+          <respcondition continue="Yes"><conditionvar><not><varequal respident="MCMR">0</varequal></not></conditionvar><setvar action="Add">0</setvar></respcondition>
+          <respcondition continue="Yes"><conditionvar><varequal respident="MCMR">1</varequal></conditionvar><setvar action="Add">0</setvar></respcondition>
+          <respcondition continue="Yes"><conditionvar><not><varequal respident="MCMR">1</varequal></not></conditionvar><setvar action="Add">1</setvar></respcondition>
+          <respcondition continue="Yes"><conditionvar><varequal respident="MCMR">2</varequal></conditionvar><setvar action="Add">1</setvar></respcondition>
+          <respcondition continue="Yes"><conditionvar><not><varequal respident="MCMR">2</varequal></not></conditionvar><setvar action="Add">0</setvar></respcondition>
+        </resprocessing>
+      </item>
+      <item ident="il_0_qst_14" title="Kprim" maxattempts="0">
+        <itemmetadata><qtimetadata><qtimetadatafield><fieldlabel>QUESTIONTYPE</fieldlabel><fieldentry>assKprimChoice</fieldentry></qtimetadatafield></qtimetadata></itemmetadata>
+        <presentation label="Kprim"><flow><material><mattext texttype="text/plain">K</mattext></material></flow></presentation>
+      </item>
+    </section>
+  </assessment>
+</questestinterop>

@@ -66,5 +66,9 @@
   "Goes to {{count}} members_one": "Goes to {{count}} member",
   "Goes to {{count}} members_other": "Goes to {{count}} members",
   "{{count}} e-mails sent._one": "{{count}} e-mail sent.",
-  "{{count}} e-mails sent._other": "{{count}} e-mails sent."
+  "{{count}} e-mails sent._other": "{{count}} e-mails sent.",
+  "Detected: {{format}} · {{count}} questions_one": "Detected: {{format}} · {{count}} question",
+  "Detected: {{format}} · {{count}} questions_other": "Detected: {{format}} · {{count}} questions",
+  "{{count}} questions found_one": "{{count}} question found",
+  "{{count}} questions found_other": "{{count}} questions found"
 }

@@ -3532,6 +3532,29 @@ class GenerationEndpointTests(ApiTestCase):
         self.qs = QuestionSet.objects.create(room=self.room, title="T")
         self.url = f"/api/question-sets/{self.qs.pk}/ai-generate/"
 
+    def test_payload_carries_source_and_skipped(self):
+        from .models import GenerationJob
+        skipped = [{"reason": "invalid", "detail": "Zeile 3", "count": 1}]
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            source="import", skipped=skipped,
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get(f"/api/question-sets/{self.qs.pk}/ai-generate/active/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["source"], "import")
+        self.assertEqual(r.json()["skipped"], skipped)
+
+    def test_payload_format_empty_for_ai_job(self):
+        from .models import GenerationJob
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get(f"/api/question-sets/{self.qs.pk}/ai-generate/active/")
+        self.assertEqual(r.json()["source"], "ai")
+        self.assertEqual(r.json()["format"], "")
+
     def test_post_creates_job_and_returns_id(self):
         from .models import GenerationJob
         with self.override_settings(**AI_ON), \
@@ -5247,6 +5270,15 @@ class GenerationJobModelTests(TestCase):
         self.assertEqual(job.density, 1.0)
         self.assertEqual(job.target_count, 0)
         self.assertFalse(job.reviewed)
+
+    def test_source_defaults_to_ai(self):
+        from .models import GenerationJob
+
+        qs = QuestionSet.objects.create(room=self.room, title="T3")
+        job = GenerationJob.objects.create(
+            question_set=qs, created_by=self.user, source_text="x")
+        self.assertEqual(job.source, "ai")
+        self.assertEqual(job.skipped, [])
 
 
 class GenerationChunkingTests(TestCase):
@@ -7515,3 +7547,296 @@ class AiProofreadTests(ApiTestCase):
         with self.override_settings(**AI_ON):
             r = self._post({"text": "Text", "language": "de"})
         self.assertEqual(r.status_code, 404)
+
+
+class ImportQuestionsEndpointTests(ApiTestCase):
+    """POST /api/question-sets/<pk>/import-questions/ (#323): verbatim import
+    into a review job, no AI involved."""
+
+    SIMPLE = "F: Hauptstadt?\n* Hannover\n- Bremen\n\nF: Warum?\n"
+
+    def setUp(self):
+        super().setUp()
+        self.qs = QuestionSet.objects.create(room=self.room, title="T")
+        self.url = f"/api/question-sets/{self.qs.pk}/import-questions/"
+
+    @staticmethod
+    def _zip(entries):
+        import json as json_lib
+        import zipfile
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as zf:
+            for name, data in entries.items():
+                zf.writestr(name, data if isinstance(data, (bytes, str)) else json_lib.dumps(data))
+        return buf.getvalue()
+
+    def _upload(self, data, name):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        return self.client.post(self.url, {"file": SimpleUploadedFile(name, data)})
+
+    def _job(self, **fields):
+        from .models import GenerationJob
+        return GenerationJob.objects.create(
+            question_set=fields.pop("question_set", self.qs), created_by=self.owner,
+            source_text="x", **fields,
+        )
+
+    def test_pasted_simple_text_creates_done_import_job(self):
+        from .models import GenerationJob
+        with patch("rooms.views.generation.start_job") as start:
+            r = self.client.post(self.url, {"text": self.SIMPLE}, content_type="application/json")
+        self.assertEqual(r.status_code, 201, r.content)
+        body = r.json()
+        job = GenerationJob.objects.get(pk=body["job_id"])
+        self.assertEqual(body, {"job_id": job.id, "format": "simple", "count": 2, "skipped": []})
+        start.assert_not_called()
+        self.assertEqual(job.source, "import")
+        self.assertEqual(job.status, "done")
+        self.assertFalse(job.reviewed)
+        self.assertEqual(job.created_by, self.owner)
+        self.assertEqual([d["kind"] for d in job.drafts], ["single_choice", "open_text"])
+        self.assertEqual(job.target_count, 2)
+        self.assertEqual(job.skipped, [])
+        self.assertEqual(job.source_text, self.SIMPLE)
+
+    def test_skipped_entries_are_reported_and_stored(self):
+        r = self.client.post(self.url, {"text": self.SIMPLE + "\nF: Kaputt\n• a\n• b\n"})
+        self.assertEqual(r.status_code, 201)
+        expected = [{"reason": "invalid", "detail": "Zeile 7", "count": 1}]
+        self.assertEqual(r.json()["skipped"], expected)
+        from .models import GenerationJob
+        self.assertEqual(GenerationJob.objects.get(pk=r.json()["job_id"]).skipped, expected)
+
+    def test_gift_file(self):
+        from .models import GenerationJob
+        r = self._upload(b"::A:: Frage? {=ja ~nein}\n", "moodle.gift")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["format"], "gift")
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertEqual(job.source_text, "moodle.gift (gift)")
+
+    def test_h5p_file(self):
+        data = self._zip({
+            "h5p.json": {"mainLibrary": "H5P.TrueFalse 1.8"},
+            "content/content.json": {"question": "<p>Wasser ist nass.</p>", "correct": "true"},
+        })
+        r = self._upload(data, "quiz.h5p")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["format"], "h5p")
+        self.assertEqual(r.json()["count"], 1)
+
+    def test_ilias_zip(self):
+        from pathlib import Path
+
+        from .models import GenerationJob
+        xml = (Path(__file__).parent / "test_fixtures" / "import" / "ilias_legacy_qti.xml").read_bytes()
+        r = self._upload(self._zip({"1__0__qpl_2/1__0__qti_2.xml": xml}), "pool.zip")
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["format"], "ilias")
+        self.assertEqual(GenerationJob.objects.get(pk=r.json()["job_id"]).source_text, "pool.zip (ilias)")
+
+    def test_cp1252_upload_umlauts(self):
+        from .models import GenerationJob
+        r = self._upload("F: Größe?\n* groß\n- klein".encode("cp1252"), "fragen.txt")
+        self.assertEqual(r.status_code, 201, r.content)
+        job = GenerationJob.objects.get(pk=r.json()["job_id"])
+        self.assertIn("Größe", job.drafts[0]["text"])
+
+    def test_works_with_ai_disabled(self):
+        from django.test import override_settings
+        with override_settings(AI_PROVIDER="none", AI_BASE_URL="", AI_API_KEY="", AI_MODEL=""):
+            r = self.client.post(self.url, {"text": self.SIMPLE})
+        self.assertEqual(r.status_code, 201)
+
+    def test_empty_or_unrecognized_text_is_400(self):
+        from .models import GenerationJob
+        for text in ("", "   ", "nur ein Satz ohne Fragen"):
+            r = self.client.post(self.url, {"text": text})
+            self.assertEqual(r.status_code, 400, text)
+            self.assertEqual(r.json()["detail"], "No questions found. Please check the format.")
+        self.assertFalse(GenerationJob.objects.exists())
+
+    def test_error_message_is_translated(self):
+        r = self.client.post(self.url, {"text": ""}, HTTP_ACCEPT_LANGUAGE="de")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(
+            r.json()["detail"], "Keine Fragen erkannt. Bitte prüfen Sie das Format."
+        )
+
+    def test_non_object_json_body_is_400(self):
+        for body in ([1, 2], '"F: a"', "5", "null"):
+            r = self.client.post(self.url, body, content_type="application/json")
+            self.assertEqual(r.status_code, 400, body)
+            self.assertEqual(r.json()["detail"], "No questions found. Please check the format.")
+
+    def test_text_over_1_mb_is_400(self):
+        text = self.SIMPLE + "x" * 1_000_000
+        r = self.client.post(self.url, {"text": text}, content_type="application/json")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "The text is longer than 1 MB.")
+        r = self.client.post(
+            self.url, {"text": text}, content_type="application/json", HTTP_ACCEPT_LANGUAGE="de"
+        )
+        self.assertEqual(r.json()["detail"], "Der Text ist länger als 1 MB.")
+
+    def test_broken_zip_is_400(self):
+        r = self._upload(b"PK\x03\x04kaputt", "x.zip")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "The file is not a readable ZIP archive.")
+
+    def test_file_over_10_mb_is_400(self):
+        with patch("rooms.views.detect.read_upload") as read:
+            r = self._upload(b"x" * (10 * 1024 * 1024 + 1), "big.txt")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.json()["detail"], "The file is larger than 10 MB.")
+        read.assert_not_called()
+
+    def test_foreign_set_is_404(self):
+        foreign_room = Room.objects.create(title="Fremd")
+        foreign_room.owners.add(self.other)
+        foreign = QuestionSet.objects.create(room=foreign_room, title="F")
+        r = self.client.post(f"/api/question-sets/{foreign.pk}/import-questions/", {"text": self.SIMPLE})
+        self.assertEqual(r.status_code, 404)
+
+    def test_running_generation_is_409(self):
+        from .models import GenerationJob
+        for status_ in ("pending", "running"):
+            job = self._job(status=status_)
+            r = self.client.post(self.url, {"text": self.SIMPLE})
+            self.assertEqual(r.status_code, 409, status_)
+            self.assertEqual(
+                r.json()["detail"],
+                "Please wait until the running generation has finished, or cancel it.",
+            )
+            job.refresh_from_db()
+            self.assertEqual(job.status, status_)
+            self.assertEqual(GenerationJob.objects.count(), 1)
+            job.delete()
+
+    def test_older_unreviewed_jobs_of_this_set_are_dismissed(self):
+        old = self._job(status="done", drafts=[{"kind": "open_text", "text": "a", "options": []}])
+        other_set = QuestionSet.objects.create(room=self.room, title="Anderes")
+        other = self._job(status="done", question_set=other_set)
+        r = self.client.post(self.url, {"text": self.SIMPLE})
+        self.assertEqual(r.status_code, 201)
+        old.refresh_from_db()
+        other.refresh_from_db()
+        self.assertTrue(old.reviewed)
+        self.assertFalse(other.reviewed)
+
+    def test_failed_import_keeps_unreviewed_jobs(self):
+        old = self._job(status="done")
+        r = self.client.post(self.url, {"text": ""})
+        self.assertEqual(r.status_code, 400)
+        old.refresh_from_db()
+        self.assertFalse(old.reviewed)
+
+    def test_second_import_supersedes_unreviewed_first(self):
+        from .models import GenerationJob
+        first = self.client.post(self.url, {"text": self.SIMPLE}).json()["job_id"]
+        second = self.client.post(self.url, {"text": "F: Noch eine\n"}).json()["job_id"]
+        self.assertTrue(GenerationJob.objects.get(pk=first).reviewed)
+        self.assertFalse(GenerationJob.objects.get(pk=second).reviewed)
+        active = self.client.get(f"/api/question-sets/{self.qs.pk}/ai-generate/active/").json()
+        self.assertEqual(active["id"], second)
+
+    def test_kinds_not_allowed_in_set_are_skipped(self):
+        text = "F: Reihe\n1. a\n2. b\n\nF: Offen\n"
+        with patch(
+            "rooms.views.set_types.allowed_kinds",
+            return_value=("single_choice", "multiple_choice", "open_text"),
+        ):
+            r = self.client.post(self.url, {"text": text})
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["count"], 1)
+        self.assertEqual(
+            r.json()["skipped"],
+            [{"reason": "not_allowed_in_set", "detail": "ordering", "count": 1}],
+        )
+
+    def test_uses_set_type_rules(self):
+        self.qs.type = QuestionSet.SetType.SELF_CHECK
+        self.qs.save()
+        with patch("rooms.views.set_types.allowed_kinds", wraps=set_types.allowed_kinds) as allowed:
+            self.client.post(self.url, {"text": self.SIMPLE})
+        allowed.assert_called_once_with(QuestionSet.SetType.SELF_CHECK)
+
+    def test_active_generation_reports_import_source(self):
+        job_id = self.client.post(self.url, {"text": self.SIMPLE}).json()["job_id"]
+        data = self.client.get("/api/question-sets/active-generation/").json()
+        self.assertEqual(data["id"], job_id)
+        self.assertEqual(data["source"], "import")
+        self.assertEqual(data["format"], "simple")
+        self.assertEqual(data["set_id"], self.qs.pk)
+        job = self.client.get(
+            f"/api/question-sets/{self.qs.pk}/ai-generate/jobs/{job_id}/"
+        ).json()
+        self.assertEqual(job["format"], "simple")
+
+    def test_import_job_supports_partial_adoption(self):
+        # #292 x #323: imported questions follow the same partial take-over
+        # as AI proposals — also with AI switched off.
+        job_id = self.client.post(
+            self.url, {"text": self.SIMPLE}, content_type="application/json"
+        ).json()["job_id"]
+        jobs = f"/api/question-sets/{self.qs.pk}/ai-generate/jobs/{job_id}"
+        first, second = [d["text"] for d in self.client.get(f"{jobs}/").json()["drafts"]]
+        r = self.client.post(
+            f"{jobs}/imported/", {"texts": [first]}, content_type="application/json"
+        )
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual(body["imported_count"], 1)
+        self.assertEqual([d["text"] for d in body["drafts"]], [second])
+        self.assertFalse(body["reviewed"])
+        self.assertEqual(body["source"], "import")
+        self.assertEqual(body["format"], "simple")
+        self.assertEqual(body["skipped"], [])
+        active = self.client.get(f"/api/question-sets/{self.qs.pk}/ai-generate/active/").json()
+        self.assertEqual(active["id"], job_id)
+        self.assertEqual(active["imported_count"], 1)
+        r = self.client.post(
+            f"{jobs}/imported/", {"texts": [second]}, content_type="application/json"
+        )
+        self.assertEqual(r.json()["imported_count"], 2)
+        self.assertTrue(r.json()["reviewed"])
+
+    def test_partial_adoption_with_repeated_question_text(self):
+        # Imports are not deduped: two questions may share a text; taking
+        # over one of them must leave the other.
+        text = "F: Welche ist richtig?\n* a\n- b\n\nF: Welche ist richtig?\n* c\n- d\n"
+        job_id = self.client.post(
+            self.url, {"text": text}, content_type="application/json"
+        ).json()["job_id"]
+        jobs = f"/api/question-sets/{self.qs.pk}/ai-generate/jobs/{job_id}"
+        drafts = self.client.get(f"{jobs}/").json()["drafts"]
+        self.assertEqual(drafts[0]["text"], drafts[1]["text"])
+        r = self.client.post(
+            f"{jobs}/imported/", {"texts": [drafts[0]["text"]]}, content_type="application/json"
+        )
+        self.assertEqual(r.json()["imported_count"], 1)
+        self.assertEqual(len(r.json()["drafts"]), 1)
+        self.assertFalse(r.json()["reviewed"])
+
+    def test_nul_and_surrogates_never_500(self):
+        h5p_nul = self._zip({
+            "h5p.json": '{"mainLibrary": "H5P.MultiChoice\\u0000 1.16"}',
+            "content/content.json": '{"question": "<p>Q\\u0000?</p>", "answers": ['
+            '{"text": "A\\u0000", "correct": true}, {"text": "B", "correct": false}]}',
+        })
+        h5p_surrogate = self._zip({
+            "h5p.json": '{"mainLibrary": "H5P.MultiChoice 1.16"}',
+            "content/content.json": '{"question": "<p>Q\\ud800?</p>", "answers": ['
+            '{"text": "A\\udfff", "correct": true}, {"text": "B", "correct": false}]}',
+        })
+        from .models import GenerationJob
+        for data in (h5p_nul, h5p_surrogate):
+            r = self._upload(data, "quiz.h5p")
+            self.assertEqual(r.status_code, 201, r.content)
+        r = self.client.post(
+            self.url, '{"text": "F: Q\\ud800\\u0000?\\n* a\\n- b"}', content_type="application/json"
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        for job in GenerationJob.objects.all():
+            self.assertNotIn("\\x00", str(job.drafts))  # repr of a NUL
+            self.assertNotIn("\x00", job.source_text)
