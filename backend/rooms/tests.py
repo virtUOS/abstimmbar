@@ -3136,6 +3136,19 @@ class GenerationEndpointTests(ApiTestCase):
         self.qs = QuestionSet.objects.create(room=self.room, title="T")
         self.url = f"/api/question-sets/{self.qs.pk}/ai-generate/"
 
+    def test_payload_carries_source_and_skipped(self):
+        from .models import GenerationJob
+        skipped = [{"reason": "invalid", "detail": "Zeile 3", "count": 1}]
+        GenerationJob.objects.create(
+            question_set=self.qs, created_by=self.owner, source_text="x",
+            source="import", skipped=skipped,
+        )
+        with self.override_settings(**AI_ON):
+            r = self.client.get(f"/api/question-sets/{self.qs.pk}/ai-generate/active/")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["source"], "import")
+        self.assertEqual(r.json()["skipped"], skipped)
+
     def test_post_creates_job_and_returns_id(self):
         from .models import GenerationJob
         with self.override_settings(**AI_ON), \
@@ -4702,6 +4715,15 @@ class GenerationJobModelTests(TestCase):
         self.assertEqual(job.density, 1.0)
         self.assertEqual(job.target_count, 0)
         self.assertFalse(job.reviewed)
+
+    def test_source_defaults_to_ai(self):
+        from .models import GenerationJob
+
+        qs = QuestionSet.objects.create(room=self.room, title="T3")
+        job = GenerationJob.objects.create(
+            question_set=qs, created_by=self.user, source_text="x")
+        self.assertEqual(job.source, "ai")
+        self.assertEqual(job.skipped, [])
 
 
 class GenerationChunkingTests(TestCase):

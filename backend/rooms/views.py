@@ -126,6 +126,7 @@ def _job_payload(job):
         "unsuitable_reason": job.unsuitable_reason, "error": job.error,
         "pages": job.pages, "density": job.density,
         "target_count": job.target_count, "reviewed": job.reviewed,
+        "source": job.source, "skipped": job.skipped,
     }
 
 
