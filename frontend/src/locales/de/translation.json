@@ -1767,5 +1767,12 @@
   "Save credit": "Nachweis speichern",
   "Saved": "Gespeichert",
   "{{count}} questions could not be taken over._one": "{{count}} Frage konnte nicht übernommen werden.",
-  "{{count}} questions could not be taken over._other": "{{count}} Fragen konnten nicht übernommen werden."
+  "{{count}} questions could not be taken over._other": "{{count}} Fragen konnten nicht übernommen werden.",
+  "Insert image": "Bild einfügen",
+  "Edit image": "Bild bearbeiten",
+  "Describes the image for people who cannot see it.": "Beschreibt das Bild für Menschen, die es nicht sehen können.",
+  "Suggest": "Vorschlag erstellen",
+  "Creating suggestion …": "Vorschlag wird erstellt …",
+  "Image credit (optional)": "Bildnachweis (optional)",
+  "OK": "OK"
 }
