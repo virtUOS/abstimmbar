@@ -696,3 +696,15 @@ msgstr "Das Archiv enthält keinen ILIAS-Fragenexport (qti.xml)."
 #: rooms/question_import/ilias.py
 msgid "The XML file is not an ILIAS QTI export."
 msgstr "Die XML-Datei ist kein ILIAS-QTI-Export."
+
+#: rooms/views.py
+msgid "The file is larger than 10 MB."
+msgstr "Die Datei ist größer als 10 MB."
+
+#: rooms/views.py
+msgid "Please wait until the running generation has finished, or cancel it."
+msgstr "Bitte warten Sie, bis die laufende Erzeugung fertig ist, oder brechen Sie sie ab."
+
+#: rooms/views.py
+msgid "No questions found. Please check the format."
+msgstr "Keine Fragen erkannt. Bitte prüfen Sie das Format."
