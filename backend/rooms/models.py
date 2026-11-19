@@ -642,7 +642,7 @@ class UploadedImage(TimeStampedModel):
     def clean(self):
         super().clean()
         errors = {}
-        if self.credit_license_version and not re.match(
+        if self.credit_license_version and not re.fullmatch(
             VERSION_RE, self.credit_license_version
         ):
             errors["credit_license_version"] = "Invalid license version."

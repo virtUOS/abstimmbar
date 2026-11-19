@@ -1,8 +1,12 @@
+import io
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from PIL import Image
 
 from rooms import image_credits as ic
 from rooms.models import AnswerOption, Question, QuestionSet, Room, UploadedImage
+from rooms.tests import ApiTestCase
 
 
 class ImageCreditsTests(TestCase):
@@ -121,3 +125,132 @@ class ImageCreditsTests(TestCase):
         img.credit_source = "javascript:alert(1)"
         with self.assertRaises(ValidationError):
             img.clean()
+
+
+class ImageCreditApiTests(ApiTestCase):
+    def setUp(self):
+        super().setUp()
+        self.qset = QuestionSet.objects.create(room=self.room, title="S")
+
+    @staticmethod
+    def _png():
+        buffer = io.BytesIO()
+        Image.new("RGB", (4, 4), "green").save(buffer, format="PNG")
+        buffer.seek(0)
+        buffer.name = "test.png"
+        return buffer
+
+    def _upload(self, user=None):
+        """Upload via the API as ``user``; returns (UploadedImage, src)."""
+        if user is not None:
+            self.client.force_login(user)
+        response = self.client.post("/api/images/", {"file": self._png()})
+        self.assertEqual(response.status_code, 201)
+        self.client.force_login(self.owner)
+        src = response.json()["url"]
+        return UploadedImage.objects.get(pk=response.json()["id"]), src
+
+    def _question(self, src):
+        return Question.objects.create(
+            question_set=self.qset,
+            kind="single_choice",
+            text_de=f'<p><img src="{src}" alt=""></p>',
+        )
+
+    def test_question_payload_lists_images_with_editable(self):
+        img, src = self._upload()
+        q = self._question(src)
+        payload = self.client.get(f"/api/questions/{q.id}/").json()
+        self.assertEqual(len(payload["image_credits"]), 1)
+        entry = payload["image_credits"][0]
+        self.assertEqual(entry["id"], img.id)
+        self.assertEqual(entry["src"], src)
+        self.assertFalse(entry["has_credit"])
+        self.assertTrue(entry["editable"])
+
+    def test_patch_credit_by_uploader(self):
+        img, src = self._upload()
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/",
+            {"author": "Ada", "license": "cc-by", "version": "4.0",
+             "title": "Pic", "source": "https://example.org/x", "text": ""},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["author"], "Ada")
+        self.assertEqual(body["license_label"], "CC BY 4.0")
+        self.assertEqual(body["src"], src)
+        self.assertTrue(body["has_credit"])
+        self.assertTrue(body["editable"])
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "Ada")
+        self.assertEqual(img.credit_license_version, "4.0")
+
+    def test_patch_credit_by_room_owner_not_uploader(self):
+        img, src = self._upload(user=self.other)
+        self._question(src)
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", {"author": "Bob"}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 200)
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "Bob")
+
+    def test_patch_credit_forbidden_for_stranger(self):
+        img, src = self._upload()
+        self._question(src)
+        self.client.force_login(self.other)
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", {"author": "Eve"}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 404)
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "")
+
+    def test_patch_unknown_image_is_404(self):
+        response = self.client.patch(
+            "/api/images/999999/credit/", {"author": "x"}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def _bad(self, body):
+        img, _ = self._upload()
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", body, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 400)
+        img.refresh_from_db()
+        self.assertEqual(img.credit_author, "")
+
+    def test_patch_rejects_javascript_source(self):
+        self._bad({"author": "x", "source": "javascript:alert(1)"})
+
+    def test_patch_rejects_bad_version(self):
+        self._bad({"author": "x", "version": "v4"})
+
+    def test_patch_trims_version_whitespace(self):
+        # DRF trims; the stored value never carries a trailing newline.
+        img, _ = self._upload()
+        response = self.client.patch(
+            f"/api/images/{img.id}/credit/", {"version": "4.0\n"}, content_type="application/json"
+        )
+        self.assertEqual(response.status_code, 200)
+        img.refresh_from_db()
+        self.assertEqual(img.credit_license_version, "4.0")
+
+    def test_patch_rejects_unknown_license(self):
+        self._bad({"author": "x", "license": "gpl"})
+
+    def test_credit_change_visible_in_duplicated_set(self):
+        img, src = self._upload()
+        q1 = self._question(src)
+        response = self.client.post(f"/api/question-sets/{self.qset.id}/duplicate/", {})
+        self.assertEqual(response.status_code, 201)
+        q2 = Question.objects.get(question_set_id=response.json()["id"])
+        self.client.patch(
+            f"/api/images/{img.id}/credit/", {"author": "Zed"}, content_type="application/json"
+        )
+        for q in (q1, q2):
+            entries = self.client.get(f"/api/questions/{q.id}/").json()["image_credits"]
+            self.assertEqual([e["author"] for e in entries], ["Zed"])

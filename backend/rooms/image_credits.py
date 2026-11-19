@@ -132,3 +132,25 @@ def credits_for_questions(questions):
         if entries:
             result[q.id] = entries
     return result
+
+
+def can_edit_image(user, img):
+    """Uploader, staff, or owner of a room containing a question that
+    references the image (text in either content language, or an option
+    image)."""
+    if not getattr(user, "is_authenticated", False):
+        return False
+    if user.is_staff or img.uploader_id == user.pk:
+        return True
+    from django.db.models import Q
+
+    from .models import Question
+
+    src = f"{settings.MEDIA_URL.rstrip('/')}/{img.file.name}"
+    return (
+        Question.objects.filter(question_set__room__owners=user)
+        .filter(
+            Q(text_de__contains=src) | Q(text_en__contains=src) | Q(options__image=src)
+        )
+        .exists()
+    )
