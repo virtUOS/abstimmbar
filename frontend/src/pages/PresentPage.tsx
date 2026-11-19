@@ -177,6 +177,8 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
   const [walkViewState, setWalkView] = useState<WcView>("raw");
   const [walkAi, setWalkAi] = useState<Record<string, WordCloudAI | "error">>({});
   const walkAiLoading = useRef<Set<string>>(new Set());
+  // Rate-limit message (429) of a failed summary, per "run:question" (#343).
+  const [walkAiLimit, setWalkAiLimit] = useState<Record<string, string>>({});
   const [runId, setRunId] = useState<number | null>(null);
   // Recording mode (#53): opted in on the set page (checkbox), carried here as
   // ?recording=1; live only (self-paced is already async).
@@ -1358,15 +1360,24 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
     void results
       .freeTextSummary(runId, walkItem.id)
       .then((res) => setWalkAi((m) => ({ ...m, [key]: { ...res, pending: false } })))
-      .catch(() => setWalkAi((m) => ({ ...m, [key]: "error" })))
+      .catch((err) => {
+        if (requestStatus(err) === 429) setWalkAiLimit((m) => ({ ...m, [key]: aiErrorText(err, t) }));
+        setWalkAi((m) => ({ ...m, [key]: "error" }));
+      })
       .finally(() => walkAiLoading.current.delete(key));
-  }, [walkWantsAi, walkAiKey, walkItem, runId, walkAi]);
-  const retryWalkAi = () =>
+  }, [walkWantsAi, walkAiKey, walkItem, runId, walkAi, t]);
+  const retryWalkAi = () => {
+    setWalkAiLimit((m) => {
+      const next = { ...m };
+      delete next[walkAiKey];
+      return next;
+    });
     setWalkAi((m) => {
       const next = { ...m };
       delete next[walkAiKey];
       return next;
     });
+  };
   const walkViewKey = walkViewOptions.map((o) => o.value).join(",");
   const cycleWalkView = useCallback(() => {
     const values = walkViewKey.split(",") as WcView[];
@@ -1852,6 +1863,7 @@ export default function PresentPage({ mode = "live" }: { mode?: "live" | "self_p
             item={item}
             view={walkView}
             ai={walkAi[walkAiKey]}
+            aiLimit={walkAiLimit[walkAiKey]}
             onRetryAi={retryWalkAi}
           />
           <ImageCredits
@@ -3217,6 +3229,7 @@ function WalkthroughResultBody({
   item,
   view = "raw",
   ai,
+  aiLimit,
   onRetryAi,
 }: {
   item: RunResults["questions"][number];
@@ -3225,6 +3238,9 @@ function WalkthroughResultBody({
   /** One-shot AI summary for the key-statement/grouped views (undefined =
    *  loading, "error" = failed). */
   ai?: WordCloudAI | "error";
+  /** Rate-limit message when the failure was a 429 (shown instead of the
+   *  generic "unavailable" text). */
+  aiLimit?: string;
   onRetryAi?: () => void;
 }) {
   const { t } = useTranslation();
@@ -3252,7 +3268,7 @@ function WalkthroughResultBody({
     if (ai === "error") {
       return (
         <div className="mt-10 text-center text-slate-500">
-          <p className="text-xl">{t("The AI summary is currently unavailable.")}</p>
+          <p className="text-xl">{aiLimit ?? t("The AI summary is currently unavailable.")}</p>
           {onRetryAi && (
             <button
               type="button"

@@ -20,9 +20,19 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 >   `AI_VISION=1` ändert sich nichts. Voraussetzung sind ein bildfähiges Modell
 >   und die Pakete basicbar-ui ≥ 0.11.1 sowie basicbar-integrations 0.5.0
 >   (per Image-Rebuild).
+> - **Neue optionale Umgebungsvariablen `AI_THROTTLE_RATE` (Standard
+>   `120/hour`) und `AI_VISION_THROTTLE_RATE` (Standard `30/hour`)**
+>   begrenzen KI-Aufrufe pro Person (`off` schaltet ab, Staff ausgenommen).
+>   Die Zähler liegen pro Backend-Prozess im Arbeitsspeicher, bei mehreren
+>   Workern ist die effektive Grenze entsprechend höher (siehe
+>   Installationsanleitung).
 
 ### Hinzugefügt
 
+- Begrenzung der KI-Aufrufe pro Person (#343): Bei zu vielen Aufrufen in kurzer
+  Zeit erscheint die Meldung „Bitte versuchen Sie es in N Minuten erneut“
+  (HTTP 429 mit `Retry-After`) statt eines Fehlers; konfigurierbar über
+  `AI_THROTTLE_RATE` und `AI_VISION_THROTTLE_RATE`.
 - Bildbeschreibung (Alternativtext) für Antwortbilder (#342): zweisprachig,
   im Bild-Dialog (auch mit KI-Vorschlag, wenn freigeschaltet) und über den Stift
   „Bild bearbeiten“ an der Antwort; reine Bildantworten ohne Beschreibung zeigen
