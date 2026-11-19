@@ -727,6 +727,19 @@ class IliasTests(SimpleTestCase):
         self.assertNotIn("evil", r.drafts[0]["text"])
         self.assertEqual(r.skipped, {("image_dropped", ""): 1})
 
+    def test_obfuscated_img_removed(self):
+        for markup in (
+            '&lt;p&gt;Q &lt;im&lt;img&gt;g src="https://evil.example/x.png"&gt;&lt;/p&gt;',
+            '&lt;p&gt;Q &lt;image src="https://evil.example/x.png"&gt;&lt;/p&gt;',
+        ):
+            r = ilias.parse_xml(qti(qti_item(
+                question=f'<mattext texttype="text/xhtml">{markup}</mattext>',
+                response=choice_response(), resprocessing=cond(0, 1),
+            )))
+            self.assertNotIn("<img", r.drafts[0]["text"], markup)
+            self.assertNotIn("evil", r.drafts[0]["text"], markup)
+            self.assertEqual(r.skipped, {("image_dropped", ""): 1}, markup)
+
     def test_image_dropped_only_when_question_kept(self):
         r = ilias.parse_xml(qti(qti_item(
             question='<mattext texttype="text/xhtml">&lt;p&gt;Q &lt;img src="a.png"&gt;&lt;/p&gt;</mattext>',
@@ -771,6 +784,10 @@ class IliasTests(SimpleTestCase):
             cond(0, 1, "OQT", index=0) + cond(5, 1, "OQT", index=1),  # out of range
             cond(0, 1, "OQT", index="x") + cond(1, 1, "OQT", index=1),  # non-numeric
             cond("", 1, "OQT", index=0) + cond(1, 1, "OQT", index=1),  # empty varequal
+            cond("\u00b2", 1, "OQT", index=0) + cond(1, 1, "OQT", index=1),  # non-ASCII digit
+            cond(0, 1, "OQT", index="\u00b2") + cond(1, 1, "OQT", index=1),
+            cond("9" * 5000, 1, "OQT", index=0) + cond(1, 1, "OQT", index=1),  # int() length limit
+            cond(0, 1, "OQT", index="9" * 5000) + cond(1, 1, "OQT", index=1),
         )
         for rp in broken:
             r = ilias.parse_xml(qti(qti_item(

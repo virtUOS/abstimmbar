@@ -104,6 +104,23 @@ def _negated(el, stop) -> bool:
     return False
 
 
+def _clean_without_images(raw: str) -> tuple[str, bool]:
+    """Sanitize HTML without images; strip again after sanitizing because the
+    sanitizer allows ``img`` and normalizes tricks like ``<im<img>g`` or
+    ``<image>`` into one."""
+    stripped = _IMG_RE.sub("", raw)
+    html = clean_html(stripped)
+    cleaned = _IMG_RE.sub("", html)
+    return cleaned.strip(), stripped != raw or cleaned != html
+
+
+def _index(value: str) -> int | None:
+    """Non-negative ASCII integer of bounded length, else None."""
+    if not value or len(value) > 6 or not value.isascii() or not value.isdigit():
+        return None
+    return int(value)
+
+
 def _question_html(presentation) -> tuple[str, bool]:
     """Question text from the material outside any response element."""
     if presentation is None:
@@ -115,10 +132,9 @@ def _question_html(presentation) -> tuple[str, bool]:
             continue
         raw = _text(mt)
         if (mt.get("texttype") or "").lower() == "text/xhtml":
-            if _IMG_RE.search(raw):
-                raw = _IMG_RE.sub("", raw)
-                image = True
-            parts.append(clean_html(raw).strip())
+            html, dropped = _clean_without_images(raw)
+            image = image or dropped
+            parts.append(html)
         elif raw.strip():
             parts.append(html_paragraphs(raw))
     for mi in presentation.iter("matimage"):
@@ -191,16 +207,14 @@ def _solution_order(item, labels) -> list[int] | None:
         if _points(rc) is None:  # feedback-only conditions
             continue
         for ve in _plain_varequals(rc):
-            content, rank = _text(ve).strip(), (ve.get("index") or "").strip()
-            if content in by_ident:
-                pos = by_ident[content]
-            elif content.isdigit() and int(content) < len(labels):
-                pos = int(content)
-            else:
+            content = _text(ve).strip()
+            rank = _index((ve.get("index") or "").strip())
+            pos = by_ident.get(content, _index(content))
+            if pos is None or pos >= len(labels) or rank is None:
                 return None
-            if not rank.isdigit() or pos in ranks or int(rank) in ranks.values():
+            if pos in ranks or rank in ranks.values():
                 return None
-            ranks[pos] = int(rank)
+            ranks[pos] = rank
     if len(ranks) != len(labels):
         return None
     return sorted(ranks, key=ranks.__getitem__)
