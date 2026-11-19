@@ -22,6 +22,8 @@ export interface Whoami {
   language?: string;
   csrf_token?: string;
   ai_enabled?: boolean;
+  /** AI alt-text suggestions for images (AI_VISION). */
+  ai_vision_enabled?: boolean;
   /** Safety cap on questions per generation run (AI_GEN_MAX_QUESTIONS). */
   ai_generate_max_questions?: number;
   /** Content-i18n (#33 MR2): the deployment's canonical authoring language
@@ -1851,6 +1853,14 @@ export const api = {
     request<ImageCredit>(`/api/images/${id}/credit/`, {
       method: "PATCH",
       body: JSON.stringify(patch),
+    }),
+
+  /** AI alt-text suggestion (AI_VISION) for an uploaded image, in the given
+   *  content language; 503 when off, 502 when the model failed. */
+  suggestImageAlt: (id: number, lang: string) =>
+    request<{ alt: string }>(`/api/images/${id}/alt-suggestion/`, {
+      method: "POST",
+      body: JSON.stringify({ lang }),
     }),
 
   /** Optional machine-translation pre-fill (LibreTranslate, #33 MR2 Phase 4);

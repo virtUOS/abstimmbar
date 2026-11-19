@@ -603,6 +603,16 @@ Projekt-Website (`https://virtuos.github.io/abstimmbar/anleitung/`).
 `VITE_API_BASE_URL` werden beide Werte zur **Buildzeit** festgelegt
 (Build-Argumente im `app`-Service, nur mit `up -d --build` wirksam).
 
+**`AI_VISION`** (optional, Standard `0`) schaltet den Bildbeschreibungs-Vorschlag
+im Bild-Dialog des Editors frei. Voraussetzung ist eine konfigurierte
+KI-Anbindung (`AI_PROVIDER=litellm` mit `AI_BASE_URL`, `AI_API_KEY`,
+`AI_MODEL`) **und** ein Modell, das Bilder versteht. **`AI_VISION_MODEL`**
+(optional) wählt dafür ein eigenes Modell; ohne Angabe gilt `AI_MODEL`.
+Datenschutz: Ein Bild geht nur dann an den konfigurierten KI-Dienst, wenn eine
+berechtigte Person im Dialog ausdrücklich auf „Vorschlag erstellen“ klickt
+(verkleinert auf höchstens 1024 px). Es findet keine automatische Übertragung
+statt. Beide Variablen werden beim Start gelesen — Container neu erzeugen.
+
 Gegenprüfen, was im laufenden Container ankommt:
 
 ```bash

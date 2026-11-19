@@ -615,6 +615,16 @@ default is `https://virtuos.github.io/abstimmbar/en/guide/`. Like
 `VITE_API_BASE_URL`, both values are fixed **at build time** (build
 arguments of the `app` service, only effective with `up -d --build`).
 
+**`AI_VISION`** (optional, default `0`) enables the alt-text suggestion in the
+editor's image dialog. It requires a configured AI connection
+(`AI_PROVIDER=litellm` with `AI_BASE_URL`, `AI_API_KEY`, `AI_MODEL`) **and** a
+model that understands images. **`AI_VISION_MODEL`** (optional) selects a
+dedicated model for it; if unset, `AI_MODEL` is used. Privacy: an image is
+sent to the configured AI service only when an authorised person explicitly
+clicks "Suggest" in the dialog (downscaled to at most 1024 px).
+Nothing is transmitted automatically. Both variables are read at startup —
+recreate the container.
+
 Double-check what actually reaches the running container:
 
 ```bash

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Universität Osnabrück (virtUOS)
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import TranslationStatusLine from "../committee/TranslationStatusLine";
@@ -14,6 +14,7 @@ import {
   requestDetail,
   requestError,
   type AnswerOption,
+  type ImageCredit,
   type MatrixCategory,
   type MatrixCategoryMode,
   type MatrixRatingMode,
@@ -44,6 +45,7 @@ import MindmapSeedEditor, {
 } from "../components/MindmapSeedEditor";
 import HomeCrumb from "../components/HomeCrumb";
 import ImageCreditsEditor from "../components/ImageCreditsEditor";
+import ImageDetailsDialog from "../components/ImageDetailsDialog";
 import MatrixSettings, { matrixProblem, type MatrixSettingsValue, type MatrixUpdate } from "../components/MatrixSettings";
 import SortableList from "../components/SortableList";
 import TranslatableField from "../components/TranslatableField";
@@ -297,6 +299,8 @@ export default function QuestionPage() {
   const [previewNonce, setPreviewNonce] = useState(0);
   const [error, setError] = useState("");
   const [optionImageError, setOptionImageError] = useState("");
+  /** Just-uploaded option image whose credit dialog is open. */
+  const [optionImageDialog, setOptionImageDialog] = useState<{ id: number; src: string } | null>(null);
   const [moveTargets, setMoveTargets] = useState<QuestionSet[] | null>(null);
   const [moveMode, setMoveMode] = useState<"move" | "copy">("move");
   const [moveRooms, setMoveRooms] = useState<{ id: number; title: string }[]>([]);
@@ -510,12 +514,29 @@ export default function QuestionPage() {
     try {
       const uploaded = await api.uploadImage(file);
       updateOption(clientId, { image: uploaded.url });
+      setOptionImageDialog({ id: uploaded.id, src: uploaded.url });
     } catch (err) {
       // #280: a rejected upload used to fail silently.
       setOptionImageError(
         t("Image upload failed: {{error}}", { error: t(requestError(err)) }),
       );
     }
+  }
+
+  /** Credits saved from an image dialog since the question was last loaded
+   *  or saved. Kept apart from `question`: replacing that object recaptures
+   *  the unsaved-changes baseline. A reload/save brings fresh server data. */
+  const [savedCredits, setSavedCredits] = useState<Record<number, ImageCredit>>({});
+  useEffect(() => setSavedCredits({}), [question]);
+  const imageCredits = useMemo(
+    () =>
+      (question?.image_credits ?? []).map((c) =>
+        savedCredits[c.id] ? { ...c, ...savedCredits[c.id], src: c.src } : c,
+      ),
+    [question?.image_credits, savedCredits],
+  );
+  function imageCreditSaved(credit: ImageCredit) {
+    setSavedCredits((current) => ({ ...current, [credit.id]: credit }));
   }
 
   function setCorrect(clientId: number, checked: boolean) {
@@ -1268,6 +1289,8 @@ export default function QuestionPage() {
             label={t("Question text")}
             value={text}
             onChange={setText}
+            imageCredits={imageCredits}
+            onImageCreditSaved={imageCreditSaved}
             stale={liveStaleLangs(
               textBaseline,
               text,
@@ -1293,8 +1316,23 @@ export default function QuestionPage() {
             {t("Question text is required.")}
           </p>
         )}
-        {!isNew && question?.image_credits && question.image_credits.length > 0 && (
-          <ImageCreditsEditor credits={question.image_credits} />
+        {!isNew && imageCredits.length > 0 && <ImageCreditsEditor credits={imageCredits} onSaved={imageCreditSaved} />}
+        {optionImageDialog && (
+          <ImageDetailsDialog
+            src={optionImageDialog.src}
+            imageId={optionImageDialog.id}
+            mode="insert"
+            // Credit only: no alt text, so the language doesn't matter.
+            lang={whoami?.content_default_language ?? "de"}
+            alt=""
+            creditEditable
+            showAlt={false}
+            aiVision={false}
+            onDone={(result) => {
+              if (result?.credit) imageCreditSaved(result.credit);
+              setOptionImageDialog(null);
+            }}
+          />
         )}
         {isMeeting && !isNew && (
           <TranslationStatusLine setId={set.id} questionId={question.id} savedKey={question} />

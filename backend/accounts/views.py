@@ -16,6 +16,7 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from rooms.image_alt import vision_enabled
 from rooms.onboarding import seed_example_room
 
 from .models import TourDailyCount
@@ -50,6 +51,7 @@ def whoami(request):
     # decide which language to show/edit without a second round-trip.
     common = {
         "ai_enabled": ai.is_enabled(),
+        "ai_vision_enabled": vision_enabled(),
         "content_default_language": settings.MODELTRANSLATION_DEFAULT_LANGUAGE,
         "content_translation_enabled": translation_service.is_enabled(),
     }
