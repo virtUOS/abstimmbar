@@ -51,6 +51,7 @@ from rest_framework import serializers
 from common.i18n_fields import LANGS, translated_map
 
 from . import matrix, mindmap, set_types
+from .image_credits import media_name_for_src
 from .images import (
     MAX_ANIMATED_IMAGE_BYTES,
     MAX_IMAGE_BYTES,
@@ -305,12 +306,7 @@ def _uploaded_image_for(src):
     instance's uploads (external, legacy, traversal) never touches the
     filesystem.
     """
-    if not src or clean_media_url(src) != src:
-        return None
-    prefix = _media_prefix()
-    if not src.startswith(prefix):
-        return None
-    name = unquote(src[len(prefix):])
+    name = media_name_for_src(src)
     if not name:
         return None
     return UploadedImage.objects.filter(file=name).first()
