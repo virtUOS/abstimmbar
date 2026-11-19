@@ -62,6 +62,7 @@ from .images import (
 from .models import GenerationJob, Question, QuestionSet, Room, Section, UploadedImage
 from .question_import import core as import_core
 from .question_import import detect
+from .question_import.materialize import materialize_images
 from .serializers import (
     AgendaLocked,
     ImageCreditSerializer,
@@ -807,6 +808,11 @@ class QuestionSetViewSet(viewsets.ModelViewSet):
                 status=400,
             )
         with transaction.atomic():
+            # Package images (#336): only those of kept drafts are stored.
+            _, dropped = materialize_images(result.drafts, result.images, request.user)
+            if dropped:
+                result.skip("image_dropped", n=dropped)
+                skipped = result.skipped_list()
             # One review slot per set: the newest proposals win (#303).
             GenerationJob.objects.filter(question_set=question_set, reviewed=False).update(
                 reviewed=True

@@ -96,3 +96,45 @@ def normalize_image(django_file):
 
     stem = Path(getattr(django_file, "name", "") or "image").stem or "image"
     return ContentFile(buffer.read(), name=f"{stem}.webp")
+
+
+_ANIMATED_EXTENSIONS = {"GIF": "gif", "WEBP": "webp", "PNG": "png"}
+
+
+def image_format(raw):
+    """Pillow's format name for image bytes, or None if undecodable."""
+    try:
+        with Image.open(io.BytesIO(raw)) as img:
+            return img.format
+    except (OSError, ValueError, SyntaxError, Image.DecompressionBombError):
+        return None
+
+
+def store_image_bytes(data, filename, user):
+    """Normalize image bytes from an import and save them as an upload of
+    ``user``; None if they are too large or not a usable image.
+
+    Same rules as the upload view: MAX_IMAGE_BYTES before normalizing,
+    animated GIF/WebP/PNG stored untranscoded up to MAX_ANIMATED_IMAGE_BYTES.
+    Shared by the JSON import (#290) and the question import (#336).
+    """
+    from .models import UploadedImage
+
+    if not data or len(data) > MAX_IMAGE_BYTES:
+        return None
+    stem = Path(filename or "").stem[:80] or "image"
+    original = ContentFile(data, name=f"{stem}.img")
+    try:
+        normalized = normalize_image(original)
+    except InvalidImageError:
+        return None
+    if normalized is original:
+        if len(data) > MAX_ANIMATED_IMAGE_BYTES:
+            return None
+        ext = _ANIMATED_EXTENSIONS.get(image_format(data))
+        if ext is None:
+            return None
+        normalized = ContentFile(data, name=f"{stem}.{ext}")
+    uploaded = UploadedImage(uploader=user)
+    uploaded.file.save(normalized.name, normalized, save=True)
+    return uploaded

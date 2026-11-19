@@ -7633,9 +7633,20 @@ class ImportQuestionsEndpointTests(ApiTestCase):
     SIMPLE = "F: Hauptstadt?\n* Hannover\n- Bremen\n\nF: Warum?\n"
 
     def setUp(self):
+        import shutil
+        import tempfile
+
+        from django.test import override_settings
+
         super().setUp()
         self.qs = QuestionSet.objects.create(room=self.room, title="T")
         self.url = f"/api/question-sets/{self.qs.pk}/import-questions/"
+        # Imported package images are stored as uploads (#336).
+        media_root = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, media_root, ignore_errors=True)
+        media = override_settings(MEDIA_ROOT=media_root)
+        media.enable()
+        self.addCleanup(media.disable)
 
     @staticmethod
     def _zip(entries):
@@ -7917,3 +7928,181 @@ class ImportQuestionsEndpointTests(ApiTestCase):
         for job in GenerationJob.objects.all():
             self.assertNotIn("\\x00", str(job.drafts))  # repr of a NUL
             self.assertNotIn("\x00", job.source_text)
+
+    # --- images kept from H5P packages (#336) ---------------------------------
+
+    @staticmethod
+    def _png(color="red"):
+        buffer = io.BytesIO()
+        Image.new("RGB", (4, 4), color).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    def _fixture(self, name):
+        from pathlib import Path
+        return (Path(__file__).resolve().parent / "test_fixtures" / "import" / name).read_bytes()
+
+    def _image_h5p(self, question="<p>Welche Farbe?</p>", answers=None, image=None):
+        """A MultiChoice package with a credited media image."""
+        answers = answers or [{"text": "Rot", "correct": True}, {"text": "Blau", "correct": False}]
+        content = {
+            "question": question,
+            "answers": answers,
+            "media": {"type": {
+                "library": "H5P.Image 1.1",
+                "params": {"file": {"path": "images/a.png", "mime": "image/png"}, "alt": "A"},
+                "metadata": {"license": "CC BY", "licenseVersion": "4.0",
+                             "authors": [{"name": "Karen Jackson", "role": "Author"}]},
+            }},
+        }
+        return self._zip({
+            "h5p.json": {"mainLibrary": "H5P.MultiChoice"},
+            "content/content.json": content,
+            "content/images/a.png": self._png() if image is None else image,
+        })
+
+    def _import_job(self, data, name="quiz.h5p"):
+        from .models import GenerationJob
+        r = self._upload(data, name)
+        self.assertEqual(r.status_code, 201, r.content)
+        return r.json(), GenerationJob.objects.get(pk=r.json()["job_id"])
+
+    def test_import_h5p_stores_image_and_credit(self):
+        body, job = self._import_job(self._fixture("multichoice-image.h5p"))
+        self.assertEqual(UploadedImage.objects.count(), 1)
+        uploaded = UploadedImage.objects.get()
+        self.assertEqual(uploaded.uploader, self.owner)
+        self.assertEqual(uploaded.credit_author, "Karen Jackson")
+        self.assertEqual(uploaded.credit_license, "cc-by-nd")
+        self.assertEqual(uploaded.credit_title, "Rotes Quadrat")
+        url = uploaded.file.url
+        self.assertTrue(url.startswith("/media/question-images/"), url)
+        draft = job.drafts[0]
+        self.assertIn(f'src="{url}"', draft["text"])
+        self.assertNotIn("/media/_import/", draft["text"])
+        self.assertNotIn("image_dropped", [s["reason"] for s in body["skipped"]])
+        self.assertEqual(job.skipped, body["skipped"])
+        [credit] = draft["image_credits"]
+        self.assertEqual(credit["src"], url)
+        self.assertEqual(credit["author"], "Karen Jackson")
+        self.assertEqual(credit["license_label"], "CC BY-ND 4.0")
+        # The review payload carries the credits too.
+        jobs = f"/api/question-sets/{self.qs.pk}/ai-generate/jobs/{job.id}/"
+        self.assertEqual(self.client.get(jobs).json()["drafts"][0]["image_credits"], [credit])
+
+    def test_import_option_image_rewritten(self):
+        data = self._zip({
+            "h5p.json": {"mainLibrary": "H5P.MultiChoice"},
+            "content/content.json": {"question": "<p>Welche?</p>", "answers": [
+                {"text": '<p><img src="images/a.png" alt="">Rot</p>', "correct": True},
+                {"text": "Blau", "correct": False},
+            ]},
+            "content/images/a.png": self._png(),
+        })
+        _, job = self._import_job(data)
+        uploaded = UploadedImage.objects.get()
+        self.assertEqual(job.drafts[0]["options"][0]["image"], uploaded.file.url)
+        # No credit given: the image is kept, no credit entry.
+        self.assertNotIn("image_credits", job.drafts[0])
+
+    def test_import_skipped_question_stores_no_image(self):
+        long_answer = "x" * 501  # over OPTION_TEXT_MAX -> question skipped
+        data = self._zip({
+            "h5p.json": {"mainLibrary": "H5P.QuestionSet"},
+            "content/content.json": {"questions": [
+                {"library": "H5P.MultiChoice 1.16", "params": {
+                    "question": "<p>Zu lang</p>",
+                    "answers": [{"text": long_answer, "correct": True},
+                                {"text": "b", "correct": False}],
+                    "media": {"type": {"library": "H5P.Image 1.1", "params": {
+                        "file": {"path": "images/a.png"}}}},
+                }},
+                {"library": "H5P.MultiChoice 1.16", "params": {
+                    "question": "<p>Ohne Bild</p>",
+                    "answers": [{"text": "a", "correct": True}, {"text": "b", "correct": False}],
+                }},
+            ]},
+            "content/images/a.png": self._png(),
+        })
+        body, job = self._import_job(data)
+        self.assertEqual(len(job.drafts), 1)
+        self.assertIn("option_too_long", [s["reason"] for s in body["skipped"]])
+        self.assertEqual(UploadedImage.objects.count(), 0)
+
+    def test_import_broken_image_counts_dropped(self):
+        body, job = self._import_job(self._image_h5p(image=b"not an image at all"))
+        self.assertEqual(UploadedImage.objects.count(), 0)
+        self.assertNotIn("<img", job.drafts[0]["text"])
+        self.assertIn("Welche Farbe?", job.drafts[0]["text"])
+        self.assertIn(
+            {"reason": "image_dropped", "detail": "", "count": 1}, body["skipped"]
+        )
+        self.assertEqual(job.skipped, body["skipped"])
+        self.assertNotIn("image_credits", job.drafts[0])
+
+    def test_placeholder_outside_img_src_never_rewritten(self):
+        question = (
+            '<p><a href="/media/_import/1">Link</a> Text /media/_import/1</p>'
+        )
+        _, job = self._import_job(self._image_h5p(question=question))
+        uploaded = UploadedImage.objects.get()
+        text = job.drafts[0]["text"]
+        # Only the media image's src becomes the real URL.
+        self.assertEqual(text.count(uploaded.file.url), 1)
+        self.assertIn(f'<img src="{uploaded.file.url}"', text)
+        self.assertIn("Text /media/_import/1", text)
+
+    def test_materialize_strips_unresolved_and_skips_orphans(self):
+        from .question_import.core import ImportImage
+        from .question_import.materialize import materialize_images
+        drafts = [
+            {"kind": "single_choice", "text": '<p><img src="/media/_import/9" alt=""></p><p>Q</p>',
+             "options": [{"text": "a", "is_correct": True, "image": "/media/_import/8"},
+                         {"text": "b", "is_correct": False}]},
+        ]
+        images = {
+            "/media/_import/8": ImportImage(data=b"broken", filename="import.png"),
+            "/media/_import/7": ImportImage(data=self._png(), filename="import.png"),  # orphan
+        }
+        drafts, dropped = materialize_images(drafts, images, self.owner)
+        self.assertEqual(dropped, 1)  # one draft lost images
+        self.assertEqual(drafts[0]["text"], "<p></p><p>Q</p>")
+        self.assertEqual(drafts[0]["options"][0]["image"], "")
+        self.assertEqual(UploadedImage.objects.count(), 0)
+
+    def test_materialize_stores_shared_image_once(self):
+        from .question_import.core import ImportImage
+        from .question_import.materialize import materialize_images
+        img = '<p><img src="/media/_import/1" alt="x"></p>'
+        drafts = [
+            {"kind": "open_text", "text": img + "<p>A</p>", "options": []},
+            {"kind": "single_choice", "text": "<p>B</p>",
+             "options": [{"text": "", "is_correct": True, "image": "/media/_import/1"},
+                         {"text": "c", "is_correct": False}]},
+        ]
+        images = {"/media/_import/1": ImportImage(
+            data=self._png(), filename="import.png",
+            credit={"author": "Karen Jackson", "license": "cc0", "source": "javascript:x"},
+        )}
+        drafts, dropped = materialize_images(drafts, images, self.owner)
+        self.assertEqual(dropped, 0)
+        uploaded = UploadedImage.objects.get()
+        url = uploaded.file.url
+        self.assertEqual(uploaded.credit_source, "")  # invalid field dropped
+        self.assertEqual(drafts[0]["text"], f'<p><img src="{url}" alt="x"></p><p>A</p>')
+        self.assertEqual(drafts[1]["options"][0]["image"], url)
+        self.assertEqual([c["src"] for c in drafts[0]["image_credits"]], [url])
+        self.assertEqual([c["src"] for c in drafts[1]["image_credits"]], [url])
+
+    def test_adopted_draft_keeps_image(self):
+        _, job = self._import_job(self._fixture("multichoice-image.h5p"))
+        draft = job.drafts[0]
+        r = self.client.post("/api/questions/", {
+            "question_set": self.qs.pk, "kind": draft["kind"], "text": draft["text"],
+            "options": [{"text": o["text"], "is_correct": o["is_correct"], "image": o.get("image", "")}
+                        for o in draft["options"]],
+        }, content_type="application/json")
+        self.assertEqual(r.status_code, 201, r.content)
+        uploaded = UploadedImage.objects.get()
+        credits = self.client.get(f"/api/questions/{r.json()['id']}/").json()["image_credits"]
+        self.assertEqual([c["src"] for c in credits], [uploaded.file.url])
+        self.assertEqual(credits[0]["author"], "Karen Jackson")

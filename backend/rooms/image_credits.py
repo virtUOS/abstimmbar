@@ -154,3 +154,28 @@ def can_edit_image(user, img):
         )
         .exists()
     )
+
+
+def apply_credit(uploaded, credit):
+    """Set the credit fields of ``uploaded`` from an import entry.
+
+    Every field goes through the PATCH serializer's validation on its own;
+    invalid or unknown values are dropped, never failing the import.
+    """
+    from .serializers import ImageCreditSerializer
+
+    if not isinstance(credit, dict):
+        return
+    values = {}
+    for key, attr in ImageCreditSerializer.FIELD_MAP.items():
+        if key not in credit:
+            continue
+        serializer = ImageCreditSerializer(data={key: credit[key]})
+        if serializer.is_valid():
+            values[attr] = serializer.validated_data[key]
+    if not values:
+        return
+    for attr, value in values.items():
+        setattr(uploaded, attr, value)
+    uploaded.save(update_fields=list(values))
+

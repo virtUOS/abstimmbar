@@ -790,7 +790,10 @@ export interface GeneratedQuestion {
   text: string;
   /** True/False drafts come back as single_choice + this flag (#79). */
   binary_choice?: boolean;
-  options: { text: string; is_correct: boolean }[];
+  /** `image`: /media/ URL of an option image kept by the import (#336). */
+  options: { text: string; is_correct: boolean; image?: string }[];
+  /** Import only: credits of the draft's credited images (#336). */
+  image_credits?: ImageCredit[];
   /** open_text only: AI-generated reference answer to score against. */
   model_solution?: string;
   /** Page/slide the question refers to, when the model named one (#304). */

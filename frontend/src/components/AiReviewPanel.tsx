@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   aiErrorText,
+  API_BASE_URL,
   api,
   generationFailed,
   generationFailureText,
@@ -22,6 +23,7 @@ import {
   type GenerationJob,
 } from "../api";
 import AiAssistPanel from "./AiAssistPanel";
+import { ImageCredits } from "./ImageCredits";
 import ImportSkipList, { IMPORT_FORMAT_LABEL } from "./ImportSkipList";
 import { Button } from "./ui";
 
@@ -39,6 +41,18 @@ function importedText(html: string): string {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+/** The stored images (/media/ srcs) of an imported question text (#336),
+ *  for the review preview; parsing in a detached document loads nothing. */
+function importedImages(html: string): { src: string; alt: string }[] {
+  if (!html.includes("<img")) return [];
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return Array.from(doc.querySelectorAll("img"))
+    .map((img) => ({ src: img.getAttribute("src") ?? "", alt: img.getAttribute("alt") ?? "" }))
+    .filter((img) => img.src.startsWith("/media/"));
+}
+
+const isMedia = (src?: string): src is string => !!src && src.startsWith("/media/");
 
 function kindLabel(draft: GeneratedQuestion): string | undefined {
   if (draft.kind === "single_choice" && draft.binary_choice) return "True/False";
@@ -209,6 +223,7 @@ export default function AiReviewPanel({
           options: draft.options.map((option) => ({
             text: option.text,
             is_correct: option.is_correct,
+            ...(option.image ? { image: option.image } : {}),
           })),
           model_solution: draft.model_solution ?? "",
           // Imported free-text questions never switch on AI scoring by
@@ -263,6 +278,18 @@ export default function AiReviewPanel({
           {/* Imported question texts are sanitized HTML; AI drafts are plain. */}
           {isImport ? importedText(draft.text) : draft.text}
         </div>
+        {isImport && importedImages(draft.text).length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-2">
+            {importedImages(draft.text).map((img, ii) => (
+              <img
+                key={ii}
+                src={`${API_BASE_URL}${img.src}`}
+                alt={img.alt}
+                className="max-h-24 max-w-[12rem] rounded border border-slate-200 object-contain dark:border-slate-700"
+              />
+            ))}
+          </div>
+        )}
         {draft.options.length > 0 && (
           <ul className="mt-1 space-y-0.5 text-sm text-slate-600 dark:text-slate-300">
             {draft.options.map((option, oi) => (
@@ -285,11 +312,26 @@ export default function AiReviewPanel({
                       : "")
                   }
                 >
+                  {isImport && isMedia(option.image) && (
+                    <img
+                      src={`${API_BASE_URL}${option.image}`}
+                      alt=""
+                      className="mb-0.5 block max-h-16 max-w-[8rem] rounded border border-slate-200 object-contain dark:border-slate-700"
+                    />
+                  )}
                   {option.text}
                 </span>
               </li>
             ))}
           </ul>
+        )}
+        {isImport && (
+          <ImageCredits
+            credits={draft.image_credits}
+            html={draft.text}
+            optionImages={draft.options.map((o) => o.image)}
+            className="mt-1"
+          />
         )}
         {draft.kind === "open_text" && draft.model_solution && (
           <div className="mt-1 break-words text-sm text-slate-600 dark:text-slate-300">

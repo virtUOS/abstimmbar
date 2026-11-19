@@ -3,6 +3,9 @@
  *  core authoring — offered in easy mode and without AI, so whoami is stubbed
  *  to `easy_mode: true, ai_enabled: false`. Only an "E2E Import" room is
  *  seeded and deleted. */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { test, expect, API_BASE_URL } from './fixtures';
 import { createRoomWithQuestions } from './helpers/seed';
 
@@ -133,4 +136,46 @@ test('uploaded GIFT file → review with skip notice', async ({ page, trackRoom 
   await expect(page.getByRole('checkbox', { name: /Welche Zahlen sind Primzahlen/ })).toBeVisible();
   await page.getByRole('button', { name: 'Verwerfen', exact: true }).click();
   await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+});
+
+/** Self-made H5P MultiChoice with a 2×2 PNG, credited "Rotes Quadrat" by
+ *  Karen Jackson, CC BY-ND 4.0 (shared with the backend tests). */
+const H5P_IMAGE = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../backend/rooms/test_fixtures/import/multichoice-image.h5p',
+);
+
+test('H5P with credited image → review shows image + credit → editor keeps the credit (#336)', async ({ page, trackRoom }) => {
+  const room = await createRoomWithQuestions(page.request, [], 'Import Bild', trackRoom, 'E2E Import');
+  await openImport(page, room.setId);
+
+  await page.getByRole('button', { name: 'Datei hochladen', exact: true }).click();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: 'farbe.h5p',
+    mimeType: 'application/zip',
+    buffer: fs.readFileSync(H5P_IMAGE),
+  });
+  await page.getByRole('button', { name: 'Übernehmen', exact: true }).click();
+
+  await expect(page.getByText('Übernommene Fragen prüfen')).toBeVisible();
+  const preview = page.getByRole('img', { name: 'Rote Fläche' });
+  await expect(preview).toBeVisible();
+  await expect(preview).toHaveAttribute('src', /\/media\/question-images\//);
+  // The stored file actually loads.
+  await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.getByTestId('image-credits')).toHaveText(
+    'Bild: „Rotes Quadrat“ von Karen Jackson, CC BY-ND 4.0',
+  );
+
+  await page.getByRole('checkbox', { name: /Welche Farbe hat die Fläche/ }).check();
+  await page.getByRole('button', { name: /Ausgewählte übernehmen/ }).click();
+  await expect(page.getByText('Übernommene Fragen prüfen')).toHaveCount(0);
+
+  const response = await page.request.get(`${API_BASE_URL}/api/questions/?question_set=${room.setId}`);
+  const [question] = (await response.json()).results as { id: number }[];
+  await page.goto(`/sets/${room.setId}/questions/${question.id}`);
+  const section = page.getByTestId('image-credits-editor');
+  await expect(section.getByRole('heading', { name: 'Bildnachweise' })).toBeVisible();
+  await expect(section.getByLabel('Urheber:in')).toHaveValue('Karen Jackson');
+  await expect(section.getByText('Kein Bildnachweis')).toHaveCount(0);
 });
