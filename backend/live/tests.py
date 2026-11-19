@@ -11088,3 +11088,27 @@ class ImageCreditPayloadTests(LiveTestCase):
         self.question.text_de += f'<img src="{second.file.url}">'
         self.question.save()
         self.assertEqual(count(), one)
+
+
+class ParticipantCreditTemplateTests(LiveTestCase):
+    def test_container_and_strings_de(self):
+        html = self.client.get(f"/p/{self.room.code}/?lang=de").content.decode()
+        self.assertIn('class="image-credits"', html)
+        self.assertIn("Bild:", html)
+        self.assertIn("Gemeinfrei", html)
+
+    def test_container_and_strings_en(self):
+        html = self.client.get(f"/p/{self.room.code}/?lang=en").content.decode()
+        self.assertIn('class="image-credits"', html)
+        self.assertIn("Image:", html)
+        self.assertIn("Public domain", html)
+
+    def test_render_credits_never_assigns_inner_html(self):
+        from pathlib import Path
+
+        import live
+
+        src = (Path(live.__file__).parent / "templates/live/participant.html").read_text()
+        block = src.split("/* credits:start */")[1].split("/* credits:end */")[0]
+        self.assertIn("function renderCredits", block)
+        self.assertNotIn("innerHTML", block)

@@ -1030,3 +1030,15 @@ msgstr "Keine Fragen erkannt. Bitte prüfen Sie das Format."
 #: rooms/question_import/detect.py
 msgid "The text is longer than 1 MB."
 msgstr "Der Text ist länger als 1 MB."
+
+msgid "Image:"
+msgstr "Bild:"
+
+msgid "Images:"
+msgstr "Bilder:"
+
+msgid "by"
+msgstr "von"
+
+msgid "Public domain"
+msgstr "Gemeinfrei"
