@@ -129,6 +129,8 @@ services:
       AI_TIMEOUT: ${AI_TIMEOUT:-30}
       AI_MAX_TOKENS: ${AI_MAX_TOKENS:-2000}
       AI_GEN_PER_CALL: ${AI_GEN_PER_CALL:-5}
+      AI_THROTTLE_RATE: ${AI_THROTTLE_RATE:-120/hour}
+      AI_VISION_THROTTLE_RATE: ${AI_VISION_THROTTLE_RATE:-30/hour}
       AI_DISABLE_THINKING: ${AI_DISABLE_THINKING:-1}
       # Prometheus /metrics scrape token (unset = endpoint off / 404).
       METRICS_TOKEN: ${METRICS_TOKEN:-}

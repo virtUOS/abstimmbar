@@ -1068,3 +1068,18 @@ msgstr "Die Bildbeschreibung per KI ist nicht verfügbar."
 #: rooms/views.py
 msgid "The AI could not describe the image."
 msgstr "Die KI konnte das Bild nicht beschreiben."
+
+#: common/throttling.py
+#, python-format
+msgid ""
+"You have used the AI very often just now. Please try again in %(minutes)s "
+"minute."
+msgid_plural ""
+"You have used the AI very often just now. Please try again in %(minutes)s "
+"minutes."
+msgstr[0] ""
+"Sie haben die KI gerade sehr oft genutzt. Bitte versuchen Sie es in "
+"%(minutes)s Minute erneut."
+msgstr[1] ""
+"Sie haben die KI gerade sehr oft genutzt. Bitte versuchen Sie es in "
+"%(minutes)s Minuten erneut."
