@@ -143,6 +143,7 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
   Jetzt erscheint „Sie wurden abgemeldet. Bitte melden Sie sich erneut an.“
   mit einer Schaltfläche zur Anmeldung, die danach zur Präsentation
   zurückführt (#298).
+
 ## [1.1.0] – 2026-11-20
 
 Neue Funktion „Fragen übernehmen“ und eine Fehlerbehebung.
