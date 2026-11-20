@@ -8,6 +8,17 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 
 ## [Unreleased]
 
+## [1.1.0] – 2026-11-20
+
+Neue Funktion „Fragen übernehmen“ und eine Fehlerbehebung.
+
+> ### Hinweise für den Betrieb
+>
+> - **Eine Datenbankmigration** (`rooms.0059_generationjob_source_skipped`);
+>   sie läuft beim Start des Backends automatisch.
+> - Keine neuen Umgebungsvariablen. Nach dem Update wie gewohnt die Images
+>   neu ziehen bzw. bauen (siehe „Bestehende Installation aktualisieren“).
+
 ### Hinzugefügt
 
 - Fragen übernehmen: Fertige Fragen aus dem einfachen Textformat, aus GIFT
@@ -358,7 +369,8 @@ Etappen entwickelt:
 - Erste veröffentlichte Version mit automatisch gebautem Release-Image.
 - Gemeinsame basicbar-Pakete werden aus den GitHub-Repositories bezogen.
 
-[Unreleased]: https://github.com/virtUOS/abstimmbar/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/virtUOS/abstimmbar/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/virtUOS/abstimmbar/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/virtUOS/abstimmbar/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/virtUOS/abstimmbar/compare/v0.1.2...v1.0.0
 [0.1.2]: https://github.com/virtUOS/abstimmbar/compare/v0.1.1...v0.1.2
