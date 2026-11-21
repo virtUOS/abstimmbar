@@ -1,0 +1,10 @@
+# Dev build context (docker-compose.yml: context ./frontend). Keep host-installed
+# modules out of the image: `COPY . .` would otherwise overwrite the `npm ci`
+# result with host (e.g. macOS) binaries and stale versions.
+node_modules/
+dist/
+*.tsbuildinfo
+test-results/
+playwright-report/
+.env
+.env.*
