@@ -23,6 +23,9 @@ from basicbar_lti.provisioning import (
 )
 from basicbar_lti.tool_conf import build_tool_conf
 from basicbar_lti.views import LtiPlatformViewSet as BaseLtiPlatformViewSet
+from basicbar_lti.views import (
+    LtiRegistrationTokenViewSet as BaseLtiRegistrationTokenViewSet,
+)
 from basicbar_lti.views import LtiToolInfoView as BaseLtiToolInfoView
 from django.conf import settings
 from django.contrib.auth import login
@@ -196,6 +199,12 @@ def deep_link_respond(request):
 
 class LtiPlatformViewSet(BaseLtiPlatformViewSet):
     """Paket-CRUD mit abstimmbars Admin-Permission."""
+
+    permission_classes: ClassVar = [IsAdmin]
+
+
+class LtiRegistrationTokenViewSet(BaseLtiRegistrationTokenViewSet):
+    """Einmal-Links für die LTI Dynamic Registration (nur Admins)."""
 
     permission_classes: ClassVar = [IsAdmin]
 

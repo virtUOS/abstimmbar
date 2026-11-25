@@ -58,7 +58,44 @@ Im Formular „Plattform hinzufügen" werden die Angaben des LMS eingetragen:
 bekommen jeweils eine **eigene Plattform-Zeile** — Issuer/Client-ID sind je
 LMS-Instanz eindeutig, das Tool-Endpunkte-Panel bleibt für alle gleich.
 
-## Anleitung für Moodle-Administrator:innen
+## Moodle mit Registrierungs-Link (empfohlen)
+
+Statt Issuer, Client-ID und Endpunkte von Hand zu kopieren, erzeugt die
+Tool-Administration einen **Registrierungs-Link**; Abstimmbar und Moodle
+tauschen die Werte selbst aus (IMS LTI Dynamic Registration).
+
+1. Web-Admin → LTI-Plattformen → **„Registrierungs-Link erzeugen"**
+   (optional mit Notiz, z. B. dem Namen des LMS; die Notiz wird zum Namen
+   der angelegten Plattform). Der Link wird **nur einmal** angezeigt —
+   sofort kopieren. Er gilt **7 Tage** und ist **einmal verwendbar**; in
+   der Liste darunter lässt er sich bis zur Verwendung **widerrufen**.
+2. In Moodle: Website-Administration → Plugins → Externe Tools →
+   „Tools verwalten" → den Link bei **Tool-URL** einfügen →
+   **„LTI Advantage hinzufügen"**. Abstimmbar legt dabei die Plattform
+   (aktiv, „Nutzende per E-Mail verknüpfen" aus) samt Deployment-ID an.
+3. Das Tool in Moodle **aktivieren**.
+4. Tool in Moodle bearbeiten und den **Standard-Startcontainer** auf
+   **„Neues Fenster"** stellen (Moodle setzt bei dynamischer Registrierung
+   „Eingebettet"; siehe [Cookies & iframes](#cookies--iframes)). Die
+   Erfolgsseite nennt das auch, schließt sich aber sofort.
+5. Datenschutz-Einstellungen (Name/E-Mail an das Tool weitergeben) wie in
+   der manuellen Anleitung unten prüfen.
+
+Hinweise:
+
+- Gilt nur für **neue Verknüpfungen**: Eine Registrierung legt immer eine
+  neue Plattform mit neuer Client-ID an. Manuell registrierte Plattformen
+  behalten ihre Kursverknüpfungen; ist der Issuer schon bekannt, fragt
+  Abstimmbar vor dem Anlegen nach.
+- Hinter einem Reverse-Proxy muss `SECURE_PROXY_SSL_HEADER` gesetzt sein,
+  sonst lehnt Abstimmbar die Registrierung ab (die Tool-URLs wären
+  `http://`). Abstimmbar setzt ihn im Produktivbetrieb (`DEBUG=False`)
+  selbst (`X-Forwarded-Proto`, zusammen mit `USE_X_FORWARDED_HOST`); der
+  Proxy muss den Header entsprechend weiterreichen (das mitgelieferte
+  Caddyfile tut das).
+- Für andere LMS (Stud.IP, ILIAS, …) bleibt die manuelle Registrierung.
+
+## Anleitung für Moodle-Administrator:innen (manuell, auch für andere LMS)
 
 1. Web-Admin → LTI-Plattformen öffnen und die vier URLs aus dem
    **Tool-Endpunkte-Panel** kopieren (Initiate-Login-, Launch-, Keyset-,

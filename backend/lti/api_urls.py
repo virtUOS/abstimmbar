@@ -8,6 +8,11 @@ from . import views
 
 router = DefaultRouter()
 router.register("platforms", views.LtiPlatformViewSet, basename="lti-platform")
+router.register(
+    "registration-links",
+    views.LtiRegistrationTokenViewSet,
+    basename="lti-registration-link",
+)
 
 urlpatterns = [
     path("tool-info/", views.LtiToolInfoView.as_view(), name="lti-tool-info"),

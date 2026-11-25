@@ -215,6 +215,22 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # anonymous participant pages.
 LTI_FRAME_PATH_PREFIXES = ("/lti/", "/p/")
 
+# What the tool announces to the LMS during Dynamic Registration (basicbar_lti
+# ≥ 0.2.0); logo_path also feeds the icon URL of the tool-info panel.
+LTI_TOOL_REGISTRATION = {
+    "client_name": "abstimmbar",
+    "description": (
+        "Anonyme Live-Abstimmungen und Quizze für Lehrveranstaltungen — "
+        "Single/Multiple Choice, Wortwolken, Likert-Skalen, Freitext, "
+        "Priorisierung."
+    ),
+    "logo_path": "/lti/icon.svg",
+    "messages": [
+        {"type": "LtiResourceLinkRequest"},
+        {"type": "LtiDeepLinkingRequest", "label": "abstimmbar-Raum auswählen"},
+    ],
+}
+
 # LTI launches may run inside an LMS iframe; the session cookie then needs
 # SameSite=None (+ Secure, i.e. HTTPS). Default stays Lax — recommend
 # configuring the LMS tool to open in a new window instead (docs/lti.md).

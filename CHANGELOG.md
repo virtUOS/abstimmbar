@@ -26,9 +26,23 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 >   Die Zähler liegen pro Backend-Prozess im Arbeitsspeicher, bei mehreren
 >   Workern ist die effektive Grenze entsprechend höher (siehe
 >   Installationsanleitung).
+> - **LTI Dynamic Registration (basicbar-lti 0.2.0):** Image-Rebuild nötig;
+>   die Migration `basicbar_lti.0002` läuft mit `migrate`. Die
+>   Proxy-Header (`X-Forwarded-Proto`/`X-Forwarded-Host` über
+>   `SECURE_PROXY_SSL_HEADER`/`USE_X_FORWARDED_HOST`) bestimmen jetzt auch die
+>   Adressen im Tool-Endpunkte-Panel für die manuelle Registrierung
+>   (bisher `FRONTEND_BASE_URL`).
 
 ### Hinzugefügt
 
+- LTI Dynamic Registration für Moodle: Im Web-Admin (LTI-Plattformen) lassen
+  sich Registrierungs-Links erzeugen (7 Tage gültig, einmal verwendbar,
+  widerrufbar); der Moodle-Admin trägt den Link als Tool-URL ein, Moodle und
+  Abstimmbar tauschen alle Werte selbst aus. Nur für neue Verknüpfungen, die
+  manuelle Registrierung bleibt. Hinter einem Reverse-Proxy muss
+  `SECURE_PROXY_SSL_HEADER` gesetzt sein (im Produktivbetrieb der Fall);
+  Anleitung in `docs/lti.md`. Benötigt basicbar-lti 0.2.0 (per Image-Rebuild,
+  neue Migration `basicbar_lti.0002`).
 - Begrenzung der KI-Aufrufe pro Person (#343): Bei zu vielen Aufrufen in kurzer
   Zeit erscheint die Meldung „Bitte versuchen Sie es in N Minuten erneut“
   (HTTP 429 mit `Retry-After`) statt eines Fehlers; konfigurierbar über

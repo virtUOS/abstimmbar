@@ -361,6 +361,47 @@ class LtiPlatformApiTests(TestCase):
         self.assertTrue(jwks.get("keys"))   # key now served for the registration
 
 
+class RegistrationLinkApiTests(TestCase):
+    """Dynamic Registration (basicbar-lti 0.2.0): Admin-API der Einmal-Links."""
+
+    def setUp(self):
+        User = get_user_model()
+        self.admin = User.objects.create_user(username="chef-dr", is_staff=True)
+        self.user = User.objects.create_user(username="teacher-dr")
+
+    def test_admin_only(self):
+        url = "/api/lti/registration-links/"
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.client.force_login(self.user)
+        self.assertEqual(self.client.get(url).status_code, 403)
+        self.assertEqual(
+            self.client.post(url, {"note": "x"},
+                             content_type="application/json").status_code, 403)
+
+    def test_create_url_points_to_register(self):
+        self.client.force_login(self.admin)
+        resp = self.client.post("/api/lti/registration-links/",
+                                {"note": "Moodle Test"},
+                                content_type="application/json")
+        self.assertEqual(resp.status_code, 201, resp.content)
+        self.assertIn("/lti/register/?token=", resp.json()["url"])
+
+    def test_tool_info_has_register_url(self):
+        self.client.force_login(self.admin)
+        info = self.client.get("/api/lti/tool-info/").json()
+        self.assertTrue(info["register_url"].endswith("/lti/register/"))
+
+    def test_settings_payload(self):
+        from basicbar_lti.dynreg import tool_registration_payload
+        from django.test import RequestFactory
+        payload = tool_registration_payload(RequestFactory().get("/", secure=True))
+        self.assertEqual(payload["client_name"], "abstimmbar")
+        messages = payload[
+            "https://purl.imsglobal.org/spec/lti-tool-configuration"]["messages"]
+        self.assertIn("LtiDeepLinkingRequest", [m["type"] for m in messages])
+        self.assertTrue(payload["logo_uri"].endswith("/lti/icon.svg"))
+
+
 class LtiIconTests(TestCase):
     def test_icon_svg_public(self):
         resp = self.client.get("/lti/icon.svg")
