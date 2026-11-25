@@ -1110,6 +1110,23 @@ export interface LtiToolInfo {
   launch_url: string;
   jwks_url: string;
   icon_url: string;
+  /** Empty while lti/register/ is not wired. */
+  register_url: string;
+}
+
+/** One-time Dynamic Registration link (basicbar-lti ≥ 0.2.0). `url` is only
+ * present in the create response — the token is never shown again. */
+export interface LtiRegistrationLink {
+  id: number;
+  note: string;
+  created_by: string | null;
+  created_at: string;
+  expires_at: string;
+  used_at: string | null;
+  status: "open" | "used" | "expired";
+  platform: number | null;
+  platform_name: string | null;
+  url?: string;
 }
 
 interface Paginated<T> {
@@ -1339,6 +1356,15 @@ export const api = {
   deleteLtiPlatform: (id: number) =>
     request<void>(`/api/lti/platforms/${id}/`, { method: "DELETE" }),
   getLtiToolInfo: () => request<LtiToolInfo>("/api/lti/tool-info/"),
+  listLtiRegistrationLinks: () =>
+    request<Paginated<LtiRegistrationLink>>("/api/lti/registration-links/?page_size=1000"),
+  createLtiRegistrationLink: (note: string) =>
+    request<LtiRegistrationLink>("/api/lti/registration-links/", {
+      method: "POST",
+      body: JSON.stringify({ note }),
+    }),
+  revokeLtiRegistrationLink: (id: number) =>
+    request<void>(`/api/lti/registration-links/${id}/`, { method: "DELETE" }),
 
   search: (query: string) =>
     request<SearchResults>(`/api/search/?q=${encodeURIComponent(query)}`),

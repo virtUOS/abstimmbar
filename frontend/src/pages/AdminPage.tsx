@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { ChevronDown, ChevronUp, FileText, Lock, Radio, Trash2 } from "lucide-react";
-import { api, requestError, type AdminStats, type LtiPlatform, type LtiToolInfo, type ManagePage, type ManageSite } from "../api";
+import { api, requestError, type AdminStats, type LtiPlatform, type LtiRegistrationLink, type LtiToolInfo, type ManagePage, type ManageSite } from "../api";
 import { useApp } from "../App";
 import { localizedText, type LocalizedText, TranslationControlsSlot } from "@basicbar/ui";
 import Donut, { type DonutSegment } from "../components/Donut";
@@ -880,6 +880,8 @@ function LtiPlatformsSection() {
         </div>
       )}
 
+      {toolInfo?.register_url && <LtiRegistrationLinksSection />}
+
       {editing !== null && (
         <LtiPlatformForm
           platform={editing === "new" ? null : editing}
@@ -939,6 +941,163 @@ function LtiPlatformsSection() {
         </ul>
       )}
     </section>
+  );
+}
+
+/** Dynamic Registration: one-time links the LMS admin enters in Moodle. */
+function LtiRegistrationLinksSection() {
+  const { t, i18n } = useTranslation();
+  const [links, setLinks] = useState<LtiRegistrationLink[] | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [note, setNote] = useState("");
+  const [created, setCreated] = useState<LtiRegistrationLink | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  const reload = () => api.listLtiRegistrationLinks().then((data) => setLinks(data.results));
+  useEffect(() => {
+    void reload();
+  }, []);
+
+  const format = (iso: string) =>
+    new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium", timeStyle: "short" }).format(
+      new Date(iso),
+    );
+
+  async function create() {
+    setError("");
+    try {
+      setCreated(await api.createLtiRegistrationLink(note.trim()));
+      setCreating(false);
+      setNote("");
+      await reload();
+    } catch (err) {
+      setError(t(requestError(err)));
+    }
+  }
+
+  async function revoke(id: number) {
+    setError("");
+    try {
+      await api.revokeLtiRegistrationLink(id);
+    } catch (err) {
+      setError(t(requestError(err)));
+    }
+    setConfirmRevoke(null);
+    await reload();
+  }
+
+  async function copy(url: string) {
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1500);
+  }
+
+  const statusLabel = {
+    open: t("Open"),
+    used: t("Used"),
+    expired: t("Expired"),
+  } as const;
+
+  return (
+    <div className="mb-6 max-w-3xl rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="font-semibold">{t("Registration links")}</h3>
+        {!creating && (
+          <Button
+            onClick={() => {
+              setCreated(null);
+              setCreating(true);
+            }}
+          >
+            {t("Create registration link")}
+          </Button>
+        )}
+      </div>
+      <p className="mb-3 text-sm text-slate-500 dark:text-slate-400">
+        {t("Valid for 7 days, usable once. The Moodle admin enters it under Site administration → Plugins → External tools → Manage tools as the tool URL, activates the tool and sets the default launch container to “New window”. Only for new connections.")}
+      </p>
+
+      {creating && (
+        <div className="mb-3 grid gap-3 rounded-xl border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-900 dark:bg-brand-950/40">
+          <Field label={t("Note (e.g. the LMS name)")}>
+            <TextInput value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
+          </Field>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => void create()}>
+              {t("Create")}
+            </Button>
+            <Button variant="ghost" onClick={() => setCreating(false)}>
+              {t("Cancel")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {created?.url && (
+        <div className="mb-3 grid gap-2 rounded-xl border border-brand-200 bg-brand-50/50 p-3 dark:border-brand-900 dark:bg-brand-950/40">
+          <Field label={t("Registration link")}>
+            <TextInput readOnly value={created.url} onFocus={(e) => e.target.select()} />
+          </Field>
+          <p className="text-sm text-amber-700 dark:text-amber-400">
+            {t("This link is shown only once — copy it now.")}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => void copy(created.url ?? "")}>
+              {copied ? t("Copied") : t("Copy link")}
+            </Button>
+            <Button variant="ghost" onClick={() => setCreated(null)}>
+              {t("Close")}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="mb-2 text-sm text-danger">{error}</p>}
+
+      {links && links.length > 0 && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="text-xs text-slate-500 dark:text-slate-400">
+              <tr>
+                <th className="py-1 pr-3 font-medium">{t("Note")}</th>
+                <th className="py-1 pr-3 font-medium">{t("Created by")}</th>
+                <th className="py-1 pr-3 font-medium">{t("Expires")}</th>
+                <th className="py-1 pr-3 font-medium">{t("Status")}</th>
+                <th className="py-1 pr-3 font-medium">{t("Platform")}</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {links.map((link) => (
+                <tr key={link.id} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="py-1.5 pr-3">{link.note || "—"}</td>
+                  <td className="py-1.5 pr-3">{link.created_by ?? "—"}</td>
+                  <td className="py-1.5 pr-3 whitespace-nowrap">{format(link.expires_at)}</td>
+                  <td className="py-1.5 pr-3">{statusLabel[link.status]}</td>
+                  <td className="py-1.5 pr-3">{link.platform_name ?? "—"}</td>
+                  <td className="py-1.5 text-right">
+                    {link.status === "open" &&
+                      (confirmRevoke === link.id ? (
+                        <ConfirmInline
+                          message={t("Revoke link?")}
+                          onConfirm={() => void revoke(link.id)}
+                          onCancel={() => setConfirmRevoke(null)}
+                        />
+                      ) : (
+                        <Button variant="ghost" onClick={() => setConfirmRevoke(link.id)}>
+                          {t("Revoke")}
+                        </Button>
+                      ))}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   );
 }
 
