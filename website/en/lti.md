@@ -62,7 +62,43 @@ In the "Add platform" form, enter the details provided by the LMS:
 each get their **own platform entry**. Issuer and client ID are unique per
 LMS instance; the Tool endpoints panel is the same for all of them.
 
-## Instructions for Moodle administrators { #instructions-for-moodle-administrators }
+## Moodle with a registration link (recommended) { #moodle-with-a-registration-link }
+
+Instead of copying issuer, client ID and endpoints by hand, the tool
+administration creates a **registration link**; Abstimmbar and Moodle
+exchange the values themselves (IMS LTI Dynamic Registration).
+
+1. Web admin → LTI platforms → **"Create registration link"** (optionally
+   with a note, e.g. the name of the LMS; the note becomes the name of the
+   platform that is created). The link is shown **only once**, so copy it
+   right away. It is valid for **7 days** and can be used **once**; until
+   it is used, it can be **revoked** in the list below.
+2. In Moodle: Site administration → Plugins → Activity modules → External
+   tool → "Manage tools" → paste the link into **Tool URL** → **"Add LTI
+   Advantage"**. Abstimmbar then creates the platform (active, "Link users
+   by email" off) together with its deployment ID.
+3. **Activate** the tool in Moodle.
+4. Edit the tool in Moodle and set the **default launch container** to
+   **"New window"** (Moodle sets "Embed" for dynamic registration; see
+   [Cookies & iframes](#cookies-iframes)). The success page mentions this
+   too, but closes immediately.
+5. Check the privacy settings (share name/email with the tool) as in the
+   manual instructions below.
+
+Notes:
+
+- Applies to **new links only**: a registration always creates a new
+  platform with a new client ID. Manually registered platforms keep their
+  course links; if the issuer is already known, Abstimmbar asks before
+  creating the platform.
+- Behind a reverse proxy, `SECURE_PROXY_SSL_HEADER` must be set, otherwise
+  Abstimmbar rejects the registration (the tool URLs would be `http://`).
+  Abstimmbar sets it itself in production (`DEBUG=False`;
+  `X-Forwarded-Proto`, together with `USE_X_FORWARDED_HOST`); the proxy
+  must pass the header on accordingly (the bundled Caddyfile does).
+- For other LMSs (Stud.IP, ILIAS, ...), manual registration remains.
+
+## Instructions for Moodle administrators (manual, also for other LMS) { #instructions-for-moodle-administrators }
 
 1. Open web admin → LTI platforms and copy the four URLs from the **Tool
    endpoints** panel (Initiate login URL, Launch URL, Keyset URL, Icon URL).

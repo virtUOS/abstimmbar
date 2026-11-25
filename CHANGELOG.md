@@ -26,6 +26,12 @@ Die Zahlen in Klammern verweisen auf Pull Requests im
 >   Die Zähler liegen pro Backend-Prozess im Arbeitsspeicher, bei mehreren
 >   Workern ist die effektive Grenze entsprechend höher (siehe
 >   Installationsanleitung).
+> - **LTI Dynamic Registration (basicbar-lti 0.2.0):** Image-Rebuild nötig;
+>   die Migration `basicbar_lti.0002` läuft mit `migrate`. Die
+>   Proxy-Header (`X-Forwarded-Proto`/`X-Forwarded-Host` über
+>   `SECURE_PROXY_SSL_HEADER`/`USE_X_FORWARDED_HOST`) bestimmen jetzt auch die
+>   Adressen im Tool-Endpunkte-Panel für die manuelle Registrierung
+>   (bisher `FRONTEND_BASE_URL`).
 
 ### Hinzugefügt
 

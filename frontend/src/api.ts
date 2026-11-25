@@ -1125,7 +1125,7 @@ export interface LtiRegistrationLink {
   used_at: string | null;
   status: "open" | "used" | "expired";
   platform: number | null;
-  platform_name: string | null;
+  platform_name: string;
   url?: string;
 }
 

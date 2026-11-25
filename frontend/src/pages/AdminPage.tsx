@@ -949,6 +949,7 @@ function LtiRegistrationLinksSection() {
   const { t, i18n } = useTranslation();
   const [links, setLinks] = useState<LtiRegistrationLink[] | null>(null);
   const [creating, setCreating] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [created, setCreated] = useState<LtiRegistrationLink | null>(null);
   const [copied, setCopied] = useState(false);
@@ -967,6 +968,7 @@ function LtiRegistrationLinksSection() {
 
   async function create() {
     setError("");
+    setBusy(true);
     try {
       setCreated(await api.createLtiRegistrationLink(note.trim()));
       setCreating(false);
@@ -974,6 +976,8 @@ function LtiRegistrationLinksSection() {
       await reload();
     } catch (err) {
       setError(t(requestError(err)));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -1025,7 +1029,7 @@ function LtiRegistrationLinksSection() {
             <TextInput value={note} maxLength={200} onChange={(e) => setNote(e.target.value)} />
           </Field>
           <div className="flex gap-2">
-            <Button variant="primary" onClick={() => void create()}>
+            <Button variant="primary" disabled={busy} onClick={() => void create()}>
               {t("Create")}
             </Button>
             <Button variant="ghost" onClick={() => setCreating(false)}>
@@ -1076,12 +1080,13 @@ function LtiRegistrationLinksSection() {
                   <td className="py-1.5 pr-3">{link.created_by ?? "—"}</td>
                   <td className="py-1.5 pr-3 whitespace-nowrap">{format(link.expires_at)}</td>
                   <td className="py-1.5 pr-3">{statusLabel[link.status]}</td>
-                  <td className="py-1.5 pr-3">{link.platform_name ?? "—"}</td>
+                  <td className="py-1.5 pr-3">{link.platform_name || "—"}</td>
                   <td className="py-1.5 text-right">
                     {link.status === "open" &&
                       (confirmRevoke === link.id ? (
                         <ConfirmInline
                           message={t("Revoke link?")}
+                          confirmLabel={t("Revoke")}
                           onConfirm={() => void revoke(link.id)}
                           onCancel={() => setConfirmRevoke(null)}
                         />
