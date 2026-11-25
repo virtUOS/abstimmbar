@@ -10,7 +10,7 @@ django-cors-headers==4.9.0
 psycopg[binary,pool]==3.3.9
 mozilla-django-oidc==5.0.2
 # HTML allowlist sanitizing for editor content (ADR-0007).
-nh3==0.3.7
+nh3==0.3.8
 # Server-side Markdown → HTML for the framework-free participant page
 # (closing info, #24); output is passed through the nh3 allowlist.
 Markdown==3.11.3
@@ -26,7 +26,7 @@ PyLTI1p3==2.0.0
 django-modeltranslation==0.20.6
 # Text extraction from uploaded documents for the optional AI features:
 # PDF (pypdf), PowerPoint (python-pptx) and OpenDocument slides (odfpy).
-pypdf==7.1.0
+pypdf==7.1.1
 python-pptx==1.0.2
 odfpy==1.4.1
 # PDF generation (ADR-0008): the frame comes from basicbar-pdf; reportlab stays pinned here
