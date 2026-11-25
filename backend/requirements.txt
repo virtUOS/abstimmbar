@@ -9,7 +9,7 @@ django-cors-headers==4.9.0
 psycopg[binary,pool]==3.3.9
 mozilla-django-oidc==4.0.1
 # HTML allowlist sanitizing for editor content (ADR-0007).
-nh3==0.3.7
+nh3==0.3.8
 # Server-side Markdown → HTML for the framework-free participant page
 # (closing info, #24); output is passed through the nh3 allowlist.
 Markdown==3.11.3
